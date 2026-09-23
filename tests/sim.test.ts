@@ -1,0 +1,150 @@
+import { describe, expect, it } from 'vitest';
+import { newSave, type SaveData } from '../src/game/save';
+import { Shop } from '../src/game/shop';
+import { costOf, isAvailable, level, SKILLS, skillById } from '../src/game/skills';
+import { computeStats, rarityWeights } from '../src/game/stats';
+
+/** Deterministic PRNG (mulberry32). */
+function seeded(seed: number) {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Plays one day with a simple "attentive player" policy. */
+function playDay(save: SaveData, rng: () => number, clicksPerSec = 3) {
+  const shop = new Shop(save, rng);
+  const dt = 1 / 30;
+  let clickBudget = 0;
+  while (!shop.over) {
+    shop.update(dt);
+    clickBudget += clicksPerSec * dt;
+    while (clickBudget >= 1) {
+      clickBudget -= 1;
+      const thief = shop.actors.find((a) => a.kind === 'thief' && (a.state === 'steal' || a.state === 'flee'));
+      if (thief && rng() < 0.8) shop.clickThief(thief);
+      else if (shop.pest) shop.clickPest();
+      else if (shop.queue.length >= 2) shop.clickRegister();
+      else shop.clickPot();
+    }
+  }
+  return shop.report;
+}
+
+/** One-off unlock nodes a sensible player saves up for. */
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register']);
+
+/** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
+function spend(save: SaveData, lastRevenue: number) {
+  for (;;) {
+    const options = SKILLS.filter((n) => isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
+      .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') }))
+      .sort((a, b) => a.cost - b.cost);
+    const nextKey = options.find((o) => o.key);
+    let pick = options.find((o) => o.key && o.cost <= save.gum);
+    if (!pick) {
+      const saving = nextKey && nextKey.cost <= save.gum + lastRevenue * 2;
+      pick = options.find((o) => o.cost <= save.gum && (!saving || o.cost + nextKey!.cost <= save.gum + lastRevenue));
+    }
+    if (!pick) return;
+    save.gum -= pick.cost;
+    save.levels[pick.n.id] = level(save.levels, pick.n.id) + 1;
+  }
+}
+
+describe('skill tree', () => {
+  it('has unique ids, valid parents and unique positions', () => {
+    const ids = new Set<string>();
+    const pos = new Set<string>();
+    for (const n of SKILLS) {
+      expect(ids.has(n.id)).toBe(false);
+      ids.add(n.id);
+      const p = `${n.x},${n.y}`;
+      expect(pos.has(p), `position ${p} of ${n.id}`).toBe(false);
+      pos.add(p);
+      for (const r of n.requires) expect(skillById.has(r), `${n.id} requires ${r}`).toBe(true);
+    }
+  });
+
+  it('only exposes the root branches at the start', () => {
+    const levels = newSave().levels;
+    const available = SKILLS.filter((n) => isAvailable(n, levels)).map((n) => n.id);
+    expect(available).toEqual(expect.arrayContaining(['root', 'craftSpeed', 'ad', 'price', 'bounty', 'shelf']));
+    expect(available).not.toContain('rare');
+  });
+});
+
+describe('stats', () => {
+  it('rarity weights favour the rarity below the newest one', () => {
+    expect(rarityWeights(0, 1)).toEqual([1]);
+    const w = rarityWeights(2, 1);
+    expect(w[1]).toBeGreaterThan(w[2]);
+    expect(w[1]).toBeGreaterThan(w[0]);
+  });
+
+  it('upgrades move stats in the right direction', () => {
+    const base = computeStats({ root: 1 });
+    const up = computeStats({ root: 1, craftSpeed: 3, shelf: 2, ad: 2, price: 1, conveyor: 1 });
+    expect(up.craftTime).toBeLessThan(base.craftTime);
+    expect(up.shelfSlots).toBe(base.shelfSlots + 2);
+    expect(up.spawnInterval).toBeLessThan(base.spawnInterval);
+    expect(up.priceMult).toBeGreaterThan(base.priceMult);
+    expect(up.storageCap).toBeGreaterThan(0);
+    expect(up.overlays).toContain('conveyor');
+  });
+});
+
+describe('shop simulation', () => {
+  it('sells items and earns GUM on day 1', () => {
+    const save = newSave();
+    const report = playDay(save, seeded(1));
+    expect(report.sold).toBeGreaterThan(3);
+    expect(report.revenue).toBeGreaterThan(0);
+    expect(save.gum).toBe(report.revenue);
+    expect(save.day).toBe(2);
+    expect(save.collection.length).toBeGreaterThan(0);
+  });
+
+  it('never duplicates or loses track of items on the shelf', () => {
+    const save = newSave();
+    save.levels = { root: 1, shelf: 3, conveyor: 1, craftSpeed: 5 };
+    save.day = 5;
+    const shop = new Shop(save, seeded(7));
+    for (let i = 0; i < 30 * 60 && !shop.over; i++) {
+      shop.update(1 / 30);
+      for (const s of shop.slots) {
+        const claimants = shop.actors.filter((a) => a.slot >= 0 && shop.slots[a.slot] === s && a.id === s.claimedBy);
+        expect(claimants.length).toBeLessThanOrEqual(1);
+      }
+      expect(shop.storage.length).toBeLessThanOrEqual(Math.max(shop.stats.storageCap, 0) + shop.slots.length + 16);
+    }
+  });
+
+  it('progresses through the rarities within a reasonable number of days (balance smoke test)', () => {
+    const save = newSave();
+    const rng = seeded(42);
+    const milestones: Record<string, number> = {};
+    const lines: string[] = [];
+    for (let day = 1; day <= 60; day++) {
+      const report = playDay(save, rng);
+      spend(save, report.revenue);
+      for (const id of ['uncommon', 'rare', 'epic', 'legendary', 'tier4']) {
+        if (!milestones[id] && level(save.levels, id) > 0) milestones[id] = day;
+      }
+      if (day <= 5 || day % 5 === 0) {
+        lines.push(
+          `day ${String(day).padStart(2)} rev ${String(report.revenue).padStart(8)} sold ${String(report.sold).padStart(3)} lost ${String(report.lost).padStart(2)} nodes ${Object.values(save.levels).reduce((a, b) => a + b, 0)}`,
+        );
+      }
+    }
+    console.log(lines.join('\n'), '\nmilestones', milestones);
+    expect(milestones.uncommon).toBeLessThanOrEqual(4);
+    expect(milestones.rare).toBeLessThanOrEqual(15);
+    expect(milestones.epic).toBeLessThanOrEqual(35);
+  });
+});
