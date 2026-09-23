@@ -72,10 +72,14 @@ const series = SERIES.map((ja) => {
 
 // Customers: original heroes grouped by rarity. Heroes that play thieves are excluded.
 const THIEF_IDS = [2003, 3013, 4036, 3032, 3036, 3049, 3007, 4046, 4006];
+// $MCH_MAX_CUSTOMERS_PER_TIER caps heroes per rarity (used for size-limited preview builds).
+const maxPerTier = Number(process.env.MCH_MAX_CUSTOMERS_PER_TIER ?? Infinity);
 const heroes = readJson('Data/Heroes/heroes.json');
+const tierCount = {};
 const customers = heroes
   .filter((h) => h.category === 'original' && h.rarity && RARITIES.includes(h.rarity.name))
   .filter((h) => !THIEF_IDS.includes(h.id))
+  .filter((h) => (tierCount[h.rarity.name] = (tierCount[h.rarity.name] ?? 0) + 1) <= maxPerTier)
   .map((h) => ({
     id: h.id,
     name: h.name.ja,
