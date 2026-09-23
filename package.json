@@ -1,0 +1,33 @@
+{
+  "name": "mycryptoworkshop",
+  "version": "0.1.0",
+  "description": "My Crypto Heroes の世界でエクステンションをクラフトして売るインクリメンタルゲーム",
+  "scripts": {
+    "sync-assets": "node scripts/sync-assets.mjs",
+    "predev": "node scripts/sync-assets.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-assets.mjs",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "pretest": "node scripts/sync-assets.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bearko/MyCryptoWorkshop.git"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/bearko/MyCryptoWorkshop/issues"
+  },
+  "homepage": "https://github.com/bearko/MyCryptoWorkshop#readme",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "private": true,
+  "type": "module"
+}
