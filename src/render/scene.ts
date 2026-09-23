@@ -3,6 +3,7 @@ import {
   CHRIS_POS,
   COUNTER,
   CRAFT_RING,
+  DOOR,
   FLOOR_Y,
   MAYCRI_POS,
   CEILING_Y,
@@ -12,6 +13,7 @@ import {
   POT,
   SCENE_H,
   SCENE_W,
+  SHELF_ITEM_PX,
   SHELF_ROW_Y,
   SHELF_TOP,
   SHELF_UNIT_GAP,
@@ -20,6 +22,7 @@ import {
   SLOTS_PER_UNIT,
   slotPos,
   STORAGE_POS,
+  WINDOW,
   WORKSHOP_H,
 } from '../game/layout';
 import type { Actor, Shop } from '../game/shop';
@@ -27,7 +30,6 @@ import { img, ready } from './images';
 
 /** Staff sprites are drawn at this scale so they match the ~64px heroes. */
 const STAFF_SCALE = 0.55;
-const SHELF_ITEM_PX = 52;
 const BUBBLE_SCALE = 0.72;
 const FONT = '"DotGothic16", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 
@@ -63,128 +65,116 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 /** Draws the storefront (static parts) into an offscreen canvas; redrawn when the shelf size changes. */
 function paintStorefront(ctx: CanvasRenderingContext2D, slotCount: number): void {
   const top = WORKSHOP_H;
-  // Back wall
+  // Back wall with vertical planks
   const wall = ctx.createLinearGradient(0, top, 0, FLOOR_Y);
   wall.addColorStop(0, '#3b2517');
   wall.addColorStop(1, '#55351f');
   ctx.fillStyle = wall;
   ctx.fillRect(0, top, SCENE_W, FLOOR_Y - top);
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-  ctx.lineWidth = 2;
-  for (let x = 20; x < SCENE_W; x += 46) {
-    ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, FLOOR_Y);
-    ctx.stroke();
-  }
-  // Beam separating workshop and storefront
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  for (let x = 12; x < SCENE_W; x += 24) ctx.fillRect(x, top, 2, FLOOR_Y - top);
+  // Beam separating workshop and storefront, and the skirting board
   ctx.fillStyle = '#24160d';
-  ctx.fillRect(0, top, SCENE_W, 16);
+  ctx.fillRect(0, top, SCENE_W, 10);
   ctx.fillStyle = '#6e4526';
-  ctx.fillRect(0, top + 16, SCENE_W, 4);
+  ctx.fillRect(0, top + 10, SCENE_W, 3);
+  ctx.fillStyle = '#2d1b10';
+  ctx.fillRect(0, FLOOR_Y - 8, SCENE_W, 8);
 
-  // Window above the counter, looking out on a land of MCH
-  const wx = 40;
-  const wy = top + 34;
-  const ww = 200;
-  const wh = 92;
+  // Window on the back wall, looking out on a land of MCH
+  const { x0: wx0, x1: wx1, top: wtop } = WINDOW;
+  const ww = wx1 - wx0;
+  const wh = WINDOW.y - wtop;
   const view = img(catalog.windowView);
   if (ready(view)) {
     const sw = view.naturalWidth;
-    const sh = (sw * wh) / ww;
-    ctx.drawImage(view, 0, view.naturalHeight * 0.3, sw, sh, wx, wy, ww, wh);
+    ctx.drawImage(view, 0, view.naturalHeight * 0.3, sw, (sw * wh) / ww, wx0, wtop, ww, wh);
   } else {
     ctx.fillStyle = '#9fd4ff';
-    ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillRect(wx0, wtop, ww, wh);
   }
   ctx.strokeStyle = '#2a190e';
-  ctx.lineWidth = 8;
-  ctx.strokeRect(wx, wy, ww, wh);
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(wx0, wtop, ww, wh);
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(wx + ww / 2, wy);
-  ctx.lineTo(wx + ww / 2, wy + wh);
-  ctx.moveTo(wx, wy + wh / 2);
-  ctx.lineTo(wx + ww, wy + wh / 2);
+  ctx.moveTo(wx0 + ww / 2, wtop);
+  ctx.lineTo(wx0 + ww / 2, wtop + wh);
+  ctx.moveTo(wx0, wtop + wh / 2);
+  ctx.lineTo(wx1, wtop + wh / 2);
   ctx.stroke();
+  ctx.fillStyle = '#6e4526';
+  ctx.fillRect(wx0 - 6, WINDOW.y, ww + 12, 5);
 
   // Floor planks
-  for (let i = 0, y = FLOOR_Y; y < SCENE_H; i++, y += 34) {
+  for (let i = 0, y = FLOOR_Y; y < SCENE_H; i++, y += 20) {
     ctx.fillStyle = i % 2 ? '#8b5a33' : '#7d4f2c';
-    ctx.fillRect(0, y, SCENE_W, 34);
+    ctx.fillRect(0, y, SCENE_W, 20);
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fillRect(0, y, SCENE_W, 2);
+    ctx.fillRect(0, y, SCENE_W, 1);
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let x = (i * 137) % 220; x < SCENE_W; x += 220) ctx.fillRect(x, y, 2, 34);
+    for (let x = (i * 97) % 150; x < SCENE_W; x += 150) ctx.fillRect(x, y, 1, 20);
   }
-  const shade = ctx.createLinearGradient(0, FLOOR_Y, 0, FLOOR_Y + 60);
+  const shade = ctx.createLinearGradient(0, FLOOR_Y, 0, FLOOR_Y + 30);
   shade.addColorStop(0, 'rgba(0,0,0,0.35)');
   shade.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = shade;
-  ctx.fillRect(0, FLOOR_Y, SCENE_W, 60);
+  ctx.fillRect(0, FLOOR_Y, SCENE_W, 30);
 
-  // Door (right)
+  // Doorway in the back wall, with a small GUM sign above it
+  const dw = DOOR.x1 - DOOR.x0;
   ctx.fillStyle = '#24160d';
-  ctx.fillRect(918, top + 50, 82, FLOOR_Y + 190 - (top + 50));
-  const light = ctx.createLinearGradient(930, 0, 1000, 0);
+  ctx.fillRect(DOOR.x0 - 6, DOOR.top - 6, dw + 12, FLOOR_Y - DOOR.top + 6);
+  const light = ctx.createLinearGradient(0, DOOR.top, 0, FLOOR_Y);
   light.addColorStop(0, '#fff2c2');
   light.addColorStop(1, '#ffd98a');
   ctx.fillStyle = light;
-  ctx.fillRect(930, top + 62, 70, FLOOR_Y + 178 - (top + 62));
-  ctx.fillStyle = 'rgba(255,236,170,0.25)';
+  ctx.fillRect(DOOR.x0, DOOR.top, dw, FLOOR_Y - DOOR.top);
+  ctx.fillStyle = 'rgba(255,236,170,0.22)';
   ctx.beginPath();
-  ctx.moveTo(930, FLOOR_Y + 190);
-  ctx.lineTo(1000, FLOOR_Y + 190);
-  ctx.lineTo(1000, SCENE_H);
-  ctx.lineTo(820, SCENE_H);
+  ctx.moveTo(DOOR.x0, FLOOR_Y);
+  ctx.lineTo(DOOR.x1, FLOOR_Y);
+  ctx.lineTo(DOOR.x1 + 30, FLOOR_Y + 60);
+  ctx.lineTo(DOOR.x0 - 30, FLOOR_Y + 60);
   ctx.closePath();
   ctx.fill();
+  const sign = img(icons.gum);
+  if (ready(sign)) ctx.drawImage(sign, DOOR.x - 12, DOOR.top - 34, 24, 24);
 
-  // Shelves
+  // Shelves: two boards of two items each, a little taller than a hero
   const units = Math.ceil(Math.max(slotCount, 1) / SLOTS_PER_UNIT);
   for (let u = 0; u < units; u++) {
     const x0 = SHELF_X0 + u * (SHELF_UNIT_W + SHELF_UNIT_GAP);
+    const bottom = FLOOR_Y + 4;
     ctx.fillStyle = '#2d1b10';
-    ctx.fillRect(x0 - 4, SHELF_TOP - 6, SHELF_UNIT_W + 8, 222);
+    ctx.fillRect(x0 - 3, SHELF_TOP - 3, SHELF_UNIT_W + 6, bottom - SHELF_TOP + 3);
     ctx.fillStyle = '#4b2e1b';
-    ctx.fillRect(x0, SHELF_TOP, SHELF_UNIT_W, 210);
+    ctx.fillRect(x0, SHELF_TOP, SHELF_UNIT_W, bottom - SHELF_TOP - 4);
     ctx.fillStyle = '#b07a45';
-    ctx.fillRect(x0 - 8, SHELF_TOP - 12, SHELF_UNIT_W + 16, 10);
+    ctx.fillRect(x0 - 5, SHELF_TOP - 7, SHELF_UNIT_W + 10, 5);
     for (const ry of SHELF_ROW_Y) {
       ctx.fillStyle = '#a8713f';
-      ctx.fillRect(x0 - 6, ry + 30, SHELF_UNIT_W + 12, 10);
+      ctx.fillRect(x0 - 3, ry + 16, SHELF_UNIT_W + 6, 5);
       ctx.fillStyle = '#d19a60';
-      ctx.fillRect(x0 - 6, ry + 30, SHELF_UNIT_W + 12, 3);
+      ctx.fillRect(x0 - 3, ry + 16, SHELF_UNIT_W + 6, 2);
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(x0 - 6, ry + 40, SHELF_UNIT_W + 12, 4);
+      ctx.fillRect(x0 - 3, ry + 21, SHELF_UNIT_W + 6, 2);
     }
-    ctx.fillStyle = '#2d1b10';
-    ctx.fillRect(x0 - 4, SHELF_TOP + 214, 12, 30);
-    ctx.fillRect(x0 + SHELF_UNIT_W - 8, SHELF_TOP + 214, 12, 30);
     for (let k = 0; k < SLOTS_PER_UNIT; k++) {
       const index = u * SLOTS_PER_UNIT + k;
       const p = slotPos(index);
       if (index >= slotCount) {
         ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        roundRect(ctx, p.x - 28, p.y - 26, 56, 56, 8);
+        roundRect(ctx, p.x - 14, p.y - 14, 28, 28, 5);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.font = `28px ${FONT}`;
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.font = `16px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('＋', p.x, p.y + 2);
-      } else {
-        ctx.fillStyle = 'rgba(255,220,160,0.08)';
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y + 26, 28, 7, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillText('＋', p.x, p.y + 1);
       }
     }
   }
-
-  // Counter back shelf
-  ctx.fillStyle = '#3a2416';
-  ctx.fillRect(COUNTER.x0 + 6, COUNTER.top - 26, COUNTER.x1 - COUNTER.x0 - 12, 26);
 }
 
 export class SceneRenderer {
@@ -259,15 +249,15 @@ export class SceneRenderer {
       const p = slotPos(i);
       if (e.rarityIndex >= 2) {
         const pulse = 0.55 + 0.25 * Math.sin(now / 300 + i);
-        const g = ctx.createRadialGradient(p.x, p.y, 4, p.x, p.y, 40);
+        const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 22);
         g.addColorStop(0, RARITY_COLOR[e.rarity] + 'aa');
         g.addColorStop(1, RARITY_COLOR[e.rarity] + '00');
         ctx.globalAlpha = pulse;
         ctx.fillStyle = g;
-        ctx.fillRect(p.x - 40, p.y - 40, 80, 80);
+        ctx.fillRect(p.x - 22, p.y - 22, 44, 44);
         ctx.globalAlpha = 1;
       }
-      drawImg(ctx, e.image, p.x - SHELF_ITEM_PX / 2, p.y + 30 - SHELF_ITEM_PX, SHELF_ITEM_PX, SHELF_ITEM_PX);
+      drawImg(ctx, e.image, p.x - SHELF_ITEM_PX / 2, p.y + 16 - SHELF_ITEM_PX, SHELF_ITEM_PX, SHELF_ITEM_PX);
     });
   }
 
@@ -279,36 +269,36 @@ export class SceneRenderer {
 
     const { x0, x1, top, bottom } = COUNTER;
     ctx.fillStyle = '#c28b56';
-    ctx.fillRect(x0 - 6, top, x1 - x0 + 12, 16);
+    ctx.fillRect(x0 - 4, top, x1 - x0 + 8, 8);
     ctx.fillStyle = '#e0ab72';
-    ctx.fillRect(x0 - 6, top, x1 - x0 + 12, 4);
+    ctx.fillRect(x0 - 4, top, x1 - x0 + 8, 2);
     ctx.fillStyle = '#6f4326';
-    ctx.fillRect(x0, top + 16, x1 - x0, bottom - top - 16);
+    ctx.fillRect(x0, top + 8, x1 - x0, bottom - top - 8);
     ctx.fillStyle = '#5c371f';
-    for (let x = x0 + 12; x < x1 - 20; x += 58) ctx.fillRect(x, top + 30, 46, bottom - top - 44);
+    for (let x = x0 + 6; x < x1 - 10; x += 36) ctx.fillRect(x, top + 14, 28, bottom - top - 20);
     // Register machine
     ctx.fillStyle = '#34495e';
-    roundRect(ctx, x1 - 70, top - 34, 54, 36, 4);
+    roundRect(ctx, x1 - 40, top - 18, 30, 19, 3);
     ctx.fill();
     ctx.fillStyle = '#9be7ff';
-    ctx.fillRect(x1 - 62, top - 28, 38, 12);
-    drawImg(ctx, icons.gum, x0 + 20, top + 38, 40, 40);
+    ctx.fillRect(x1 - 35, top - 14, 20, 6);
+    drawImg(ctx, icons.gum, x0 + 6, top + 13, 18, 18);
 
-    // Checkout progress bars
+    // Checkout progress bars on the counter front
     shop.registerProgress.forEach((p, r) => {
-      const y = top + 88 - r * 14;
-      const w = x1 - x0 - 90;
+      const y = top + 34 - r * 8;
+      const w = x1 - x0 - 40;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(x0 + 72, y, w, 9);
+      ctx.fillRect(x0 + 30, y, w, 5);
       ctx.fillStyle = '#7CFFB2';
-      ctx.fillRect(x0 + 72, y, (w * Math.min(1, p / shop.stats.cashierTime)), 9);
+      ctx.fillRect(x0 + 30, y, w * Math.min(1, p / shop.stats.cashierTime), 5);
     });
 
     if (hint || shop.registerPulse > 0) {
       const a = hint ? 0.5 + 0.5 * Math.sin(now / 200) : shop.registerPulse;
       ctx.strokeStyle = `rgba(255,230,120,${a})`;
       ctx.lineWidth = 4;
-      roundRect(ctx, x0 - 10, top - 90, x1 - x0 + 20, bottom - top + 96, 12);
+      roundRect(ctx, x0 - 8, top - 80, x1 - x0 + 16, bottom - top + 86, 10);
       ctx.stroke();
     }
   }
@@ -326,7 +316,7 @@ export class SceneRenderer {
         ctx.strokeStyle = '#d8c39a';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(a.x, CEILING_Y - 30);
+        ctx.moveTo(a.x, CEILING_Y - 8);
         ctx.lineTo(a.x, y + 10);
         ctx.stroke();
       } else {

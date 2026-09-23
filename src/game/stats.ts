@@ -76,7 +76,7 @@ export function computeStats(levels: Levels): Stats {
     groupChance: 0.08 * lv('group'),
     patience: 6 + 1.5 * lv('patience'),
     queuePatience: 14 + 1.5 * lv('patience'),
-    walkSpeed: 150 * (1 + 0.12 * lv('walk')),
+    walkSpeed: 115 * (1 + 0.12 * lv('walk')),
     maxTier,
     priceMult: (1 + 0.15 * lv('price')) * (1 + 0.15 * lv('brand')),
     collectionBonus: 0.006 + 0.003 * lv('collector'),
