@@ -5,8 +5,10 @@ import {
   CRAFT_RING,
   FLOOR_Y,
   MAYCRI_POS,
+  CEILING_Y,
+  HERO_PX,
   MINE_POS,
-  PEST_POS,
+  PEST_PX,
   POT,
   SCENE_H,
   SCENE_W,
@@ -23,8 +25,10 @@ import {
 import type { Actor, Shop } from '../game/shop';
 import { img, ready } from './images';
 
-const HERO_SCALE = 1.9;
-const HERO_PX = 64 * HERO_SCALE;
+/** Staff sprites are drawn at this scale so they match the ~64px heroes. */
+const STAFF_SCALE = 0.55;
+const SHELF_ITEM_PX = 52;
+const BUBBLE_SCALE = 0.72;
 const FONT = '"DotGothic16", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 
 function frameAt(frames: Frame[], now: number): string {
@@ -239,10 +243,11 @@ export class SceneRenderer {
     this.drawCounter(shop, now, hints.register);
     this.drawActors(shop, now);
     if (shop.stats.guardChance > 0) {
-      drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 40, MAYCRI_POS.y - 80, 80, 80);
+      drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 22, MAYCRI_POS.y - 44, 44, 44);
     }
     this.drawWorkshop(shop, now, hints.pot);
     this.drawFlyers(shop);
+    this.drawEffects(shop);
     this.drawPopups(shop);
   }
 
@@ -262,7 +267,7 @@ export class SceneRenderer {
         ctx.fillRect(p.x - 40, p.y - 40, 80, 80);
         ctx.globalAlpha = 1;
       }
-      drawImg(ctx, e.image, p.x - 32, p.y - 34, 64, 64);
+      drawImg(ctx, e.image, p.x - SHELF_ITEM_PX / 2, p.y + 30 - SHELF_ITEM_PX, SHELF_ITEM_PX, SHELF_ITEM_PX);
     });
   }
 
@@ -270,7 +275,7 @@ export class SceneRenderer {
     const ctx = this.ctx;
     // Chris stands behind the counter.
     const chris = shop.registerPulse > 0.2 ? staffFrames.chrisCheer : frameAt(staffFrames.chris, now);
-    drawImg(ctx, chris, CHRIS_POS.x - 36, CHRIS_POS.y - 140, 72, 140);
+    drawImg(ctx, chris, CHRIS_POS.x - 36 * STAFF_SCALE, CHRIS_POS.y - 140 * STAFF_SCALE, 72 * STAFF_SCALE, 140 * STAFF_SCALE);
 
     const { x0, x1, top, bottom } = COUNTER;
     ctx.fillStyle = '#c28b56';
@@ -303,7 +308,7 @@ export class SceneRenderer {
       const a = hint ? 0.5 + 0.5 * Math.sin(now / 200) : shop.registerPulse;
       ctx.strokeStyle = `rgba(255,230,120,${a})`;
       ctx.lineWidth = 4;
-      roundRect(ctx, x0 - 10, top - 150, x1 - x0 + 20, bottom - top + 156, 12);
+      roundRect(ctx, x0 - 10, top - 90, x1 - x0 + 20, bottom - top + 96, 12);
       ctx.stroke();
     }
   }
@@ -313,23 +318,42 @@ export class SceneRenderer {
     const actors = [...shop.actors].sort((a, b) => a.y - b.y);
     for (const a of actors) {
       const walking = Math.abs(a.tx - a.x) + Math.abs(a.ty - a.y) > 3;
-      const hop = walking ? Math.abs(Math.sin(a.bob)) * 6 : 0;
-      const x = a.x - HERO_PX / 2;
+      const hop = walking && !a.rope ? Math.abs(Math.sin(a.bob)) * 4 : 0;
+      const shake = a.hitFlash > 0 ? Math.sin(now / 20) * 5 * a.hitFlash : 0;
+      const x = a.x - HERO_PX / 2 + shake;
       const y = a.y - HERO_PX - hop;
-      // Shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(a.x, a.y - 2, 30, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      if (a.kind === 'thief' && a.state !== 'caught') {
-        // Villains glow red so they are easy to spot and click.
+      if (a.rope) {
+        ctx.strokeStyle = '#d8c39a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(a.x, CEILING_Y - 30);
+        ctx.lineTo(a.x, y + 10);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(a.x, a.y - 1, 18, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const disguised = a.style?.disguise && (a.state === 'enter' || a.state === 'toShelf');
+      if (a.kind === 'thief' && a.state !== 'caught' && !disguised) {
+        // Villains glow red so they are easy to spot and tap.
         ctx.save();
-        ctx.shadowColor = 'rgba(255,40,40,0.95)';
-        ctx.shadowBlur = 18;
+        ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : 'rgba(255,40,40,0.95)';
+        ctx.shadowBlur = 14;
         drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
         ctx.restore();
+        // Remaining taps for tough villains
+        if (a.style && a.style.hp > 1) {
+          for (let i = 0; i < a.style.hp; i++) {
+            ctx.fillStyle = i < a.hp ? '#ff4d4d' : 'rgba(0,0,0,0.5)';
+            ctx.beginPath();
+            ctx.arc(a.x - (a.style.hp - 1) * 7 + i * 14, a.y + 10, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
       } else {
-        ctx.globalAlpha = a.state === 'caught' ? 0.6 : 1;
+        ctx.globalAlpha = a.state === 'caught' ? Math.max(0, 1 - a.timer / 0.8) : 1;
         drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
         ctx.globalAlpha = 1;
       }
@@ -340,7 +364,18 @@ export class SceneRenderer {
   private drawBubble(shop: Shop, a: Actor, now: number): void {
     const ctx = this.ctx;
     const bx = a.x;
-    const by = a.y - HERO_PX - 30;
+    const by = a.y - HERO_PX - 20;
+    if (a.style?.disguise && (a.state === 'enter' || a.state === 'toShelf')) return;
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.scale(BUBBLE_SCALE, BUBBLE_SCALE);
+    ctx.translate(-bx, -by);
+    this.drawBubbleBody(shop, a, now, bx, by);
+    ctx.restore();
+  }
+
+  private drawBubbleBody(shop: Shop, a: Actor, now: number, bx: number, by: number): void {
+    const ctx = this.ctx;
     const bubble = (w: number, h: number, fill = '#fffaf0') => {
       ctx.fillStyle = fill;
       roundRect(ctx, bx - w / 2, by - h / 2, w, h, 10);
@@ -410,7 +445,7 @@ export class SceneRenderer {
     if (shop.stats.mineInterval > 0) {
       const f = frameAt(staffFrames.mine, now);
       const jump = shop.minePulse * 10;
-      drawImg(ctx, f, MINE_POS.x - 48, MINE_POS.y - 128 - jump, 96, 128);
+      drawImg(ctx, f, MINE_POS.x - 48 * STAFF_SCALE, MINE_POS.y - 128 * STAFF_SCALE - jump, 96 * STAFF_SCALE, 128 * STAFF_SCALE);
     }
 
     // Storage badge on the conveyor
@@ -438,7 +473,7 @@ export class SceneRenderer {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = shop.craftBlocked ? '#ff6b6b' : shop.pest ? '#ff9f43' : '#ffd166';
+    ctx.strokeStyle = shop.craftBlocked ? '#ff6b6b' : shop.pests.length ? '#ff9f43' : '#ffd166';
     ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, shop.craftProgress));
@@ -464,16 +499,48 @@ export class SceneRenderer {
       ctx.fillText('クリック！', cx, cy - r - 24);
     }
 
-    // Pest on the pot
-    if (shop.pest) {
-      const wob = Math.sin(now / 90) * 4;
-      const s = 150;
+    // Pests roaming the workshop
+    for (const p of shop.pests) {
+      const k = p.hopDur > 0 ? p.hopT / p.hopDur : 1;
+      const lift = k < 1 ? Math.sin(Math.PI * k) * 60 : 0;
+      const wob = k >= 1 ? Math.sin(now / 90 + p.id) * 3 : 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y - 1, 20, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.save();
       ctx.shadowColor = 'rgba(255,60,200,0.9)';
-      ctx.shadowBlur = 20;
-      drawImg(ctx, shop.pest.image, PEST_POS.x - s / 2 + wob, PEST_POS.y - s, s, s);
+      ctx.shadowBlur = 16;
+      drawImg(ctx, p.image, p.x - PEST_PX / 2 + wob, p.y - PEST_PX - lift, PEST_PX, PEST_PX, p.toX < p.fromX);
       ctx.restore();
-      drawImg(ctx, icons.sleep, PEST_POS.x + 40, PEST_POS.y - s - 10, 36, 36);
+      drawImg(ctx, icons.sleep, p.x + 18, p.y - PEST_PX - lift - 14, 24, 24);
+    }
+  }
+
+  private drawEffects(shop: Shop): void {
+    const ctx = this.ctx;
+    for (const e of shop.effects) {
+      const k = e.t / 0.7;
+      if (e.kind === 'smoke') {
+        ctx.fillStyle = `rgba(220,210,230,${0.6 * (1 - k)})`;
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          const r = 10 + k * 40;
+          ctx.beginPath();
+          ctx.arc(e.x + Math.cos(ang) * r, e.y + Math.sin(ang) * r * 0.6, 16 + k * 14, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.strokeStyle = `rgba(255,240,150,${1 - k})`;
+        ctx.lineWidth = 4;
+        for (let i = 0; i < 8; i++) {
+          const ang = (i / 8) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(e.x + Math.cos(ang) * (8 + k * 20), e.y + Math.sin(ang) * (8 + k * 20));
+          ctx.lineTo(e.x + Math.cos(ang) * (20 + k * 36), e.y + Math.sin(ang) * (20 + k * 36));
+          ctx.stroke();
+        }
+      }
     }
   }
 
@@ -501,7 +568,7 @@ export class SceneRenderer {
     const ctx = this.ctx;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = `bold 28px ${FONT}`;
+    ctx.font = `bold 24px ${FONT}`;
     for (const p of shop.popups) {
       const a = Math.max(0, 1 - p.t / 1.4);
       const y = p.y - p.t * 60;

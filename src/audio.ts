@@ -15,7 +15,9 @@ export class Sound {
   private lastPlayed = new Map<Se, number>();
   private unlocked = false;
 
+  /** Called on user gestures; only the first call starts the BGM (later taps must not restart it). */
   unlock(): void {
+    if (this.unlocked) return;
     this.unlocked = true;
     if (this.bgmKey) this.playBgm(this.bgmKey, true);
   }

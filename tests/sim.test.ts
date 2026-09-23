@@ -3,6 +3,7 @@ import { newSave, type SaveData } from '../src/game/save';
 import { Shop } from '../src/game/shop';
 import { costOf, isAvailable, level, SKILLS, skillById } from '../src/game/skills';
 import { computeStats, rarityWeights } from '../src/game/stats';
+import { THIEF_STYLES } from '../src/game/thieves';
 
 /** Deterministic PRNG (mulberry32). */
 function seeded(seed: number) {
@@ -28,7 +29,7 @@ function playDay(save: SaveData, rng: () => number, clicksPerSec = 3) {
       clickBudget -= 1;
       const thief = shop.actors.find((a) => a.kind === 'thief' && (a.state === 'steal' || a.state === 'flee'));
       if (thief && rng() < 0.8) shop.clickThief(thief);
-      else if (shop.pest) shop.clickPest();
+      else if (shop.pests.length) shop.clickPest(shop.pests[0]);
       else if (shop.queue.length >= 2) shop.clickRegister();
       else shop.clickPot();
     }
@@ -122,6 +123,51 @@ describe('shop simulation', () => {
         expect(claimants.length).toBeLessThanOrEqual(1);
       }
       expect(shop.storage.length).toBeLessThanOrEqual(Math.max(shop.stats.storageCap, 0) + shop.slots.length + 16);
+    }
+  });
+
+  it('every thief type finishes its route (escapes or is caught) instead of getting stuck', () => {
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const save = newSave();
+      save.day = 12;
+      save.levels = { root: 1, shelf: 9, craftSpeed: 10, dayLength: 10 };
+      const shop = new Shop(save, seeded(seed));
+      shop.on((e) => {
+        if (e.type === 'thief') seen.add(e.hero.id);
+      });
+      const tapChance = seed % 2 ? 0 : 0.02;
+      const tapRng = seeded(seed + 100);
+      for (let i = 0; i < 30 * 120 && !shop.over; i++) {
+        shop.update(1 / 30);
+        for (const a of shop.actors) {
+          if (a.kind !== 'thief') continue;
+          expect(a.timer, `${a.hero.name} stuck in ${a.state}`).toBeLessThan(20);
+          if (tapRng() < tapChance) shop.clickThief(a);
+        }
+        for (const p of shop.pests) {
+          expect(p.x).toBeGreaterThanOrEqual(0);
+          expect(p.x).toBeLessThanOrEqual(1000);
+        }
+      }
+    }
+    expect(seen.size).toBe(Object.keys(THIEF_STYLES).length);
+  });
+
+  it('tough thieves need several taps', () => {
+    const save = newSave();
+    save.day = 4;
+    const shop = new Shop(save, seeded(3));
+    const events: string[] = [];
+    shop.on((e) => events.push(e.type));
+    for (let i = 0; i < 30 * 120 && !shop.over; i++) {
+      shop.update(1 / 30);
+      const tough = shop.actors.find((a) => a.kind === 'thief' && a.style!.hp > 1 && a.state !== 'caught');
+      if (tough) {
+        shop.clickThief(tough);
+        expect(tough.state).not.toBe('caught');
+        return;
+      }
     }
   });
 
