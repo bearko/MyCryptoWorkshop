@@ -11,6 +11,7 @@ import {
   MINE_POS,
   PEST_PX,
   POT,
+  RUG,
   SCENE_H,
   SCENE_W,
   SHELF_ITEM_PX,
@@ -121,6 +122,34 @@ function paintStorefront(ctx: CanvasRenderingContext2D, slotCount: number): void
   ctx.fillStyle = shade;
   ctx.fillRect(0, FLOOR_Y, SCENE_W, 30);
 
+  // Rug in the middle of a tall storefront
+  if (RUG) {
+    const { x0, x1, y0, y1 } = RUG;
+    ctx.fillStyle = '#5b1f24';
+    roundRect(ctx, x0, y0, x1 - x0, y1 - y0, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#c9974f';
+    ctx.lineWidth = 4;
+    roundRect(ctx, x0 + 12, y0 + 12, x1 - x0 - 24, y1 - y0 - 24, 6);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(201,151,79,0.5)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, x0 + 26, y0 + 26, x1 - x0 - 52, y1 - y0 - 52, 4);
+    ctx.stroke();
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    const r = Math.min(40, (y1 - y0) / 2 - 34);
+    if (r > 8) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r * 1.6, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r * 1.6, cy);
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
   // Doorway in the back wall, with a small GUM sign above it
   const dw = DOOR.x1 - DOOR.x0;
   ctx.fillStyle = '#24160d';
@@ -219,8 +248,9 @@ export class SceneRenderer {
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
-    const key = `${shop.slots.length}|${ready(img(catalog.windowView))}`;
+    const key = `${shop.slots.length}|${ready(img(catalog.windowView))}|${SCENE_H}`;
     if (key !== this.bgKey) {
+      this.bg.height = SCENE_H;
       const bctx = this.bg.getContext('2d')!;
       bctx.clearRect(0, 0, SCENE_W, SCENE_H);
       bctx.imageSmoothingEnabled = false;
