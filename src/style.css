@@ -226,11 +226,11 @@ a {
 }
 
 .workshop {
-  /* The 1000×1000 illustration with its top 150px cropped (see WORKSHOP_CROP). */
+  /* The 1000×1000 illustration with its top 20px cropped (see WORKSHOP_CROP). */
   position: absolute;
   left: 0;
   width: 100%;
-  top: calc(-150 / 1320 * 100%);
+  top: calc(-20 / 1320 * 100%);
   height: calc(1000 / 1320 * 100%);
 }
 

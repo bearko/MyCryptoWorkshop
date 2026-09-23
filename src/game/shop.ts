@@ -3,7 +3,7 @@ import {
   CEILING_Y,
   COUNTER,
   CRAFT_RING,
-  DOOR_X,
+  DOOR,
   HERO_PX,
   MAX_SLOTS,
   PEST_PX,
@@ -397,10 +397,10 @@ export class Shop {
       kind,
       hero,
       tier,
-      x: DOOR_X + offset,
-      y: SHOP_LANE_Y + this.rand(-6, 6),
-      tx: DOOR_X,
-      ty: SHOP_LANE_Y,
+      x: DOOR.x + offset * 0.3,
+      y: DOOR.y,
+      tx: DOOR.x,
+      ty: DOOR.y,
       speed: this.stats.walkSpeed * (kind === 'thief' ? 1.15 : this.rand(0.9, 1.1)),
       state: 'enter',
       timer: 0,
@@ -519,9 +519,12 @@ export class Shop {
       ];
     } else if (route === 'smoke') {
       // Staggers toward the door, then vanishes in smoke after a short window.
-      a.path = [{ x: DOOR_X - 60, y: SHOP_LANE_Y }];
+      a.path = [{ x: DOOR.x - 60, y: SHOP_LANE_Y }];
     } else {
-      a.path = [{ x: DOOR_X + 40, y: SHOP_LANE_Y + 30 }];
+      a.path = [
+        { x: DOOR.x, y: SHOP_LANE_Y },
+        { x: DOOR.x, y: DOOR.y },
+      ];
     }
   }
 
@@ -565,8 +568,10 @@ export class Shop {
     this.releaseClaim(a);
     a.state = 'leave';
     a.mood = mood;
-    a.tx = DOOR_X + 40;
-    a.ty = SHOP_LANE_Y + this.rand(-10, 10);
+    a.path = [
+      { x: DOOR.x + this.rand(-10, 10), y: SHOP_LANE_Y + this.rand(-10, 10) },
+      { x: DOOR.x, y: DOOR.y },
+    ];
     a.timer = 0;
   }
 
@@ -576,7 +581,7 @@ export class Shop {
       if (a.kind === 'thief') this.updateThief(a, dt);
       else this.updateCustomer(a, dt);
     }
-    this.actors = this.actors.filter((a) => !a.gone && !(a.state === 'leave' && a.x >= DOOR_X + 30));
+    this.actors = this.actors.filter((a) => !a.gone);
     // Keep queue targets in sync with queue order.
     this.queue.forEach((a, i) => {
       const p = queuePos(i);
@@ -650,7 +655,7 @@ export class Shop {
         break;
       }
       case 'leave':
-        this.moveToward(a, dt, a.speed * 1.2);
+        if (this.followPath(a, dt, a.speed * 1.2)) a.gone = true;
         break;
       default:
         break;
@@ -703,7 +708,7 @@ export class Shop {
         break;
       }
       case 'flee': {
-        const speed = 270 * style.speed * this.stats.thiefSpeed * (a.rope ? 0.6 : 1);
+        const speed = 200 * style.speed * this.stats.thiefSpeed * (a.rope ? 0.6 : 1);
         const vanishAfter = 2.2 / this.stats.thiefSpeed;
         if (style.exit === 'smoke') {
           this.followPath(a, dt, 90 * this.stats.thiefSpeed);
@@ -905,7 +910,7 @@ export class Shop {
   }
 
   isOnRegister(x: number, y: number): boolean {
-    return x >= COUNTER.x0 && x <= COUNTER.x1 + 40 && y >= COUNTER.top - 150 && y <= COUNTER.bottom + 60;
+    return x >= COUNTER.x0 - 10 && x <= COUNTER.x1 + 30 && y >= COUNTER.top - 90 && y <= COUNTER.bottom + 30;
   }
 
   // ---------------------------------------------------------------- day end
