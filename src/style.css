@@ -659,6 +659,11 @@ a {
   display: none;
 }
 
+.tree-side > * {
+  /* The panel scrolls on small screens; children keep their size instead of overlapping. */
+  flex-shrink: 0;
+}
+
 .tree-side {
   display: flex;
   flex-direction: column;

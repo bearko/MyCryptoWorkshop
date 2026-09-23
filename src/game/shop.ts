@@ -1,17 +1,22 @@
 import { customersByTier, getExtension, pests, series, thieves, type Hero } from './catalog';
 import {
+  CEILING_Y,
   COUNTER,
   CRAFT_RING,
   DOOR_X,
+  HERO_PX,
   MAX_SLOTS,
+  PEST_PX,
+  PEST_SPOTS,
   POT,
-  PEST_POS,
   queuePos,
   SHOP_LANE_Y,
   slotPos,
   STORAGE_POS,
+  WINDOW,
 } from './layout';
 import type { SaveData } from './save';
+import { thiefStyle, type ThiefStyle } from './thieves';
 import { computeStats, RARITY_PRICE, rarityWeights, salePrice, tierWeights, type Stats } from './stats';
 
 export type Rng = () => number;
@@ -56,6 +61,16 @@ export interface Actor {
   facing: 1 | -1;
   bob: number;
   paid?: number;
+  /** Waypoints to walk through before the current target (thieves only). */
+  path: { x: number; y: number }[];
+  style?: ThiefStyle;
+  /** Taps left before a thief is caught. */
+  hp: number;
+  hitFlash: number;
+  /** Hanging from a rope (ceiling route). */
+  rope: boolean;
+  /** Removed at the end of this frame. */
+  gone: boolean;
 }
 
 export interface Flyer {
@@ -82,7 +97,24 @@ export interface Pest {
   id: number;
   name: string;
   image: string;
+  /** Feet position; pests hop from spot to spot around the workshop. */
+  x: number;
+  y: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  hopT: number;
+  hopDur: number;
+  wait: number;
   life: number;
+  t: number;
+}
+
+export interface Effect {
+  kind: 'smoke' | 'hit';
+  x: number;
+  y: number;
   t: number;
 }
 
@@ -104,7 +136,8 @@ export type ShopEvent =
   | { type: 'craft'; item: number; isNew: boolean }
   | { type: 'sale'; price: number; item: number; hero: Hero; tip: boolean }
   | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' }
-  | { type: 'thief'; hero: Hero }
+  | { type: 'thief'; hero: Hero; style: ThiefStyle }
+  | { type: 'thiefHit'; hero: Hero; hpLeft: number }
   | { type: 'stolen'; hero: Hero; item: number }
   | { type: 'caught'; hero: Hero; bounty: number; byGuard: boolean }
   | { type: 'pest'; name: string }
@@ -123,7 +156,8 @@ export class Shop {
   queue: Actor[] = [];
   flyers: Flyer[] = [];
   popups: Popup[] = [];
-  pest: Pest | null = null;
+  pests: Pest[] = [];
+  effects: Effect[] = [];
   /** Checkout progress in seconds per register. */
   registerProgress: number[];
   craftProgress = 0;
@@ -220,8 +254,10 @@ export class Shop {
     this.updateSpawns(dt);
     this.updateActors(dt);
     this.updateRegisters(dt);
-    this.updatePest(dt);
+    this.updatePests(dt);
 
+    for (const e of this.effects) e.t += dt;
+    this.effects = this.effects.filter((e) => e.t < 0.7);
     for (const p of this.popups) p.t += dt;
     this.popups = this.popups.filter((p) => p.t < 1.4);
 
@@ -252,7 +288,7 @@ export class Shop {
         this.emit({ type: 'mine' });
       }
     }
-    const rate = this.pest ? 0.5 : 1;
+    const rate = Math.max(0.3, 1 - 0.35 * this.pests.length);
     this.craftProgress += (dt / this.stats.craftTime) * rate;
     this.craftBlocked = false;
     while (this.craftProgress >= 1) {
@@ -373,6 +409,11 @@ export class Shop {
       mood: 'none',
       facing: -1,
       bob: this.rng() * 10,
+      path: [],
+      hp: 1,
+      hitFlash: 0,
+      rope: false,
+      gone: false,
     };
   }
 
@@ -389,10 +430,31 @@ export class Shop {
 
   private spawnThief(): void {
     const hero = this.pick(thieves);
+    const style = thiefStyle(hero.id);
     const a = this.makeActor('thief', hero, 0);
+    a.style = style;
+    a.hp = style.hp;
+    a.speed *= style.speed;
     this.actors.push(a);
-    this.emit({ type: 'thief', hero });
     this.chooseThiefTarget(a);
+    if (a.slot >= 0) {
+      const target = slotPos(a.slot);
+      if (style.entry === 'ceiling') {
+        // Drops down on a rope right above the item.
+        a.x = target.x;
+        a.y = CEILING_Y;
+        a.rope = true;
+      } else if (style.entry === 'window') {
+        a.x = WINDOW.x;
+        a.y = WINDOW.y;
+        a.path = [{ x: WINDOW.x + 20, y: SHOP_LANE_Y }];
+      } else if (style.entry === 'smoke') {
+        a.x = target.x + this.rand(-50, 50);
+        a.y = SHOP_LANE_Y;
+        this.effects.push({ kind: 'smoke', x: a.x, y: a.y - HERO_PX / 2, t: 0 });
+      }
+    }
+    this.emit({ type: 'thief', hero, style });
   }
 
   private itemValue(item: number): number {
@@ -413,6 +475,7 @@ export class Shop {
       return;
     }
     let slot = this.pick(options);
+    const laneY = SHOP_LANE_Y + this.rand(-14, 14);
     if (this.rng() < a.tier * 0.2) {
       slot = options.reduce((best, i) => (this.itemValue(this.slots[i].item!) > this.itemValue(this.slots[best].item!) ? i : best), options[0]);
     }
@@ -422,14 +485,13 @@ export class Shop {
     a.mood = 'none';
     const p = slotPos(slot);
     a.tx = p.x;
-    a.ty = SHOP_LANE_Y;
+    a.ty = laneY;
   }
 
   private chooseThiefTarget(a: Actor): void {
     const options = this.slots.flatMap((s, i) => (s.item !== null && !this.isClaimedByThief(s) ? [i] : []));
     if (options.length === 0) {
-      a.state = 'flee';
-      a.tx = DOOR_X + 40;
+      this.startFlee(a);
       return;
     }
     const slot = options.reduce((best, i) => (this.itemValue(this.slots[i].item!) > this.itemValue(this.slots[best].item!) ? i : best), options[0]);
@@ -439,6 +501,38 @@ export class Shop {
     const p = slotPos(slot);
     a.tx = p.x;
     a.ty = SHOP_LANE_Y;
+  }
+
+  /** Sends a thief toward its escape route. */
+  private startFlee(a: Actor): void {
+    const route = a.style?.exit ?? 'door';
+    a.state = 'flee';
+    a.timer = 0;
+    a.slot = -1;
+    if (route === 'ceiling') {
+      a.path = [{ x: a.x, y: CEILING_Y }];
+      a.rope = true;
+    } else if (route === 'window') {
+      a.path = [
+        { x: WINDOW.x + 20, y: SHOP_LANE_Y },
+        { x: WINDOW.x, y: WINDOW.y },
+      ];
+    } else if (route === 'smoke') {
+      // Staggers toward the door, then vanishes in smoke after a short window.
+      a.path = [{ x: DOOR_X - 60, y: SHOP_LANE_Y }];
+    } else {
+      a.path = [{ x: DOOR_X + 40, y: SHOP_LANE_Y + 30 }];
+    }
+  }
+
+  /** Walks along the actor's waypoints. Returns true once the last one is reached. */
+  private followPath(a: Actor, dt: number, speed: number): boolean {
+    const next = a.path[0];
+    if (!next) return true;
+    a.tx = next.x;
+    a.ty = next.y;
+    if (this.moveToward(a, dt, speed)) a.path.shift();
+    return a.path.length === 0;
   }
 
   private isClaimedByThief(s: Slot): boolean {
@@ -482,7 +576,7 @@ export class Shop {
       if (a.kind === 'thief') this.updateThief(a, dt);
       else this.updateCustomer(a, dt);
     }
-    this.actors = this.actors.filter((a) => !(a.state === 'leave' || a.state === 'flee' || a.state === 'caught') || a.x < DOOR_X + 30);
+    this.actors = this.actors.filter((a) => !a.gone && !(a.state === 'leave' && a.x >= DOOR_X + 30));
     // Keep queue targets in sync with queue order.
     this.queue.forEach((a, i) => {
       const p = queuePos(i);
@@ -564,6 +658,8 @@ export class Shop {
   }
 
   private updateThief(a: Actor, dt: number): void {
+    const style = a.style!;
+    a.hitFlash = Math.max(0, a.hitFlash - dt * 4);
     switch (a.state) {
       case 'enter':
       case 'toShelf': {
@@ -573,14 +669,22 @@ export class Shop {
           this.chooseThiefTarget(a);
           break;
         }
-        if (this.moveToward(a, dt)) {
+        if (a.path.length) {
+          this.followPath(a, dt, a.speed);
+          break;
+        }
+        const p = slotPos(a.slot);
+        a.tx = p.x;
+        a.ty = SHOP_LANE_Y;
+        if (this.moveToward(a, dt, a.rope ? a.speed * 0.8 : a.speed)) {
+          a.rope = false;
           a.state = 'steal';
           a.timer = 0;
         }
         break;
       }
       case 'steal': {
-        if (a.timer < this.stats.stealTime) break;
+        if (a.timer < this.stats.stealTime * style.steal) break;
         const slot = this.slots[a.slot];
         if (slot && slot.item !== null) {
           a.item = slot.item;
@@ -594,31 +698,43 @@ export class Shop {
           }
           slot.claimedBy = null;
         }
-        a.slot = -1;
-        a.state = 'flee';
-        a.tx = DOOR_X + 40;
-        a.ty = SHOP_LANE_Y + 30;
+        this.startFlee(a);
         if (a.item !== null && this.rng() < this.stats.guardChance) this.catchThief(a, true);
         break;
       }
       case 'flee': {
-        if (this.moveToward(a, dt, 270 * this.stats.thiefSpeed) || a.x >= DOOR_X + 20) {
-          if (a.item !== null) {
-            this.report.stolen++;
-            this.save.totals.stolen++;
-            this.emit({ type: 'stolen', hero: a.hero, item: a.item });
-            a.item = null;
+        const speed = 270 * style.speed * this.stats.thiefSpeed * (a.rope ? 0.6 : 1);
+        const vanishAfter = 2.2 / this.stats.thiefSpeed;
+        if (style.exit === 'smoke') {
+          this.followPath(a, dt, 90 * this.stats.thiefSpeed);
+          if (a.timer >= vanishAfter) {
+            this.effects.push({ kind: 'smoke', x: a.x, y: a.y - HERO_PX / 2, t: 0 });
+            this.escape(a);
           }
-          a.x = DOOR_X + 40;
+        } else if (this.followPath(a, dt, speed)) {
+          this.escape(a);
         }
         break;
       }
       case 'caught':
-        this.moveToward(a, dt, 320);
+        if (a.timer > 0.8) {
+          this.effects.push({ kind: 'smoke', x: a.x, y: a.y - HERO_PX / 2, t: 0 });
+          a.gone = true;
+        }
         break;
       default:
         break;
     }
+  }
+
+  private escape(a: Actor): void {
+    if (a.item !== null) {
+      this.report.stolen++;
+      this.save.totals.stolen++;
+      this.emit({ type: 'stolen', hero: a.hero, item: a.item });
+      a.item = null;
+    }
+    a.gone = true;
   }
 
   private catchThief(a: Actor, byGuard: boolean): void {
@@ -627,12 +743,13 @@ export class Shop {
     a.item = null;
     const topValue = RARITY_PRICE[this.stats.maxRarity] * this.stats.priceMult;
     const bounty = Math.round((5 + 0.6 * topValue) * this.stats.bountyMult);
-    this.addGum(bounty, a.x, a.y - 130);
+    this.addGum(bounty, a.x, a.y - HERO_PX - 30);
     this.report.caught++;
     this.save.totals.caught++;
     a.state = 'caught';
     a.mood = 'angry';
-    a.tx = DOOR_X + 40;
+    a.rope = false;
+    a.path = [];
     a.timer = 0;
     this.emit({ type: 'caught', hero: a.hero, bounty, byGuard });
   }
@@ -660,7 +777,7 @@ export class Shop {
     const tip = this.rng() < this.stats.tipChance;
     const ext = getExtension(a.item);
     const price = salePrice(ext.rarityIndex, this.stats, this.save.collection.length, a.tier, tip);
-    this.addGum(price, a.x, a.y - 140);
+    this.addGum(price, a.x, a.y - HERO_PX - 30);
     this.report.sold++;
     this.save.totals.sold++;
     if (!this.report.bestSale || price > this.report.bestSale.price) {
@@ -679,20 +796,50 @@ export class Shop {
     this.popups.push({ text: `+${amount.toLocaleString()}`, x, y, t: 0, color: '#ffe066', icon: 'gum' });
   }
 
-  private updatePest(dt: number): void {
-    if (this.pest) {
-      this.pest.t += dt;
-      if (this.pest.t >= this.pest.life) this.pest = null;
-      return;
+  private pickSpot(): { x: number; y: number } {
+    const spot = this.pick(PEST_SPOTS);
+    return { x: spot.x + this.rand(-25, 25), y: spot.y + this.rand(-10, 10) };
+  }
+
+  private updatePests(dt: number): void {
+    for (const p of this.pests) {
+      p.t += dt;
+      if (p.hopT < p.hopDur) {
+        p.hopT = Math.min(p.hopDur, p.hopT + dt);
+        const k = p.hopT / p.hopDur;
+        p.x = p.fromX + (p.toX - p.fromX) * k;
+        p.y = p.fromY + (p.toY - p.fromY) * k;
+      } else if ((p.wait -= dt) <= 0) {
+        // Hop to another random spot so the pest can't be caught by tapping one place.
+        const to = this.pickSpot();
+        Object.assign(p, { fromX: p.x, fromY: p.y, toX: to.x, toY: to.y, hopT: 0 });
+        p.hopDur = Math.max(0.35, Math.hypot(to.x - p.x, to.y - p.y) / 380);
+        p.wait = this.rand(1.2, 2.6);
+      }
     }
+    this.pests = this.pests.filter((p) => p.t < p.life);
+
     if (this.save.day < 3) return;
+    const maxPests = Math.min(3, 1 + Math.floor((this.save.day - 3) / 4));
     this.pestTimer += dt;
-    if (this.pestTimer >= this.nextPest) {
+    if (this.pestTimer >= this.nextPest && this.pests.length < maxPests) {
       this.pestTimer = 0;
-      this.nextPest = this.rand(18, 28) * this.stats.pestInterval;
-      const p = this.pick(pests);
-      this.pest = { id: p.id, name: p.name, image: p.image, life: 14, t: 0 };
-      this.emit({ type: 'pest', name: p.name });
+      this.nextPest = this.rand(12, 22) * this.stats.pestInterval;
+      const e = this.pick(pests);
+      const at = this.pickSpot();
+      this.pests.push({
+        id: this.nextId++,
+        name: e.name,
+        image: e.image,
+        ...{ x: at.x, y: at.y, fromX: at.x, fromY: at.y, toX: at.x, toY: at.y },
+        hopT: 0,
+        hopDur: 0,
+        wait: this.rand(1, 2),
+        life: 14,
+        t: 0,
+      });
+      this.effects.push({ kind: 'smoke', x: at.x, y: at.y - PEST_PX / 2, t: 0 });
+      this.emit({ type: 'pest', name: e.name });
     }
   }
 
@@ -714,39 +861,47 @@ export class Shop {
     }
   }
 
-  clickPest(): boolean {
-    if (!this.pest || this.over) return false;
+  clickPest(p: Pest): boolean {
+    if (this.over || !this.pests.includes(p)) return false;
     const reward = Math.round((3 + 0.3 * RARITY_PRICE[this.stats.maxRarity] * this.stats.priceMult) * this.stats.pestBountyMult);
-    this.addGum(reward, PEST_POS.x, PEST_POS.y - 170);
-    this.pest = null;
+    this.addGum(reward, p.x, p.y - PEST_PX - 20);
+    this.effects.push({ kind: 'hit', x: p.x, y: p.y - PEST_PX / 2, t: 0 });
+    this.pests = this.pests.filter((q) => q !== p);
     this.report.pests++;
     this.save.totals.pests++;
     this.emit({ type: 'pestCleared', reward });
     return true;
   }
 
-  /** Returns the thief under the point, if any (sprites are drawn with feet at a.y). */
+  /** Returns the thief under the point, if any (sprites are drawn with feet at a.y). Hit boxes are generous for touch. */
   thiefAt(x: number, y: number): Actor | null {
     for (const a of this.actors) {
-      if (a.kind !== 'thief' || a.state === 'caught') continue;
-      if (Math.abs(x - a.x) < 66 && y < a.y + 24 && y > a.y - 150) return a;
+      if (a.kind !== 'thief' || a.state === 'caught' || a.gone) continue;
+      if (Math.abs(x - a.x) < 52 && y < a.y + 26 && y > a.y - HERO_PX - 34) return a;
     }
     return null;
   }
 
   clickThief(a: Actor): void {
-    if (this.over || a.state === 'caught') return;
-    this.catchThief(a, false);
+    if (this.over || a.state === 'caught' || a.gone) return;
+    a.hp--;
+    a.hitFlash = 1;
+    this.effects.push({ kind: 'hit', x: a.x, y: a.y - HERO_PX / 2, t: 0 });
+    if (a.hp > 0) this.emit({ type: 'thiefHit', hero: a.hero, hpLeft: a.hp });
+    else this.catchThief(a, false);
+  }
+
+  pestAt(x: number, y: number): Pest | null {
+    for (const p of this.pests) {
+      if (Math.abs(x - p.x) < 52 && y < p.y + 22 && y > p.y - PEST_PX - 30) return p;
+    }
+    return null;
   }
 
   isOnPot(x: number, y: number): boolean {
     const h = POT.hit;
     const onRing = Math.hypot(x - CRAFT_RING.x, y - CRAFT_RING.y) < 50;
     return onRing || (x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1);
-  }
-
-  isOnPest(x: number, y: number): boolean {
-    return !!this.pest && Math.abs(x - PEST_POS.x) < 80 && y < PEST_POS.y + 10 && y > PEST_POS.y - 160;
   }
 
   isOnRegister(x: number, y: number): boolean {

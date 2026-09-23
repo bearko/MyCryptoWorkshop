@@ -346,7 +346,7 @@ function startDay(): void {
   } else if (save.day === 2) {
     tip('thiefWarn', '今日から泥棒が出るみたい…赤く光っているヒーローを見つけたらクリックで捕まえて！');
   } else if (save.day === 3) {
-    tip('pestWarn', '工房にエネミーが入り込むことがあるよ。壺にとりついたらクリックで追い払おう！');
+    tip('pestWarn', '工房にエネミーが入り込むことがあるよ。跳ね回るエネミーを見つけたらタップで追い払おう！');
   } else {
     say(`Day ${save.day} 開店！今日もがんばろう！`);
   }
@@ -377,7 +377,14 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'thief':
       sound.play('debuff');
-      log(h('span', {}, '泥棒 ', h('b.villain', {}, e.hero.name), ' が現れた！'), 'bad');
+      log(h('span', {}, '泥棒 ', h('b.villain', {}, e.hero.name), ` が現れた！（${e.style.trait}）`), 'bad');
+      if (e.style.entry === 'ceiling') tip('ceiling', '天井からロープで降りてくる泥棒もいるよ！上にも注意して！');
+      else if (e.style.entry === 'window') tip('window', '窓から飛び込んでくる泥棒だ！窓から逃げられる前にタップ！');
+      else if (e.style.disguise) tip('disguise', 'お客さんのふりをした泥棒がいるみたい…商品に手を伸ばした瞬間を狙って！');
+      else if (e.style.hp > 1) tip('tough', 'しぶとい泥棒は何回かタップしないと捕まらないよ！');
+      break;
+    case 'thiefHit':
+      sound.play('hit');
       break;
     case 'stolen':
       sound.play('fail');
@@ -390,7 +397,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'pest':
       sound.play('debuff');
-      log(h('span', {}, 'エネミー ', h('b.villain', {}, e.name), ' が壺にとりついた！クラフト速度ダウン'), 'bad');
+      log(h('span', {}, 'エネミー ', h('b.villain', {}, e.name), ' が工房に入り込んだ！クラフト速度ダウン'), 'bad');
       break;
     case 'pestCleared':
       sound.play('hit');
@@ -412,7 +419,7 @@ function onShopEvent(e: ShopEvent): void {
 function hitTest(x: number, y: number): 'thief' | 'pest' | 'pot' | 'register' | null {
   if (!shop) return null;
   if (shop.thiefAt(x, y)) return 'thief';
-  if (shop.isOnPest(x, y)) return 'pest';
+  if (shop.pestAt(x, y)) return 'pest';
   if (shop.isOnPot(x, y)) return 'pot';
   if (shop.isOnRegister(x, y)) return 'register';
   return null;
@@ -424,7 +431,7 @@ canvas.addEventListener('pointerdown', (ev) => {
   const { x, y } = renderer.toScene(ev.clientX, ev.clientY);
   const target = hitTest(x, y);
   if (target === 'thief') shop.clickThief(shop.thiefAt(x, y)!);
-  else if (target === 'pest') shop.clickPest();
+  else if (target === 'pest') shop.clickPest(shop.pestAt(x, y)!);
   else if (target === 'pot') {
     shop.clickPot();
     potClicks++;
@@ -436,7 +443,7 @@ canvas.addEventListener('pointermove', (ev) => {
 });
 
 if (import.meta.env.DEV) {
-  // Debug shortcuts for local development: G = +GUM, E = end the day.
+  // Debug shortcuts for local development: G = +GUM, E = end the day, T = spawn a thief.
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'g') {
       save.gum += 10000;
@@ -444,6 +451,7 @@ if (import.meta.env.DEV) {
       tree.refresh();
     }
     if (ev.key === 'e' && shop) shop.timeLeft = 0;
+    if (ev.key === 't' && shop) (shop as unknown as { spawnThief(): void }).spawnThief();
   });
 }
 
@@ -465,7 +473,7 @@ function frame(now: number): void {
     shop.update(dt);
     if (shop.queue.length >= 3 && tip('queue', 'レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ')) lastQueueTip = shop.elapsed;
     if (shop.craftBlocked) tip('full', '棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう');
-    if (shop.pest) tip('pest', 'エネミーが壺の邪魔をしてる！クリックで追い払って！');
+    if (shop.pests.length) tip('pest', 'エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！');
   }
   if (shop) {
     renderer.render(shop, now, {
