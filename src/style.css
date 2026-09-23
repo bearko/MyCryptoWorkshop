@@ -195,43 +195,45 @@ a {
   gap: 6px;
 }
 
-/* ---------------------------------------------------------------- stage */
+/* ---------------------------------------------------------------- stage (business day) */
 
-.stage {
-  display: grid;
-  grid-template-columns: auto minmax(280px, 360px);
-  justify-content: center;
-  gap: 16px;
-  padding: 16px;
+/* While the shop is open the scene fills the screen; the top bar is hidden. */
+body.in-day .topbar {
+  display: none;
 }
 
-.scene-wrap {
+body.in-day {
+  overflow: hidden;
+  background: #0d0805;
+}
+
+.stage {
+  position: fixed;
+  inset: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
 }
 
 .scene {
   position: relative;
-  height: calc(100vh - var(--topbar-h) - 32px);
-  height: calc(100dvh - var(--topbar-h) - 32px);
-  aspect-ratio: 1000 / 1320;
-  max-width: calc(100vw - 32px);
-  border-radius: 14px;
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
-  border: 3px solid var(--line);
-  box-shadow: 0 10px 40px #000a;
   background: #120b07;
   user-select: none;
+  -webkit-user-select: none;
   touch-action: manipulation;
+  box-shadow: 0 10px 40px #000a;
 }
 
 .workshop {
-  /* The 1000×1000 illustration with its top 20px cropped (see WORKSHOP_CROP). */
+  /* Positioned by fitScene(): the 1000×1000 illustration with its top WORKSHOP_CROP px cropped. */
   position: absolute;
   left: 0;
   width: 100%;
-  top: calc(-20 / 1320 * 100%);
-  height: calc(1000 / 1320 * 100%);
 }
 
 .workshop img {
@@ -249,65 +251,112 @@ a {
   height: 100%;
 }
 
-.time-bar {
+/* ---------------------------------------------------------------- HUD overlay */
+
+.hud {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 7px;
-  background: #0008;
+  top: 8px;
+  right: 8px;
+  width: min(44%, 210px);
+  padding: 8px 10px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(24, 14, 8, 0.72);
+  border: 1px solid rgba(255, 207, 90, 0.35);
+  border-radius: 10px;
+  font-family: var(--font-pixel);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  text-shadow: 0 1px 0 #000;
 }
 
-.time-bar-fill {
+.hud-gum {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--gold);
+  font-size: clamp(16px, 4.6vw, 22px);
+  line-height: 1.1;
+}
+
+.hud-gum img {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: clamp(11px, 3.1vw, 14px);
+  color: var(--text);
+}
+
+.hud-row b {
+  color: var(--gold);
+  font-weight: normal;
+}
+
+.hud-day {
+  color: var(--muted);
+}
+
+.hud-time.hurry {
+  color: var(--bad);
+  animation: blink 0.5s infinite;
+}
+
+.hud-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: #0009;
+  overflow: hidden;
+}
+
+.hud-bar-fill {
   height: 100%;
   width: 100%;
   background: linear-gradient(90deg, #ff9f43, var(--gold));
   transition: width 0.1s linear;
 }
 
-/* ---------------------------------------------------------------- panel */
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: calc(100dvh - var(--topbar-h) - 32px);
+.hud-stats {
+  font-size: clamp(10px, 2.8vw, 12px);
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
 }
 
-.card {
-  background: linear-gradient(var(--panel-2), var(--panel));
-  border: 2px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 14px;
-  box-shadow: 0 4px 0 #120b07;
+.hud-stats.warn {
+  color: #ffc9a0;
 }
 
-.clock {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  font-family: var(--font-pixel);
+.hud-gear {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 207, 90, 0.35);
+  background: rgba(24, 14, 8, 0.72);
+  color: var(--gold);
+  cursor: pointer;
 }
 
-.clock-label {
-  color: var(--good);
-  font-size: 14px;
+.hud-gear:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
-.clock-label::before {
-  content: '●';
-  margin-right: 4px;
-  animation: blink 1.2s infinite;
-}
-
-.time-left {
-  font-size: 26px;
-  color: var(--text);
-}
-
-.time-left.hurry {
-  color: var(--bad);
-  animation: blink 0.5s infinite;
+.hud-gear span {
+  display: grid;
 }
 
 @keyframes blink {
@@ -316,30 +365,67 @@ a {
   }
 }
 
-.today-head {
+/* Mine-chan's tip, shown briefly under the gear icon; taps pass through to the game. */
+.navi-toast {
+  position: absolute;
+  top: 58px;
+  left: 8px;
+  max-width: min(62%, 320px);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 6px;
+  pointer-events: none;
+}
+
+.navi-toast.show {
+  animation: toast-in 0.3s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+}
+
+.navi-img {
+  width: 36px;
+  height: 48px;
+  flex: none;
+}
+
+.navi-text {
+  margin: 0;
+  padding: 7px 10px;
+  background: #fff8ea;
+  color: #3b2718;
+  border-radius: 10px;
+  font-size: clamp(11px, 3.2vw, 13px);
+  line-height: 1.45;
+  box-shadow: 0 3px 10px #0008;
+}
+
+/* ---------------------------------------------------------------- pause menu */
+
+.pause h3 {
+  margin: 14px 0 6px;
   font-family: var(--font-pixel);
+  font-size: 15px;
   color: var(--muted);
-  margin-bottom: 6px;
 }
 
-.today-head b {
-  color: var(--gold);
-  font-size: 24px;
+.pause-toggles {
+  display: flex;
+  gap: 8px;
 }
 
-.gum-icon {
-  width: 22px;
-  height: 22px;
-  vertical-align: middle;
+.pause-toggles .btn {
+  flex: 1;
 }
 
-.today-rows {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 16px;
+.muted {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .stat-row {
@@ -359,68 +445,10 @@ a {
   color: var(--bad);
 }
 
-.navi {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  min-height: 110px;
-}
-
-.navi-img {
-  width: 72px;
-  height: 96px;
-  flex: none;
-}
-
-.navi-img.talk {
-  animation: hop 0.4s;
-}
-
-@keyframes hop {
-  40% {
-    transform: translateY(-8px);
-  }
-}
-
-.navi-text {
-  position: relative;
-  margin: 0;
-  flex: 1;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  padding: 10px 12px;
-  background: #fff8ea;
-  color: #3b2718;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.navi-text:empty {
-  visibility: hidden;
-}
-
-.navi-text::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  bottom: 18px;
-  border: 8px solid transparent;
-  border-right-color: #fff8ea;
-  border-left: 0;
-}
-
-.log-card {
-  flex: 1;
-  min-height: 140px;
-  overflow: hidden;
-}
-
-.log-head {
-  font-family: var(--font-pixel);
-  color: var(--muted);
-  margin-bottom: 6px;
+.gum-icon {
+  width: 22px;
+  height: 22px;
+  vertical-align: middle;
 }
 
 .log {
@@ -429,12 +457,13 @@ a {
   padding: 0;
   font-size: 13px;
   line-height: 1.45;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .log li {
   padding: 4px 0;
   border-bottom: 1px dashed #6b4a2f55;
-  animation: slide-in 0.25s;
 }
 
 .log li.bad {
@@ -449,11 +478,8 @@ a {
   color: #fff0c2;
 }
 
-@keyframes slide-in {
-  from {
-    transform: translateX(-10px);
-    opacity: 0;
-  }
+.navi-log {
+  color: var(--muted);
 }
 
 .villain {
@@ -808,13 +834,14 @@ a {
 
 .modal-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   justify-content: center;
   margin-top: 18px;
 }
 
 .modal-buttons .btn {
-  min-width: 160px;
+  min-width: 120px;
 }
 
 .title-modal {
@@ -1027,22 +1054,6 @@ a {
   .gum {
     min-width: 0;
     font-size: 17px;
-  }
-
-  .stage {
-    grid-template-columns: 1fr;
-    padding: 10px;
-    gap: 10px;
-  }
-
-  .scene {
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-  }
-
-  .panel {
-    max-height: none;
   }
 
   .tree-view {

@@ -13,6 +13,7 @@ import {
   SHOP_LANE_Y,
   slotPos,
   STORAGE_POS,
+  walkScale,
   WINDOW,
 } from './layout';
 import type { SaveData } from './save';
@@ -401,7 +402,7 @@ export class Shop {
       y: DOOR.y,
       tx: DOOR.x,
       ty: DOOR.y,
-      speed: this.stats.walkSpeed * (kind === 'thief' ? 1.15 : this.rand(0.9, 1.1)),
+      speed: this.stats.walkSpeed * walkScale() * (kind === 'thief' ? 1.15 : this.rand(0.9, 1.1)),
       state: 'enter',
       timer: 0,
       slot: -1,
@@ -642,7 +643,11 @@ export class Shop {
       case 'toQueue':
       case 'queue': {
         const arrived = this.moveToward(a, dt);
-        if (arrived) a.state = 'queue';
+        if (arrived && a.state === 'toQueue') {
+          // Queue patience starts once the customer is actually in line (walks can be long).
+          a.state = 'queue';
+          a.timer = 0;
+        }
         if (a.timer > this.stats.queuePatience) {
           this.queue = this.queue.filter((q) => q !== a);
           if (a.item !== null) this.returnItem(a.item);

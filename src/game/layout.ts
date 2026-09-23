@@ -1,9 +1,13 @@
-// Scene coordinates. The scene is 1000×1320 logical px. The workshop illustration (1000×1000)
+// Scene coordinates. The scene is 1000 logical px wide. The workshop illustration (1000×1000)
 // is shown cropped: its top WORKSHOP_CROP px are hidden, so it fills scene y 0–980. The
-// storefront is drawn below it (y 980–1320). Storefront furniture is sized to the ~64px heroes.
+// storefront is drawn below it, from y 980 down to SCENE_H. SCENE_H grows on tall (phone)
+// screens so the storefront fills the screen; the workshop never changes. Storefront furniture
+// is sized to the ~64px heroes.
 
 export const SCENE_W = 1000;
-export const SCENE_H = 1320;
+export const MIN_SCENE_H = 1320;
+export const MAX_SCENE_H = 1900;
+export let SCENE_H = MIN_SCENE_H;
 export const WORKSHOP_CROP = 20;
 export const WORKSHOP_H = 1000 - WORKSHOP_CROP;
 
@@ -37,11 +41,36 @@ const TOP = WORKSHOP_H;
 /** Where the back wall meets the floor. */
 export const FLOOR_Y = TOP + 112;
 export const SHOP_LANE_Y = FLOOR_Y + 70;
-export const QUEUE_LANE_Y = FLOOR_Y + 160;
+/** Customers queue here, in front of the counter. Lower on taller storefronts. */
+export let QUEUE_LANE_Y = FLOOR_Y + 160;
 /** Doorway in the back wall (customers enter and leave here). */
 export const DOOR = { x: 925, y: FLOOR_Y + 4, x0: 895, x1: 955, top: FLOOR_Y - 96 };
-export const COUNTER = { x0: 34, x1: 186, top: FLOOR_Y + 118, bottom: FLOOR_Y + 162 };
-export const CHRIS_POS = { x: 100, y: FLOOR_Y + 128 };
+export let COUNTER = { x0: 34, x1: 186, top: FLOOR_Y + 118, bottom: FLOOR_Y + 162 };
+export let CHRIS_POS = { x: 100, y: FLOOR_Y + 128 };
+/** Decorative rug between the shelves and the counter (null when there is no room). */
+export let RUG: { x0: number; x1: number; y0: number; y1: number } | null = null;
+
+/**
+ * Sets the scene height (clamped to MIN/MAX_SCENE_H) and lays out the storefront floor.
+ * Call before a business day starts; actors keep their coordinates for the whole day.
+ */
+export function setSceneHeight(h: number): void {
+  SCENE_H = Math.round(Math.min(MAX_SCENE_H, Math.max(MIN_SCENE_H, h)));
+  const extra = SCENE_H - MIN_SCENE_H;
+  // The queue/counter moves down only part of the extra height so walks stay short.
+  QUEUE_LANE_Y = FLOOR_Y + 160 + Math.round(extra * 0.4);
+  COUNTER = { x0: 34, x1: 186, top: QUEUE_LANE_Y - 42, bottom: QUEUE_LANE_Y + 2 };
+  CHRIS_POS = { x: 100, y: QUEUE_LANE_Y - 32 };
+  // A large rug covers the lower floor on tall storefronts.
+  const rugTop = SHOP_LANE_Y + 40;
+  const rugBottom = SCENE_H - 50;
+  RUG = extra > 120 ? { x0: 230, x1: 820, y0: rugTop, y1: rugBottom } : null;
+}
+
+/** Extra walking-speed factor so longer walks on tall storefronts take about the same time. */
+export function walkScale(): number {
+  return 1 + (QUEUE_LANE_Y - (FLOOR_Y + 160)) / 300;
+}
 /** Storefront window on the back wall, and the ceiling; both are thief routes. */
 export const WINDOW = { x: 120, y: TOP + 84, x0: 60, x1: 180, top: TOP + 24 };
 export const CEILING_Y = TOP + 8;

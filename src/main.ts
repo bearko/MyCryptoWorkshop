@@ -1,6 +1,7 @@
 import './style.css';
 import { Sound } from './audio';
 import { catalog, getExtension, icons, RARITY_COLOR, RARITY_JA, staffFrames, workshopImages } from './game/catalog';
+import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
 import { clearSave, loadSave, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
 import { costOf, level, type SkillNode } from './game/skills';
@@ -63,26 +64,42 @@ for (const key of OVERLAY_ORDER) {
   workshop.append(el);
 }
 const canvas = h('canvas.scene-canvas') as HTMLCanvasElement;
-const timeBar = h('div.time-bar-fill');
-const scene = h('div.scene', {}, workshop, canvas, h('div.time-bar', {}, timeBar));
-const renderer = new SceneRenderer(canvas);
 
-const timeText = h('div.time-left');
-const todayRevenue = h('b');
-const todayRows = h('div.today-rows');
+// HUD overlaid on the top-right of the scene (like Bookstore Incremental), so the whole screen
+// is the workshop and the store while it is open.
+const hudGum = h('span');
+const hudDay = h('span.hud-day');
+const hudTime = h('span.hud-time');
+const hudBar = h('div.hud-bar-fill');
+const hudRevenue = h('b');
+const hudStats = h('div.hud-stats');
+const hud = h(
+  'div.hud',
+  { 'aria-live': 'off' },
+  h('div.hud-gum', {}, icon(icons.gum, 'px'), hudGum),
+  h('div.hud-row', {}, hudDay, hudTime),
+  h('div.hud-bar', {}, hudBar),
+  h('div.hud-row', {}, h('span', {}, '本日'), hudRevenue),
+  hudStats,
+);
+const gearBtn = h(
+  'button.hud-gear',
+  { 'aria-label': 'メニュー（一時停止）', title: 'メニュー（一時停止）', onclick: () => openPauseMenu() },
+  h('span', {
+    html: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="3.2 3.1"/><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>',
+  }),
+);
+// Mine-chan's tips pop up briefly over the scene instead of occupying a side panel.
 const naviImg = icon(staffFrames.mine[0].image, 'px navi-img');
 const naviText = h('p.navi-text');
+const naviToast = h('div.navi-toast', {}, naviImg, naviText);
+naviToast.hidden = true;
 const logList = h('ul.log');
-const panel = h(
-  'aside.panel',
-  {},
-  h('div.card.clock', {}, h('div.clock-label', {}, '営業中'), timeText),
-  h('div.card.today', {}, h('div.today-head', {}, '本日の売上 ', icon(icons.gum, 'px gum-icon'), todayRevenue), todayRows),
-  h('div.card.navi', {}, naviImg, naviText),
-  h('div.card.log-card', {}, h('div.log-head', {}, 'できごと'), logList),
-);
 
-const stage = h('main.stage', {}, h('div.scene-wrap', {}, scene), panel);
+const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast);
+const renderer = new SceneRenderer(canvas);
+
+const stage = h('main.stage', {}, scene);
 
 const tree = new TreeView(save, {
   onBuy: buyNode,
@@ -127,11 +144,16 @@ function applyOverlays(keys: string[]): void {
   }
 }
 
+let naviHideTimer = 0;
 function say(text: string): void {
   naviText.textContent = text;
-  naviImg.classList.remove('talk');
-  void naviImg.offsetWidth;
-  naviImg.classList.add('talk');
+  naviToast.hidden = false;
+  naviToast.classList.remove('show');
+  void naviToast.offsetWidth;
+  naviToast.classList.add('show');
+  window.clearTimeout(naviHideTimer);
+  naviHideTimer = window.setTimeout(() => (naviToast.hidden = true), 3500 + text.length * 70);
+  log(h('span.navi-log', {}, 'マインちゃん：', text));
 }
 
 /** Shows a Mine-chan tip once per save. */
@@ -146,7 +168,7 @@ function log(html: HTMLElement | string, cls = ''): void {
   const li = h('li', { class: cls });
   li.append(html);
   logList.prepend(li);
-  while (logList.children.length > 7) logList.lastChild?.remove();
+  while (logList.children.length > 30) logList.lastChild?.remove();
 }
 
 const extLabel = (id: number) => {
@@ -192,6 +214,52 @@ function openModal(title: string, body: HTMLElement, buttons: { label: string; p
   );
   modalRoot.append(wrap);
   return close;
+}
+
+/** In-day menu behind the gear icon. Opening it pauses the day (any open modal does). */
+function openPauseMenu(): void {
+  if (!shop || shop.over) return;
+  const r = shop.report;
+  const toggles = h(
+    'div.pause-toggles',
+    {},
+    ...(['bgm', 'se'] as const).map((key) => {
+      const btn = h('button.btn.toggle', { class: `btn toggle ${save.settings[key] ? '' : 'off'}` }, key === 'bgm' ? 'BGM' : 'SE');
+      btn.addEventListener('click', () => {
+        toggleSetting(key);
+        btn.classList.toggle('off', !save.settings[key]);
+      });
+      return btn;
+    }),
+  );
+  const logCopy = logList.cloneNode(true) as HTMLElement;
+  const body = h(
+    'div.pause',
+    {},
+    toggles,
+    h('h3', {}, `Day ${save.day} 本日の成績`),
+    h(
+      'div.stat-grid',
+      {},
+      ...(
+        [
+          ['売上', `${fmt(r.revenue)} GUM`],
+          ['販売', `${r.sold}個`],
+          ['来客', `${r.customers}人`],
+          ['帰った客', `${r.lost}人`],
+          ['クラフト', `${r.crafted}個`],
+          ['盗難 / 捕獲', `${r.stolen} / ${r.caught}`],
+        ] as [string, string][]
+      ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
+    ),
+    h('h3', {}, 'できごと'),
+    logCopy.children.length ? logCopy : h('p.muted', {}, 'まだ何も起きていません'),
+  );
+  openModal('一時停止中', body, [
+    { label: '📖 図鑑', onClick: () => openCollection() },
+    { label: 'データ', onClick: () => openMenu() },
+    { label: '▶ 営業に戻る', primary: true },
+  ]);
 }
 
 function openCollection(): void {
@@ -316,6 +384,8 @@ function showTree(): void {
   shop = null;
   paused = true;
   stage.hidden = true;
+  document.body.classList.remove('in-day');
+  naviToast.hidden = true;
   tree.show();
   sound.playBgm('bgmTree');
   updateTopbar();
@@ -333,8 +403,10 @@ function buyNode(node: SkillNode): void {
 
 function startDay(): void {
   tree.hide();
+  document.body.classList.add('in-day');
   stage.hidden = false;
   logList.replaceChildren();
+  fitScene(true);
   shop = new Shop(save);
   shop.on(onShopEvent);
   applyOverlays(shop.stats.overlays);
@@ -483,31 +555,42 @@ function frame(now: number): void {
     uiTimer -= dt;
     if (uiTimer <= 0) {
       uiTimer = 0.1;
-      updatePanel(shop);
+      updateHud(shop);
     }
   }
   requestAnimationFrame(frame);
 }
 
-function updatePanel(s: Shop): void {
+function updateHud(s: Shop): void {
   const t = Math.max(0, s.timeLeft);
-  timeText.textContent = `残り ${t.toFixed(0)} 秒`;
-  timeText.classList.toggle('hurry', t <= 5 && !s.over);
-  timeBar.style.width = `${(t / s.stats.dayLength) * 100}%`;
-  todayRevenue.textContent = fmt(s.report.revenue);
+  hudGum.textContent = fmt(save.gum);
+  hudDay.textContent = `Day ${save.day}`;
+  hudTime.textContent = `残り${t.toFixed(0)}秒`;
+  hudTime.classList.toggle('hurry', t <= 5 && !s.over);
+  hudBar.style.width = `${(t / s.stats.dayLength) * 100}%`;
+  hudRevenue.textContent = `+${fmt(s.report.revenue)}`;
   const r = s.report;
-  todayRows.replaceChildren(
-    ...(
-      [
-        ['販売', `${r.sold}`],
-        ['来客', `${r.customers}`],
-        ['帰った客', `${r.lost}`],
-        ['盗難', `${r.stolen}`],
-      ] as [string, string][]
-    ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
-  );
-  gumText.textContent = fmt(save.gum);
+  hudStats.textContent = `販売${r.sold} 来客${r.customers} 帰${r.lost} 盗${r.stolen}`;
+  hudStats.classList.toggle('warn', r.lost + r.stolen > 0);
 }
+
+/**
+ * Sizes the scene to fill the viewport. On tall screens the storefront grows (relayout=true,
+ * only before a day starts); otherwise the scene keeps its aspect ratio and is letterboxed.
+ */
+function fitScene(relayout = false): void {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  if (relayout) setSceneHeight((1000 * H) / W);
+  const width = Math.min(W, (H * SCENE_W) / SCENE_H);
+  scene.style.width = `${Math.floor(width)}px`;
+  scene.style.height = `${Math.floor((width * SCENE_H) / SCENE_W)}px`;
+  workshop.style.top = `${(-WORKSHOP_CROP / SCENE_H) * 100}%`;
+  workshop.style.height = `${(1000 / SCENE_H) * 100}%`;
+}
+window.addEventListener('resize', () => {
+  if (!stage.hidden) fitScene(false);
+});
 
 // Animate the navi portrait.
 let naviFrame = 0;
