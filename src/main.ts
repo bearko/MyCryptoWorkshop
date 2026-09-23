@@ -221,12 +221,17 @@ function openMenu(): void {
     h(
       'button.btn.danger',
       {
-        onclick: () => {
-          if (confirm('セーブデータを削除して最初からやり直しますか？')) {
-            resetting = true;
-            clearSave();
-            location.reload();
+        // Two-step confirmation in the page itself (window.confirm is unavailable in some embeds).
+        onclick: (ev: Event) => {
+          const btn = ev.currentTarget as HTMLButtonElement;
+          if (btn.dataset.armed !== '1') {
+            btn.dataset.armed = '1';
+            btn.textContent = 'もう一度押すと削除します';
+            return;
           }
+          resetting = true;
+          clearSave();
+          location.reload();
         },
       },
       'セーブデータを削除',
