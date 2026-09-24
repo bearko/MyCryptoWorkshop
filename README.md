@@ -44,6 +44,7 @@ npm run dev      # http://localhost:5173
 | `npm run build` | 型チェック＋本番ビルド（`dist/`） |
 | `npm test` | ロジックのテストとバランスのスモークテスト |
 | `npm run sync-assets` | 素材の同期だけを実行 |
+| `npm run balance` | 自動プレイで進行ペースを計測し、`reports/balance-*.csv` と目標との比較表を出力（`-- 日数 シード` で指定可） |
 
 開発サーバーでは `G` キーで +10,000 GUM、`E` キーでその日の営業を終了、`T` キーで泥棒を出現させられます（本番ビルドでは無効）。
 
