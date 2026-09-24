@@ -17,7 +17,6 @@ import {
   HERO_PX,
   MINE_POS,
   PEST_PX,
-  POT,
   RUG,
   SCENE_H,
   SCENE_W,
@@ -1154,16 +1153,45 @@ export class SceneRenderer {
       drawImg(ctx, LINE_ICON[line.id], cx - 20, cy - 20, 40, 40);
     }
     if (line.gem) drawImg(ctx, icons.gems[line.gem], cx + r - 16, cy - r - 4, 24, 24);
+    const hit = line.station.hit;
+    const hx = (hit.x0 + hit.x1) / 2;
+    const hy = (hit.y0 + hit.y1) / 2;
+    const rx = (hit.x1 - hit.x0) / 2;
+    const ry = (hit.y1 - hit.y0) / 2;
+    // A tap lights up the machine itself (it is part of the illustration), with sparks from its mouth.
+    if (line.pulse > 0) {
+      const k = line.pulse;
+      const g = ctx.createRadialGradient(hx, hy, 10, hx, hy, Math.max(rx, ry));
+      g.addColorStop(0, `rgba(255,230,140,${0.35 * k})`);
+      g.addColorStop(1, 'rgba(255,230,140,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,236,160,${k})`;
+      ctx.lineWidth = 3;
+      const from = line.station.from;
+      for (let i = 0; i < 6; i++) {
+        const ang = -Math.PI / 2 + (i - 2.5) * 0.35;
+        const d0 = 20 + (1 - k) * 40;
+        const d1 = d0 + 18;
+        ctx.beginPath();
+        ctx.moveTo(from.x + Math.cos(ang) * d0, from.y + Math.sin(ang) * d0);
+        ctx.lineTo(from.x + Math.cos(ang) * d1, from.y + Math.sin(ang) * d1);
+        ctx.stroke();
+      }
+    }
     if (hint) {
+      // Points at the pot itself: that is what to tap (the ring only shows progress).
       const a = 0.5 + 0.5 * Math.sin(now / 200);
       ctx.strokeStyle = `rgba(255,230,120,${a})`;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.ellipse(POT.x, POT.y + 20, 120, 110, 0, 0, Math.PI * 2);
+      ctx.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = `rgba(255,240,180,${0.6 + 0.4 * a})`;
       ctx.font = `bold 26px ${FONT}`;
-      ctx.fillText(t('タップ！', 'Tap!'), cx, cy - r - 24);
+      ctx.fillText(t('ここをタップ！', 'Tap here!'), hx, hit.y0 - 22 - a * 6);
     }
   }
 

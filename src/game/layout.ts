@@ -14,7 +14,8 @@ export const WORKSHOP_H = 1000 - WORKSHOP_CROP;
 /** Converts a y coordinate on the workshop illustration to scene space. */
 const wy = (y: number) => y - WORKSHOP_CROP;
 
-export const POT = { x: 815, y: wy(780), mouthY: wy(715), hit: { x0: 700, y0: wy(680), x1: 930, y1: wy(930) } };
+/** The magic pot in the illustration; `hit` covers the whole pot (handles and lid bubbles too). */
+export const POT = { x: 815, y: wy(780), mouthY: wy(715), hit: { x0: 680, y0: wy(660), x1: 960, y1: wy(935) } };
 /** Spots in the workshop where pests land and hop between (feet positions). */
 export const PEST_SPOTS = [
   { x: 470, y: wy(690) },
