@@ -35,7 +35,7 @@ function heroView(save: SaveData): HTMLElement {
     return h('div.set-row', { class: `set-row ${done ? 'done' : ''}` }, h('span', {}, set.name), h('b', {}, done ? '✓' : `${have}/${set.heroes.length}`), h('small', {}, set.reward));
   });
   const grid = h('div.hero-grid');
-  for (let r = RARITIES.length - 1; r >= 0; r--) {
+  for (let r = 0; r < RARITIES.length; r++) {
     for (const c of customers.filter((x) => x.rarityIndex === r)) {
       const visits = save.heroes[c.id] ?? 0;
       const rank = affinityRank(visits);

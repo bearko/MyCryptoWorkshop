@@ -113,7 +113,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'luck', branch: 'suzaku', name: '鑑定眼', desc: '最高レアリティの出現率 +25%（全ライン）', icon: icons.gems.leviathan, x: 1, y: -3, max: 8, baseCost: 300, growth: 1.7, requires: ['uncommon'], effects: [add('luck', 0.25), overlay('ambient_overlay_401'), overlay('ambient_overlay_402', 3), overlay('ambient_overlay_325', 5)] },
   { id: 'craftSpeed2', branch: 'suzaku', name: '錬金の極意', desc: 'クラフト時間 -6%', icon: icons.gems.tiamat, x: 1, y: -4, max: 10, baseCost: 3000, growth: 1.5, requires: ['rare'], effects: [pow('pot.craftTime', 0.94)] },
   { id: 'epic', branch: 'suzaku', name: 'インペリアル製法', desc: 'Epic をクラフトできる', icon: ext(0, 3), x: 0, y: -4, max: 1, baseCost: 120000, growth: 1, requires: ['rare'], effects: [atLeast('maxRarity', 3)] },
-  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 20000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
+  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 100000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
 
   // 青龍: customers (right)
   { id: 'ad', branch: 'seiryu', name: '呼び込み', desc: '来客ペース +15%', icon: icons.bufAgi, x: 1, y: 0, max: 10, baseCost: 12, growth: 1.5, requires: ['root'], effects: [mul('spawnRate', 0.15)] },
@@ -125,7 +125,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'group', branch: 'seiryu', name: '団体客', desc: '8%の確率で客がもう1人一緒に来る', icon: hero(0), x: 3, y: 1, max: 5, baseCost: 500, growth: 1.8, requires: ['walk'], effects: [add('groupChance', 0.08)] },
   { id: 'wordOfMouth', branch: 'seiryu', name: '口コミ', desc: '来客ペース +6%', icon: icons.ce, x: 4, y: -1, max: 10, baseCost: 4000, growth: 1.5, requires: ['lantern'], effects: [mul('spawnRate', 0.06)] },
   { id: 'tier3', branch: 'seiryu', name: '客層：Epic', desc: 'Epic ヒーローが来店（支払い ×1.8）', icon: hero(3), x: 4, y: 0, max: 1, baseCost: 8000, growth: 1, requires: ['tier2'], effects: [atLeast('maxTier', 3)] },
-  { id: 'tier4', branch: 'seiryu', name: '客層：Legendary', desc: 'Legendary ヒーローが来店（支払い ×2.2）', icon: hero(4), x: 5, y: 0, max: 1, baseCost: 1500000, growth: 1, requires: ['tier3'], effects: [atLeast('maxTier', 4)] },
+  { id: 'tier4', branch: 'seiryu', name: '客層：Legendary', desc: 'Legendary ヒーローが来店（支払い ×2.2）', icon: hero(4), x: 5, y: 0, max: 1, baseCost: 10000000, growth: 1, requires: ['tier3'], effects: [atLeast('maxTier', 4)] },
 
   // 黄竜: pricing and register (down)
   { id: 'price', branch: 'kouryu', name: '値付け上手', desc: '販売価格 +15%', icon: ext(11, 2), x: 0, y: 1, max: 10, baseCost: 20, growth: 1.55, requires: ['root'], effects: [mul('priceMult', 0.15)] },
