@@ -12,6 +12,8 @@ export interface Milestone {
 
 export const MILESTONES: Milestone[] = [
   { label: 'Uncommon 解放', targetMin: 5, reached: (r) => r.maxRarity >= 1 },
+  { label: '2号機（鍛冶炉）', targetMin: 30, reached: (r) => r.lines >= 2 },
+  { label: '3号機（カプセル）', targetMin: 60, reached: (r) => r.lines >= 3 },
   { label: 'Epic 解放', targetMin: 90, reached: (r) => r.maxRarity >= 3 },
   { label: 'Legendary 解放', targetMin: 210, reached: (r) => r.maxRarity >= 4 },
   { label: 'スキルツリー全習得', targetMin: 420, reached: (r) => r.nodesMaxed >= SKILLS.length },

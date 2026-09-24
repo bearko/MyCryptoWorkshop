@@ -125,6 +125,10 @@ export interface DayRow {
   maxRarity: number;
   maxTier: number;
   collection: number;
+  /** Production lines running. */
+  lines: number;
+  /** Gold dust held after spending. */
+  dust: number;
 }
 
 /** Runs `days` business days from a new save. */
@@ -154,6 +158,8 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
       maxRarity: stats.maxRarity,
       maxTier: stats.maxTier,
       collection: save.collection.length,
+      lines: LINE_IDS.filter((id) => stats[`${id}.unlocked`] > 0).length,
+      dust: save.resources.dust,
     });
   }
   return rows;

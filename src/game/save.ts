@@ -1,4 +1,5 @@
 import { extensionById } from './catalog';
+import { itemId } from './items';
 import { GEM_IDS, type GemId, type LineId } from './lines';
 import { costOf, skillById, type Levels } from './skills';
 
@@ -117,10 +118,12 @@ export function migrate(raw: RawSave): RawSave {
  * Returns the GUM refunded.
  */
 export function sanitize(data: SaveData): number {
-  const known = (id: number | null) => id === null || extensionById.has(id);
+  // Shelf and storage hold item codes (edition × 100000 + id), the collection plain ids.
+  const known = (code: number) => extensionById.has(itemId(code));
   data.collection = data.collection.filter((id) => extensionById.has(id));
-  data.shelf = data.shelf.map((id) => (known(id) ? id : null));
-  data.storage = data.storage.filter((id) => extensionById.has(id));
+  data.shelf = data.shelf.map((code) => (code !== null && known(code) ? code : null));
+  data.storage = data.storage.filter(known);
+  data.bestEdition = Object.fromEntries(Object.entries(data.bestEdition ?? {}).filter(([id]) => extensionById.has(Number(id))));
   data.totals = { ...emptyTotals(), ...data.totals };
 
   let refund = 0;
