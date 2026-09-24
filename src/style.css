@@ -12,8 +12,10 @@
   --good: #7cffb2;
   --bad: #ff7a7a;
   --villain: #ff8f8f;
-  --font-pixel: 'DotGothic16', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
-  --font-body: 'M PLUS Rounded 1c', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+  /* Japanese system fonts (Meiryo UI first), so kanji never fall back to a Chinese font. */
+  --font-jp: 'Meiryo UI', Meiryo, 'Yu Gothic UI', 'Yu Gothic', YuGothic, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Noto Sans JP', 'Noto Sans CJK JP', sans-serif;
+  --font-pixel: var(--font-jp);
+  --font-body: var(--font-jp);
   --topbar-h: 56px;
   color-scheme: dark;
 }
@@ -1996,4 +1998,128 @@ body.in-day {
 
 .bless-row span {
   color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- tutorial (Mine-chan) */
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+}
+
+.tut-spot {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px var(--gold),
+    0 0 0 200vmax rgba(10, 5, 2, 0.5);
+  transition:
+    left 0.25s,
+    top 0.25s,
+    width 0.25s,
+    height 0.25s;
+  animation: tut-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes tut-pulse {
+  to {
+    box-shadow:
+      0 0 0 6px var(--gold),
+      0 0 0 200vmax rgba(10, 5, 2, 0.5);
+  }
+}
+
+.tut-hand {
+  position: fixed;
+  font-size: 34px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px #0008);
+  animation: tut-hand 0.8s ease-in-out infinite alternate;
+}
+
+.tut-hand.down {
+  transform: rotate(180deg);
+  animation-name: tut-hand-down;
+}
+
+@keyframes tut-hand {
+  to {
+    translate: 0 8px;
+  }
+}
+
+@keyframes tut-hand-down {
+  to {
+    translate: 0 -8px;
+  }
+}
+
+.tut-bubble {
+  position: fixed;
+  left: 50%;
+  translate: -50% 0;
+  width: min(92vw, 460px);
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px;
+  border: 2px solid var(--gold);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px #000a;
+  pointer-events: auto;
+}
+
+.tut-bubble.top {
+  top: 12px;
+}
+
+.tut-bubble.bottom {
+  bottom: 12px;
+}
+
+.tut-bubble.show {
+  animation: toast-in 0.3s ease-out;
+}
+
+.tut-mine {
+  width: 54px;
+  height: 72px;
+  flex: none;
+  image-rendering: pixelated;
+}
+
+.tut-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tut-name {
+  color: var(--gold);
+  font-size: 13px;
+}
+
+.tut-text {
+  margin: 2px 0 8px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.tut-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tut-skip {
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tut-spot,
+  .tut-hand {
+    animation: none;
+  }
 }
