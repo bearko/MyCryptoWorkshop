@@ -1,3 +1,4 @@
+import { fmt } from '../format';
 import { MAX_SLOTS } from '../layout';
 import type { SaveData } from '../save';
 import { computeStats, type Stats } from '../stats';
@@ -85,7 +86,7 @@ export class Shop {
     this.save.gum += amount;
     this.save.totals.revenue += amount;
     this.report.revenue += amount;
-    this.popups.push({ text: `+${amount.toLocaleString()}`, x, y, t: 0, color: '#ffe066', icon: 'gum' });
+    this.popups.push({ text: `+${fmt(amount)}`, x, y, t: 0, color: '#ffe066', icon: 'gum' });
   }
 
   // ---------------------------------------------------------------- update
