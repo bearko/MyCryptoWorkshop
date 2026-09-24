@@ -1,4 +1,5 @@
 import { COUNTER, HERO_PX } from '../layout';
+import { itemExt } from '../items';
 import { salePrice } from '../stats';
 import type { Shop } from './index';
 
@@ -69,6 +70,7 @@ export class Register {
     shop.addGum(price, a.x, a.y - HERO_PX - 30);
     shop.report.sold++;
     shop.save.totals.sold++;
+    if (itemExt(a.item).rarityIndex >= 2) shop.report.rareSold++;
     if (!shop.save.heroes[a.hero.id]) shop.report.newHeroes.push(a.hero.id);
     shop.save.heroes[a.hero.id] = (shop.save.heroes[a.hero.id] ?? 0) + 1;
     if (!shop.report.bestSale || price > shop.report.bestSale.price) {
@@ -80,6 +82,7 @@ export class Register {
       shop.save.orders = shop.save.orders.filter((o) => o !== a.order);
       shop.save.heroes[a.hero.id] += 3;
       shop.report.ordersDone++;
+      shop.save.totals.orders++;
       shop.emit({ type: 'orderDone', hero: a.hero, item: a.item, price });
     }
     a.paid = price;

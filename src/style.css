@@ -1756,3 +1756,78 @@ body.in-day {
 .order-row small {
   color: var(--muted);
 }
+
+/* ---------------------------------------------------------------- dailies, achievements */
+
+.dailies h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.daily-list {
+  display: grid;
+  gap: 4px;
+}
+
+.daily-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: #0004;
+  font-size: 13px;
+}
+
+.daily-row b {
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.daily-row.done b {
+  color: var(--good);
+}
+
+.dust.emblem {
+  color: #ffb38a;
+}
+
+.achievement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+
+.achievement {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #0004;
+  font-size: 12px;
+}
+
+.achievement span,
+.achievement small {
+  color: var(--muted);
+}
+
+.achievement.done {
+  background: color-mix(in srgb, var(--gold-2) 25%, #0004);
+}
+
+.achievement-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: #0006;
+  overflow: hidden;
+}
+
+.achievement-bar div {
+  height: 100%;
+  background: var(--gold);
+}

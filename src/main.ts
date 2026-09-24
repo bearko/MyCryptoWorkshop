@@ -1,6 +1,7 @@
 import './style.css';
 import { CURRENCIES } from './game/currency';
 import { conditionLabel, CONDITIONS } from './game/conditions';
+import { ACHIEVEMENTS, DAILY_BONUS, dailyLabel, dailyValue } from './game/achievements';
 import { confetti } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
@@ -44,6 +45,8 @@ const dustText = h('span.dust-amount', {}, '0');
 const dustBox = h('div.dust', { title: 'ゴールドダスト' }, icon(icons.dust, 'px'), dustText);
 const researchText = h('span.research-amount', {}, '0');
 const researchBox = h('div.dust.research', { title: '研究ポイント' }, icon(CURRENCIES.research.icon, 'px'), researchText);
+const emblemText = h('span.emblem-amount', {}, '0');
+const emblemBox = h('div.dust.emblem', { title: 'エンブレム' }, icon(CURRENCIES.emblem.icon, 'px'), emblemText);
 const dayText = h('span.day-label');
 const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
 const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
@@ -54,6 +57,7 @@ const topbar = h(
   h('div.gum', { title: '所持GUM' }, icon(icons.gum, 'px'), gumText),
   dustBox,
   researchBox,
+  emblemBox,
   dayText,
   h(
     'div.settings',
@@ -143,6 +147,8 @@ function updateTopbar(): void {
   dustBox.hidden = save.resources.dust <= 0 && stats.dismantleRarity < 0;
   researchText.textContent = fmt(save.resources.research);
   researchBox.hidden = save.resources.research <= 0 && stats.researchRate <= 0;
+  emblemText.textContent = fmt(save.resources.emblem);
+  emblemBox.hidden = save.resources.emblem <= 0 && save.achievements.length === 0;
   dayText.textContent = `Day ${save.day}`;
   bgmBtn.classList.toggle('off', !save.settings.bgm);
   seBtn.classList.toggle('off', !save.settings.se);
@@ -275,6 +281,7 @@ function openPauseMenu(): void {
         ] as [string, string][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
     ),
+    ...(save.dailies.length ? [h('h3', {}, '今日のデイリー依頼'), dailyList(r)] : []),
     h('h3', {}, 'できごと'),
     logCopy.children.length ? logCopy : h('p.muted', {}, 'まだ何も起きていません'),
   );
@@ -322,6 +329,8 @@ function openMenu(): void {
         ] as [string, string | number][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, String(v)))),
     ),
+    h('p', {}, `実績（${save.achievements.length} / ${ACHIEVEMENTS.length}）`),
+    achievementList(),
     saveTransfer(),
     h(
       'button.btn.danger',
@@ -344,6 +353,40 @@ function openMenu(): void {
     credits(),
   );
   openModal('メニュー', body, [{ label: '閉じる' }]);
+}
+
+/** Today's (or the next day's) requests, with progress when a day report is given. */
+function dailyList(r?: DayReport): HTMLElement {
+  return h(
+    'div.daily-list',
+    {},
+    ...save.dailies.map((d) => {
+      const v = r ? Math.min(d.target, dailyValue(d.kind, r)) : 0;
+      const done = d.done || (r ? v >= d.target : false);
+      return h('div.daily-row', { class: `daily-row ${done ? 'done' : ''}` }, h('span', {}, dailyLabel(d)), h('b', {}, done ? '✓' : r ? `${fmt(v)} / ${fmt(d.target)}` : `エンブレム +1`));
+    }),
+    h('small.muted', {}, `3つすべて達成でエンブレム +${DAILY_BONUS}`),
+  );
+}
+
+/** Achievements with progress bars. */
+function achievementList(): HTMLElement {
+  return h(
+    'div.achievement-list',
+    {},
+    ...ACHIEVEMENTS.map((a) => {
+      const [v, target] = a.progress(save);
+      const done = save.achievements.includes(a.id);
+      return h(
+        'div.achievement',
+        { class: `achievement ${done ? 'done' : ''}` },
+        h('b', {}, a.name),
+        h('span', {}, a.desc),
+        h('div.achievement-bar', {}, h('div', { style: `width:${Math.min(100, (v / target) * 100)}%` })),
+        h('small', {}, done ? '達成' : `エンブレム ${a.emblem}`),
+      );
+    }),
+  );
 }
 
 /** Export / import of the save as a copy-pasteable code (for moving between devices or backups). */
@@ -478,6 +521,8 @@ function showResults(report: DayReport): void {
       ? h('p.best-sale', {}, '最高額: ', h('b', {}, report.bestSale.hero), ' が ', extLabel(report.bestSale.item), ` を ${fmt(report.bestSale.price)} GUM で購入`)
       : null,
     report.sets.length ? h('p.best-sale', {}, '🏆 コンプリート達成: ', h('b', {}, report.sets.join('・'))) : null,
+    report.achievements.length ? h('p.best-sale', {}, '🎖️ 実績: ', h('b', {}, report.achievements.join('・'))) : null,
+    report.dailyEmblems > 0 ? h('p.best-sale', {}, `デイリー依頼を達成！ エンブレム +${report.dailyEmblems}`) : null,
     report.newEntries.length
       ? h('div.new-entries', {}, h('div', {}, `図鑑に新しく登録 (${report.newEntries.length})`), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
       : null,

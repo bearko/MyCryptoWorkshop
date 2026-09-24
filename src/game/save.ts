@@ -1,5 +1,6 @@
 import { customers, extensionById, heroById, series } from './catalog';
 import type { Order } from './orders';
+import type { Daily } from './achievements';
 import { CONDITIONS } from './conditions';
 
 const CONDITION_KINDS = Object.keys(CONDITIONS);
@@ -18,6 +19,8 @@ export interface Totals {
   caught: number;
   pests: number;
   crafted: number;
+  orders: number;
+  chests: number;
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
@@ -46,7 +49,7 @@ export interface SaveData {
     playSeconds: number;
   };
   /** Materials from the dismantler, and research points from the researcher. */
-  resources: { dust: number; gems: Record<GemId, number>; research: number };
+  resources: { dust: number; gems: Record<GemId, number>; research: number; emblem: number };
   /** Showcase contents carried over between days (null = empty). */
   showcase: (number | null)[];
   /** Condition of the next business day (weather, festival, land). */
@@ -57,6 +60,10 @@ export interface SaveData {
   heroes: Record<string, number>;
   /** Open orders (注文) for the coming business days. */
   orders: Order[];
+  /** Achievement ids earned. */
+  achievements: string[];
+  /** Requests for the next business day. */
+  dailies: Daily[];
   /** Best edition crafted per extension id (for the collection). */
   bestEdition: Record<string, number>;
   /** 魔石 infused into each line for the next business day. */
@@ -74,6 +81,8 @@ export const emptyTotals = (): Totals => ({
   caught: 0,
   pests: 0,
   crafted: 0,
+  orders: 0,
+  chests: 0,
 });
 
 export function newSave(now = Date.now()): SaveData {
@@ -90,12 +99,14 @@ export function newSave(now = Date.now()): SaveData {
     settings: { bgm: true, se: true },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
-    resources: { dust: 0, gems: emptyGems(), research: 0 },
+    resources: { dust: 0, gems: emptyGems(), research: 0, emblem: 0 },
     showcase: [],
     forecast: { kind: 'sunny' },
     regulars: [],
     heroes: {},
     orders: [],
+    achievements: [],
+    dailies: [],
     bestEdition: {},
     infusion: {},
   };
@@ -120,7 +131,7 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
   // v4 → v5 (Phase 4): day conditions and reformed regulars.
   4: (d) => ({ ...d, version: 5, forecast: { kind: 'sunny' }, regulars: [] }),
   // v5 → v6 (Phase 5): the hero collection.
-  5: (d) => ({ ...d, version: 6, heroes: {}, orders: [] }),
+  5: (d) => ({ ...d, version: 6, heroes: {}, orders: [], achievements: [], dailies: [], resources: { ...(d.resources as object), emblem: 0 } }),
 };
 
 export class SaveError extends Error {}
@@ -190,7 +201,7 @@ export function parseSave(json: string): SaveData {
   const migrated = migrate(raw);
   const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
   const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
-  data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0 };
+  data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0, emblem: res.emblem ?? 0 };
   sanitize(data);
   return data;
 }

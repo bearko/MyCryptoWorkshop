@@ -105,7 +105,39 @@ function seriesNodes(i: number): SkillNode[] {
   return nodes;
 }
 
+/** 名誉 (honor): permanent perks bought with emblems from achievements and daily requests. */
+const HONOR: { key: string; name: string; desc: string; icon: string; effects: Effect[] }[] = [
+  { key: 'price', name: '名声', desc: '販売価格 +5%', icon: icons.emblem, effects: [mul('priceMult', 0.05, 'honor')] },
+  { key: 'craft', name: '手際', desc: '全ラインのクラフト時間 -4%', icon: icons.bufPhy, effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.96)) },
+  { key: 'crowd', name: '人気', desc: '来客ペース +5%', icon: icons.bufAgi, effects: [mul('spawnRate', 0.05, 'honor')] },
+  { key: 'hours', name: '夜なべ', desc: '1日の営業時間 +4秒', icon: icons.sleep, effects: [add('dayLength', 4)] },
+  { key: 'research', name: '研究熱心', desc: '研究ポイント +15%', icon: icons.int, effects: [mul('researchRate', 0.15, 'honor')] },
+  { key: 'edition', name: '目利き', desc: 'エディションの出やすさ +8%', icon: icons.gems.garuda, effects: [mul('editionLuck', 0.08, 'honor')] },
+  { key: 'luck', name: '幸運', desc: '最高レアの出やすさ +8%（全ライン）', icon: icons.gems.tiamat, effects: [add('luck', 0.08)] },
+  { key: 'storage', name: '倉庫番', desc: '倉庫の容量 +3', icon: seriesIcon('Chair', 3), effects: [add('storageCap', 3)] },
+  { key: 'guard', name: '防犯', desc: '泥棒の逃げ足 -5%', icon: icons.fear, effects: [pow('thiefSpeed', 0.95)] },
+  { key: 'patience', name: 'もてなし', desc: '棚とレジで待つ時間 +1秒', icon: icons.hp, effects: [add('patience', 1), add('queuePatience', 1)] },
+  { key: 'tip', name: '心づけ', desc: 'チップの確率 +3%', icon: seriesIcon('Wallet', 1), effects: [add('tipChance', 0.03)] },
+  { key: 'dust', name: '精錬の誉れ', desc: 'ゴールドダスト +15%', icon: icons.dust, effects: [mul('dustMult', 0.15, 'honor')] },
+  { key: 'gem', name: '魔石の縁', desc: '魔石が出る確率 +5%', icon: icons.gems.ifrit, effects: [add('gemChance', 0.05)] },
+  { key: 'vehicle', name: '観光名所', desc: '乗り物で来る客 +1人', icon: seriesIcon('Horse', 4), effects: [add('vehicleSize', 1)] },
+  { key: 'fans', name: '看板', desc: '顔なじみ・常連の支払いボーナス +20%', icon: seriesIcon('Oriflamme', 2), effects: [mul('affinityPower', 0.2, 'honor')] },
+];
+const HONOR_RANKS = ['I', 'II', 'III', 'IV', 'V'];
+
+const honorNodes: SkillNode[] = [
+  { id: 'honorHub', branch: 'honor', name: '名誉の殿堂', desc: '実績とデイリー依頼で得たエンブレムで、永続の特典を習得できる', icon: icons.emblem, x: 13, y: 0, max: 1, baseCost: 1, growth: 1, requires: [], effects: [mul('priceMult', 0.02, 'honor')], currency: 'emblem' },
+  ...HONOR.flatMap((perk, row) =>
+    HONOR_RANKS.map((rank, r): SkillNode => ({
+      id: `honor_${perk.key}_${r + 1}`, branch: 'honor', name: `${perk.name} ${rank}`, desc: perk.desc, icon: perk.icon,
+      x: 14 + r, y: row - 7, max: 1, baseCost: 2 ** r * (1 + Math.floor(row / 5)), growth: 1,
+      requires: [r === 0 ? 'honorHub' : `honor_${perk.key}_${r}`], effects: perk.effects, currency: 'emblem',
+    })),
+  ),
+];
+
 export const PHASE5_SERIES_NODES: SkillNode[] = [
+  ...honorNodes,
   // Hubs next to 陳列棚増設
   { id: 'recipeBook', branch: 'series', name: 'レシピ帳', desc: 'シリーズのレシピを集め始める。品揃えを意識して来客ペース +5%', icon: icons.gems.leviathan, x: -2, y: -1, max: 1, baseCost: 20, growth: 1, requires: ['shelf'], effects: [mul('spawnRate', 0.05)] },
   { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -2, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },
