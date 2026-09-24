@@ -1,4 +1,4 @@
-import { catalog, icons, RARITY_COLOR, staffFrames, type Frame } from '../game/catalog';
+import { catalog, icons, RARITY_COLOR, seriesIcon, staffFrames, staffHeroes, type Frame } from '../game/catalog';
 import { EDITIONS, itemEdition, itemExt } from '../game/items';
 import {
   CHRIS_POS,
@@ -6,7 +6,13 @@ import {
   DOOR,
   FLOOR_Y,
   MAYCRI_POS,
+  MAX_SHOWCASE,
   CEILING_Y,
+  POTION_BAR,
+  POTION_STAND,
+  SHOWCASE,
+  showcasePos,
+  TRIAL,
   HERO_PX,
   MINE_POS,
   PEST_PX,
@@ -26,9 +32,10 @@ import {
   WINDOW,
   WORKSHOP_H,
 } from '../game/layout';
-import type { Actor, Shop } from '../game/shop';
+import type { Actor, Shop, StaffMember } from '../game/shop';
+import { ROLES } from '../game/staff';
 import type { Line } from '../game/shop/production';
-import { drawRef, img, ready } from './images';
+import { drawRef, fileOf, img, ready } from './images';
 
 /** Staff sprites are drawn at this scale so they match the ~64px heroes. */
 const STAFF_SCALE = 0.55;
@@ -63,8 +70,52 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-/** Draws the storefront (static parts) into an offscreen canvas; redrawn when the shelf size changes. */
-function paintStorefront(ctx: CanvasRenderingContext2D, slotCount: number): void {
+/** What is built in the shop; the static storefront is repainted when this changes. */
+interface Furnishing {
+  slotCount: number;
+  rug: number;
+  showcase: number;
+  potionStand: boolean;
+  bar: boolean;
+  trial: boolean;
+}
+
+function furnishingOf(shop: Shop): Furnishing {
+  const s = shop.stats;
+  return {
+    slotCount: shop.shelfSlots,
+    rug: s.rug,
+    showcase: Math.min(MAX_SHOWCASE, s.showcaseSlots),
+    potionStand: s.potionStand > 0,
+    bar: s.barChance > 0,
+    trial: s.trialChance > 0,
+  };
+}
+
+/** Decorative icons used by the furniture. */
+const DECOR = {
+  potion: seriesIcon('Goblet', 1),
+  potion2: seriesIcon('Goblet', 3),
+  sake: seriesIcon('Sake', 2),
+  crown: seriesIcon('Crown', 3),
+  coin: seriesIcon('Wallet', 1),
+  book: seriesIcon('Book', 2),
+  monocle: seriesIcon('Monocle', 2),
+  robot: seriesIcon('Combined Robots', 1),
+  sword: seriesIcon('Enhanced Sword', 2),
+  bundle: seriesIcon('Mantle', 0),
+  net: seriesIcon('Cat Teaser', 1),
+};
+
+/** Staff who work at a desk, and what lies on it. */
+const DESKS: Partial<Record<string, string>> = { accountant: DECOR.coin, researcher: DECOR.book, appraiser: DECOR.monocle };
+
+/** Extra sprites the scene draws (preloaded at boot so the cached storefront is complete). */
+export const SCENE_SPRITES = [...Object.values(DECOR), ...Object.values(staffHeroes).flatMap((s) => [s.hero.image, s.ace.image])];
+
+/** Draws the storefront (static parts) into an offscreen canvas; redrawn when the furnishing changes. */
+function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
+  const slotCount = f.slotCount;
   const top = WORKSHOP_H;
   // Back wall with vertical planks
   const wall = ctx.createLinearGradient(0, top, 0, FLOOR_Y);
@@ -124,21 +175,36 @@ function paintStorefront(ctx: CanvasRenderingContext2D, slotCount: number): void
 
   // Rug in the middle of a tall storefront
   if (RUG) {
+    // A plain mat until the 高級絨毯 upgrade; each level adds gold trim.
     const { x0, x1, y0, y1 } = RUG;
-    ctx.fillStyle = '#5b1f24';
+    const fancy = f.rug > 0;
+    ctx.fillStyle = fancy ? '#7a1f2b' : '#5b3a2a';
     roundRect(ctx, x0, y0, x1 - x0, y1 - y0, 10);
     ctx.fill();
-    ctx.strokeStyle = '#c9974f';
-    ctx.lineWidth = 4;
-    roundRect(ctx, x0 + 12, y0 + 12, x1 - x0 - 24, y1 - y0 - 24, 6);
+    if (fancy) {
+      // Fringe on the short sides
+      ctx.fillStyle = '#e8c27a';
+      for (let y = y0 + 6; y < y1 - 4; y += 8) {
+        ctx.fillRect(x0 - 6, y, 6, 3);
+        ctx.fillRect(x1, y, 6, 3);
+      }
+    }
+    ctx.strokeStyle = fancy ? '#e8b75a' : 'rgba(201,151,79,0.45)';
+    ctx.lineWidth = fancy ? 4 : 2;
+    roundRect(ctx, x0 + 10, y0 + 10, x1 - x0 - 20, y1 - y0 - 20, 6);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(201,151,79,0.5)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, x0 + 26, y0 + 26, x1 - x0 - 52, y1 - y0 - 52, 4);
-    ctx.stroke();
+    for (let k = 1; k < Math.min(f.rug, 4); k++) {
+      const inset = 10 + k * 9;
+      if (y1 - y0 - inset * 2 < 16) break;
+      ctx.strokeStyle = `rgba(232,183,90,${0.7 - k * 0.12})`;
+      ctx.lineWidth = 2;
+      roundRect(ctx, x0 + inset, y0 + inset, x1 - x0 - inset * 2, y1 - y0 - inset * 2, 4);
+      ctx.stroke();
+    }
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
     const r = Math.min(40, (y1 - y0) / 2 - 34);
+    ctx.strokeStyle = fancy ? '#e8b75a' : 'rgba(201,151,79,0.45)';
     if (r > 8) {
       ctx.beginPath();
       ctx.moveTo(cx, cy - r);
@@ -204,6 +270,113 @@ function paintStorefront(ctx: CanvasRenderingContext2D, slotCount: number): void
       }
     }
   }
+
+  if (f.showcase > 0) paintShowcase(ctx, f.showcase);
+  if (f.potionStand) paintPotionStand(ctx);
+  if (f.bar) paintPotionBar(ctx);
+  if (f.trial) paintTrialArea(ctx);
+}
+
+/** Glass cabinet for valuable items, with lights; locked slots show a plus. */
+function paintShowcase(ctx: CanvasRenderingContext2D, slots: number): void {
+  const { x0, x1, top } = SHOWCASE;
+  const bottom = FLOOR_Y + 4;
+  ctx.fillStyle = '#1d120b';
+  ctx.fillRect(x0 - 4, top - 4, x1 - x0 + 8, bottom - top + 4);
+  ctx.fillStyle = '#6d2c3a';
+  ctx.fillRect(x0, top, x1 - x0, bottom - top - 4);
+  const glass = ctx.createLinearGradient(x0, top, x1, bottom);
+  glass.addColorStop(0, 'rgba(190,230,255,0.28)');
+  glass.addColorStop(0.5, 'rgba(190,230,255,0.08)');
+  glass.addColorStop(1, 'rgba(190,230,255,0.22)');
+  ctx.fillStyle = glass;
+  ctx.fillRect(x0 + 4, top + 4, x1 - x0 - 8, bottom - top - 12);
+  ctx.fillStyle = '#e8b75a';
+  ctx.fillRect(x0 - 6, top - 9, x1 - x0 + 12, 6);
+  for (const ry of SHELF_ROW_Y) {
+    ctx.fillStyle = '#e8b75a';
+    ctx.fillRect(x0 + 2, ry + 16, x1 - x0 - 4, 3);
+  }
+  drawImg(ctx, DECOR.crown, (x0 + x1) / 2 - 12, top - 34, 24, 24);
+  for (let i = slots; i < MAX_SHOWCASE; i++) {
+    const p = showcasePos(i);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    roundRect(ctx, p.x - 13, p.y - 13, 26, 26, 5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = `15px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('＋', p.x, p.y + 1);
+  }
+}
+
+/** Small table by the door with free potions. */
+function paintPotionStand(ctx: CanvasRenderingContext2D): void {
+  const { x, y } = POTION_STAND;
+  ctx.fillStyle = '#4b2e1b';
+  ctx.fillRect(x - 26, y - 34, 52, 34);
+  ctx.fillStyle = '#b07a45';
+  ctx.fillRect(x - 30, y - 38, 60, 6);
+  drawImg(ctx, DECOR.potion, x - 28, y - 64, 26, 26);
+  drawImg(ctx, DECOR.potion2, x - 2, y - 66, 28, 28);
+  ctx.fillStyle = '#fff3c4';
+  roundRect(ctx, x - 22, y - 26, 44, 16, 4);
+  ctx.fill();
+  ctx.fillStyle = '#b03a2e';
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('FREE', x, y - 17);
+}
+
+/** Bar counter under the register, with bottles on a back shelf. */
+function paintPotionBar(ctx: CanvasRenderingContext2D): void {
+  const { x0, x1, y } = POTION_BAR;
+  // Back shelf with bottles
+  ctx.fillStyle = '#3b2415';
+  ctx.fillRect(x0, y - 70, x1 - x0, 8);
+  for (let i = 0; i < 4; i++) drawImg(ctx, i % 2 ? DECOR.sake : DECOR.potion, x0 + 10 + i * 42, y - 100, 30, 30);
+  // Counter
+  ctx.fillStyle = '#c28b56';
+  ctx.fillRect(x0 - 2, y, x1 - x0 + 4, 8);
+  ctx.fillStyle = '#6f4326';
+  ctx.fillRect(x0, y + 8, x1 - x0, 22);
+  ctx.fillStyle = '#ffe9c2';
+  ctx.font = `bold 13px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('POTION BAR', (x0 + x1) / 2, y + 19);
+}
+
+/** Straw dummy on a mat, where customers try out what they bought. */
+function paintTrialArea(ctx: CanvasRenderingContext2D): void {
+  const { dummy, spot } = TRIAL;
+  ctx.fillStyle = 'rgba(60,90,40,0.55)';
+  roundRect(ctx, spot.x - 40, dummy.y - 26, dummy.x - spot.x + 76, 36, 8);
+  ctx.fill();
+  // Post and straw body
+  ctx.fillStyle = '#6b4424';
+  ctx.fillRect(dummy.x - 3, dummy.y - 70, 6, 70);
+  ctx.fillRect(dummy.x - 22, dummy.y - 56, 44, 5);
+  ctx.fillStyle = '#d9b562';
+  roundRect(ctx, dummy.x - 13, dummy.y - 62, 26, 40, 8);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(dummy.x, dummy.y - 72, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#9c7a35';
+  ctx.lineWidth = 2;
+  for (let k = 0; k < 3; k++) {
+    ctx.beginPath();
+    ctx.moveTo(dummy.x - 12, dummy.y - 52 + k * 10);
+    ctx.lineTo(dummy.x + 12, dummy.y - 52 + k * 10);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#ffe9c2';
+  ctx.font = `bold 13px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('試し斬り', dummy.x - 30, dummy.y + 2);
 }
 
 export class SceneRenderer {
@@ -248,13 +421,15 @@ export class SceneRenderer {
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
-    const key = `${shop.shelfSlots}|${ready(img(catalog.windowView))}|${SCENE_H}`;
+    const furnish = furnishingOf(shop);
+    const loaded = ready(img(catalog.windowView)) && Object.values(DECOR).every((r) => ready(img(fileOf(r))));
+    const key = `${JSON.stringify(furnish)}|${loaded}|${SCENE_H}`;
     if (key !== this.bgKey) {
       this.bg.height = SCENE_H;
       const bctx = this.bg.getContext('2d')!;
       bctx.clearRect(0, 0, SCENE_W, SCENE_H);
       bctx.imageSmoothingEnabled = false;
-      paintStorefront(bctx, shop.shelfSlots);
+      paintStorefront(bctx, furnish);
       this.bgKey = key;
     }
     ctx.drawImage(this.bg, 0, 0, SCENE_W, SCENE_H);
@@ -345,14 +520,17 @@ export class SceneRenderer {
     ctx.fillRect(x1 - 35, top - 14, 20, 6);
     drawImg(ctx, icons.gum, x0 + 6, top + 13, 18, 18);
 
-    // Checkout progress bars on the counter front
+    // Self-checkout machines on the right end of the counter
+    for (let i = 0; i < shop.stats.autoRegisters; i++) drawImg(ctx, DECOR.robot, x1 + 4 - i * 26, top - 30, 28, 28);
+
+    // Checkout progress bars on the counter front (machines in blue)
     shop.registerProgress.forEach((p, r) => {
       const y = top + 34 - r * 8;
       const w = x1 - x0 - 40;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(x0 + 30, y, w, 5);
-      ctx.fillStyle = '#7CFFB2';
-      ctx.fillRect(x0 + 30, y, w * Math.min(1, p / shop.stats.cashierTime), 5);
+      ctx.fillStyle = r >= shop.register.autoFrom ? '#74c0fc' : '#7CFFB2';
+      ctx.fillRect(x0 + 30, y, w * Math.min(1, p / shop.register.laneTime(r)), 5);
     });
 
     if (hint || shop.registerPulse > 0) {
@@ -366,8 +544,14 @@ export class SceneRenderer {
 
   private drawActors(shop: Shop, now: number): void {
     const ctx = this.ctx;
-    const actors = [...shop.actors].sort((a, b) => a.y - b.y);
-    for (const a of actors) {
+    // Customers, thieves and shop staff, back to front.
+    const staff = shop.staffMembers.filter((m) => ROLES[m.role].area === 'shop' && !m.away);
+    const all: (Actor | StaffMember)[] = [...shop.actors, ...staff].sort((a, b) => a.y - b.y);
+    for (const a of all) {
+      if ('role' in a) {
+        this.drawStaff(shop, a, now);
+        continue;
+      }
       const walking = Math.abs(a.tx - a.x) + Math.abs(a.ty - a.y) > 3;
       const hop = walking && !a.rope ? Math.abs(Math.sin(a.bob)) * 4 : 0;
       const shake = a.hitFlash > 0 ? Math.sin(now / 20) * 5 * a.hitFlash : 0;
@@ -412,6 +596,68 @@ export class SceneRenderer {
     }
   }
 
+  /** A staff member: hero sprite on a coloured ring, job plate, desk, and what they are doing. */
+  private drawStaff(shop: Shop, m: StaffMember, now: number): void {
+    const ctx = this.ctx;
+    const moving = Math.hypot(m.x - m.homeX, m.y - m.homeY) > 3 || m.state === 'walk' || m.state === 'return';
+    const hop = (moving ? Math.abs(Math.sin(m.bob)) * 4 : 0) + Math.sin(Math.PI * m.pulse) * 8;
+    const ring = m.ace ? 'rgba(255,207,51,0.75)' : 'rgba(124,255,178,0.55)';
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.ellipse(m.x, m.y - 1, 22, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (m.ace) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,215,90,0.9)';
+      ctx.shadowBlur = 12;
+    }
+    drawImg(ctx, m.hero.image, m.x - HERO_PX / 2, m.y - HERO_PX - hop, HERO_PX, HERO_PX, m.facing < 0);
+    if (m.ace) ctx.restore();
+
+    const desk = DESKS[m.role];
+    if (desk) {
+      // Desk in front of the legs
+      ctx.fillStyle = '#6f4326';
+      ctx.fillRect(m.x - 34, m.y - 24, 68, 26);
+      ctx.fillStyle = '#c28b56';
+      ctx.fillRect(m.x - 38, m.y - 30, 76, 7);
+      drawImg(ctx, desk, m.x + 8, m.y - 52, 26, 26);
+    }
+    if (m.bag.length) drawImg(ctx, itemExt(m.bag[0]).image, m.x - 16, m.y - HERO_PX - hop - 30, 32, 32);
+
+    // Job plate under the feet
+    const label = ROLES[m.role].job;
+    ctx.font = `13px ${FONT}`;
+    const w = ctx.measureText(label).width + 12;
+    ctx.fillStyle = m.ace ? 'rgba(90,60,0,0.85)' : 'rgba(20,40,28,0.8)';
+    roundRect(ctx, m.x - w / 2, m.y + 4, w, 17, 6);
+    ctx.fill();
+    ctx.fillStyle = m.ace ? '#ffd966' : '#b8ffd6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, m.x, m.y + 13);
+
+    const bx = m.x;
+    const by = m.y - HERO_PX - hop - 22;
+    const chasing = m.role === 'guard' && shop.actors.some((a) => a.kind === 'thief' && a.state !== 'caught');
+    let text = '';
+    if (m.role === 'promoter' && m.pulse > 0) text = 'いらっしゃい！';
+    else if (m.role === 'host' && m.pulse > 0.3) text = 'ようこそ';
+    else if (chasing) text = '待てっ！';
+    if (text) {
+      ctx.font = `bold 15px ${FONT}`;
+      const tw = ctx.measureText(text).width + 14;
+      // Keep the bubble inside the scene (the promoter stands by the right edge).
+      const cx = Math.min(SCENE_W - tw / 2 - 4, Math.max(tw / 2 + 4, bx));
+      ctx.fillStyle = chasing ? '#ffe3e3' : '#fffaf0';
+      roundRect(ctx, cx - tw / 2, by - 13, tw, 24, 8);
+      ctx.fill();
+      ctx.fillStyle = chasing ? '#c92a2a' : '#5b4636';
+      ctx.fillText(text, cx, by);
+    }
+    void now;
+  }
+
   private drawBubble(shop: Shop, a: Actor, now: number): void {
     const ctx = this.ctx;
     const bx = a.x;
@@ -451,6 +697,25 @@ export class SceneRenderer {
         ctx.fillStyle = '#ff6b6b';
         ctx.font = `bold 24px ${FONT}`;
         ctx.fillText('ｷﾗｰﾝ', bx, by + 1);
+      }
+      return;
+    }
+    if (a.state === 'drink' || a.state === 'toBar') {
+      bubble(52, 48);
+      drawImg(ctx, a.state === 'drink' && Math.sin(now / 150) > 0 ? DECOR.sake : DECOR.potion, bx - 20, by - 20, 40, 40);
+      return;
+    }
+    if (a.state === 'trial' || a.state === 'toTrial') {
+      bubble(52, 48);
+      drawImg(ctx, DECOR.sword, bx - 20, by - 20, 40, 40);
+      if (a.state === 'trial') {
+        // Swing arc toward the dummy
+        const k = (now / 400) % 1;
+        ctx.strokeStyle = `rgba(255,255,255,${1 - k})`;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(TRIAL.dummy.x, TRIAL.dummy.y - 50, 26 + k * 10, -Math.PI * 0.9, -Math.PI * 0.9 + k * Math.PI * 1.2);
+        ctx.stroke();
       }
       return;
     }
@@ -534,6 +799,14 @@ export class SceneRenderer {
       drawImg(ctx, p.image, p.x - PEST_PX / 2 + wob, p.y - PEST_PX - lift, PEST_PX, PEST_PX, p.toX < p.fromX);
       ctx.restore();
       drawImg(ctx, icons.sleep, p.x + 18, p.y - PEST_PX - lift - 14, 24, 24);
+    }
+
+    // Staff working in the workshop (the exterminator and the delivery clerk)
+    for (const m of shop.staffMembers) {
+      if (ROLES[m.role].area !== 'workshop') continue;
+      this.drawStaff(shop, m, now);
+      if (m.role === 'exterminator') drawImg(ctx, DECOR.net, m.x + (m.facing > 0 ? 10 : -38), m.y - HERO_PX - 4, 28, 28);
+      if (m.role === 'delivery' && m.pulse > 0) drawImg(ctx, DECOR.bundle, m.x - 14, m.y - HERO_PX - 36, 28, 28);
     }
   }
 

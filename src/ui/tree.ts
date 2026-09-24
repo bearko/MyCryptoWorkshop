@@ -1,6 +1,7 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
+import { STAFF_ROLES } from '../game/staff';
 import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
@@ -472,6 +473,9 @@ export class TreeView {
       ['図鑑ボーナス', `+${(s.collectionBonus * this.save.collection.length * 100).toFixed(0)}%`],
       ['シリーズ', `${s.seriesUnlocked.length}種`],
     ];
+    const staff = STAFF_ROLES.filter((r) => s[`staff_${r}`] > 0).length;
+    if (staff > 0) rows.push(['スタッフ', `${staff}人`]);
+    if (s.researchRate > 0) rows.push(['研究ポイント', `${s.researchRate.toFixed(1)}/分`]);
     this.statsBox.replaceChildren(h('h3', {}, '工房のステータス'), ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))));
   }
 }

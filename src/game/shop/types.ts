@@ -169,7 +169,7 @@ export type ShopEvent =
   | { type: 'thief'; hero: Hero; style: ThiefStyle }
   | { type: 'thiefHit'; hero: Hero; hpLeft: number }
   | { type: 'stolen'; hero: Hero; item: number }
-  | { type: 'caught'; hero: Hero; bounty: number; byGuard: boolean }
+  | { type: 'caught'; hero: Hero; bounty: number; byGuard: boolean; guard?: string }
   | { type: 'pest'; name: string }
   | { type: 'pestCleared'; reward: number }
   | { type: 'mine' }

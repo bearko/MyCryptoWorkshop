@@ -100,7 +100,7 @@ export function setSceneHeight(h: number): void {
     stocker: { x: 236, y: FLOOR_Y + 34 },
     consultant: { x: 726, y: FLOOR_Y + 40 },
     host: { x: 872, y: SHOP_LANE_Y + 34 },
-    promoter: { x: 978, y: FLOOR_Y + 46 },
+    promoter: { x: 966, y: FLOOR_Y + 46 },
     guard: { x: 600, y: SHOP_LANE_Y + 42 },
     peddler: { x: 760, y: QUEUE_LANE_Y + 64 },
     accountant: { x: 300, y: bottom },
@@ -108,7 +108,7 @@ export function setSceneHeight(h: number): void {
     appraiser: { x: 540, y: bottom },
     // In the workshop
     exterminator: { x: 470, y: wy(700) },
-    delivery: { x: 222, y: wy(745) },
+    delivery: { x: 268, y: wy(760) },
   };
 }
 

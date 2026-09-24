@@ -127,7 +127,7 @@ export class Staff {
     walk(m, target.x, Math.min(SCENE_H - 20, Math.max(FLOOR_Y + 20, target.y)), speed, dt);
     if (Math.hypot(target.x - m.x, target.y - m.y) < CATCH_RANGE) {
       m.pulse = 1;
-      shop.thieves.catch(target, true);
+      shop.thieves.catch(target, true, m.hero.name);
     }
   }
 
