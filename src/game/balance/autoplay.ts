@@ -44,7 +44,7 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
       if (thief && rng() < player.thiefAccuracy) shop.clickThief(thief);
       else if (shop.pestList.length) shop.clickPest(shop.pestList[0]);
       else if (shop.queue.length >= 2) shop.clickRegister();
-      else shop.clickPot();
+      else shop.clickLine('pot');
     }
   }
   return { report: shop.report, seconds: shop.elapsed };

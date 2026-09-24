@@ -3,7 +3,6 @@ import { itemExt } from '../game/items';
 import {
   CHRIS_POS,
   COUNTER,
-  CRAFT_RING,
   DOOR,
   FLOOR_Y,
   MAYCRI_POS,
@@ -28,11 +27,13 @@ import {
   WORKSHOP_H,
 } from '../game/layout';
 import type { Actor, Shop } from '../game/shop';
+import type { Line } from '../game/shop/production';
 import { drawRef, img, ready } from './images';
 
 /** Staff sprites are drawn at this scale so they match the ~64px heroes. */
 const STAFF_SCALE = 0.55;
 const BUBBLE_SCALE = 0.72;
+const LINE_ICON = { pot: icons.gems.ifrit, forge: icons.phy, capsule: icons.gems.garuda };
 const FONT = '"DotGothic16", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 
 function frameAt(frames: Frame[], now: number): string {
@@ -461,9 +462,10 @@ export class SceneRenderer {
   private drawWorkshop(shop: Shop, now: number, hint: boolean): void {
     const ctx = this.ctx;
     // Mine-chan stirs the pot.
-    if (shop.stats.mineInterval > 0) {
+    const pot = shop.lines.find((l) => l.id === 'pot');
+    if (pot && pot.stats.helperInterval > 0) {
       const f = frameAt(staffFrames.mine, now);
-      const jump = shop.minePulse * 10;
+      const jump = pot.helperPulse * 10;
       drawImg(ctx, f, MINE_POS.x - 48 * STAFF_SCALE, MINE_POS.y - 128 * STAFF_SCALE - jump, 96 * STAFF_SCALE, 128 * STAFF_SCALE);
     }
 
@@ -484,39 +486,7 @@ export class SceneRenderer {
       shop.storage.slice(0, 4).forEach((id, i) => drawImg(ctx, itemExt(id).image, x - 72 + i * 36, y + 2, 32, 32));
     }
 
-    // Pot progress ring
-    const cx = CRAFT_RING.x;
-    const cy = CRAFT_RING.y;
-    const r = 38 + shop.potPulse * 6;
-    ctx.fillStyle = 'rgba(20,10,30,0.72)';
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = shop.craftBlocked ? '#ff6b6b' : shop.pestList.length ? '#ff9f43' : '#ffd166';
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, shop.craftProgress));
-    ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    if (shop.craftBlocked) {
-      ctx.font = `bold 20px ${FONT}`;
-      ctx.fillText('満杯', cx, cy);
-    } else {
-      drawImg(ctx, icons.gems.ifrit, cx - 20, cy - 20, 40, 40);
-    }
-    if (hint) {
-      const a = 0.5 + 0.5 * Math.sin(now / 200);
-      ctx.strokeStyle = `rgba(255,230,120,${a})`;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.ellipse(POT.x, POT.y + 20, 120, 110, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = `rgba(255,240,180,${0.6 + 0.4 * a})`;
-      ctx.font = `bold 26px ${FONT}`;
-      ctx.fillText('クリック！', cx, cy - r - 24);
-    }
+    for (const line of shop.lines) this.drawLineRing(shop, line, now, hint && line.id === 'pot');
 
     // Pests roaming the workshop
     for (const p of shop.pestList) {
@@ -560,6 +530,61 @@ export class SceneRenderer {
           ctx.stroke();
         }
       }
+    }
+  }
+
+  /** A production line's progress ring, with its heat gauge and state. */
+  private drawLineRing(shop: Shop, line: Line, now: number, hint: boolean): void {
+    const ctx = this.ctx;
+    const { x: cx, y: cy } = line.station.ring;
+    const r = 38 + line.pulse * 6;
+    ctx.fillStyle = 'rgba(20,10,30,0.72)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Progress
+    ctx.strokeStyle = line.jam > 0 ? '#777' : line.blocked ? '#ff6b6b' : line.holding ? '#ff9f43' : shop.pestList.length ? '#ffb86b' : '#ffd166';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, line.progress));
+    ctx.stroke();
+    // Heat gauge (outer arc, green → red)
+    if (line.heat > 0.01) {
+      const hue = 120 - 120 * Math.min(1, line.heat);
+      ctx.strokeStyle = `hsl(${hue} 90% 55%)`;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 5, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * Math.min(1, line.heat));
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold 18px ${FONT}`;
+    if (line.jam > 0) {
+      ctx.fillStyle = '#ff8a8a';
+      ctx.fillText('過熱', cx, cy - 8);
+      ctx.fillText(`${line.jam.toFixed(1)}`, cx, cy + 12);
+    } else if (line.idle) {
+      ctx.fillText('ﾚｼﾋﾟ', cx, cy - 8);
+      ctx.fillText('なし', cx, cy + 12);
+    } else if (line.blocked) {
+      ctx.font = `bold 20px ${FONT}`;
+      ctx.fillText('満杯', cx, cy);
+    } else {
+      drawImg(ctx, LINE_ICON[line.id], cx - 20, cy - 20, 40, 40);
+    }
+    if (line.gem) drawImg(ctx, icons.gems[line.gem], cx + r - 16, cy - r - 4, 24, 24);
+    if (hint) {
+      const a = 0.5 + 0.5 * Math.sin(now / 200);
+      ctx.strokeStyle = `rgba(255,230,120,${a})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(POT.x, POT.y + 20, 120, 110, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,240,180,${0.6 + 0.4 * a})`;
+      ctx.font = `bold 26px ${FONT}`;
+      ctx.fillText('タップ！', cx, cy - r - 24);
     }
   }
 

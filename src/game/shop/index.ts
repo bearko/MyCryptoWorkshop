@@ -9,6 +9,7 @@ import { Random } from './random';
 import { Register } from './register';
 import { Stock } from './stock';
 import { Thieves } from './thieves';
+import type { LineId } from '../lines';
 import type { Actor, DayReport, Fx, Pest, Popup, Rng, ShopEvent } from './types';
 
 export type * from './types';
@@ -136,8 +137,19 @@ export class Shop {
 
   // ---------------------------------------------------------------- input (ignored after closing)
 
-  clickPot(): void {
-    if (!this.over) this.production.click();
+  /** Tap on a production line (the magic pot by default). */
+  clickLine(id: LineId = 'pot'): void {
+    if (!this.over) this.production.line(id)?.click();
+  }
+
+  /** Start / stop holding a line to overclock it. */
+  holdLine(id: LineId, holding: boolean): void {
+    const line = this.production.line(id);
+    if (line && !this.over) line.holding = holding && line.jam <= 0;
+  }
+
+  lineAt(x: number, y: number): LineId | null {
+    return this.production.lineAt(x, y)?.id ?? null;
   }
 
   clickRegister(): void {
@@ -158,10 +170,6 @@ export class Shop {
 
   pestAt(x: number, y: number): Pest | null {
     return this.pests.at(x, y);
-  }
-
-  isOnPot(x: number, y: number): boolean {
-    return this.production.isOnPot(x, y);
   }
 
   isOnRegister(x: number, y: number): boolean {
@@ -191,17 +199,8 @@ export class Shop {
   get registerPulse() {
     return this.register.pulse;
   }
-  get craftProgress() {
-    return this.production.progress;
-  }
-  get craftBlocked() {
-    return this.production.blocked;
-  }
-  get potPulse() {
-    return this.production.potPulse;
-  }
-  get minePulse() {
-    return this.production.minePulse;
+  get lines() {
+    return this.production.lines;
   }
   get maxSlots(): number {
     return MAX_SLOTS;

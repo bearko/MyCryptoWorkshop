@@ -2,6 +2,7 @@ import './style.css';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
+import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
@@ -484,7 +485,12 @@ function onShopEvent(e: ShopEvent): void {
   switch (e.type) {
     case 'craft': {
       const ext = itemExt(e.item);
-      if (e.isNew && ext.rarityIndex >= 2) {
+      const edition = itemEdition(e.item);
+      if (edition > 0 || ext.shin) {
+        sound.play('rare');
+        log(h('span', {}, h('span.tag.edition', {}, ext.shin ? '真' : EDITIONS[edition].name), ' ', extLabel(e.item), ` が${LINES[e.line].name}で完成！`), 'rare');
+        tip('edition', 'エディション付きの品ができたよ！鑑定済み・刻印入り…と、珍しいほど高く売れるんだ');
+      } else if (e.isNew && ext.rarityIndex >= 2) {
         sound.play('rare');
         log(h('span', {}, h('span.tag.new', {}, 'NEW'), ` [${RARITY_JA[ext.rarity]}] `, extLabel(e.item), ' が完成！'), 'rare');
       } else {
@@ -493,6 +499,11 @@ function onShopEvent(e: ShopEvent): void {
       }
       break;
     }
+    case 'overheat':
+      sound.play('fail');
+      log(h('span', {}, `${LINES[e.line].name}が過熱して止まった！（3秒）`), 'bad');
+      tip('overheat', '熱くなりすぎて失敗しちゃった…長押しはゲージが赤くなる前に離そう！');
+      break;
     case 'sale':
       sound.play('sale');
       log(h('span', {}, h('b', {}, e.hero.name), ' が ', extLabel(e.item), ' を購入 ', h('span.gum-text', {}, `+${fmt(e.price)}`), e.tip ? h('span.tag', {}, 'チップ') : ''));
@@ -545,13 +556,24 @@ function onShopEvent(e: ShopEvent): void {
 
 // ------------------------------------------------------------------ input
 
-function hitTest(x: number, y: number): 'thief' | 'pest' | 'pot' | 'register' | null {
+function hitTest(x: number, y: number): 'thief' | 'pest' | 'line' | 'register' | null {
   if (!shop) return null;
   if (shop.thiefAt(x, y)) return 'thief';
   if (shop.pestAt(x, y)) return 'pest';
-  if (shop.isOnPot(x, y)) return 'pot';
+  if (shop.lineAt(x, y)) return 'line';
   if (shop.isOnRegister(x, y)) return 'register';
   return null;
+}
+
+/** A press on a production line: a tap crafts a little; holding past HOLD_DELAY overclocks it. */
+const HOLD_DELAY = 250;
+let press: { pointer: number; line: LineId; timer: number } | null = null;
+
+function endPress(): void {
+  if (!press) return;
+  window.clearTimeout(press.timer);
+  shop?.holdLine(press.line, false);
+  press = null;
 }
 
 canvas.addEventListener('pointerdown', (ev) => {
@@ -561,15 +583,33 @@ canvas.addEventListener('pointerdown', (ev) => {
   const target = hitTest(x, y);
   if (target === 'thief') shop.clickThief(shop.thiefAt(x, y)!);
   else if (target === 'pest') shop.clickPest(shop.pestAt(x, y)!);
-  else if (target === 'pot') {
-    shop.clickPot();
+  else if (target === 'line') {
+    const line = shop.lineAt(x, y)!;
+    shop.clickLine(line);
     potClicks++;
+    endPress();
+    canvas.setPointerCapture(ev.pointerId);
+    press = {
+      pointer: ev.pointerId,
+      line,
+      timer: window.setTimeout(() => {
+        shop?.holdLine(line, true);
+        tip('overclock', '長押しすると高速でクラフトできるよ！でも熱くなりすぎると失敗しちゃうから、ゲージが赤くなる前に離してね');
+      }, HOLD_DELAY),
+    };
   } else if (target === 'register') shop.clickRegister();
 });
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
+  canvas.addEventListener(type, (ev) => {
+    if (press && ev.pointerId === press.pointer) endPress();
+  });
+}
 canvas.addEventListener('pointermove', (ev) => {
   const { x, y } = renderer.toScene(ev.clientX, ev.clientY);
   canvas.style.cursor = hitTest(x, y) ? 'pointer' : 'default';
 });
+// Long-press on touch devices would otherwise open the context menu.
+canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
 if (import.meta.env.DEV) {
   // Debug shortcuts for local development: G = +GUM, E = end the day, T = spawn a thief.
@@ -601,7 +641,7 @@ function frame(now: number): void {
   if (shop && running) {
     shop.update(dt);
     if (shop.queue.length >= 3 && tip('queue', 'レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ')) lastQueueTip = shop.elapsed;
-    if (shop.craftBlocked) tip('full', '棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう');
+    if (shop.lines.some((l) => l.blocked)) tip('full', '棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう');
     if (shop.pestList.length) tip('pest', 'エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！');
   }
   if (shop) {

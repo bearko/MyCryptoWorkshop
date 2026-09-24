@@ -34,6 +34,13 @@ export const PEST_SPOTS = [
 ];
 /** Craft progress ring, on the floor to the left of the pot. */
 export const CRAFT_RING = { x: 668, y: wy(690) };
+
+/** Where each production line sits in the workshop: its progress ring, where finished items fly from, and its tap area. */
+export const STATIONS = {
+  pot: { ring: CRAFT_RING, from: { x: POT.x, y: POT.mouthY }, hit: POT.hit },
+  forge: { ring: { x: 300, y: wy(560) }, from: { x: 175, y: wy(600) }, hit: { x0: 40, y0: wy(520), x1: 300, y1: wy(700) } },
+  capsule: { ring: { x: 640, y: wy(470) }, from: { x: 770, y: wy(520) }, hit: { x0: 680, y0: wy(370), x1: 870, y1: wy(630) } },
+};
 export const MINE_POS = { x: 620, y: wy(930) };
 export const STORAGE_POS = { x: 150, y: wy(720) };
 

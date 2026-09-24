@@ -6,15 +6,13 @@
  *   value = max(base, …max effects) + Σ add effects,   then × every multiplier group.
  */
 
-/** Numeric stats a skill can change. See BASE_STATS in stats.ts for defaults. */
-export type NumStat =
+import type { LineId } from './lines';
+
+/** Shop-wide numeric stats. See BASE_STATS in stats.ts for defaults. */
+export type GlobalStat =
   | 'dayLength'
-  | 'craftTime'
-  | 'craftClick'
-  | 'doubleChance'
   | 'maxRarity'
   | 'luck'
-  | 'mineInterval'
   | 'storageCap'
   | 'shelfSlots'
   | 'spawnRate'
@@ -34,7 +32,32 @@ export type NumStat =
   | 'stealTime'
   | 'guardChance'
   | 'pestInterval'
-  | 'pestBountyMult';
+  | 'pestBountyMult'
+  // Phase 2
+  | 'editionTier'
+  | 'editionLuck'
+  | 'shinChance'
+  | 'dismantleRarity'
+  | 'dustMult'
+  | 'gemChance'
+  | 'infusion'
+  | 'infusionPower'
+  | 'packer';
+
+/** Per-production-line stats; the full key is `${line}.${stat}`, e.g. "forge.craftTime". */
+export type LineStat =
+  | 'unlocked'
+  | 'craftTime'
+  | 'craftClick'
+  | 'doubleChance'
+  | 'luck'
+  | 'helperInterval'
+  | 'overclock'
+  | 'heatRate'
+  | 'coolRate'
+  | 'editionLuck';
+
+export type NumStat = GlobalStat | `${LineId}.${LineStat}`;
 
 export type Effect =
   /** Adds `base + per × level` (only while the node is owned). */

@@ -1,4 +1,4 @@
-import { POT, slotPos, STORAGE_POS } from '../layout';
+import { slotPos, STORAGE_POS } from '../layout';
 import type { SaveData } from '../save';
 import type { Stats } from '../stats';
 import type { Flyer, Slot } from './types';
@@ -42,10 +42,14 @@ export class Stock {
     return this.slots.some((s) => s.item !== null);
   }
 
-  /** Sends a freshly crafted item from the pot to a free slot, or to storage. */
-  sendFromPot(item: number): void {
+  /** True if a newly crafted item has somewhere to go. */
+  makeRoom(): boolean {
+    return this.capacity() > 0;
+  }
+
+  /** Sends a freshly crafted item from a station to a free slot, or to storage. */
+  receive(item: number, from: { x: number; y: number }): void {
     const slot = this.freeSlotIndex();
-    const from = { x: POT.x, y: POT.mouthY };
     if (slot >= 0) {
       this.slots[slot].incoming = true;
       const to = slotPos(slot);

@@ -1,76 +1,192 @@
 import { series } from '../catalog';
-import { CRAFT_RING, POT } from '../layout';
-import { rarityWeights } from '../stats';
+import { EDITION_BASE_CHANCE, itemId, makeItem, type ItemCode } from '../items';
+import { STATIONS } from '../layout';
+import { LINE_IDS, LINES, type GemId, type LineId } from '../lines';
+import { lineStats, rarityWeights, type LineStats } from '../stats';
 import type { Shop } from './index';
 
-/** The magic pot: craft progress, taps, Mine-chan's auto-stirring. */
-export class Production {
+/** 魔石 consumed per line per day when infused. */
+export const GEM_COST = 2;
+/** Seconds a line is jammed after overheating. */
+export const JAM_SECONDS = 3;
+
+/** One production line (magic pot, forge or capsule). */
+export class Line {
+  readonly stats: LineStats;
+  /** 魔石 infused for today, if any. */
+  readonly gem: GemId | null;
   progress = 0;
+  /** Finished but nowhere to put it. */
   blocked = false;
-  potPulse = 0;
-  minePulse = 0;
-  private mineTimer = 0;
+  /** No unlocked recipe this line can make. */
+  idle = false;
+  pulse = 0;
+  helperPulse = 0;
+  /** 0–1; overheats at 1 while held. */
+  heat = 0;
+  holding = false;
+  /** Seconds left of an overheat jam. */
+  jam = 0;
+  private helperTimer = 0;
 
-  constructor(private readonly shop: Shop) {}
+  constructor(
+    private readonly shop: Shop,
+    readonly id: LineId,
+    gem: GemId | null,
+  ) {
+    const base = lineStats(shop.stats, id);
+    const power = shop.stats.infusionPower;
+    this.gem = gem;
+    this.stats = {
+      ...base,
+      craftTime: gem === 'ifrit' ? base.craftTime / (1 + 0.3 * power) : base.craftTime,
+      doubleChance: gem === 'leviathan' ? base.doubleChance + 0.15 * power : base.doubleChance,
+      luck: gem === 'tiamat' ? base.luck * (1 + 0.5 * power) : base.luck,
+      editionLuck: gem === 'garuda' ? base.editionLuck * (1 + power) : base.editionLuck,
+    };
+  }
 
-  update(dt: number): void {
-    const { stats, stock } = this.shop;
-    this.potPulse = Math.max(0, this.potPulse - dt * 4);
-    this.minePulse = Math.max(0, this.minePulse - dt * 3);
-    if (stats.mineInterval > 0) {
-      this.mineTimer += dt;
-      if (this.mineTimer >= stats.mineInterval) {
-        this.mineTimer -= stats.mineInterval;
-        this.progress += stats.craftClick;
-        this.minePulse = 1;
-        this.shop.emit({ type: 'mine' });
+  get station() {
+    return STATIONS[this.id];
+  }
+
+  /** Series indexes this line can craft right now. */
+  recipes(): number[] {
+    const families = LINES[this.id].families;
+    return this.shop.stats.seriesUnlocked.filter((i) => families.includes(series[i].family));
+  }
+
+  update(dt: number, pestSlow: number): void {
+    const shop = this.shop;
+    const s = this.stats;
+    this.pulse = Math.max(0, this.pulse - dt * 4);
+    this.helperPulse = Math.max(0, this.helperPulse - dt * 3);
+    this.idle = this.recipes().length === 0;
+    if (this.idle) return;
+
+    if (s.helperInterval > 0) {
+      this.helperTimer += dt;
+      if (this.helperTimer >= s.helperInterval) {
+        this.helperTimer -= s.helperInterval;
+        this.progress += s.craftClick;
+        this.helperPulse = 1;
+        shop.emit({ type: 'mine' });
       }
     }
-    // Each pest in the workshop slows crafting.
-    const rate = Math.max(0.3, 1 - 0.35 * this.shop.pests.list.length);
-    this.progress += (dt / stats.craftTime) * rate;
+
+    let rate = pestSlow;
+    if (this.jam > 0) {
+      this.jam = Math.max(0, this.jam - dt);
+      rate = 0;
+      this.heat = Math.max(0, this.heat - s.coolRate * dt);
+    } else if (this.holding) {
+      // Overclock: faster while held, but heat builds up.
+      rate *= s.overclock;
+      this.heat += s.heatRate * dt;
+      if (this.heat >= 1) this.overheat();
+    } else {
+      this.heat = Math.max(0, this.heat - s.coolRate * dt);
+    }
+
+    this.progress += (dt / s.craftTime) * rate;
     this.blocked = false;
     while (this.progress >= 1) {
-      if (stock.capacity() <= 0) {
+      if (!shop.stock.makeRoom()) {
         this.progress = 1;
         this.blocked = true;
         return;
       }
       this.progress -= 1;
-      const count = this.shop.rand.next() < stats.doubleChance ? 2 : 1;
-      for (let i = 0; i < count && stock.capacity() > 0; i++) this.craftOne();
+      const count = shop.rand.next() < s.doubleChance ? 2 : 1;
+      for (let i = 0; i < count && (i === 0 || shop.stock.makeRoom()); i++) this.craftOne();
     }
   }
 
+  private overheat(): void {
+    this.progress = 0;
+    this.jam = JAM_SECONDS;
+    this.heat = 0.6;
+    this.holding = false;
+    this.shop.fx.push({ kind: 'smoke', x: this.station.ring.x, y: this.station.ring.y, t: 0 });
+    this.shop.emit({ type: 'overheat', line: this.id });
+  }
+
   click(): void {
-    this.progress += this.shop.stats.craftClick;
-    this.potPulse = 1;
+    if (this.jam > 0 || this.idle) return;
+    this.progress += this.stats.craftClick;
+    this.pulse = 1;
   }
 
-  isOnPot(x: number, y: number): boolean {
-    const h = POT.hit;
-    const onRing = Math.hypot(x - CRAFT_RING.x, y - CRAFT_RING.y) < 50;
-    return onRing || (x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1);
-  }
-
-  private rollItem(): number {
+  private rollItem(): ItemCode {
     const { stats, rand } = this.shop;
-    const rarity = rand.weighted(rarityWeights(stats.maxRarity, stats.luck));
-    const seriesIndex = rand.pick(stats.seriesUnlocked);
-    return series[seriesIndex].items[rarity].id;
+    const rarity = rand.weighted(rarityWeights(stats.maxRarity, stats.luck * this.stats.luck));
+    const s = series[rand.pick(this.recipes())];
+    let id = s.items[rarity].id;
+    if (rarity === 4 && s.shin && stats.shinChance > 0 && rand.next() < stats.shinChance) id = s.shin.id;
+    let edition = 0;
+    for (let ed = Math.min(stats.editionTier, EDITION_BASE_CHANCE.length - 1); ed >= 1; ed--) {
+      if (rand.next() < EDITION_BASE_CHANCE[ed] * stats.editionLuck * this.stats.editionLuck) {
+        edition = ed;
+        break;
+      }
+    }
+    return makeItem(id, edition);
   }
 
   private craftOne(): void {
     const { save, report } = this.shop;
-    const item = this.rollItem();
-    const isNew = !save.collection.includes(item);
+    const code = this.rollItem();
+    const id = itemId(code);
+    const edition = Math.floor(code / 100000);
+    const isNew = !save.collection.includes(id);
     if (isNew) {
-      save.collection.push(item);
-      report.newEntries.push(item);
+      save.collection.push(id);
+      report.newEntries.push(id);
     }
+    if (edition > (save.bestEdition[id] ?? 0)) save.bestEdition[id] = edition;
     report.crafted++;
     save.totals.crafted++;
-    this.shop.stock.sendFromPot(item);
-    this.shop.emit({ type: 'craft', item, isNew });
+    this.shop.stock.receive(code, this.station.from);
+    this.shop.emit({ type: 'craft', item: code, isNew, line: this.id });
+  }
+}
+
+/** All production lines. */
+export class Production {
+  readonly lines: Line[];
+
+  constructor(private readonly shop: Shop) {
+    const { stats, save } = shop;
+    this.lines = LINE_IDS.filter((id) => stats[`${id}.unlocked`] > 0).map((id) => {
+      // Infuse today's 魔石 if the player has enough of it.
+      const gem = stats.infusion > 0 ? (save.infusion[id] ?? null) : null;
+      const paid = gem !== null && save.resources.gems[gem] >= GEM_COST;
+      if (paid) save.resources.gems[gem] -= GEM_COST;
+      return new Line(shop, id, paid ? gem : null);
+    });
+  }
+
+  line(id: LineId): Line | undefined {
+    return this.lines.find((l) => l.id === id);
+  }
+
+  update(dt: number): void {
+    // Each pest in the workshop slows every line.
+    const pestSlow = Math.max(0, Math.max(0.3, 1 - 0.35 * this.shop.pests.list.length));
+    for (const line of this.lines) line.update(dt, pestSlow);
+  }
+
+  /** The line whose station (or progress ring) is under the point. */
+  lineAt(x: number, y: number): Line | null {
+    for (const line of this.lines) {
+      const { ring, hit } = line.station;
+      if (Math.hypot(x - ring.x, y - ring.y) < 50) return line;
+      if (x >= hit.x0 && x <= hit.x1 && y >= hit.y0 && y <= hit.y1) return line;
+    }
+    return null;
+  }
+
+  releaseAll(): void {
+    for (const line of this.lines) line.holding = false;
   }
 }
