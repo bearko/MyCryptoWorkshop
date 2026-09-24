@@ -351,6 +351,18 @@ body.in-day {
   white-space: nowrap;
 }
 
+.hud-event {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #cfe8ff;
+  text-align: right;
+}
+
+.hud-event.boost {
+  color: #ffe066;
+  font-weight: 700;
+}
+
 .hud-stats.warn {
   color: #ffc9a0;
 }
@@ -1445,4 +1457,201 @@ body.in-day {
   .day-label {
     font-size: 14px;
   }
+}
+
+/* ---------------------------------------------------------------- cut-in
+   Adapted from the My Crypto Heroes passive-skill cut-in in the asset repository
+   (vendor/mycryptoheroes/Style/Cutins/passive_skill_cutin.css). */
+
+.mch-passive-cutin {
+  align-items: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding: 1.6rem 0;
+  position: absolute;
+  top: 42%;
+  transform: translateY(-50%) skewY(-10deg);
+  transition: all 0.25s ease-out;
+  width: 100%;
+  z-index: 30;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.mch-passive-cutin--ally {
+  background: linear-gradient(to right bottom, #609da8 0, #609da8 50%, #282b33 0, #282b33);
+}
+
+.mch-passive-cutin--opponent {
+  background: linear-gradient(to left top, #be6c65 0, #be6c65 50%, #282b33 0, #282b33);
+}
+
+.mch-passive-cutin__shine {
+  animation: mch-passive-cutin-shine 0.6s linear infinite alternate;
+  height: 100%;
+  left: 0;
+  mix-blend-mode: color-dodge;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.mch-passive-cutin__shine--ally {
+  background: linear-gradient(180deg, #024, #059 20%, #059 80%, #024);
+}
+
+.mch-passive-cutin__shine--opponent {
+  background: linear-gradient(180deg, #402, #903 20%, #903 80%, #402);
+}
+
+@keyframes mch-passive-cutin-shine {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0.8;
+  }
+}
+
+.mch-passive-cutin-enter {
+  opacity: 0;
+  transform: translate(100%, -50%) skewY(-10deg);
+}
+
+.mch-passive-cutin-enter-to {
+  opacity: 1;
+  transform: translateY(-50%) skewY(-10deg);
+}
+
+.mch-passive-cutin-leave-to {
+  opacity: 0;
+  transform: translate(-100%, -50%) skewY(-10deg);
+}
+
+.mch-passive-cutin-unit {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  gap: 2.4rem;
+  position: relative;
+  transform: skewY(10deg);
+}
+
+.mch-passive-cutin-unit__image .px {
+  display: block;
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  transform: scale(1.8);
+}
+
+.cutin-name {
+  font-family: var(--font-pixel);
+  color: #fff;
+  font-size: 15px;
+  opacity: 0.9;
+}
+
+.mch-passive-cutin-unit__skill-name {
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0;
+  opacity: 0.9;
+  text-shadow: 2px 2px 0 #333, -2px 2px 0 #333, -2px -2px 0 #333, 2px -2px 0 #333;
+}
+
+.confetti-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* Decision events: options as big buttons, with the auto-choice countdown. */
+.decision {
+  display: grid;
+  gap: 10px;
+}
+
+.decision-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.decision-head .px {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.decision-text {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.decision-option {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 14px;
+}
+
+.decision-option small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.decision-timer {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+/* First Legendary / 真 / golden edition */
+.gold-chest {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.gold-chest-head {
+  font-family: var(--font-pixel);
+  color: var(--gold);
+  letter-spacing: 0.2em;
+}
+
+.gold-chest .px {
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 16px rgba(255, 207, 90, 0.8));
+}
+
+.forecast {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #0004;
+  font-size: 13px;
+}
+
+.forecast b {
+  white-space: nowrap;
+}
+
+.forecast span {
+  color: var(--muted);
 }

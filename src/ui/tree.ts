@@ -1,6 +1,7 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
+import { conditionLabel, CONDITIONS } from '../game/conditions';
 import { STAFF_ROLES } from '../game/staff';
 import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
@@ -40,6 +41,7 @@ export class TreeView {
   private readonly detail: HTMLElement;
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
+  private readonly forecast = h('div.forecast');
   private readonly buyList: HTMLElement;
   private readonly infusionBox: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
@@ -140,6 +142,7 @@ export class TreeView {
       h(
         'div.tree-side',
         {},
+        this.forecast,
         this.startBtn,
         h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
@@ -382,6 +385,8 @@ export class TreeView {
 
     // Start button
     this.startBtn.textContent = `▶ Day ${this.save.day} 開店する`;
+    const c = this.save.forecast;
+    this.forecast.replaceChildren(h('b', {}, `次の営業日: ${conditionLabel(c)}`), h('span', {}, CONDITIONS[c.kind].desc));
 
     // Detail card
     const node = this.selected ? skillById.get(this.selected) : undefined;

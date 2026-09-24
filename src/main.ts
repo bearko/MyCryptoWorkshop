@@ -1,12 +1,15 @@
 import './style.css';
 import { CURRENCIES } from './game/currency';
+import { conditionLabel, CONDITIONS } from './game/conditions';
+import { confetti } from './ui/confetti';
+import { cutin } from './ui/cutin';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
-import { Shop, type DayReport, type ExtraSource, type ShopEvent } from './game/shop';
+import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent } from './game/shop';
 import { buy } from './game/purchase';
 import { computeStats } from './game/stats';
 import type { SkillNode } from './game/skills';
@@ -80,6 +83,7 @@ const canvas = h('canvas.scene-canvas') as HTMLCanvasElement;
 // is the workshop and the store while it is open.
 const hudGum = h('span');
 const hudDay = h('span.hud-day');
+const hudEvent = h('div.hud-event');
 const hudTime = h('span.hud-time');
 const hudBar = h('div.hud-bar-fill');
 const hudRevenue = h('b');
@@ -92,6 +96,7 @@ const hud = h(
   h('div.hud-bar', {}, hudBar),
   h('div.hud-row', {}, h('span', {}, '本日'), hudRevenue),
   hudStats,
+  hudEvent,
 );
 const gearBtn = h(
   'button.hud-gear',
@@ -398,7 +403,7 @@ function credits(): HTMLElement {
     {},
     '素材: My Crypto Heroes（© MCH Co.,Ltd.）のヒーロー・エクステンション・エネミー・背景・サウンドを ',
     h('a', { href: 'https://github.com/bearko/mycryptoheroes', target: '_blank', rel: 'noopener' }, 'bearko/mycryptoheroes'),
-    ' 経由で使用した非公式の二次創作です。クリスくん／マインちゃん ドット絵：こじもこ、マイクリくん 原画：こはる／ドット絵：こじもこ。',
+    ' 経由で使用した非公式の二次創作です。クリスくん／マインちゃん ドット絵：こじもこ、マイクリくん 原画：こはる／ドット絵：こじもこ。紙吹雪とカットインの演出は同リポジトリの実装（MIT License）を移植しています。',
   );
 }
 
@@ -452,9 +457,13 @@ function showResults(report: DayReport): void {
     ['market', 'マーケット'],
     ['peddler', '行商'],
     ['bonus', '会計係のボーナス'],
+    ['chest', '宝箱'],
+    ['coin', '拾ったコイン'],
+    ['merchant', '悪徳商人への売却'],
   ];
   for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
   if (report.research > 0) rows.push(['研究ポイント', `+${report.research}`]);
+  if (report.guests > 0) rows.push(['乗り物で来た客', `${report.guests}人`]);
   if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
   const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
   if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
@@ -513,9 +522,70 @@ function startDay(): void {
     tip('pestWarn', '工房にエネミーが入り込むことがあるよ。跳ね回るエネミーを見つけたらタップで追い払おう！');
   } else if (shop.staffMembers.length > 0 && !save.tips.includes('staff')) {
     tip('staff', 'スタッフが店で働いているよ！足元の名札で役割がわかるよ。ヒーローを雇うともっと頼もしくなる！');
+  } else if (shop.condition.kind !== 'sunny') {
+    say(`Day ${save.day} 開店！今日は ${conditionLabel(shop.condition)}。${CONDITIONS[shop.condition.kind].desc}`);
   } else {
     say(`Day ${save.day} 開店！今日もがんばろう！`);
   }
+}
+
+const LOST_TEXT = {
+  empty: ' は品切れで帰ってしまった…',
+  queue: ' は待ちきれず帰ってしまった…',
+  mess: ' は泥を踏んで怒って帰ってしまった…',
+  scared: ' はエネミーに驚いて逃げ帰ってしまった…',
+};
+
+/** Seconds before a decision picks its fallback on its own (so an idle shop keeps going). */
+const DECISION_SECONDS = 12;
+
+function showDecision(d: Decision): void {
+  sound.play(d.kind === 'merchant' ? 'debuff' : 'helper');
+  let left = DECISION_SECONDS;
+  const timer = h('div.decision-timer');
+  let done = false;
+  const choose = (i: number) => {
+    if (done) return;
+    done = true;
+    window.clearInterval(tick);
+    close();
+    shop?.decide(i);
+  };
+  const body = h(
+    'div.decision',
+    {},
+    h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)),
+    ...d.options.map((o, i) =>
+      h('button.btn.decision-option', { onclick: () => choose(i) }, h('b', {}, o.label), h('small', {}, o.detail)),
+    ),
+    timer,
+  );
+  const update = () => (timer.textContent = `${left} 秒後に「${d.options[d.fallback].label}」を選びます`);
+  update();
+  const tick = window.setInterval(() => {
+    left--;
+    update();
+    if (left <= 0) choose(d.fallback);
+  }, 1000);
+  const close = openModal(d.title, body, [], 'decision-modal');
+}
+
+/** The MCH gold-chest moment, for the first Epic / Legendary / 真 / golden edition. */
+function goldChest(code: number): boolean {
+  const ext = itemExt(code);
+  const edition = itemEdition(code);
+  const key = ext.shin ? 'firstShin' : edition === 4 ? 'firstGolden' : ext.rarityIndex === 4 ? 'firstLegendary' : ext.rarityIndex === 3 ? 'firstEpic' : null;
+  if (!key || save.tips.includes(key)) return false;
+  save.tips.push(key);
+  sound.play('win');
+  confetti(3000);
+  openModal(
+    'CONGRATULATIONS',
+    h('div.gold-chest', {}, h('div.gold-chest-head', {}, '★ GOLD CHEST ★'), icon(ext.image, 'px'), h('p', {}, extLabel(code), ' が完成！')),
+    [{ label: 'やった！', primary: true }],
+    'gold-chest-modal',
+  );
+  return true;
 }
 
 function onShopEvent(e: ShopEvent): void {
@@ -523,6 +593,7 @@ function onShopEvent(e: ShopEvent): void {
     case 'craft': {
       const ext = itemExt(e.item);
       const edition = itemEdition(e.item);
+      goldChest(e.item);
       if (edition > 0 || ext.shin) {
         sound.play('rare');
         log(h('span', {}, h('span.tag.edition', {}, ext.shin ? '真' : EDITIONS[edition].name), ' ', extLabel(e.item), ` が${LINES[e.line].name}で完成！`), 'rare');
@@ -550,7 +621,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'lost':
       sound.play('debuff');
-      log(h('span', {}, h('b', {}, e.hero.name), e.reason === 'empty' ? ' は品切れで帰ってしまった…' : ' は待ちきれず帰ってしまった…'), 'bad');
+      log(h('span', {}, h('b', {}, e.hero.name), LOST_TEXT[e.reason]), 'bad');
       if (e.reason === 'empty') tip('lostEmpty', '棚が空っぽでお客さんが帰っちゃった…「壺の火力」でクラフトを早くしよう！');
       else tip('lostQueue', 'レジが混みすぎて帰っちゃった！カウンターをクリックして会計を手伝うか「クリスくん研修」を！');
       break;
@@ -584,6 +655,55 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'mine':
       break;
+    case 'decision':
+      showDecision(e.decision);
+      break;
+    case 'decided':
+      log(h('span', {}, e.result), 'good');
+      break;
+    case 'visit':
+      sound.play('helper');
+      if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally');
+      log(
+        h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? ' が現れて店を清めた！' : ' が来店！しばらく売上 2 倍！'),
+        'rare',
+      );
+      break;
+    case 'vehicle':
+      sound.play('buff');
+      log(h('span', {}, `${['', '乗合馬車', '飛空艇', 'ランドゲート'][e.kind]}で ${e.count} 人の団体客が到着！`), 'good');
+      break;
+    case 'special':
+      if (e.kind === 'owner') {
+        sound.play('buff');
+        log(h('span', {}, 'ランドオーナー ', h('b', {}, e.hero.name), ' が来店！最高の品を高く買ってくれる'), 'rare');
+      } else if (e.kind === 'collector') {
+        log(h('span', {}, 'コレクター ', h('b', {}, e.hero.name), ' が探し物をしている'));
+        tip('collector', '吹き出しにシリーズを出しているのはコレクター客！そのシリーズを並べておくと 2 倍で買ってくれるよ');
+      } else if (e.kind === 'regular') {
+        log(h('span', {}, '常連客の ', h('b', {}, e.hero.name), ' が来てくれた'));
+      }
+      break;
+    case 'chest':
+      sound.play('rare');
+      log(h('span', {}, '宝箱を開けた！ ', e.reward === 'gum' ? h('span.gum-text', {}, `+${fmt(e.amount)}`) : e.reward === 'dust' ? `ダスト +${e.amount}` : `魔石 +${e.amount}`), 'good');
+      break;
+    case 'storePest':
+      sound.play('debuff');
+      log(h('span', {}, 'エネミー ', h('b.villain', {}, e.name), ' が店に入り込んだ！客が怖がっている'), 'bad');
+      tip('storePest', '店にエネミーが！近くのお客さんが怖がって帰っちゃうよ。2回タップで追い払おう');
+      break;
+    case 'storePestCleared':
+      sound.play(e.by === 'cryptid' ? 'zap' : 'hit');
+      log(h('span', {}, e.by === 'cryptid' ? 'クリプタイドの雷でエネミーを倒した！ ' : '店のエネミーを追い払った！ ', h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
+      break;
+    case 'mess':
+      if (e.kind === 'mud') tip('mud', '雨の日はお客さんが泥を持ち込むよ。踏んだお客さんは怒って帰ることも…タップで掃除しよう！');
+      else tip('litter', '宝箱の箱が散らかっちゃった。タップで片付けよう');
+      break;
+    case 'cleaned':
+      if (!e.byStaff) sound.play('clean');
+      break;
     case 'extra':
       if (e.source === 'peddler') {
         sound.play('sale');
@@ -614,8 +734,9 @@ function onShopEvent(e: ShopEvent): void {
 
 // ------------------------------------------------------------------ input
 
-function hitTest(x: number, y: number): 'thief' | 'pest' | 'line' | 'register' | null {
+function hitTest(x: number, y: number): 'hazard' | 'thief' | 'pest' | 'line' | 'register' | null {
   if (!shop) return null;
+  if (shop.hazardAt(x, y)) return 'hazard';
   if (shop.thiefAt(x, y)) return 'thief';
   if (shop.pestAt(x, y)) return 'pest';
   if (shop.lineAt(x, y)) return 'line';
@@ -639,7 +760,8 @@ canvas.addEventListener('pointerdown', (ev) => {
   sound.unlock();
   const { x, y } = renderer.toScene(ev.clientX, ev.clientY);
   const target = hitTest(x, y);
-  if (target === 'thief') shop.clickThief(shop.thiefAt(x, y)!);
+  if (target === 'hazard') shop.clickHazard(x, y);
+  else if (target === 'thief') shop.clickThief(shop.thiefAt(x, y)!);
   else if (target === 'pest') shop.clickPest(shop.pestAt(x, y)!);
   else if (target === 'line') {
     const line = shop.lineAt(x, y)!;
@@ -727,6 +849,10 @@ function updateHud(s: Shop): void {
   const r = s.report;
   hudStats.textContent = `販売${r.sold} 来客${r.customers} 帰${r.lost} 盗${r.stolen}`;
   hudStats.classList.toggle('warn', r.lost + r.stolen > 0);
+  const boost = s.visitors.boostTime;
+  hudEvent.textContent = boost > 0 ? `✨ 売上 ×${s.visitors.salesMult} あと${boost.toFixed(0)}秒` : s.condition.kind !== 'sunny' ? conditionLabel(s.condition) : '';
+  hudEvent.hidden = !hudEvent.textContent;
+  hudEvent.classList.toggle('boost', boost > 0);
 }
 
 /**
