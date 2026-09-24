@@ -242,6 +242,12 @@ export interface DayReport {
   sets: string[];
   /** Orders filled today. */
   ordersDone: number;
+  /** Rare-or-better items sold, and chests opened (for daily requests). */
+  rareSold: number;
+  chests: number;
+  /** Achievements earned and emblems from requests at closing. */
+  achievements: string[];
+  dailyEmblems: number;
 }
 
 export type ShopEvent =

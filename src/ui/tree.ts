@@ -3,6 +3,7 @@ import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
 import { conditionLabel, CONDITIONS } from '../game/conditions';
 import { orderHero, orderLabel } from '../game/orders';
+import { dailyLabel } from '../game/achievements';
 import { STAFF_ROLES } from '../game/staff';
 import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
@@ -44,6 +45,7 @@ export class TreeView {
   private readonly startBtn: HTMLButtonElement;
   private readonly forecast = h('div.forecast');
   private readonly ordersBox = h('div.orders');
+  private readonly dailyBox = h('div.dailies');
   private readonly buyList: HTMLElement;
   private readonly infusionBox: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
@@ -63,7 +65,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2], series: [-26, -32], honor: [16, -8.6] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -146,6 +148,7 @@ export class TreeView {
         {},
         this.forecast,
         this.ordersBox,
+        this.dailyBox,
         this.startBtn,
         h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
@@ -390,6 +393,11 @@ export class TreeView {
     this.startBtn.textContent = `▶ Day ${this.save.day} 開店する`;
     const c = this.save.forecast;
     this.forecast.replaceChildren(h('b', {}, `次の営業日: ${conditionLabel(c)}`), h('span', {}, CONDITIONS[c.kind].desc));
+    this.dailyBox.replaceChildren(
+      ...(this.save.dailies.length
+        ? [h('h3', {}, `デイリー依頼（達成でエンブレム）`), ...this.save.dailies.map((d) => h('div.daily-row', {}, h('span', {}, dailyLabel(d)), h('b', {}, '+1')))]
+        : []),
+    );
     const orders = this.save.orders;
     this.ordersBox.replaceChildren(
       ...(orders.length ? [h('h3', {}, `注文（${orders.length}件）`)] : []),

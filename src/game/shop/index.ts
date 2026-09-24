@@ -18,6 +18,7 @@ import { Visitors } from './visitors';
 import { rollCondition, type DayCondition } from '../conditions';
 import { grantSets } from '../heroes';
 import { placeOrders } from '../orders';
+import { checkAchievements, rollDailies, settleDailies } from '../achievements';
 import type { LineId } from '../lines';
 import type { Actor, DayReport, ExtraSource, Fx, Pest, Popup, Rng, ShopEvent } from './types';
 
@@ -90,6 +91,10 @@ export class Shop {
       newHeroes: [],
       sets: [],
       ordersDone: 0,
+      rareSold: 0,
+      chests: 0,
+      achievements: [],
+      dailyEmblems: 0,
     };
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
@@ -194,11 +199,14 @@ export class Shop {
     this.save.storage = [...this.stock.storage];
     this.save.bestDayRevenue = Math.max(this.save.bestDayRevenue, this.report.revenue);
     this.report.sets = grantSets(this.save).map((set) => set.name);
+    this.report.dailyEmblems = settleDailies(this.save, this.report);
     // Orders not filled today wait one more day; new ones come in for tomorrow.
     for (const o of this.save.orders) o.days--;
     let id = Math.max(0, ...this.save.orders.map((o) => o.id));
     this.save.orders = placeOrders(this.save.orders, this.stats, () => this.rand.next(), () => ++id);
     this.save.day++;
+    this.report.achievements = checkAchievements(this.save).map((a) => a.name);
+    this.save.dailies = rollDailies(this.save, this.stats, this.report, () => this.rand.next());
     this.save.forecast = rollCondition(this.save.day, () => this.rand.next());
     this.emit({ type: 'dayEnd', report: this.report });
   }

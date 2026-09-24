@@ -7,7 +7,7 @@ import { HERO_SET_NODES } from './heroes';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series';
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: '工房', role: '開業', color: '#e8d6a8' },
@@ -19,6 +19,7 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   store: { name: '店舗', role: 'スタッフ・設備', color: '#ff9ecb' },
   research: { name: '研究', role: '研究ポイント', color: '#b48cff' },
   series: { name: 'シリーズ', role: 'レシピ・評判・量産', color: '#e6b56b' },
+  honor: { name: '名誉', role: 'エンブレム', color: '#ff9f6b' },
 };
 
 export interface SkillNode {

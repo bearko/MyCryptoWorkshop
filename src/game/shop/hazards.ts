@@ -191,6 +191,8 @@ export class Hazards {
     const shop = this.shop;
     const { stats, rand } = shop;
     this.chests = this.chests.filter((x) => x !== c);
+    shop.report.chests++;
+    shop.save.totals.chests++;
     shop.fx.push({ kind: 'hit', x: c.x, y: c.y, t: 0 });
     const roll = rand.next();
     if (roll < 0.7) {
