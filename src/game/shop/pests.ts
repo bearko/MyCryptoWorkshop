@@ -1,6 +1,6 @@
 import { pests as pestCatalog } from '../catalog';
 import { PEST_PX, PEST_SPOTS } from '../layout';
-import { RARITY_PRICE } from '../stats';
+import { RARITY_PRICE } from '../items';
 import type { Shop } from './index';
 import type { Pest } from './types';
 

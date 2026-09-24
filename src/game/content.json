@@ -1,18 +1,92 @@
 {
   "$comment": "What the game currently uses from the asset database. Read by scripts/sync-assets.mjs (to pack these sprites into the first atlas sheet) and by src/game/catalog.ts.",
+  "families": {
+    "arcane": {
+      "name": "魔導具",
+      "priceMult": 1
+    },
+    "arms": {
+      "name": "武具",
+      "priceMult": 1
+    },
+    "beast": {
+      "name": "幻獣",
+      "priceMult": 1.5
+    }
+  },
   "activeSeries": [
-    "Blade",
-    "Musket",
-    "Quill",
-    "Armor",
-    "Katana",
-    "Book",
-    "Ring",
-    "Shield",
-    "Rapier",
-    "Wand",
-    "Hat",
-    "Goblet"
+    {
+      "key": "Blade",
+      "family": "arms"
+    },
+    {
+      "key": "Musket",
+      "family": "arms"
+    },
+    {
+      "key": "Quill",
+      "family": "arcane"
+    },
+    {
+      "key": "Armor",
+      "family": "arms"
+    },
+    {
+      "key": "Katana",
+      "family": "arms"
+    },
+    {
+      "key": "Book",
+      "family": "arcane"
+    },
+    {
+      "key": "Ring",
+      "family": "arcane"
+    },
+    {
+      "key": "Shield",
+      "family": "arms"
+    },
+    {
+      "key": "Rapier",
+      "family": "arms"
+    },
+    {
+      "key": "Wand",
+      "family": "arcane"
+    },
+    {
+      "key": "Hat",
+      "family": "arcane"
+    },
+    {
+      "key": "Goblet",
+      "family": "arcane"
+    },
+    {
+      "key": "Horse",
+      "family": "beast"
+    },
+    {
+      "key": "Tiger",
+      "family": "beast"
+    },
+    {
+      "key": "Dragon",
+      "family": "beast"
+    },
+    {
+      "key": "Pegasus",
+      "family": "beast"
+    },
+    {
+      "key": "Fairy",
+      "family": "beast"
+    },
+    {
+      "key": "Parrot",
+      "family": "beast"
+    }
   ],
   "thiefIds": [
     2003,

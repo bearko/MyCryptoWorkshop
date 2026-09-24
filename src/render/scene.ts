@@ -1,4 +1,5 @@
-import { catalog, getExtension, icons, RARITY_COLOR, staffFrames, type Frame } from '../game/catalog';
+import { catalog, icons, RARITY_COLOR, staffFrames, type Frame } from '../game/catalog';
+import { itemExt } from '../game/items';
 import {
   CHRIS_POS,
   COUNTER,
@@ -273,7 +274,7 @@ export class SceneRenderer {
     const ctx = this.ctx;
     shop.slots.forEach((slot, i) => {
       if (slot.item === null) return;
-      const e = getExtension(slot.item);
+      const e = itemExt(slot.item);
       const p = slotPos(i);
       if (e.rarityIndex >= 2) {
         const pulse = 0.55 + 0.25 * Math.sin(now / 300 + i);
@@ -412,7 +413,7 @@ export class SceneRenderer {
         drawImg(ctx, icons.fear, bx - 16, by - 16, 32, 32);
       } else if (a.item !== null) {
         bubble(52, 48, '#3b0d0d');
-        drawImg(ctx, getExtension(a.item).image, bx - 22, by - 22, 44, 44);
+        drawImg(ctx, itemExt(a.item).image, bx - 22, by - 22, 44, 44);
       } else if (a.state === 'steal') {
         bubble(60, 36, '#3b0d0d');
         ctx.fillStyle = '#ff6b6b';
@@ -423,7 +424,7 @@ export class SceneRenderer {
     }
     if (a.item !== null) {
       bubble(52, 48);
-      drawImg(ctx, getExtension(a.item).image, bx - 22, by - 22, 44, 44);
+      drawImg(ctx, itemExt(a.item).image, bx - 22, by - 22, 44, 44);
       if (a.state === 'queue' || a.state === 'toQueue') {
         const left = 1 - a.timer / shop.stats.queuePatience;
         if (left < 0.5) {
@@ -480,7 +481,7 @@ export class SceneRenderer {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(`倉庫 ${shop.storage.length}/${shop.stats.storageCap}`, x - 70, y - 14);
-      shop.storage.slice(0, 4).forEach((id, i) => drawImg(ctx, getExtension(id).image, x - 72 + i * 36, y + 2, 32, 32));
+      shop.storage.slice(0, 4).forEach((id, i) => drawImg(ctx, itemExt(id).image, x - 72 + i * 36, y + 2, 32, 32));
     }
 
     // Pot progress ring
@@ -569,7 +570,7 @@ export class SceneRenderer {
       const e = t * t * (3 - 2 * t);
       const x = f.fromX + (f.toX - f.fromX) * e;
       const y = f.fromY + (f.toY - f.fromY) * e - Math.sin(Math.PI * t) * 200;
-      const ext = getExtension(f.item);
+      const ext = itemExt(f.item);
       const size = 56 + Math.sin(Math.PI * t) * 20;
       if (ext.rarityIndex >= 1) {
         const g = ctx.createRadialGradient(x, y, 2, x, y, size * 0.8);

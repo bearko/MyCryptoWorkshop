@@ -1,4 +1,5 @@
 import { extensionById } from './catalog';
+import { GEM_IDS, type GemId, type LineId } from './lines';
 import { costOf, skillById, type Levels } from './skills';
 
 export interface Totals {
@@ -13,7 +14,7 @@ export interface Totals {
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface SaveData {
   version: typeof SAVE_VERSION;
@@ -37,7 +38,15 @@ export interface SaveData {
     /** In-game seconds spent in business days. */
     playSeconds: number;
   };
+  /** Materials from the dismantler. */
+  resources: { dust: number; gems: Record<GemId, number> };
+  /** Best edition crafted per extension id (for the collection). */
+  bestEdition: Record<string, number>;
+  /** 魔石 infused into each line for the next business day. */
+  infusion: Partial<Record<LineId, GemId>>;
 }
+
+export const emptyGems = (): Record<GemId, number> => Object.fromEntries(GEM_IDS.map((g) => [g, 0])) as Record<GemId, number>;
 
 export const emptyTotals = (): Totals => ({
   revenue: 0,
@@ -64,6 +73,9 @@ export function newSave(now = Date.now()): SaveData {
     settings: { bgm: true, se: true },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
+    resources: { dust: 0, gems: emptyGems() },
+    bestEdition: {},
+    infusion: {},
   };
 }
 
@@ -79,6 +91,8 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
     version: 2,
     meta: { createdAt: Date.now(), savedAt: Date.now(), playSeconds: Math.max(0, ((d.day as number) ?? 1) - 1) * 45 },
   }),
+  // v2 → v3 (Phase 2): dismantler materials, best editions, 魔石 infusion.
+  2: (d) => ({ ...d, version: 3, resources: { dust: 0, gems: emptyGems() }, bestEdition: {}, infusion: {} }),
 };
 
 export class SaveError extends Error {}
@@ -135,6 +149,8 @@ export function parseSave(json: string): SaveData {
   const base = newSave();
   const migrated = migrate(raw);
   const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
+  const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
+  data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems } };
   sanitize(data);
   return data;
 }
