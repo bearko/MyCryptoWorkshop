@@ -1,11 +1,79 @@
-import { RARITIES, RARITY_COLOR, RARITY_JA, series } from '../game/catalog';
+import { customers, RARITIES, RARITY_COLOR, RARITY_JA, series } from '../game/catalog';
+import { AFFINITY, affinityRank, HERO_SETS } from '../game/heroes';
 import { EDITIONS } from '../game/items';
 import type { SaveData } from '../game/save';
 import { computeStats } from '../game/stats';
 import { h, icon } from './dom';
 
-/** Builds the collection (図鑑) dialog body. */
+/** Builds the collection (図鑑) dialog body: extensions and heroes on two tabs. */
 export function collectionView(save: SaveData): HTMLElement {
+  const panes = { ext: extensionView(save), hero: heroView(save) };
+  const tabs = h('div.collection-tabs');
+  const body = h('div.collection-body', {}, panes.ext);
+  for (const [key, label] of [['ext', 'エクステンション'], ['hero', 'ヒーロー']] as const) {
+    tabs.append(
+      h('button.btn.small.tab', {
+        class: `btn small tab ${key === 'ext' ? 'on' : ''}`,
+        onclick: (ev: Event) => {
+          tabs.querySelectorAll('.tab').forEach((t) => t.classList.remove('on'));
+          (ev.currentTarget as HTMLElement).classList.add('on');
+          body.replaceChildren(panes[key]);
+        },
+      }, label),
+    );
+  }
+  return h('div.collection-wrap', {}, tabs, body);
+}
+
+/** Heroes who have bought something, their affinity, and set progress. */
+function heroView(save: SaveData): HTMLElement {
+  const met = customers.filter((c) => (save.heroes[c.id] ?? 0) > 0).length;
+  const info = h('div.collection-info', {}, 'ヒーローを選ぶと詳細が見られます');
+  const sets = HERO_SETS.map((set) => {
+    const have = set.heroes.filter((x) => (save.heroes[x.id] ?? 0) > 0).length;
+    const done = (save.levels[set.id] ?? 0) > 0;
+    return h('div.set-row', { class: `set-row ${done ? 'done' : ''}` }, h('span', {}, set.name), h('b', {}, done ? '✓' : `${have}/${set.heroes.length}`), h('small', {}, set.reward));
+  });
+  const grid = h('div.hero-grid');
+  for (let r = RARITIES.length - 1; r >= 0; r--) {
+    for (const c of customers.filter((x) => x.rarityIndex === r)) {
+      const visits = save.heroes[c.id] ?? 0;
+      const rank = affinityRank(visits);
+      const cell = h('button.cell', {
+        class: `cell ${visits ? 'has' : 'unknown'}`,
+        style: `--rarity:${RARITY_COLOR[c.rarity]}`,
+        title: visits ? c.name : '？？？',
+        onclick: () =>
+          info.replaceChildren(
+            visits
+              ? h(
+                  'span',
+                  {},
+                  h('b', { style: `color:${RARITY_COLOR[c.rarity]}` }, c.name),
+                  `　${c.faction ?? ''}・パッシブ「${c.passive ?? ''}」　${(c.attributes ?? []).join(' / ')}　購入 ${visits} 回`,
+                  rank ? h('span.affinity', {}, `　${AFFINITY[rank - 1].name}（支払い +${Math.round(AFFINITY[rank - 1].pay * 100)}%）`) : '',
+                )
+              : h('span', {}, `まだ来店していません（${RARITY_JA[c.rarity]}の客層で来店）`),
+          ),
+      });
+      cell.append(icon(c.image, 'px'));
+      if (rank) cell.append(h('span.affinity-badge', {}, '★'.repeat(rank)));
+      grid.append(cell);
+    }
+  }
+  return h(
+    'div.collection',
+    {},
+    h('p.collection-summary', {}, `出会ったヒーロー ${met} / ${customers.length}　コンプリート `, h('b', {}, `${HERO_SETS.filter((x) => save.levels[x.id]).length} / ${HERO_SETS.length}`)),
+    info,
+    grid,
+    h('h3', {}, 'コンプリート報酬（その属性・勢力・レア度のヒーロー全員が購入すると達成）'),
+    h('div.set-list', {}, ...sets),
+  );
+}
+
+/** Extensions crafted so far, by series and rarity. */
+function extensionView(save: SaveData): HTMLElement {
   const stats = computeStats(save.levels);
   const owned = new Set(save.collection);
   const total = series.reduce((n, s) => n + s.items.length + (s.shin ? 1 : 0), 0);

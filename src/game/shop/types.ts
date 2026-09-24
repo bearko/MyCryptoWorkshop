@@ -1,5 +1,6 @@
 import type { Hero } from '../catalog';
 import type { GemId, LineId } from '../lines';
+import type { Order } from '../orders';
 import type { StaffRole } from '../staff';
 import type { ThiefStyle } from '../thieves';
 
@@ -57,7 +58,9 @@ export interface Actor {
   /** Price multiplier for the item in hand (showcase items sell at a premium). */
   priceBonus: number;
   /** Special customers: collectors want one series, land owners buy the best, regulars are reformed thieves, guilds come by vehicle. */
-  special?: 'collector' | 'owner' | 'regular' | 'guild';
+  special?: 'collector' | 'owner' | 'regular' | 'guild' | 'order';
+  /** The order an ordering customer came for. */
+  order?: Order;
   /** Series index a collector is looking for. */
   wants?: number;
   /** Seconds before this customer can be bothered by mud again. */
@@ -233,6 +236,12 @@ export interface DayReport {
   guests: number;
   /** Decisions made today (kind → option index). */
   decisions: { kind: Decision['kind']; choice: number }[];
+  /** Heroes who bought something for the first time today. */
+  newHeroes: number[];
+  /** Hero sets completed today (names). */
+  sets: string[];
+  /** Orders filled today. */
+  ordersDone: number;
 }
 
 export type ShopEvent =
@@ -261,4 +270,5 @@ export type ShopEvent =
   | { type: 'visit'; visit: Visit }
   | { type: 'decision'; decision: Decision }
   | { type: 'decided'; kind: Decision['kind']; choice: number; result: string }
+  | { type: 'orderDone'; hero: Hero; item: number; price: number }
   | { type: 'dayEnd'; report: DayReport };

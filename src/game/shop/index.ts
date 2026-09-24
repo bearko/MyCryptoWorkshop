@@ -16,6 +16,8 @@ import { Stock } from './stock';
 import { Thieves } from './thieves';
 import { Visitors } from './visitors';
 import { rollCondition, type DayCondition } from '../conditions';
+import { grantSets } from '../heroes';
+import { placeOrders } from '../orders';
 import type { LineId } from '../lines';
 import type { Actor, DayReport, ExtraSource, Fx, Pest, Popup, Rng, ShopEvent } from './types';
 
@@ -85,6 +87,9 @@ export class Shop {
       extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0, chest: 0, coin: 0, merchant: 0 },
       guests: 0,
       decisions: [],
+      newHeroes: [],
+      sets: [],
+      ordersDone: 0,
     };
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
@@ -188,6 +193,11 @@ export class Shop {
     this.save.showcase = this.stock.slots.filter((s) => s.showcase).map((s) => s.item);
     this.save.storage = [...this.stock.storage];
     this.save.bestDayRevenue = Math.max(this.save.bestDayRevenue, this.report.revenue);
+    this.report.sets = grantSets(this.save).map((set) => set.name);
+    // Orders not filled today wait one more day; new ones come in for tomorrow.
+    for (const o of this.save.orders) o.days--;
+    let id = Math.max(0, ...this.save.orders.map((o) => o.id));
+    this.save.orders = placeOrders(this.save.orders, this.stats, () => this.rand.next(), () => ++id);
     this.save.day++;
     this.save.forecast = rollCondition(this.save.day, () => this.rand.next());
     this.emit({ type: 'dayEnd', report: this.report });

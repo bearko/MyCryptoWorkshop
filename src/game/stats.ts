@@ -133,6 +133,14 @@ export const BASE_STATS = {
   fogThieves: 1.6,
   /** Customers come this much more often on a festival day. */
   festivalCrowd: 1.4,
+  /** Multiplier on the affinity pay bonus. */
+  affinityPower: 1,
+  /** How many orders can be open at once (0 = orders not unlocked). */
+  orderSlots: 0,
+  /** An order is paid at this multiple of the price. */
+  orderPay: 3,
+  /** Extra crafting weight for a series someone ordered for today. */
+  orderFocus: 2,
   ...(Object.fromEntries(
     LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
   ) as Record<`${LineId}.${LineStat}`, number>),

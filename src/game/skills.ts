@@ -3,6 +3,7 @@ import type { Currency } from './currency';
 import { PHASE3_NODES } from './skills3';
 import { PHASE4_NODES } from './skills4';
 import { PHASE5_SERIES_NODES } from './skills5';
+import { HERO_SET_NODES } from './heroes';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
@@ -39,6 +40,8 @@ export interface SkillNode {
   requiresAll?: string[];
   /** What each level does (see effects.ts). */
   effects: Effect[];
+  /** Not shown in the tree: granted by the game (hero set rewards). */
+  hidden?: boolean;
   /** Paid in gold dust or research points instead of GUM. */
   currency?: Exclude<Currency, 'gum'>;
 }
@@ -149,9 +152,13 @@ export const SKILLS: SkillNode[] = [
   ...PHASE3_NODES,
   ...PHASE4_NODES,
   ...PHASE5_SERIES_NODES,
+  ...HERO_SET_NODES,
 ];
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));
+
+/** The nodes shown in the skill tree (hidden set rewards left out). */
+export const TREE_NODES = SKILLS.filter((n) => !n.hidden);
 
 export type Levels = Record<string, number>;
 
@@ -162,6 +169,7 @@ export function costOf(node: SkillNode, currentLevel: number): number {
 }
 
 export function isAvailable(node: SkillNode, levels: Levels): boolean {
+  if (node.hidden) return false;
   if (node.requiresAll?.some((r) => level(levels, r) <= 0)) return false;
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
 }

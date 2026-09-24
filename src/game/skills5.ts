@@ -2,8 +2,8 @@
 // nodes — レシピ (unlock), 評判 (price), 量産 (how often it is crafted), 名品 (edition chance)
 // and 真打ち (真 chance, paid in research points, series with a 真 only). Rows run in bands of 30:
 // the first band goes up from the レシピ帳 hub, the next comes back down, and so on.
-import { icons, series } from './catalog';
-import { mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
+import { icons, series, seriesIcon } from './catalog';
+import { add, mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
 import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 
@@ -111,4 +111,11 @@ export const PHASE5_SERIES_NODES: SkillNode[] = [
   { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -2, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },
   { id: 'masterwork', branch: 'series', name: '名品鑑定', desc: 'シリーズごとの「名品」を習得できるようになる。エディションの出やすさ +5%', icon: icons.gems.garuda, x: -2, y: -2, max: 1, baseCost: 20000, growth: 1, requires: ['recipeBook'], requiresAll: ['appraisal'], effects: [mul('editionLuck', 0.05)] },
   ...series.flatMap((_, i) => seriesNodes(i)),
+
+  // 青龍: orders and affinity (above the collectors)
+  { id: 'orders', branch: 'seiryu', name: '注文受付', desc: 'ヒーローから「ゆかりの品」の注文を受けられるようになる（1件）。注文の品は ×3 で売れる', icon: seriesIcon('Scrolls', 2), x: 6, y: -4, max: 1, baseCost: 15000, growth: 1, requires: ['collectors'], effects: [add('orderSlots', 1)] },
+  { id: 'orderSlots', branch: 'seiryu', name: '注文帳', desc: '同時に受けられる注文 +1件', icon: seriesIcon('Book', 2), x: 7, y: -4, max: 2, baseCost: 40000, growth: 3, requires: ['orders'], effects: [add('orderSlots', 1)] },
+  { id: 'orderPay', branch: 'seiryu', name: '特注価格', desc: '注文の品の値段 +0.5倍', icon: seriesIcon('Wallet', 3), x: 8, y: -4, max: 4, baseCost: 30000, growth: 1.8, requires: ['orderSlots'], effects: [add('orderPay', 0.5)] },
+  { id: 'orderFocus', branch: 'seiryu', name: '注文優先', desc: '注文のあるシリーズがさらにクラフトされやすくなる', icon: icons.bufPhy, x: 9, y: -4, max: 3, baseCost: 25000, growth: 1.8, requires: ['orderPay'], effects: [add('orderFocus', 2)] },
+  { id: 'fanService', branch: 'seiryu', name: 'ファンサービス', desc: '顔なじみ・常連・大ファンの支払いボーナス +50%', icon: icons.hp, x: 6, y: -5, max: 4, baseCost: 20000, growth: 1.9, requires: ['orders'], effects: [mul('affinityPower', 0.5)] },
 ];

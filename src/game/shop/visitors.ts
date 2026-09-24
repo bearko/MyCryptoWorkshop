@@ -2,6 +2,7 @@ import { customersByTier } from '../catalog';
 import { landOf } from '../conditions';
 import { DOOR, FLOOR_Y } from '../layout';
 import type { Shop } from './index';
+import type { Order } from '../orders';
 import type { Visit } from './types';
 
 /** Vehicles that bring a guild of customers at once. Index = stats.vehicle. */
@@ -31,6 +32,8 @@ export class Visitors {
   private guestTimer = 0;
   private cryptidAt = -1;
   private legendAt = -1;
+  /** When each of today's orders comes in (seconds into the day). */
+  private orderTimes: { at: number; order: Order }[];
 
   constructor(private readonly shop: Shop) {
     const { rand, stats, condition } = shop;
@@ -38,6 +41,12 @@ export class Visitors {
     if (condition.kind === 'land') this.cryptidAt = day * rand.range(0.3, 0.6);
     const legend = stats.legendChance + (condition.kind === 'festival' ? 0.25 : 0);
     if (rand.next() < legend) this.legendAt = day * rand.range(0.35, 0.7);
+    this.orderTimes = shop.save.orders.map((order) => ({ at: day * rand.range(0.15, 0.55), order }));
+  }
+
+  /** Series someone ordered for today (crafting leans toward them). */
+  get orderedSeries(): number[] {
+    return this.shop.save.orders.map((o) => o.series);
   }
 
   /** Doubles (or multiplies) sales for `seconds`. */
@@ -78,6 +87,14 @@ export class Visitors {
         this.guestTimer = 0;
         if (shop.customers.spawnGuest()) this.guestsLeft--;
         else this.guestsLeft = 0;
+      }
+    }
+
+    // Heroes coming in for their orders
+    for (const t of this.orderTimes) {
+      if (t.at >= 0 && shop.elapsed >= t.at) {
+        t.at = -1;
+        if (shop.save.orders.includes(t.order)) shop.customers.spawnOrder(t.order);
       }
     }
 

@@ -104,6 +104,10 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   legendChance: { label: '伝説のヒーローが来る確率（1日）', format: pct },
   fogThieves: { label: '霧の日の泥棒の多さ', format: times },
   festivalCrowd: { label: '市場の日の客足', format: times },
+  affinityPower: { label: '顔なじみ・常連の支払いボーナス', format: times },
+  orderSlots: { label: '同時に受けられる注文', format: (v) => `${v}件` },
+  orderPay: { label: '注文の品の値段', format: times },
+  orderFocus: { label: '注文のシリーズのクラフトされやすさ', format: (v) => `+${v * 100}%` },
   ...Object.fromEntries(FACTION_KEYS.map((f) => [`fav_${f}`, { label: `${FACTION_NAME[f]}のヒーローの支払い`, format: (v: number) => `+${Math.round(v * 100)}%` }])),
   ...Object.fromEntries(
     STAFF_ROLES.map((r) => [`staff_${r}`, { label: ROLES[r].job, format: (v: number) => (v > 0 ? staffHero(r, v).name : 'なし') }]),

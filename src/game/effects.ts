@@ -94,7 +94,12 @@ export type GlobalStat =
   | 'blessingPower'
   | 'legendChance'
   | 'fogThieves'
-  | 'festivalCrowd';
+  | 'festivalCrowd'
+  // Phase 5
+  | 'affinityPower'
+  | 'orderSlots'
+  | 'orderPay'
+  | 'orderFocus';
 
 /** The five factions, as heroes' home factions and as stat keys. */
 export type FactionKey = 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu';

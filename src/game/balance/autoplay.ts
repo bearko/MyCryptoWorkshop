@@ -4,7 +4,7 @@ import { Shop, type DayReport, type Decision, type Rng } from '../shop';
 import { GEM_IDS, LINE_IDS } from '../lines';
 import { buy, canBuy } from '../purchase';
 import { GEM_COST } from '../shop/production';
-import { costOf, isAvailable, level, SKILLS } from '../skills';
+import { costOf, isAvailable, level, SKILLS, TREE_NODES } from '../skills';
 import { STAFF_ROLES } from '../staff';
 import { computeStats } from '../stats';
 
@@ -174,7 +174,7 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
       caught: report.caught,
       pests: report.pests,
       levelsOwned: Object.values(save.levels).reduce((a, b) => a + b, 0),
-      nodesMaxed: SKILLS.filter((n) => level(save.levels, n.id) >= n.max).length,
+      nodesMaxed: TREE_NODES.filter((n) => level(save.levels, n.id) >= n.max).length,
       maxRarity: stats.maxRarity,
       maxTier: stats.maxTier,
       collection: save.collection.length,
@@ -182,7 +182,7 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
       dust: save.resources.dust,
       staff: STAFF_ROLES.filter((r) => stats[`staff_${r}`] > 0).length,
       research: save.resources.research,
-      unfinished: SKILLS.filter((n) => level(save.levels, n.id) < n.max).map((n) => n.id),
+      unfinished: TREE_NODES.filter((n) => level(save.levels, n.id) < n.max).map((n) => n.id),
     });
   }
   return rows;

@@ -1,5 +1,7 @@
 import { customersByTier, thieves, type Hero } from '../catalog';
 import { FACTION_BY_NAME } from '../factions';
+import { AFFINITY, affinityRank } from '../heroes';
+import { orderHero, orderMatches, type Order } from '../orders';
 import { itemExt, itemValue } from '../items';
 import { DOOR, HERO_PX, POTION_BAR, queuePos, SHOP_LANE_Y, TRIAL } from '../layout';
 import { tierWeights } from '../stats';
@@ -71,6 +73,20 @@ export class Customers {
     return true;
   }
 
+  /** The customer who placed `order` comes in for it. */
+  spawnOrder(order: Order): void {
+    const shop = this.shop;
+    const hero = orderHero(order);
+    const a = makeActor(shop, 'customer', hero, Math.max(0, hero.rarityIndex), 0);
+    a.special = 'order';
+    a.order = order;
+    shop.actors.push(a);
+    shop.report.customers++;
+    shop.save.totals.customers++;
+    shop.emit({ type: 'special', kind: 'order', hero });
+    this.chooseShelfTarget(a);
+  }
+
   /** A guild member arriving by vehicle. Returns false if the shop is packed. */
   spawnGuest(): boolean {
     const ok = this.spawn(this.shop.rand.range(-30, 30), true);
@@ -78,17 +94,27 @@ export class Customers {
     return ok;
   }
 
+  /** Whether this customer would take the item (collectors and orders are picky). */
+  private wants(a: Actor, item: number): boolean {
+    if (a.special === 'order') return orderMatches(a.order!, itemExt(item));
+    return a.special !== 'collector' || itemExt(item).seriesIndex === a.wants;
+  }
+
   /** How much more than the price this customer pays for `code`. */
   payMult(a: Actor, code: number): number {
     const shop = this.shop;
     const { stats } = shop;
     let m = a.priceBonus * shop.visitors.salesMult;
+    // Affinity: heroes who keep coming back pay a little more.
+    const rank = affinityRank(shop.save.heroes[a.hero.id] ?? 0);
+    if (rank > 0) m *= 1 + AFFINITY[rank - 1].pay * stats.affinityPower;
     const fav = a.hero.faction ? FACTION_BY_NAME[a.hero.faction] : undefined;
     if (fav) m *= 1 + stats[`fav_${fav}`];
     if (a.special === 'collector' && itemExt(code).seriesIndex === a.wants) m *= stats.collectorPay;
     else if (a.special === 'owner') m *= stats.ownerPay;
     else if (a.special === 'regular') m *= stats.regularPay;
     else if (a.special === 'guild') m *= GUILD_PAY;
+    else if (a.special === 'order' && orderMatches(a.order!, itemExt(code))) m *= stats.orderPay;
     return m;
   }
 
@@ -97,7 +123,7 @@ export class Customers {
     const { rand } = this.shop;
     const slots = this.shop.stock.slots;
     // Collectors only look at the series they collect.
-    const wanted = (item: number) => a.special !== 'collector' || itemExt(item).seriesIndex === a.wants;
+    const wanted = (item: number) => this.wants(a, item);
     const options = slots.flatMap((s, i) => (s.item !== null && s.claimedBy === null && wanted(s.item) ? [i] : []));
     if (options.length === 0) {
       a.state = 'waitShelf';
@@ -191,11 +217,11 @@ export class Customers {
       }
       case 'waitShelf': {
         moveToward(a, dt, a.speed * 0.5);
-        if (a.timer > shop.stats.patience) {
+        if (a.timer > shop.stats.patience * (a.special === 'order' ? 3 : 1)) {
           this.lose(a, 'empty');
           break;
         }
-        if (slots.some((s) => s.item !== null && s.claimedBy === null && (a.special !== 'collector' || itemExt(s.item).seriesIndex === a.wants))) {
+        if (slots.some((s) => s.item !== null && s.claimedBy === null && this.wants(a, s.item))) {
           const waited = a.timer;
           this.chooseShelfTarget(a);
           a.timer = waited;

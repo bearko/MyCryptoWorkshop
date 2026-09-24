@@ -1,4 +1,5 @@
-import { extensionById, heroById } from './catalog';
+import { customers, extensionById, heroById, series } from './catalog';
+import type { Order } from './orders';
 import { CONDITIONS } from './conditions';
 
 const CONDITION_KINDS = Object.keys(CONDITIONS);
@@ -20,7 +21,7 @@ export interface Totals {
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export interface SaveData {
   version: typeof SAVE_VERSION;
@@ -52,6 +53,10 @@ export interface SaveData {
   forecast: DayCondition;
   /** Reformed thieves who now shop as regulars (hero ids). */
   regulars: number[];
+  /** Purchases per hero id (the hero collection and affinity). */
+  heroes: Record<string, number>;
+  /** Open orders (注文) for the coming business days. */
+  orders: Order[];
   /** Best edition crafted per extension id (for the collection). */
   bestEdition: Record<string, number>;
   /** 魔石 infused into each line for the next business day. */
@@ -89,6 +94,8 @@ export function newSave(now = Date.now()): SaveData {
     showcase: [],
     forecast: { kind: 'sunny' },
     regulars: [],
+    heroes: {},
+    orders: [],
     bestEdition: {},
     infusion: {},
   };
@@ -112,6 +119,8 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
   3: (d) => ({ ...d, version: 4, resources: { ...(d.resources as object), research: 0 }, showcase: [] }),
   // v4 → v5 (Phase 4): day conditions and reformed regulars.
   4: (d) => ({ ...d, version: 5, forecast: { kind: 'sunny' }, regulars: [] }),
+  // v5 → v6 (Phase 5): the hero collection.
+  5: (d) => ({ ...d, version: 6, heroes: {}, orders: [] }),
 };
 
 export class SaveError extends Error {}
@@ -143,6 +152,8 @@ export function sanitize(data: SaveData): number {
   data.storage = data.storage.filter(known);
   data.showcase = (data.showcase ?? []).map((code) => (code !== null && known(code) ? code : null));
   data.regulars = [...new Set(data.regulars ?? [])].filter((id) => heroById.has(id));
+  data.orders = (data.orders ?? []).filter((o) => o.series < series.length && customers.some((c) => c.id === o.heroId));
+  data.heroes = Object.fromEntries(Object.entries(data.heroes ?? {}).filter(([id, n]) => heroById.has(Number(id)) && n > 0));
   if (!data.forecast || !CONDITION_KINDS.includes(data.forecast.kind)) data.forecast = { kind: 'sunny' };
   data.bestEdition = Object.fromEntries(Object.entries(data.bestEdition ?? {}).filter(([id]) => extensionById.has(Number(id))));
   data.totals = { ...emptyTotals(), ...data.totals };

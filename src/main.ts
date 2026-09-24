@@ -464,6 +464,8 @@ function showResults(report: DayReport): void {
   for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
   if (report.research > 0) rows.push(['研究ポイント', `+${report.research}`]);
   if (report.guests > 0) rows.push(['乗り物で来た客', `${report.guests}人`]);
+  if (report.newHeroes.length > 0) rows.push(['初めて買ってくれたヒーロー', `${report.newHeroes.length}人`]);
+  if (report.ordersDone > 0) rows.push(['届けた注文', `${report.ordersDone}件`]);
   if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
   const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
   if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
@@ -475,6 +477,7 @@ function showResults(report: DayReport): void {
     report.bestSale
       ? h('p.best-sale', {}, '最高額: ', h('b', {}, report.bestSale.hero), ' が ', extLabel(report.bestSale.item), ` を ${fmt(report.bestSale.price)} GUM で購入`)
       : null,
+    report.sets.length ? h('p.best-sale', {}, '🏆 コンプリート達成: ', h('b', {}, report.sets.join('・'))) : null,
     report.newEntries.length
       ? h('div.new-entries', {}, h('div', {}, `図鑑に新しく登録 (${report.newEntries.length})`), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
       : null,
@@ -655,6 +658,10 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'mine':
       break;
+    case 'orderDone':
+      sound.play('rare');
+      log(h('span', {}, h('b', {}, e.hero.name), ' が注文の ', extLabel(e.item), ' を受け取った！ ', h('span.gum-text', {}, `+${fmt(e.price)}`)), 'rare');
+      break;
     case 'decision':
       showDecision(e.decision);
       break;
@@ -680,6 +687,9 @@ function onShopEvent(e: ShopEvent): void {
       } else if (e.kind === 'collector') {
         log(h('span', {}, 'コレクター ', h('b', {}, e.hero.name), ' が探し物をしている'));
         tip('collector', '吹き出しにシリーズを出しているのはコレクター客！そのシリーズを並べておくと 2 倍で買ってくれるよ');
+      } else if (e.kind === 'order') {
+        log(h('span', {}, h('b', {}, e.hero.name), ' が注文の品を受け取りに来た'), 'rare');
+        tip('orderCome', '注文したヒーローが来たよ！注文の品が棚にあれば高く買ってくれる。吹き出しの品を確認してね');
       } else if (e.kind === 'regular') {
         log(h('span', {}, '常連客の ', h('b', {}, e.hero.name), ' が来てくれた'));
       }
