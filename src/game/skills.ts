@@ -1,8 +1,10 @@
 import { catalog, customersByTier, icons, pests, series, thieves } from './catalog';
+import type { Currency } from './currency';
+import { PHASE3_NODES } from './skills3';
 import { add, atLeast, mul, overlay, pow, seriesPrice, unlockSeries, type Effect } from './effects';
 
-/** The five factions of My Crypto Heroes, used as the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu';
+/** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: '工房', role: '開業', color: '#e8d6a8' },
@@ -11,6 +13,8 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   kouryu: { name: '黄竜', role: '経営・レジ', color: '#ffd23f' },
   byakko: { name: '白虎', role: '防犯', color: '#e9eef5' },
   genbu: { name: '玄武', role: '陳列・レシピ', color: '#58d6a0' },
+  store: { name: '店舗', role: 'スタッフ・設備', color: '#ff9ecb' },
+  research: { name: '研究', role: '研究ポイント', color: '#b48cff' },
 };
 
 export interface SkillNode {
@@ -30,8 +34,8 @@ export interface SkillNode {
   requires: string[];
   /** What each level does (see effects.ts). */
   effects: Effect[];
-  /** Paid in gold dust instead of GUM. */
-  currency?: 'dust';
+  /** Paid in gold dust or research points instead of GUM. */
+  currency?: Exclude<Currency, 'gum'>;
 }
 
 const ext = (seriesIndex: number, rarityIndex: number) => series[seriesIndex].items[rarityIndex].image;
@@ -162,7 +166,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'luck', branch: 'suzaku', name: '鑑定眼', desc: '最高レアリティの出現率 +25%（全ライン）', icon: icons.gems.leviathan, x: 1, y: -3, max: 8, baseCost: 300, growth: 1.7, requires: ['uncommon'], effects: [add('luck', 0.25), overlay('ambient_overlay_401'), overlay('ambient_overlay_402', 3), overlay('ambient_overlay_325', 5)] },
   { id: 'craftSpeed2', branch: 'suzaku', name: '錬金の極意', desc: 'クラフト時間 -6%', icon: icons.gems.tiamat, x: 1, y: -4, max: 10, baseCost: 3000, growth: 1.5, requires: ['rare'], effects: [pow('pot.craftTime', 0.94)] },
   { id: 'epic', branch: 'suzaku', name: 'インペリアル製法', desc: 'Epic をクラフトできる', icon: ext(0, 3), x: 0, y: -4, max: 1, baseCost: 120000, growth: 1, requires: ['rare'], effects: [atLeast('maxRarity', 3)] },
-  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 4000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
+  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 20000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
 
   // 青龍: customers (right)
   { id: 'ad', branch: 'seiryu', name: '呼び込み', desc: '来客ペース +15%', icon: icons.bufAgi, x: 1, y: 0, max: 10, baseCost: 12, growth: 1.5, requires: ['root'], effects: [mul('spawnRate', 0.15)] },
@@ -174,7 +178,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'group', branch: 'seiryu', name: '団体客', desc: '8%の確率で客がもう1人一緒に来る', icon: hero(0), x: 3, y: 1, max: 5, baseCost: 500, growth: 1.8, requires: ['walk'], effects: [add('groupChance', 0.08)] },
   { id: 'wordOfMouth', branch: 'seiryu', name: '口コミ', desc: '来客ペース +6%', icon: icons.ce, x: 4, y: -1, max: 10, baseCost: 4000, growth: 1.5, requires: ['lantern'], effects: [mul('spawnRate', 0.06)] },
   { id: 'tier3', branch: 'seiryu', name: '客層：Epic', desc: 'Epic ヒーローが来店（支払い ×1.8）', icon: hero(3), x: 4, y: 0, max: 1, baseCost: 8000, growth: 1, requires: ['tier2'], effects: [atLeast('maxTier', 3)] },
-  { id: 'tier4', branch: 'seiryu', name: '客層：Legendary', desc: 'Legendary ヒーローが来店（支払い ×2.2）', icon: hero(4), x: 5, y: 0, max: 1, baseCost: 200000, growth: 1, requires: ['tier3'], effects: [atLeast('maxTier', 4)] },
+  { id: 'tier4', branch: 'seiryu', name: '客層：Legendary', desc: 'Legendary ヒーローが来店（支払い ×2.2）', icon: hero(4), x: 5, y: 0, max: 1, baseCost: 1500000, growth: 1, requires: ['tier3'], effects: [atLeast('maxTier', 4)] },
 
   // 黄竜: pricing and register (down)
   { id: 'price', branch: 'kouryu', name: '値付け上手', desc: '販売価格 +15%', icon: ext(11, 2), x: 0, y: 1, max: 10, baseCost: 20, growth: 1.55, requires: ['root'], effects: [mul('priceMult', 0.15)] },
@@ -184,7 +188,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'tip', branch: 'kouryu', name: 'おもてなし', desc: '10%の確率でチップ（+50%）', icon: ext(6, 2), x: 1, y: 3, max: 5, baseCost: 300, growth: 1.7, requires: ['registerClick'], effects: [add('tipChance', 0.1)] },
   { id: 'register', branch: 'kouryu', name: 'レジ増設', desc: 'レジを1台増やす（同時に会計）', icon: icons.int, x: 0, y: 4, max: 2, baseCost: 2000, growth: 8, requires: ['dayLength'], effects: [add('registers', 1)] },
   { id: 'collector', branch: 'kouryu', name: '図鑑の知識', desc: '図鑑1種あたりの価格ボーナス +0.3%', icon: ext(5, 3), x: 1, y: 4, max: 5, baseCost: 1500, growth: 2, requires: ['tip'], effects: [add('collectionBonus', 0.003)] },
-  { id: 'brand', branch: 'kouryu', name: 'ブランド力', desc: '販売価格 +15%', icon: ext(10, 4), x: 0, y: 5, max: 10, baseCost: 10000, growth: 1.6, requires: ['register'], effects: [mul('priceMult', 0.15)] },
+  { id: 'brand', branch: 'kouryu', name: 'ブランド力', desc: '販売価格 +15%', icon: ext(10, 4), x: 0, y: 5, max: 10, baseCost: 4000, growth: 1.6, requires: ['register'], effects: [mul('priceMult', 0.15)] },
 
   // 白虎: security (down-left)
   { id: 'bounty', branch: 'byakko', name: '懸賞金', desc: '泥棒を捕まえた時の報酬 +50%', icon: thieves[0].image, x: -1, y: 1, max: 5, baseCost: 60, growth: 1.7, requires: ['root'], effects: [add('bountyMult', 0.5)] },
@@ -200,6 +204,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'storage', branch: 'genbu', name: '倉庫拡張', desc: '倉庫の容量 +3', icon: ext(3, 1), x: -3, y: 0, max: 8, baseCost: 500, growth: 1.6, requires: ['conveyor'], effects: [add('storageCap', 3)] },
   ...recipeNodes,
   ...PHASE2_NODES,
+  ...PHASE3_NODES,
 ];
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));

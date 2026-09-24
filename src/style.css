@@ -1026,6 +1026,11 @@ body.in-day {
   color: #ffd98a;
 }
 
+.buy-cost.research,
+.dust.research {
+  color: #c9a8ff;
+}
+
 .buy-cost {
   font-family: var(--font-pixel);
   color: var(--gold);

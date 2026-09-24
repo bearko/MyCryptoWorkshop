@@ -2,6 +2,7 @@ import { RARITIES, RARITY_JA, series } from './catalog';
 import type { LineStat, NumStat } from './effects';
 import { EDITIONS } from './items';
 import { LINE_IDS, LINES } from './lines';
+import { ROLES, STAFF_ROLES, staffHero } from './staff';
 import { secs } from './format';
 import type { Stats } from './stats';
 
@@ -57,6 +58,32 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   infusion: { label: '魔石の投入', format: (v) => (v > 0 ? '可能' : '不可') },
   infusionPower: { label: '魔石の効果', format: times },
   packer: { label: '梱包機', format: (v) => (v > 0 ? '高い品から補充' : 'なし') },
+  restockTime: { label: '棚への補充間隔', format: secs },
+  browseTime: { label: '客が品を選ぶ時間', format: secs },
+  upsell: { label: '高い品を勧める確率', format: pct },
+  closingBonus: { label: '閉店時の売上ボーナス', format: pct },
+  guardSpeed: { label: '警備係の足の速さ', format: (v) => `${Math.round(v)}` },
+  hunterSpeed: { label: '退治係の足の速さ', format: (v) => `${Math.round(v)}` },
+  researchRate: { label: '研究ポイント', format: (v) => `${v.toFixed(1)}/分` },
+  market: { label: 'マーケット出品', format: (v) => (v > 0 ? 'あり' : 'なし') },
+  marketInterval: { label: '出品の間隔', format: secs },
+  marketRate: { label: 'マーケットの買取価格', format: pct },
+  peddlerTrip: { label: '行商の往復時間', format: secs },
+  peddlerLoad: { label: '行商で持ち出す数', format: (v) => `${v}個` },
+  peddlerRate: { label: '行商の売値', format: pct },
+  autoRegisters: { label: '自動レジ', format: (v) => `${v}台` },
+  batchChance: { label: 'まとめ会計の確率', format: pct },
+  rug: { label: '高級絨毯', format: (v) => (v > 0 ? `Lv${v}` : 'なし') },
+  potionStand: { label: 'ポーション配布台', format: (v) => (v > 0 ? 'あり' : 'なし') },
+  barChance: { label: 'ポーションバーに寄る確率', format: pct },
+  barPrice: { label: 'ポーション1杯の値段（買い物の）', format: pct },
+  trialChance: { label: '試し斬りする確率', format: pct },
+  trialFee: { label: '試し斬り料（買い物の）', format: pct },
+  showcaseSlots: { label: 'ショーケース', format: (v) => `${v}枠` },
+  showcaseMult: { label: 'ショーケースの価格', format: times },
+  ...Object.fromEntries(
+    STAFF_ROLES.map((r) => [`staff_${r}`, { label: ROLES[r].job, format: (v: number) => (v > 0 ? staffHero(r, v).name : 'なし') }]),
+  ),
   ...Object.fromEntries(
     LINE_IDS.flatMap((line) =>
       Object.entries(LINE_STAT_INFO).map(([k, info]) => [`${line}.${k}`, { label: `${LINES[line].name}: ${info!.label}`, format: info!.format }]),

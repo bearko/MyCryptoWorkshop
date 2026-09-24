@@ -1,4 +1,5 @@
 import './style.css';
+import { CURRENCIES } from './game/currency';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
@@ -38,6 +39,8 @@ const FACILITY_NODES = new Set(['forge', 'conveyor', 'rare', 'lantern']);
 const gumText = h('span.gum-amount', {}, '0');
 const dustText = h('span.dust-amount', {}, '0');
 const dustBox = h('div.dust', { title: 'ゴールドダスト' }, icon(icons.dust, 'px'), dustText);
+const researchText = h('span.research-amount', {}, '0');
+const researchBox = h('div.dust.research', { title: '研究ポイント' }, icon(CURRENCIES.research.icon, 'px'), researchText);
 const dayText = h('span.day-label');
 const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
 const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
@@ -47,6 +50,7 @@ const topbar = h(
   h('div.brand', {}, icon(icons.gum, 'px brand-icon'), h('div', {}, h('b', {}, 'My Crypto Workshop'), h('small', {}, 'マイクリ クラフト工房'))),
   h('div.gum', { title: '所持GUM' }, icon(icons.gum, 'px'), gumText),
   dustBox,
+  researchBox,
   dayText,
   h(
     'div.settings',
@@ -130,7 +134,10 @@ let modalOpen = 0;
 function updateTopbar(): void {
   gumText.textContent = fmt(save.gum);
   dustText.textContent = fmt(save.resources.dust);
-  dustBox.hidden = save.resources.dust <= 0 && computeStats(save.levels).dismantleRarity < 0;
+  const stats = computeStats(save.levels);
+  dustBox.hidden = save.resources.dust <= 0 && stats.dismantleRarity < 0;
+  researchText.textContent = fmt(save.resources.research);
+  researchBox.hidden = save.resources.research <= 0 && stats.researchRate <= 0;
   dayText.textContent = `Day ${save.day}`;
   bgmBtn.classList.toggle('off', !save.settings.bgm);
   seBtn.classList.toggle('off', !save.settings.se);

@@ -7,6 +7,7 @@
  */
 
 import type { LineId } from './lines';
+import type { StaffRole } from './staff';
 
 /** Shop-wide numeric stats. See BASE_STATS in stats.ts for defaults. */
 export type GlobalStat =
@@ -42,7 +43,32 @@ export type GlobalStat =
   | 'gemChance'
   | 'infusion'
   | 'infusionPower'
-  | 'packer';
+  | 'packer'
+  // Phase 3: staff, facilities, sales automation, research
+  | `staff_${StaffRole}`
+  | 'restockTime'
+  | 'browseTime'
+  | 'upsell'
+  | 'closingBonus'
+  | 'guardSpeed'
+  | 'hunterSpeed'
+  | 'researchRate'
+  | 'market'
+  | 'marketInterval'
+  | 'marketRate'
+  | 'peddlerTrip'
+  | 'peddlerLoad'
+  | 'peddlerRate'
+  | 'autoRegisters'
+  | 'batchChance'
+  | 'rug'
+  | 'potionStand'
+  | 'barChance'
+  | 'barPrice'
+  | 'trialChance'
+  | 'trialFee'
+  | 'showcaseSlots'
+  | 'showcaseMult';
 
 /** Per-production-line stats; the full key is `${line}.${stat}`, e.g. "forge.craftTime". */
 export type LineStat =

@@ -1,5 +1,6 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
+import { CURRENCIES } from '../game/currency';
 import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
@@ -57,7 +58,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7],  seiryu: [6.6, -1.2], kouryu: [0, 6.1], byakko: [-3.2, 4.8], genbu: [-9.4, 0.4] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [6.6, -1.2], kouryu: [9.8, 3], byakko: [-3.2, 3.4], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -413,7 +414,7 @@ export class TreeView {
           h(
             'button.btn.btn-buy',
             { disabled: !can, onclick: () => this.tryBuy(node) },
-            icon(node.currency === 'dust' ? icons.dust : icons.gum, 'px gum-icon'),
+            icon(CURRENCIES[node.currency ?? 'gum'].icon, 'px gum-icon'),
             ` ${fmt(cost)} で${lv > 0 ? '強化' : '習得'}`,
           ),
         );
@@ -431,7 +432,7 @@ export class TreeView {
                   this.refresh();
                 },
               },
-              `まとめて Lv+${n}（${fmt(total)} ${node.currency === 'dust' ? 'ダスト' : 'GUM'}）`,
+              `まとめて Lv+${n}（${fmt(total)} ${CURRENCIES[node.currency ?? 'gum'].name}）`,
             ),
           );
         }
@@ -450,7 +451,7 @@ export class TreeView {
             { class: `buy-item ${n.id === this.selected ? 'selected' : ''}`, style: `--branch:${BRANCHES[n.branch].color}`, onclick: () => this.select(n.id, true) },
             icon(n.icon, 'px'),
             h('span.buy-name', {}, n.name, n.max > 1 ? h('small', {}, ` Lv${level(levels, n.id) + 1}`) : ''),
-            h('span.buy-cost', { class: n.currency === 'dust' ? 'buy-cost dust' : 'buy-cost' }, fmt(c)),
+            h('span.buy-cost', { class: `buy-cost ${n.currency ?? ''}` }, fmt(c)),
           ),
         ),
         h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, '安い順にまとめて習得'),

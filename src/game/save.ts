@@ -1,4 +1,5 @@
 import { extensionById } from './catalog';
+import { addTo } from './currency';
 import { itemId } from './items';
 import { GEM_IDS, type GemId, type LineId } from './lines';
 import { costOf, skillById, type Levels } from './skills';
@@ -15,7 +16,7 @@ export interface Totals {
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export interface SaveData {
   version: typeof SAVE_VERSION;
@@ -39,8 +40,10 @@ export interface SaveData {
     /** In-game seconds spent in business days. */
     playSeconds: number;
   };
-  /** Materials from the dismantler. */
-  resources: { dust: number; gems: Record<GemId, number> };
+  /** Materials from the dismantler, and research points from the researcher. */
+  resources: { dust: number; gems: Record<GemId, number>; research: number };
+  /** Showcase contents carried over between days (null = empty). */
+  showcase: (number | null)[];
   /** Best edition crafted per extension id (for the collection). */
   bestEdition: Record<string, number>;
   /** 魔石 infused into each line for the next business day. */
@@ -74,7 +77,8 @@ export function newSave(now = Date.now()): SaveData {
     settings: { bgm: true, se: true },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
-    resources: { dust: 0, gems: emptyGems() },
+    resources: { dust: 0, gems: emptyGems(), research: 0 },
+    showcase: [],
     bestEdition: {},
     infusion: {},
   };
@@ -94,6 +98,8 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
   }),
   // v2 → v3 (Phase 2): dismantler materials, best editions, 魔石 infusion.
   2: (d) => ({ ...d, version: 3, resources: { dust: 0, gems: emptyGems() }, bestEdition: {}, infusion: {} }),
+  // v3 → v4 (Phase 3): research points and the showcase.
+  3: (d) => ({ ...d, version: 4, resources: { ...(d.resources as object), research: 0 }, showcase: [] }),
 };
 
 export class SaveError extends Error {}
@@ -114,7 +120,7 @@ export function migrate(raw: RawSave): RawSave {
 
 /**
  * Fixes a save against the current game data: unknown extension ids are dropped, and skill
- * levels that no longer exist (removed nodes, lowered max) are refunded as GUM.
+ * levels that no longer exist (removed nodes, lowered max) are refunded in the node's currency.
  * Returns the GUM refunded.
  */
 export function sanitize(data: SaveData): number {
@@ -123,6 +129,7 @@ export function sanitize(data: SaveData): number {
   data.collection = data.collection.filter((id) => extensionById.has(id));
   data.shelf = data.shelf.map((code) => (code !== null && known(code) ? code : null));
   data.storage = data.storage.filter(known);
+  data.showcase = (data.showcase ?? []).map((code) => (code !== null && known(code) ? code : null));
   data.bestEdition = Object.fromEntries(Object.entries(data.bestEdition ?? {}).filter(([id]) => extensionById.has(Number(id))));
   data.totals = { ...emptyTotals(), ...data.totals };
 
@@ -130,8 +137,12 @@ export function sanitize(data: SaveData): number {
   for (const [id, lv] of Object.entries(data.levels)) {
     const node = skillById.get(id);
     const keep = node ? Math.min(lv, node.max) : 0;
-    if (node) for (let l = keep; l < lv; l++) refund += node.currency === 'dust' ? 0 : costOf(node, l);
-    if (node?.currency === 'dust') for (let l = keep; l < lv; l++) data.resources.dust += costOf(node, l);
+    if (node) {
+      for (let l = keep; l < lv; l++) {
+        if (node.currency) addTo(data, node.currency, costOf(node, l));
+        else refund += costOf(node, l);
+      }
+    }
     // Nodes that were removed entirely: nothing to price them by, so they are simply dropped.
     if (keep > 0) data.levels[id] = keep;
     else delete data.levels[id];
@@ -154,7 +165,7 @@ export function parseSave(json: string): SaveData {
   const migrated = migrate(raw);
   const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
   const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
-  data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems } };
+  data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0 };
   sanitize(data);
   return data;
 }

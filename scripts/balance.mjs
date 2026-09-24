@@ -37,7 +37,8 @@ try {
       });
     }
     const last = rows[rows.length - 1];
-    console.log(`${player.name.padEnd(7)} ${days}日 / ${Math.round(last.playSeconds / 60)}分  最終日の売上 ${last.revenue}  習得Lv ${last.levelsOwned}`);
+    console.log(`${player.name.padEnd(7)} ${days}日 / ${Math.round(last.playSeconds / 60)}分  最終日の売上 ${last.revenue}  習得Lv ${last.levelsOwned}  研究pt ${last.research}`);
+    if (last.unfinished.length) console.log(`        未習得: ${last.unfinished.slice(0, 12).join(', ')}${last.unfinished.length > 12 ? ' …' : ''}`);
   }
   console.log('');
   console.table(table);

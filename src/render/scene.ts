@@ -248,13 +248,13 @@ export class SceneRenderer {
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
-    const key = `${shop.slots.length}|${ready(img(catalog.windowView))}|${SCENE_H}`;
+    const key = `${shop.shelfSlots}|${ready(img(catalog.windowView))}|${SCENE_H}`;
     if (key !== this.bgKey) {
       this.bg.height = SCENE_H;
       const bctx = this.bg.getContext('2d')!;
       bctx.clearRect(0, 0, SCENE_W, SCENE_H);
       bctx.imageSmoothingEnabled = false;
-      paintStorefront(bctx, shop.slots.length);
+      paintStorefront(bctx, shop.shelfSlots);
       this.bgKey = key;
     }
     ctx.drawImage(this.bg, 0, 0, SCENE_W, SCENE_H);
@@ -276,7 +276,7 @@ export class SceneRenderer {
     shop.slots.forEach((slot, i) => {
       if (slot.item === null) return;
       const e = itemExt(slot.item);
-      const p = slotPos(i);
+      const p = slot;
       if (e.rarityIndex >= 2) {
         const pulse = 0.55 + 0.25 * Math.sin(now / 300 + i);
         const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 22);
@@ -295,7 +295,7 @@ export class SceneRenderer {
       const edition = itemEdition(slot.item);
       const shin = itemExt(slot.item).shin;
       if (edition === 0 && !shin) return;
-      const p = slotPos(i);
+      const p = slot;
       this.drawSparkle(p.x + SHELF_ITEM_PX / 2 - 2, p.y + 22 - SHELF_ITEM_PX, shin ? '#ff5d8f' : EDITIONS[edition].color, now / 400 + i);
     });
   }

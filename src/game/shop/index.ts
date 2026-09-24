@@ -4,21 +4,24 @@ import type { SaveData } from '../save';
 import { computeStats, type Stats } from '../stats';
 import { Customers } from './customers';
 import { Dismantler } from './dismantler';
+import { Market } from './market';
 import { Pests } from './pests';
 import { Production } from './production';
 import { Random } from './random';
 import { Register } from './register';
+import { Staff } from './staff';
 import { Stock } from './stock';
 import { Thieves } from './thieves';
 import type { LineId } from '../lines';
-import type { Actor, DayReport, Fx, Pest, Popup, Rng, ShopEvent } from './types';
+import type { Actor, DayReport, ExtraSource, Fx, Pest, Popup, Rng, ShopEvent } from './types';
 
 export type * from './types';
 
 /**
  * One business day. Owns the shared state (stats, actors, report, effects) and runs each
  * system in a fixed order every frame. Systems live in this folder:
- *   stock (shelf/storage/flyers) · production (pot) · customers · thieves · register · pests
+ *   stock (shelf/showcase/storage/flyers) · production (lines) · customers · thieves · register ·
+ *   pests · staff · market
  */
 export class Shop {
   readonly stats: Stats;
@@ -38,6 +41,8 @@ export class Shop {
   readonly thieves: Thieves;
   readonly register: Register;
   readonly pests: Pests;
+  readonly staff: Staff;
+  readonly market: Market;
 
   private lastId = 0;
   private listeners: ((e: ShopEvent) => void)[] = [];
@@ -63,6 +68,8 @@ export class Shop {
       bestSale: null,
       dust: 0,
       gems: {},
+      research: 0,
+      extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0 },
     };
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
@@ -73,6 +80,8 @@ export class Shop {
     // Thieves before pests: both draw their first spawn time from the RNG in this order.
     this.thieves = new Thieves(this);
     this.pests = new Pests(this);
+    this.staff = new Staff(this);
+    this.market = new Market(this);
   }
 
   // ---------------------------------------------------------------- shared helpers
@@ -96,6 +105,13 @@ export class Shop {
     this.popups.push({ text: `+${fmt(amount)}`, x, y, t: 0, color: '#ffe066', icon: 'gum' });
   }
 
+  /** Revenue from outside the register (potion bar, trial area, market, peddler, closing bonus). */
+  addExtra(source: ExtraSource, amount: number, x: number, y: number): void {
+    this.addGum(amount, x, y);
+    this.report.extras[source] += amount;
+    this.emit({ type: 'extra', source, amount });
+  }
+
   // ---------------------------------------------------------------- update
 
   update(dt: number): void {
@@ -106,6 +122,7 @@ export class Shop {
 
     this.production.update(dt);
     this.stock.update(dt);
+    this.dismantler.update(dt);
     // No new arrivals in the last two seconds of the day.
     if (this.timeLeft >= 2) {
       this.customers.updateSpawns(dt);
@@ -120,6 +137,8 @@ export class Shop {
     this.customers.alignQueue();
     this.register.update(dt);
     this.pests.update(dt);
+    this.staff.update(dt);
+    this.market.update(dt);
 
     for (const e of this.fx) e.t += dt;
     this.fx = this.fx.filter((e) => e.t < 0.7);
@@ -132,9 +151,11 @@ export class Shop {
   private closeDay(): void {
     this.over = true;
     this.timeLeft = 0;
+    this.staff.closeDay();
     // Items still in customers' hands or in flight go back on the shelf / into storage.
     this.stock.closeOut(this.actors.flatMap((a) => (a.item !== null && a.kind === 'customer' ? [a.item] : [])));
-    this.save.shelf = this.stock.slots.map((s) => s.item);
+    this.save.shelf = this.stock.slots.filter((s) => !s.showcase).map((s) => s.item);
+    this.save.showcase = this.stock.slots.filter((s) => s.showcase).map((s) => s.item);
     this.save.storage = [...this.stock.storage];
     this.save.bestDayRevenue = Math.max(this.save.bestDayRevenue, this.report.revenue);
     this.save.day++;
@@ -210,5 +231,12 @@ export class Shop {
   }
   get maxSlots(): number {
     return MAX_SLOTS;
+  }
+  /** Shelf slots, not counting the showcase. */
+  get shelfSlots(): number {
+    return this.stats.shelfSlots;
+  }
+  get staffMembers() {
+    return this.staff.members;
   }
 }

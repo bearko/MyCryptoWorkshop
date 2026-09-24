@@ -1,6 +1,6 @@
 import { thieves } from '../catalog';
 import { itemValue, RARITY_PRICE } from '../items';
-import { CEILING_Y, DOOR, HERO_PX, SHOP_LANE_Y, slotPos, WINDOW } from '../layout';
+import { CEILING_Y, DOOR, HERO_PX, SHOP_LANE_Y, WINDOW } from '../layout';
 import { thiefStyle } from '../thieves';
 import { makeActor, releaseClaim } from './actors';
 import type { Shop } from './index';
@@ -39,7 +39,7 @@ export class Thieves {
     shop.actors.push(a);
     this.chooseTarget(a);
     if (a.slot >= 0) {
-      const target = slotPos(a.slot);
+      const target = this.shop.stock.slots[a.slot];
       if (style.entry === 'ceiling') {
         // Drops down on a rope right above the item.
         a.x = target.x;
@@ -74,7 +74,7 @@ export class Thieves {
     slots[slot].claimedBy = a.id;
     a.slot = slot;
     a.state = 'toShelf';
-    const p = slotPos(slot);
+    const p = slots[slot];
     a.tx = p.x;
     a.ty = SHOP_LANE_Y;
   }
@@ -123,7 +123,7 @@ export class Thieves {
           followPath(a, dt, a.speed);
           break;
         }
-        const p = slotPos(a.slot);
+        const p = slots[a.slot];
         a.tx = p.x;
         a.ty = SHOP_LANE_Y;
         if (moveToward(a, dt, a.rope ? a.speed * 0.8 : a.speed)) {
@@ -188,7 +188,8 @@ export class Thieves {
     a.gone = true;
   }
 
-  private catch(a: Actor, byGuard: boolean): void {
+  /** Catches a thief (by a tap, Maycri-kun or the guard); the stolen item goes back. */
+  catch(a: Actor, byGuard: boolean): void {
     const shop = this.shop;
     const { stats } = shop;
     releaseClaim(shop, a);

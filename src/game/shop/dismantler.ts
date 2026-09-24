@@ -1,17 +1,34 @@
 import { itemEdition, itemExt, itemValue, type ItemCode } from '../items';
-import { DISMANTLER, slotPos, STORAGE_POS } from '../layout';
+import { DISMANTLER, STORAGE_POS } from '../layout';
 import { FAMILY_GEM } from '../lines';
 import type { Shop } from './index';
 
 /** Gold dust per dismantled item, by rarity (Common → Legendary). */
 export const DUST_BY_RARITY = [1, 2, 5, 12, 30];
+/** Seconds between breaking down surplus junk while the shelf is full. */
+const SURPLUS_INTERVAL = 3;
 
 /**
  * The 分解炉 (fireplace): when there is no room for a newly crafted item, it breaks down the
  * cheapest low-rarity plain item into gold dust and sometimes a 魔石.
  */
 export class Dismantler {
+  private timer = 0;
+
   constructor(private readonly shop: Shop) {}
+
+  /** While the shelf is full, surplus junk in storage is broken down one item at a time. */
+  update(dt: number): void {
+    const { stats, stock } = this.shop;
+    if (stats.dismantleRarity < 0) return;
+    this.timer = Math.min(this.timer + dt, SURPLUS_INTERVAL);
+    if (this.timer < SURPLUS_INTERVAL || !stock.shelfFull()) return;
+    let pick = -1;
+    stock.storage.forEach((code, i) => this.eligible(code) && (pick < 0 || itemValue(code) < itemValue(stock.storage[pick])) && (pick = i));
+    if (pick < 0) return;
+    this.timer = 0;
+    this.dismantle(stock.storage.splice(pick, 1)[0], STORAGE_POS);
+  }
 
   private eligible(code: ItemCode): boolean {
     const ext = itemExt(code);
@@ -45,7 +62,7 @@ export class Dismantler {
     } else {
       code = stock.slots[pick.index].item!;
       stock.slots[pick.index].item = null;
-      from = slotPos(pick.index);
+      from = stock.slots[pick.index];
     }
     this.dismantle(code, from);
     return true;
