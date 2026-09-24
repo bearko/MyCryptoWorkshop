@@ -1,7 +1,7 @@
 {
   "name": "mycryptoworkshop",
-  "version": "0.1.0",
-  "description": "My Crypto Heroes の世界でエクステンションをクラフトして売るインクリメンタルゲーム",
+  "version": "1.0.0",
+  "description": "My Crypto Heroes \u306e\u4e16\u754c\u3067\u30a8\u30af\u30b9\u30c6\u30f3\u30b7\u30e7\u30f3\u3092\u30af\u30e9\u30d5\u30c8\u3057\u3066\u58f2\u308b\u30a4\u30f3\u30af\u30ea\u30e1\u30f3\u30bf\u30eb\u30b2\u30fc\u30e0",
   "scripts": {
     "sync-assets": "node scripts/sync-assets.mjs",
     "predev": "node scripts/sync-assets.mjs",
@@ -13,7 +13,8 @@
     "test": "vitest run",
     "typecheck": "tsc",
     "balance": "node scripts/sync-assets.mjs && node scripts/balance.mjs",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "package": "npm run build && node scripts/package.mjs"
   },
   "repository": {
     "type": "git",

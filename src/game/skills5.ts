@@ -143,7 +143,7 @@ const honorNodes: SkillNode[] = [
 ];
 
 /** GUM price of the clear goal (tuned with `npm run balance` for about 6 hours of play). */
-export const CLEAR_COST = 3e11;
+export const CLEAR_COST = 4e11;
 
 export const PHASE5_SERIES_NODES: SkillNode[] = [
   ...honorNodes,

@@ -14,7 +14,7 @@ const node = (n: SkillNode): SkillNode => n;
 export const PHASE4_NODES: SkillNode[] = [
   // ---- Cleaner (staff), a row left of 足止め罠
   ...staffNodes({
-    role: 'cleaner', x: -3, row: { y: 2, requires: 'trap' }, hireCost: 4000,
+    role: 'cleaner', x: -3, row: { y: 2, requires: 'trap' }, hireCost: 12000,
     hire: [], hireDesc: t('雨の日の泥や宝箱の散らかりを片付け、霧の日のコインを拾う', 'Cleans up mud on rainy days and litter from chests, and picks up coins on foggy days'),
     up1: { name: t('モップがけ', 'Mopping'), desc: t('清掃係の足の速さ +15%', 'Cleaner speed +15%'), icon: icons.bufAgi, max: 5, effects: [mul('cleanerSpeed', 0.15)] },
     up2: { name: t('玄関マット', 'Doormat'), desc: t('雨の日に泥が持ち込まれる確率 -10%', 'Chance of mud on rainy days -10%'), icon: seriesIcon('Mantle', 1), max: 5, effects: [pow('mudChance', 0.9)] },
