@@ -5,13 +5,14 @@ import { ACHIEVEMENTS, DAILY_BONUS, dailyLabel, dailyValue } from './game/achiev
 import { confetti } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
-import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
+import { catalog, customers, getExtension, icons, lands, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent } from './game/shop';
-import { buy } from './game/purchase';
+import { autoBuy, buy } from './game/purchase';
+import { relocate } from './game/prestige';
 import { computeStats } from './game/stats';
 import type { SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
@@ -19,6 +20,7 @@ import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
 import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
+import { relocateView, statsView } from './ui/prestige';
 
 const save = loadSave();
 const sound = new Sound();
@@ -47,6 +49,8 @@ const researchText = h('span.research-amount', {}, '0');
 const researchBox = h('div.dust.research', { title: '研究ポイント' }, icon(CURRENCIES.research.icon, 'px'), researchText);
 const emblemText = h('span.emblem-amount', {}, '0');
 const emblemBox = h('div.dust.emblem', { title: 'エンブレム' }, icon(CURRENCIES.emblem.icon, 'px'), emblemText);
+const cpText = h('span.cp-amount', {}, '0');
+const cpBox = h('div.dust.cp', { title: 'Cp（移転ポイント）' }, icon(CURRENCIES.cp.icon, 'px'), cpText);
 const dayText = h('span.day-label');
 const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
 const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
@@ -58,6 +62,7 @@ const topbar = h(
   dustBox,
   researchBox,
   emblemBox,
+  cpBox,
   dayText,
   h(
     'div.settings',
@@ -125,6 +130,7 @@ const tree = new TreeView(save, {
   onBuy: buyNode,
   onStartDay: () => startDay(),
   onCollection: () => openCollection(),
+  onRelocate: () => openRelocate(),
 });
 tree.hide();
 
@@ -149,7 +155,9 @@ function updateTopbar(): void {
   researchBox.hidden = save.resources.research <= 0 && stats.researchRate <= 0;
   emblemText.textContent = fmt(save.resources.emblem);
   emblemBox.hidden = save.resources.emblem <= 0 && save.achievements.length === 0;
-  dayText.textContent = `Day ${save.day}`;
+  cpText.textContent = fmt(save.prestige.cp);
+  cpBox.hidden = save.prestige.cp <= 0 && save.prestige.runs === 0;
+  dayText.textContent = save.prestige.runs > 0 ? `${save.prestige.runs + 1}周目 Day ${save.day}` : `Day ${save.day}`;
   bgmBtn.classList.toggle('off', !save.settings.bgm);
   seBtn.classList.toggle('off', !save.settings.se);
 }
@@ -292,6 +300,58 @@ function openPauseMenu(): void {
   ]);
 }
 
+/** The 番頭 on/off switch (the menu). */
+function autoBuyBtn(): HTMLElement {
+  const btn = h('button.btn.small.toggle', {}, 'ON') as HTMLButtonElement;
+  const sync = () => {
+    btn.classList.toggle('off', !save.settings.autoBuy);
+    btn.textContent = save.settings.autoBuy ? 'ON' : 'OFF';
+  };
+  btn.addEventListener('click', () => {
+    save.settings.autoBuy = !save.settings.autoBuy;
+    writeSave(save);
+    sync();
+  });
+  sync();
+  return btn;
+}
+
+function openStats(): void {
+  openModal('統計', statsView(save), [{ label: '閉じる' }], 'wide');
+}
+
+/** ランド移転 (after the clear): choose a land, confirm, start the next run. */
+function openRelocate(): void {
+  if (computeStats(save.levels).cleared <= 0) return;
+  const close = openModal(
+    'ランド移転',
+    relocateView(save, (land) => {
+      close();
+      const record = relocate(save, land);
+      writeSave(save);
+      sound.play('helper');
+      confetti(2500);
+      const home = lands.find((l) => l.key === land)!;
+      openModal(
+        `${home.name} へ移転した！`,
+        h(
+          'div.gold-chest',
+          {},
+          icon(home.cryptid, 'px'),
+          h('p', {}, `${record.run}周目の工房は伝説となり、Cp +${fmt(record.cp)} を手に入れた。${home.name}のクリプタイドが新しい工房を見守っている。`),
+          h('p.muted', {}, 'スキルツリー右下の「移転」ブランチで Cp を使おう。'),
+        ),
+        [{ label: `${record.run + 1}周目を始める`, primary: true, onClick: () => showTree() }],
+        'gold-chest-modal',
+      );
+      tree.refresh();
+      updateTopbar();
+    }),
+    [{ label: 'やめる' }],
+    'wide',
+  );
+}
+
 function openCollection(): void {
   openModal('図鑑', collectionView(save), [{ label: '閉じる' }], 'wide');
 }
@@ -312,6 +372,8 @@ function openMenu(): void {
     'div.menu',
     {},
     h('div.menu-sound', {}, h('span', {}, 'サウンド'), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
+    computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, '番頭の自動習得'), autoBuyBtn()) : null,
+    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, '📊 統計・周回の記録'), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, '🧭 ランド移転') : null),
     h('p', {}, '累計成績'),
     h(
       'div.stat-grid',
@@ -485,7 +547,7 @@ function showTitle(): void {
   );
 }
 
-function showResults(report: DayReport): void {
+function showResults(report: DayReport, auto: SkillNode[] = []): void {
   const rows: [string, string | number, string?][] = [
     ['来客', `${report.customers}人`],
     ['販売', `${report.sold}個`],
@@ -503,6 +565,7 @@ function showResults(report: DayReport): void {
     ['chest', '宝箱'],
     ['coin', '拾ったコイン'],
     ['merchant', '悪徳商人への売却'],
+    ['raid', '海賊の懸賞金'],
   ];
   for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
   if (report.research > 0) rows.push(['研究ポイント', `+${report.research}`]);
@@ -510,6 +573,8 @@ function showResults(report: DayReport): void {
   if (report.newHeroes.length > 0) rows.push(['初めて買ってくれたヒーロー', `${report.newHeroes.length}人`]);
   if (report.ordersDone > 0) rows.push(['届けた注文', `${report.ordersDone}件`]);
   if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
+  if (report.donated > 0) rows.push(['寄付した品', `${report.donated}個`], ['名声', `+${fmt(report.fame)}`]);
+  if (report.raid) rows.push(['海賊を撃退', `${report.raid.caught} / ${report.raid.pirates}人`, report.raid.won ? '' : 'bad']);
   const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
   if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
   const body = h(
@@ -523,6 +588,8 @@ function showResults(report: DayReport): void {
     report.sets.length ? h('p.best-sale', {}, '🏆 コンプリート達成: ', h('b', {}, report.sets.join('・'))) : null,
     report.achievements.length ? h('p.best-sale', {}, '🎖️ 実績: ', h('b', {}, report.achievements.join('・'))) : null,
     report.dailyEmblems > 0 ? h('p.best-sale', {}, `デイリー依頼を達成！ エンブレム +${report.dailyEmblems}`) : null,
+    report.raid?.won ? h('p.best-sale', {}, `☠ 黒髭海賊団を完全撃退！ エンブレム +${report.raid.emblems}`) : null,
+    auto.length ? h('p.best-sale', {}, `番頭が ${auto.length} 件習得: `, h('b', {}, [...new Set(auto.map((n) => n.name))].slice(0, 6).join('・') + (new Set(auto.map((n) => n.name)).size > 6 ? ' ほか' : ''))) : null,
     report.newEntries.length
       ? h('div.new-entries', {}, h('div', {}, `図鑑に新しく登録 (${report.newEntries.length})`), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
       : null,
@@ -574,10 +641,10 @@ function showEnding(): void {
       icon(series[0].items[4].image, 'px'),
       h('p', {}, '黄金のエクステンションが完成した！あなたの工房は、マイクリの世界で伝説として語り継がれるだろう。'),
       h('div.stat-grid', {}, ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v)))),
-      h('p.muted', {}, 'このまま営業を続けて、図鑑やスキルツリーの完成を目指すこともできます。'),
+      h('p.muted', {}, 'このまま営業を続けることも、工房を新しいランドへ移転して 2 周目を始めることもできます（スキルツリーの「ランド移転」から）。'),
       credits(),
     ),
-    [{ label: '営業を続ける', primary: true }],
+    [{ label: 'ランド移転へ', primary: true, onClick: () => openRelocate() }, { label: '営業を続ける' }],
     'gold-chest-modal',
   );
 }
@@ -809,12 +876,37 @@ function onShopEvent(e: ShopEvent): void {
     case 'research':
       tip('research', '研究者が研究ポイントを見つけたよ！スキルツリーの「研究」で使えるよ');
       break;
+    case 'raidWarn':
+      sound.play('debuff');
+      sound.playBgm('bgmRaid');
+      cutin(scene, thieves.find((t) => t.id === 4036)?.image ?? thieves[0].image, '黒髭', `黒髭海賊団 ${e.pirates}人が襲来！`, 'opponent');
+      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), ` 黒髭海賊団 ${e.pirates}人が店に向かっている！`), 'bad');
+      tip('raid', '海賊の襲撃（レイド）だ！オレンジに光る海賊は2回タップで捕まえられるよ。全員捕まえるとエンブレムがもらえる！');
+      break;
+    case 'raidStart':
+      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), ' 海賊が乗り込んできた！'), 'bad');
+      break;
+    case 'raidEnd':
+      sound.play(e.result.won ? 'win' : 'fail');
+      sound.playBgm('bgmShop');
+      if (e.result.won) confetti(1500);
+      log(
+        h('span', {}, h('span.tag.raid', {}, 'RAID'), e.result.won ? ' 黒髭海賊団を完全撃退！' : ` 海賊 ${e.result.caught}/${e.result.pirates}人を捕まえた`, e.result.reward ? h('span.gum-text', {}, ` +${fmt(e.result.reward)}`) : '', e.result.emblems ? ` エンブレム +${e.result.emblems}` : ''),
+        e.result.won ? 'rare' : '',
+      );
+      break;
+    case 'donate':
+      log(h('span', {}, `寄付係が ${e.items} 個を寄付した（名声 +${fmt(e.fame)}）`));
+      break;
     case 'dayEnd':
       sound.play('win');
       save.meta.playSeconds += Math.round(shop?.elapsed ?? 0);
-      writeSave(save);
-      updateTopbar();
-      window.setTimeout(() => showResults(e.report), 500);
+      {
+        const auto = autoBuy(save);
+        writeSave(save);
+        updateTopbar();
+        window.setTimeout(() => showResults(e.report, auto), 500);
+      }
       break;
   }
 }
@@ -879,7 +971,7 @@ canvas.addEventListener('pointermove', (ev) => {
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
 if (import.meta.env.DEV) {
-  // Debug shortcuts for local development: G = +GUM, E = end the day, T = spawn a thief.
+  // Debug shortcuts for local development: G = +GUM, E = end the day, T = spawn a thief, R = raid.
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'g') {
       save.gum += 10000;
@@ -888,6 +980,7 @@ if (import.meta.env.DEV) {
     }
     if (ev.key === 'e' && shop) shop.timeLeft = 0;
     if (ev.key === 't' && shop) shop.thieves.spawn();
+    if (ev.key === 'r' && shop) shop.raid.startNow();
   });
 }
 
@@ -937,9 +1030,15 @@ function updateHud(s: Shop): void {
   hudStats.textContent = `販売${r.sold} 来客${r.customers} 帰${r.lost} 盗${r.stolen}`;
   hudStats.classList.toggle('warn', r.lost + r.stolen > 0);
   const boost = s.visitors.boostTime;
-  hudEvent.textContent = boost > 0 ? `✨ 売上 ×${s.visitors.salesMult} あと${boost.toFixed(0)}秒` : s.condition.kind !== 'sunny' ? conditionLabel(s.condition) : '';
+  const raid = s.raid.active;
+  hudEvent.textContent = raid
+    ? s.raid.countdown > 0
+      ? `☠ 黒髭海賊団 襲来まで ${Math.ceil(s.raid.countdown)}秒`
+      : `☠ レイド！ 残り ${s.raid.left}人`
+    : boost > 0 ? `✨ 売上 ×${s.visitors.salesMult} あと${boost.toFixed(0)}秒` : s.condition.kind !== 'sunny' ? conditionLabel(s.condition) : '';
   hudEvent.hidden = !hudEvent.textContent;
-  hudEvent.classList.toggle('boost', boost > 0);
+  hudEvent.classList.toggle('boost', boost > 0 && !raid);
+  hudEvent.classList.toggle('raid', raid);
 }
 
 /**

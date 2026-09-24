@@ -1831,3 +1831,169 @@ body.in-day {
   height: 100%;
   background: var(--gold);
 }
+
+/* ---------------------------------------------------------------- phase 6: relocation, stats, raids */
+
+.dust.cp {
+  color: #7fe3ff;
+}
+
+.hud-event.raid {
+  color: #fff;
+  font-weight: 700;
+  background: linear-gradient(90deg, #b3261e, #ff8f1c);
+  animation: raid-pulse 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes raid-pulse {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.35);
+  }
+}
+
+.tag.raid {
+  margin: 0;
+  background: #ff8f1c;
+  color: #2b1600;
+}
+
+.relocate-btn {
+  border-color: #7fe3ff;
+  color: #7fe3ff;
+}
+
+.menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.relocate > p {
+  margin: 0 0 10px;
+}
+
+.land-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.land-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  text-align: left;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.land-card.on {
+  border-color: #7fe3ff;
+  box-shadow: 0 0 0 2px #7fe3ff55;
+}
+
+.land-card.home b::after {
+  content: '（現在地）';
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.land-card-view {
+  position: relative;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0006;
+}
+
+.land-card-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.land-card-cryptid {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  width: 52px;
+  height: 52px;
+}
+
+.land-card-bless {
+  color: #7fe3ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.land-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.relocate-go {
+  width: 100%;
+}
+
+.relocate-go[data-armed='1'] {
+  background: linear-gradient(180deg, #ff9f6b, #d9480f);
+}
+
+.stats-view h3 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+}
+
+.run-table-wrap {
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.run-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.run-table th,
+.run-table td {
+  padding: 4px 4px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.run-table th:first-child,
+.run-table td:first-child,
+.run-table td:nth-child(2) {
+  text-align: left;
+}
+
+.bless-row {
+  display: grid;
+  grid-template-columns: 36px auto 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.bless-row .px {
+  width: 36px;
+  height: 36px;
+}
+
+.bless-row span {
+  color: var(--muted);
+}

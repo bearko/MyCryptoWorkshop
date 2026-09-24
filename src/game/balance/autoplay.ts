@@ -7,6 +7,7 @@ import { GEM_COST } from '../shop/production';
 import { costOf, isAvailable, level, SKILLS, TREE_NODES } from '../skills';
 import { STAFF_ROLES } from '../staff';
 import { computeStats } from '../stats';
+import { cpForRun, relocate } from '../prestige';
 
 /** Deterministic PRNG (mulberry32). */
 export function seeded(seed: number): Rng {
@@ -98,7 +99,7 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid', 'goldenExtension', 'orders']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid', 'goldenExtension', 'orders', 'hire_charity']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {
@@ -154,6 +155,46 @@ export interface DayRow {
 }
 
 /** Runs `days` business days from a new save. */
+export interface RunResult {
+  run: number;
+  land: string | null;
+  /** Minutes of play from the start of the run to the clear (null if not cleared in time). */
+  clearMinutes: number | null;
+  days: number;
+  cp: number;
+}
+
+/** Lands the simulated player moves to, in order. */
+const MOVE_ORDER = ['Strawberry', 'Tangerine', 'Ocean', 'Grape', 'Lime', 'Sage', 'Blueberry', 'Ruby', 'Graphite'];
+
+/**
+ * Plays `runs` runs back to back: each ends at the clear (or after maxDays), then the shop
+ * moves to the next land and spends its Cp. Returns how long each run took to clear.
+ */
+export function simulateRuns(runs: number, maxDays: number, seed: number, player: PlayerModel = PLAYERS[0]): RunResult[] {
+  const save = newSave(0);
+  const rng = seeded(seed);
+  const results: RunResult[] = [];
+  for (let run = 1; run <= runs; run++) {
+    const start = save.meta.playSeconds;
+    let clearMinutes: number | null = null;
+    for (let d = 1; d <= maxDays && clearMinutes === null; d++) {
+      const { report, seconds } = playDay(save, rng, player);
+      save.meta.playSeconds += seconds;
+      spend(save, report.revenue);
+      if (computeStats(save.levels).cleared > 0) clearMinutes = Math.round((save.meta.playSeconds - start) / 6) / 10;
+    }
+    const land = save.prestige.home;
+    const days = save.day - 1;
+    const cp = cpForRun(save);
+    results.push({ run, land, clearMinutes, days, cp });
+    if (clearMinutes === null) break;
+    relocate(save, MOVE_ORDER[(run - 1) % MOVE_ORDER.length]);
+    spend(save, 0);
+  }
+  return results;
+}
+
 export function simulate(days: number, seed: number, player: PlayerModel = PLAYERS[0]): DayRow[] {
   const save = newSave(0);
   const rng = seeded(seed);

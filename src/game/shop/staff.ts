@@ -1,5 +1,6 @@
 import { DOOR, FLOOR_Y, HERO_PX, SCENE_H, SHOP_LANE_Y, STAFF_POSTS, walkScale } from '../layout';
 import { STAFF_ROLES, staffHero, type StaffRole } from '../staff';
+import { itemEdition, itemExt, itemValue } from '../items';
 import { salePrice } from '../stats';
 import type { Shop } from './index';
 import type { StaffMember } from './types';
@@ -234,6 +235,29 @@ export class Staff {
     }
   }
 
+  /** Fame for donating one item: (1 + rarity)² × (edition + 1). */
+  static fameOf(code: number): number {
+    return (1 + itemExt(code).rarityIndex) ** 2 * (itemEdition(code) + 1);
+  }
+
+  /** The charity clerk gives away the cheapest items in storage for fame (→ Cp on the next move). */
+  private donate(m: StaffMember): void {
+    const shop = this.shop;
+    const stock = shop.stock.storage;
+    const n = Math.min(stock.length, Math.round(shop.stats.charityLoad));
+    if (n <= 0) return;
+    const order = stock.map((code, i) => ({ code, i })).sort((a, b) => itemValue(a.code) - itemValue(b.code)).slice(0, n);
+    const gone = new Set(order.map((o) => o.i));
+    shop.stock.storage = stock.filter((_, i) => !gone.has(i));
+    const fame = Math.round(order.reduce((s, o) => s + Staff.fameOf(o.code), 0) * shop.stats.fameMult);
+    shop.save.prestige.fame += fame;
+    shop.report.fame += fame;
+    shop.report.donated += n;
+    m.pulse = 1;
+    shop.popups.push({ text: `名声 +${fame}`, x: m.x, y: m.y - HERO_PX - 30, t: 0, color: '#7fe3ff' });
+    shop.emit({ type: 'donate', items: n, fame });
+  }
+
   private payPeddler(m: StaffMember): void {
     if (m.bag.length === 0) return;
     const shop = this.shop;
@@ -246,6 +270,8 @@ export class Staff {
   /** At closing: the peddler's takings come in, and the accountant adds the closing bonus. */
   closeDay(): void {
     const shop = this.shop;
+    const charity = this.get('charity');
+    if (charity) this.donate(charity);
     const peddler = this.get('peddler');
     if (peddler) this.payPeddler(peddler);
     const accountant = this.get('accountant');

@@ -99,6 +99,7 @@ export function setSceneHeight(h: number): void {
   STAFF_POSTS = {
     stocker: { x: 236, y: FLOOR_Y + 34 },
     cleaner: { x: 150, y: FLOOR_Y + 48 },
+    charity: { x: 56, y: FLOOR_Y + 50 },
     consultant: { x: 726, y: FLOOR_Y + 40 },
     host: { x: 872, y: SHOP_LANE_Y + 34 },
     promoter: { x: 966, y: FLOOR_Y + 46 },

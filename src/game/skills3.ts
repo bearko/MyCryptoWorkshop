@@ -12,7 +12,7 @@ export interface StaffPlan {
   /** Column of the role (its hire node sits on row 7). */
   x: number;
   /** Laid out as a row going left from (x, y) instead of a column (and what the hire requires). */
-  row?: { y: number; requires: string };
+  row?: { y: number; requires: string; requiresAll?: string[] };
   hireCost: number;
   hire: Effect[];
   hireDesc: string;
@@ -119,7 +119,7 @@ export function staffNodes(plan: StaffPlan): SkillNode[] {
     {
       id: `hire_${role}`, branch: 'store', name: `${job}：${first.name}`,
       desc: `${first.name}を${job}として雇う。${work}。${plan.hireDesc}`,
-      icon: first.image, ...at(0), max: 1, baseCost: cost, growth: 1, requires: [neighbour],
+      icon: first.image, ...at(0), max: 1, baseCost: cost, growth: 1, requires: [neighbour], requiresAll: row?.requiresAll,
       effects: [atLeast(`staff_${role}`, 1), ...plan.hire],
     },
     {

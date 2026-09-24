@@ -4,10 +4,12 @@ import { PHASE3_NODES } from './skills3';
 import { PHASE4_NODES } from './skills4';
 import { PHASE5_SERIES_NODES } from './skills5';
 import { HERO_SET_NODES } from './heroes';
+import { BLESSING_NODES } from './blessings';
+import { PHASE6_NODES } from './skills6';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor';
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: '工房', role: '開業', color: '#e8d6a8' },
@@ -20,6 +22,7 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   research: { name: '研究', role: '研究ポイント', color: '#b48cff' },
   series: { name: 'シリーズ', role: 'レシピ・評判・量産', color: '#e6b56b' },
   honor: { name: '名誉', role: 'エンブレム', color: '#ff9f6b' },
+  prestige: { name: '移転', role: 'Cp・周回', color: '#7fe3ff' },
 };
 
 export interface SkillNode {
@@ -154,6 +157,8 @@ export const SKILLS: SkillNode[] = [
   ...PHASE4_NODES,
   ...PHASE5_SERIES_NODES,
   ...HERO_SET_NODES,
+  ...BLESSING_NODES,
+  ...PHASE6_NODES,
 ];
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));

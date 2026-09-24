@@ -13,12 +13,23 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const [days = 60, seed = 42] = process.argv.slice(2).map(Number);
+const [days = 60, seed = 42, runs = 0] = process.argv.slice(2).map(Number);
 
 // Load the TypeScript game modules through Vite (same resolution as the game itself).
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
 try {
-  const { simulate, toCsv, PLAYERS } = await server.ssrLoadModule('/src/game/balance/autoplay.ts');
+  const { simulate, simulateRuns, toCsv, PLAYERS } = await server.ssrLoadModule('/src/game/balance/autoplay.ts');
+  if (runs > 0) {
+    // npm run balance -- <maxDays per run> <seed> <runs>: time to clear in each run (ランド移転).
+    const table = [];
+    for (const player of PLAYERS.filter((p) => p.name !== 'casual')) {
+      for (const r of simulateRuns(runs, days, seed, player)) {
+        table.push({ player: player.name, run: r.run, land: r.land ?? '-', clear: r.clearMinutes === null ? `未到達（${days}日）` : `${r.clearMinutes}分（${r.days}日）`, cp: r.cp });
+      }
+    }
+    console.table(table);
+    process.exit(0);
+  }
   const { evaluate } = await server.ssrLoadModule('/src/game/balance/targets.ts');
   const outDir = join(root, 'reports');
   mkdirSync(outDir, { recursive: true });

@@ -143,6 +143,22 @@ export const BASE_STATS = {
   orderFocus: 2,
   /** 1 once the golden extension is made (the game is cleared). */
   cleared: 0,
+  // Phase 6
+  cpMult: 1,
+  /** Level of 移転資金 (index into START_GUM). */
+  startGum: 0,
+  /** Recipes carried over when moving (× 5). */
+  keepRecipes: 0,
+  /** 1 once the head clerk can buy skills automatically after closing. */
+  autoBuyer: 0,
+  raidReward: 1,
+  /** 1 once the charity clerk can be hired. */
+  charity: 0,
+  /** Items the charity clerk donates at closing. */
+  charityLoad: 5,
+  fameMult: 1,
+  /** Chance of a pirate raid on a business day (from the second run on). */
+  raidChance: 0.25,
   ...(Object.fromEntries(
     LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
   ) as Record<`${LineId}.${LineStat}`, number>),

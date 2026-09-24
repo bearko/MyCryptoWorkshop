@@ -8,6 +8,7 @@ import { Dismantler } from './dismantler';
 import { Hazards } from './hazards';
 import { Market } from './market';
 import { Pests } from './pests';
+import { Raid } from './raid';
 import { Production } from './production';
 import { Random } from './random';
 import { Register } from './register';
@@ -53,6 +54,7 @@ export class Shop {
   readonly hazards: Hazards;
   readonly visitors: Visitors;
   readonly decisions: Decisions;
+  readonly raid: Raid;
   /** Today's weather / festival / land day. */
   readonly condition: DayCondition;
   /** Multiplier on how often customers come today (weather, festival). */
@@ -85,7 +87,7 @@ export class Shop {
       dust: 0,
       gems: {},
       research: 0,
-      extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0, chest: 0, coin: 0, merchant: 0 },
+      extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0, chest: 0, coin: 0, merchant: 0, raid: 0 },
       guests: 0,
       decisions: [],
       newHeroes: [],
@@ -95,6 +97,9 @@ export class Shop {
       chests: 0,
       achievements: [],
       dailyEmblems: 0,
+      fame: 0,
+      donated: 0,
+      raid: null,
     };
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
@@ -110,6 +115,7 @@ export class Shop {
     this.hazards = new Hazards(this);
     this.visitors = new Visitors(this);
     this.decisions = new Decisions(this);
+    this.raid = new Raid(this);
   }
 
   /** A choice is waiting for the player; the day is paused. */
@@ -179,6 +185,7 @@ export class Shop {
     this.hazards.update(dt);
     this.visitors.update(dt);
     this.decisions.update();
+    this.raid.update(dt);
 
     for (const e of this.fx) e.t += dt;
     this.fx = this.fx.filter((e) => e.t < 0.7);
@@ -191,6 +198,7 @@ export class Shop {
   private closeDay(): void {
     this.over = true;
     this.timeLeft = 0;
+    this.raid.finish();
     this.staff.closeDay();
     // Items still in customers' hands or in flight go back on the shelf / into storage.
     this.stock.closeOut(this.actors.flatMap((a) => (a.item !== null && a.kind === 'customer' ? [a.item] : [])));

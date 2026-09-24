@@ -1,6 +1,7 @@
 import { customers, extensionById, heroById, series } from './catalog';
 import type { Order } from './orders';
 import type { Daily } from './achievements';
+import { newPrestige, type Prestige } from './prestige';
 import { CONDITIONS } from './conditions';
 
 const CONDITION_KINDS = Object.keys(CONDITIONS);
@@ -24,7 +25,7 @@ export interface Totals {
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export interface SaveData {
   version: typeof SAVE_VERSION;
@@ -38,7 +39,8 @@ export interface SaveData {
   storage: number[];
   totals: Totals;
   bestDayRevenue: number;
-  settings: { bgm: boolean; se: boolean };
+  /** autoBuy: 番頭 buys GUM skills after each day (once learned). */
+  settings: { bgm: boolean; se: boolean; autoBuy: boolean };
   tips: string[];
   meta: {
     /** Epoch ms when this save was started. */
@@ -64,6 +66,8 @@ export interface SaveData {
   achievements: string[];
   /** Requests for the next business day. */
   dailies: Daily[];
+  /** ランド移転 (prestige) progress across runs. */
+  prestige: Prestige;
   /** Best edition crafted per extension id (for the collection). */
   bestEdition: Record<string, number>;
   /** 魔石 infused into each line for the next business day. */
@@ -96,7 +100,7 @@ export function newSave(now = Date.now()): SaveData {
     storage: [],
     totals: emptyTotals(),
     bestDayRevenue: 0,
-    settings: { bgm: true, se: true },
+    settings: { bgm: true, se: true, autoBuy: true },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
     resources: { dust: 0, gems: emptyGems(), research: 0, emblem: 0 },
@@ -107,6 +111,7 @@ export function newSave(now = Date.now()): SaveData {
     orders: [],
     achievements: [],
     dailies: [],
+    prestige: newPrestige(),
     bestEdition: {},
     infusion: {},
   };
@@ -131,6 +136,8 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
   // v4 → v5 (Phase 4): day conditions and reformed regulars.
   4: (d) => ({ ...d, version: 5, forecast: { kind: 'sunny' }, regulars: [] }),
   // v5 → v6 (Phase 5): the hero collection.
+  // v6 → v7 (Phase 6): ランド移転.
+  6: (d) => ({ ...d, version: 7, prestige: newPrestige() }),
   5: (d) => ({ ...d, version: 6, heroes: {}, orders: [], achievements: [], dailies: [], resources: { ...(d.resources as object), emblem: 0 } }),
 };
 
@@ -201,6 +208,8 @@ export function parseSave(json: string): SaveData {
   const migrated = migrate(raw);
   const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
   const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
+  data.prestige = { ...newPrestige(), ...(migrated.prestige as object) };
+  data.settings = { ...base.settings, ...(migrated.settings as object) };
   data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0, emblem: res.emblem ?? 0 };
   sanitize(data);
   return data;
