@@ -3,15 +3,18 @@
   "families": {
     "arcane": {
       "name": "魔導具",
-      "priceMult": 1
+      "priceMult": 1,
+      "nameEn": "Arcane"
     },
     "arms": {
       "name": "武具",
-      "priceMult": 1
+      "priceMult": 1,
+      "nameEn": "Arms"
     },
     "beast": {
       "name": "幻獣",
-      "priceMult": 1.5
+      "priceMult": 1.5,
+      "nameEn": "Beasts"
     }
   },
   "activeSeries": [

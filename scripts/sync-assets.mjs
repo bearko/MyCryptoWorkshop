@@ -99,6 +99,13 @@ const RARITIES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 const content = JSON.parse(readFileSync(join(root, 'src', 'game', 'content.json'), 'utf8'));
 const firstBy = (isFirst) => (a, b) => Number(isFirst(b)) - Number(isFirst(a));
 
+/** English names from the database, tidied: a few still use Japanese punctuation or text. */
+const EN_FIXES = { 'ディープ・ヨシュカ': 'Deep Yoshka' };
+const en = (name) => {
+  const text = EN_FIXES[name] ?? name ?? '';
+  return text.replaceAll('・', '·').replaceAll('（', ' (').replaceAll('）', ')').replace('<破>', '<Ha>');
+};
+
 // ---------------------------------------------------------------- extensions (all series)
 // Every Legacy and Modern extension, grouped by series. Which series the game uses is decided
 // in src/game/catalog.ts. "真" re-releases (ids 55xx/56xx) are flagged with `shin`.
@@ -112,14 +119,16 @@ const seriesMap = new Map();
 for (const e of extensions) {
   const key = `${e.category}:${e.series.name.en}`;
   if (!seriesMap.has(key)) {
-    seriesMap.set(key, { key: e.series.name.en, name: e.series.name.ja, expansion: e.category, items: [] });
+    seriesMap.set(key, { key: e.series.name.en, name: e.series.name.ja, nameEn: en(e.series.name.en), expansion: e.category, items: [] });
   }
   seriesMap.get(key).items.push({
     id: e.id,
     name: e.name.ja,
+    nameEn: en(e.name.en),
     rarity: e.rarity.name,
     shin: e.category === 'legacy' && e.id >= 5500,
     skill: e.active_skill?.name?.ja ?? '',
+    skillEn: en(e.active_skill?.name?.en),
     stats: e.max_level_stats,
     image: sprite('ext', e.image_file_path),
   });
@@ -135,19 +144,28 @@ const heroes = readJson('Data/Heroes/heroes.json')
   .map((h) => ({
     id: h.id,
     name: h.name.ja,
+    nameEn: en(h.name.en),
     rarity: h.rarity?.name ?? null,
     category: h.category,
     faction: h.faction?.name?.ja ?? '',
     passive: h.passive?.name?.ja ?? '',
+    passiveEn: en(h.passive?.name?.en),
     attributes: (h.attributes ?? []).map((a) => a.name.ja),
     image: sprite('hero', h.image_file_path),
   }));
+
+// English labels for hero attributes and factions (the game keys them by their Japanese names).
+const heroLabels = { attributes: {}, factions: {} };
+for (const h of readJson('Data/Heroes/heroes.json')) {
+  for (const a of h.attributes ?? []) heroLabels.attributes[a.name.ja] = en(a.name.en);
+  if (h.faction?.name) heroLabels.factions[h.faction.name.ja] = h.faction.name.en;
+}
 
 // ---------------------------------------------------------------- enemies (all with 64px art)
 const enemies = readJson('Data/Enemies/enemies.json')
   .filter((e) => e.image_exists)
   .sort(firstBy((e) => content.pestIds.includes(e.id) || content.storePestIds.includes(e.id)))
-  .map((e) => ({ id: e.id, name: e.name.ja, image: sprite('enemy', e.image_file_path) }));
+  .map((e) => ({ id: e.id, name: e.name.ja, nameEn: en(e.name.en), image: sprite('enemy', e.image_file_path) }));
 
 // ---------------------------------------------------------------- window views
 // Battle backgrounds are 1000×1500; the storefront window only shows a 2:1 strip, so a small
@@ -245,6 +263,7 @@ const catalog = {
   series,
   heroes,
   enemies,
+  heroLabels,
   workshop,
   windowView,
   lands,

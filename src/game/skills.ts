@@ -1,3 +1,4 @@
+// i18n-check: skip — node text is replaced from skillsEn.ts in English (tests/i18n.test.ts checks it).
 import { catalog, customersByTier, icons, pests, series, thieves } from './catalog';
 import type { Currency } from './currency';
 import { PHASE3_NODES } from './skills3';
@@ -7,22 +8,24 @@ import { HERO_SET_NODES } from './heroes';
 import { BLESSING_NODES } from './blessings';
 import { PHASE6_NODES } from './skills6';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
+import { NODE_EN } from './skillsEn';
+import { isEn, t } from '../i18n';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
 export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
-  root: { name: '工房', role: '開業', color: '#e8d6a8' },
-  suzaku: { name: '朱雀', role: 'クラフト', color: '#ff6b4a' },
-  seiryu: { name: '青龍', role: '集客', color: '#3fb5ff' },
-  kouryu: { name: '黄竜', role: '経営・レジ', color: '#ffd23f' },
-  byakko: { name: '白虎', role: '防犯', color: '#e9eef5' },
-  genbu: { name: '玄武', role: '陳列・倉庫・分解', color: '#58d6a0' },
-  store: { name: '店舗', role: 'スタッフ・設備', color: '#ff9ecb' },
-  research: { name: '研究', role: '研究ポイント', color: '#b48cff' },
-  series: { name: 'シリーズ', role: 'レシピ・評判・量産', color: '#e6b56b' },
-  honor: { name: '名誉', role: 'エンブレム', color: '#ff9f6b' },
-  prestige: { name: '移転', role: 'Cp・周回', color: '#7fe3ff' },
+  root: { name: t('工房', 'Workshop'), role: t('開業', 'Start'), color: '#e8d6a8' },
+  suzaku: { name: t('朱雀', 'Suzaku'), role: t('クラフト', 'Crafting'), color: '#ff6b4a' },
+  seiryu: { name: t('青龍', 'Seiryu'), role: t('集客', 'Customers'), color: '#3fb5ff' },
+  kouryu: { name: t('黄竜', 'Kouryu'), role: t('経営・レジ', 'Business & register'), color: '#ffd23f' },
+  byakko: { name: t('白虎', 'Byakko'), role: t('防犯', 'Security'), color: '#e9eef5' },
+  genbu: { name: t('玄武', 'Genbu'), role: t('陳列・倉庫・分解', 'Shelves, storage, dismantling'), color: '#58d6a0' },
+  store: { name: t('店舗', 'Store'), role: t('スタッフ・設備', 'Staff & fixtures'), color: '#ff9ecb' },
+  research: { name: t('研究', 'Research'), role: t('研究ポイント', 'Research points'), color: '#b48cff' },
+  series: { name: t('シリーズ', 'Series'), role: t('レシピ・評判・量産', 'Recipes, reputation, production'), color: '#e6b56b' },
+  honor: { name: t('名誉', 'Honor'), role: t('エンブレム', 'Emblems'), color: '#ff9f6b' },
+  prestige: { name: t('移転', 'Relocation'), role: t('Cp・周回', 'Cp & runs'), color: '#7fe3ff' },
 };
 
 export interface SkillNode {
@@ -160,6 +163,14 @@ export const SKILLS: SkillNode[] = [
   ...BLESSING_NODES,
   ...PHASE6_NODES,
 ];
+
+// English text for the hand-written nodes.
+if (isEn) {
+  for (const n of SKILLS) {
+    const en = NODE_EN[n.id];
+    if (en) [n.name, n.desc] = en;
+  }
+}
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));
 

@@ -1,14 +1,15 @@
 import { icons } from './catalog';
 import type { SaveData } from './save';
+import { t } from '../i18n';
 
 /** What skill nodes are paid with. */
 export type Currency = 'gum' | 'dust' | 'research' | 'emblem' | 'cp';
 
 export const CURRENCIES: Record<Currency, { name: string; icon: string }> = {
   gum: { name: 'GUM', icon: icons.gum },
-  dust: { name: 'ダスト', icon: icons.dust },
-  research: { name: '研究pt', icon: icons.int },
-  emblem: { name: 'エンブレム', icon: icons.emblem },
+  dust: { name: t('ダスト', 'Dust'), icon: icons.dust },
+  research: { name: t('研究pt', 'RP'), icon: icons.int },
+  emblem: { name: t('エンブレム', 'Emblems'), icon: icons.emblem },
   cp: { name: 'Cp', icon: icons.cp },
 };
 

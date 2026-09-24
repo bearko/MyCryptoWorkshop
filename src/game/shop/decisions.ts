@@ -5,6 +5,7 @@ import { COUNTER, HERO_PX } from '../layout';
 import { salePrice } from '../stats';
 import type { Shop } from './index';
 import type { Actor, Decision } from './types';
+import { t } from '../../i18n';
 
 /** MAI's sales blessing: price multiplier and how long it lasts (× blessingPower). */
 export const BLESSING_MULT = 1.5;
@@ -80,21 +81,21 @@ export class Decisions {
     const pct = Math.round(shop.stats.merchantRate * 100);
     this.open({
       kind: 'merchant',
-      title: `悪徳商人 ${hero.name}`,
-      text: `「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。店頭価格の ${pct}% だが、今すぐ現金だぞ？」`,
+      title: t(`悪徳商人 ${hero.name}`, `Shady Merchant ${hero.name}`),
+      text: t(`「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。店頭価格の ${pct}% だが、今すぐ現金だぞ？」`, `"I'll take all ${count} items on your shelves and in storage for ${fmt(offer)} GUM. That's ${pct}% of your price, but it's cash right now!"`),
       image: hero.image,
       options: [
-        { label: `売る（+${fmt(offer)} GUM）`, detail: 'ショーケース以外の品がなくなる' },
-        { label: '断る', detail: '品はそのまま。いつも通り売る' },
+        { label: t(`売る（+${fmt(offer)} GUM）`, `Sell (+${fmt(offer)} GUM)`), detail: t('ショーケース以外の品がなくなる', 'Everything but the showcase is gone') },
+        { label: t('断る', 'Refuse'), detail: t('品はそのまま。いつも通り売る', 'Keep the stock and sell as usual') },
       ],
       fallback: 1,
       apply: (choice) => {
-        if (choice !== 0) return `${hero.name}は舌打ちして帰っていった`;
+        if (choice !== 0) return t(`${hero.name}は舌打ちして帰っていった`, `${hero.name} clicked their tongue and left`);
         const { slots: now } = this.sellable();
         for (const i of now) shop.stock.slots[i].item = null;
         shop.stock.storage = [];
         shop.addExtra('merchant', offer, COUNTER.x1 + 60, COUNTER.top - 40);
-        return `${hero.name}に在庫を売り払った（+${fmt(offer)} GUM）`;
+        return t(`${hero.name}に在庫を売り払った（+${fmt(offer)} GUM）`, `Sold the stock to ${hero.name} (+${fmt(offer)} GUM)`);
       },
     });
   }
@@ -106,28 +107,28 @@ export class Decisions {
     const secs = Math.round(BLESSING_TIME * shop.stats.blessingPower);
     this.open({
       kind: 'mai',
-      title: 'MAI が遊びに来た！',
-      text: '「今日もおつかれさま！ひとつだけお手伝いしてあげる。どれにする？」',
+      title: t('MAI が遊びに来た！', 'MAI dropped by!'),
+      text: t('「今日もおつかれさま！ひとつだけお手伝いしてあげる。どれにする？」', '"Good work today! I\'ll help you with one thing. Which will it be?"'),
       image: icons.mai,
       options: [
-        { label: `売上 ${BLESSING_MULT} 倍（${secs}秒）`, detail: `この間に売れた品は ${BLESSING_MULT} 倍の値段になる` },
-        { label: '棚を全部埋める', detail: '空いている棚に、今作れる品を並べる' },
-        { label: '泥棒とエネミーを追い払う', detail: '今いる泥棒とエネミーを退治。今日はもう泥棒が来ない' },
+        { label: t(`売上 ${BLESSING_MULT} 倍（${secs}秒）`, `Sales ×${BLESSING_MULT} (${secs}s)`), detail: t(`この間に売れた品は ${BLESSING_MULT} 倍の値段になる`, `Items sold meanwhile go for ${BLESSING_MULT}× the price`) },
+        { label: t('棚を全部埋める', 'Fill every shelf'), detail: t('空いている棚に、今作れる品を並べる', 'Stock every empty slot with items you can make now') },
+        { label: t('泥棒とエネミーを追い払う', 'Chase off thieves and enemies'), detail: t('今いる泥棒とエネミーを退治。今日はもう泥棒が来ない', 'Clears out current thieves and enemies. No more thieves today') },
       ],
       fallback: 0,
       apply: (choice) => {
         if (choice === 0) {
           shop.visitors.boost(BLESSING_MULT, secs);
-          return `MAI の応援で ${secs} 秒間 売上 ${BLESSING_MULT} 倍！`;
+          return t(`MAI の応援で ${secs} 秒間 売上 ${BLESSING_MULT} 倍！`, `MAI's cheer: sales ×${BLESSING_MULT} for ${secs}s!`);
         }
         if (choice === 1) {
           const n = shop.production.fillShelf();
-          return `MAI が棚に ${n} 個並べてくれた！`;
+          return t(`MAI が棚に ${n} 個並べてくれた！`, `MAI stocked ${n} items on the shelves!`);
         }
         const caught = shop.thieves.clearAll();
         for (const p of [...shop.hazards.pests]) shop.hazards.defeat(p, 'cryptid');
         for (const p of [...shop.pests.list]) shop.pests.click(p);
-        return `MAI が泥棒 ${caught} 人を追い払った！`;
+        return t(`MAI が泥棒 ${caught} 人を追い払った！`, `MAI chased off ${caught} thieves!`);
       },
     });
   }
@@ -146,21 +147,21 @@ export class Decisions {
     const pay = Math.round((shop.stats.regularPay - 1) * 100);
     this.open({
       kind: 'reform',
-      title: `${thief.hero.name}が改心したいと言っている`,
-      text: '「出来心だったんだ…もう盗みはしない。これからは客としてこの店に通わせてくれないか？」',
+      title: t(`${thief.hero.name}が改心したいと言っている`, `${thief.hero.name} wants to turn over a new leaf`),
+      text: t('「出来心だったんだ…もう盗みはしない。これからは客としてこの店に通わせてくれないか？」', '"It was a moment of weakness... I\'ll never steal again. Will you let me come back as a customer?"'),
       image: thief.hero.image,
       options: [
-        { label: `懸賞金を受け取る（+${fmt(bounty)} GUM）`, detail: '役人に引き渡す' },
-        { label: '許して常連客にする', detail: `懸賞金はなし。以後ときどき来店し、代金を +${pay}% 多く払う` },
+        { label: t(`懸賞金を受け取る（+${fmt(bounty)} GUM）`, `Take the bounty (+${fmt(bounty)} GUM)`), detail: t('役人に引き渡す', 'Hand them over to the guards') },
+        { label: t('許して常連客にする', 'Forgive them and make them a regular'), detail: t(`懸賞金はなし。以後ときどき来店し、代金を +${pay}% 多く払う`, `No bounty. They visit now and then and pay +${pay}%`) },
       ],
       fallback: 0,
       apply: (choice) => {
         if (choice === 0) {
           shop.addGum(bounty, thief.x, thief.y - HERO_PX - 30);
-          return `懸賞金 ${fmt(bounty)} GUM を受け取った`;
+          return t(`懸賞金 ${fmt(bounty)} GUM を受け取った`, `Received a bounty of ${fmt(bounty)} GUM`);
         }
         shop.save.regulars.push(thief.hero.id);
-        return `${thief.hero.name}が常連客になった！`;
+        return t(`${thief.hero.name}が常連客になった！`, `${thief.hero.name} became a regular!`);
       },
     });
     return true;

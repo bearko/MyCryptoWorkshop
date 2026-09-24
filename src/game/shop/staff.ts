@@ -4,6 +4,7 @@ import { itemEdition, itemExt, itemValue } from '../items';
 import { salePrice } from '../stats';
 import type { Shop } from './index';
 import type { StaffMember } from './types';
+import { t } from '../../i18n';
 
 /** Seconds the peddler waits at the post between trips. */
 const PEDDLER_REST = 2;
@@ -191,7 +192,7 @@ export class Staff {
       shop.save.resources.research++;
       shop.report.research++;
       m.pulse = 1;
-      shop.popups.push({ text: '+1 研究pt', x: m.x - 30, y: m.y - HERO_PX - 20, t: 0, color: '#c9a8ff' });
+      shop.popups.push({ text: t('+1 研究pt', '+1 RP'), x: m.x - 30, y: m.y - HERO_PX - 20, t: 0, color: '#c9a8ff' });
       shop.emit({ type: 'research', points: 1 });
     }
   }
@@ -254,7 +255,7 @@ export class Staff {
     shop.report.fame += fame;
     shop.report.donated += n;
     m.pulse = 1;
-    shop.popups.push({ text: `名声 +${fame}`, x: m.x, y: m.y - HERO_PX - 30, t: 0, color: '#7fe3ff' });
+    shop.popups.push({ text: t(`名声 +${fame}`, `Fame +${fame}`), x: m.x, y: m.y - HERO_PX - 30, t: 0, color: '#7fe3ff' });
     shop.emit({ type: 'donate', items: n, fame });
   }
 

@@ -1,3 +1,4 @@
+// i18n-check: skip — node text is replaced from skillsEn.ts in English (tests/i18n.test.ts checks it).
 // Phase 6: the 移転 branch, paid in Cp from moving to a new land. Its levels survive every move.
 // It sits below the research branch.
 import { icons, lands, seriesIcon } from './catalog';
@@ -5,6 +6,7 @@ import { add, mul, pow, type Effect } from './effects';
 import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 import { staffNodes } from './skills3';
+import { t } from '../i18n';
 
 const P = (n: Omit<SkillNode, 'branch' | 'currency' | 'growth'> & { growth?: number }): SkillNode => ({ growth: 1.5, ...n, branch: 'prestige', currency: 'cp' });
 
@@ -12,10 +14,10 @@ export const PHASE6_NODES: SkillNode[] = [
   // Charity clerk (staff, paid in GUM): a row left of the cleaner, once 寄付の心得 is learned.
   ...staffNodes({
     role: 'charity', x: -7, row: { y: 2, requires: 'hire_cleaner', requiresAll: ['charityUnlock'] }, hireCost: 20000,
-    hire: [], hireDesc: '閉店時に倉庫の売れ残り（安い順に 5 個）を寄付して名声を得る',
-    up1: { name: 'チャリティ箱', desc: '寄付する数 +5個', icon: seriesIcon('Wallet', 1), max: 5, effects: [add('charityLoad', 5)] },
-    up2: { name: '慈善家の輪', desc: '寄付で得る名声 +20%', icon: icons.hp, max: 5, effects: [mul('fameMult', 0.2)] },
-    aceDesc: '寄付で得る名声 +100%', ace: [mul('fameMult', 1)],
+    hire: [], hireDesc: t('閉店時に倉庫の売れ残り（安い順に 5 個）を寄付して名声を得る', 'Donates unsold stock at closing (the 5 cheapest items) for fame'),
+    up1: { name: t('チャリティ箱', 'Charity Box'), desc: t('寄付する数 +5個', 'Items donated +5'), icon: seriesIcon('Wallet', 1), max: 5, effects: [add('charityLoad', 5)] },
+    up2: { name: t('慈善家の輪', 'Philanthropist Circle'), desc: t('寄付で得る名声 +20%', 'Fame from donations +20%'), icon: icons.hp, max: 5, effects: [mul('fameMult', 0.2)] },
+    aceDesc: t('寄付で得る名声 +100%', 'Fame from donations +100%'), ace: [mul('fameMult', 1)],
   }),
   P({ id: 'relocation', name: '移転の心得', desc: '移転の特典の入口。Cp（クリア後にランドを移転すると手に入る）で習得する。販売価格 +10%', icon: lands[0].cryptid, x: 7, y: 11, max: 1, baseCost: 1, growth: 1, requires: [], effects: [mul('priceMult', 0.1, 'prestige')] }),
   P({ id: 'startGum', name: '移転資金', desc: '次の周回を 1,000 → 10万 → 1,000万 → 10億 GUM から始める', icon: icons.gum, x: 8, y: 10, max: 4, baseCost: 2, growth: 2, requires: ['relocation'], effects: [add('startGum', 1)] }),

@@ -1,4 +1,5 @@
 import { lands } from './catalog';
+import { t } from '../i18n';
 
 /**
  * Each business day has a condition, forecast the evening before so the player can prepare
@@ -13,11 +14,11 @@ export interface DayCondition {
 }
 
 export const CONDITIONS: Record<ConditionKind, { name: string; icon: string; desc: string }> = {
-  sunny: { name: '晴れ', icon: '☀️', desc: 'いつも通りの営業日' },
-  rain: { name: '雨', icon: '☔', desc: '客が泥を持ち込み、踏んだ客が怒って帰ることがある。客足は少し鈍る' },
-  fog: { name: 'ロンドンの霧', icon: '🌫️', desc: '客がコインを落としやすい。客のふりをした泥棒が増える' },
-  festival: { name: '市場の日', icon: '🎪', desc: '客が多く、乗り物で来る団体も増える' },
-  land: { name: 'ランドの日', icon: '🏰', desc: 'ランドのクリプタイドとランドオーナーが訪れる' },
+  sunny: { name: t('晴れ', 'Sunny'), icon: '☀️', desc: t('いつも通りの営業日', 'An ordinary business day') },
+  rain: { name: t('雨', 'Rain'), icon: '☔', desc: t('客が泥を持ち込み、踏んだ客が怒って帰ることがある。客足は少し鈍る', 'Customers track in mud; anyone who steps in it may leave angry. Slightly fewer customers') },
+  fog: { name: t('ロンドンの霧', 'London Fog'), icon: '🌫️', desc: t('客がコインを落としやすい。客のふりをした泥棒が増える', 'Customers drop coins more often. More thieves pose as customers') },
+  festival: { name: t('市場の日', 'Market Day'), icon: '🎪', desc: t('客が多く、乗り物で来る団体も増える', 'More customers, and more groups arrive by vehicle') },
+  land: { name: t('ランドの日', 'Land Day'), icon: '🏰', desc: t('ランドのクリプタイドとランドオーナーが訪れる', 'A land\'s cryptid and land owner come to visit') },
 };
 
 /** Relative odds of each condition from day 4 on (the first days are always sunny). */
@@ -50,5 +51,5 @@ export function landOf(c: DayCondition) {
 /** Display name, e.g. "ランドの日（Ocean）". */
 export function conditionLabel(c: DayCondition): string {
   const land = landOf(c);
-  return `${CONDITIONS[c.kind].icon} ${CONDITIONS[c.kind].name}${land ? `（${land.name}）` : ''}`;
+  return `${CONDITIONS[c.kind].icon} ${CONDITIONS[c.kind].name}${land ? t(`（${land.name}）`, ` (${land.name})`) : ''}`;
 }

@@ -10,6 +10,7 @@ import type { DayCondition } from './conditions';
 import { itemId } from './items';
 import { GEM_IDS, type GemId, type LineId } from './lines';
 import { costOf, skillById, type Levels } from './skills';
+import { t } from '../i18n';
 
 export interface Totals {
   revenue: number;
@@ -147,10 +148,10 @@ export class SaveError extends Error {}
 export function migrate(raw: RawSave): RawSave {
   let d = { ...raw };
   let v = typeof d.version === 'number' ? d.version : 1;
-  if (v > SAVE_VERSION) throw new SaveError(`このセーブデータは新しいバージョン（v${v}）のものです`);
+  if (v > SAVE_VERSION) throw new SaveError(t(`このセーブデータは新しいバージョン（v${v}）のものです`, `This save is from a newer version (v${v})`));
   while (v < SAVE_VERSION) {
     const step = MIGRATIONS[v];
-    if (!step) throw new SaveError(`v${v} のセーブデータは読み込めません`);
+    if (!step) throw new SaveError(t(`v${v} のセーブデータは読み込めません`, `Saves from v${v} cannot be loaded`));
     d = step(d);
     v = d.version as number;
   }
@@ -201,9 +202,9 @@ export function parseSave(json: string): SaveData {
   try {
     raw = JSON.parse(json) as RawSave;
   } catch {
-    throw new SaveError('セーブデータの形式が正しくありません');
+    throw new SaveError(t('セーブデータの形式が正しくありません', 'The save data is not in the right format'));
   }
-  if (!raw || typeof raw !== 'object' || typeof raw.levels !== 'object') throw new SaveError('セーブデータの形式が正しくありません');
+  if (!raw || typeof raw !== 'object' || typeof raw.levels !== 'object') throw new SaveError(t('セーブデータの形式が正しくありません', 'The save data is not in the right format'));
   const base = newSave();
   const migrated = migrate(raw);
   const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
@@ -229,13 +230,13 @@ export function exportCode(data: SaveData): string {
 
 export function importCode(code: string): SaveData {
   const trimmed = code.trim();
-  if (!trimmed.startsWith(CODE_PREFIX)) throw new SaveError('My Crypto Workshop のセーブコードではありません');
+  if (!trimmed.startsWith(CODE_PREFIX)) throw new SaveError(t('My Crypto Workshop のセーブコードではありません', 'This is not a My Crypto Workshop save code'));
   let json: string;
   try {
     const bin = atob(trimmed.slice(CODE_PREFIX.length));
     json = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
   } catch {
-    throw new SaveError('セーブコードが壊れています（途中で切れていないか確認してください）');
+    throw new SaveError(t('セーブコードが壊れています（途中で切れていないか確認してください）', 'The save code is broken (check that it was not cut off)'));
   }
   return parseSave(json);
 }

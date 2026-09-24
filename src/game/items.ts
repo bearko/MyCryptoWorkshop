@@ -1,4 +1,5 @@
 import { FAMILIES, getExtension, type Extension } from './catalog';
+import { t } from '../i18n';
 
 /**
  * An item on the shelf, in storage or in a customer's hands is one number:
@@ -17,10 +18,10 @@ export interface Edition {
 /** Editions from plain to golden. Index = edition number. */
 export const EDITIONS: Edition[] = [
   { name: '', mult: 1, color: '' },
-  { name: '鑑定済み', mult: 1.6, color: '#9be7ff' },
-  { name: '刻印入り', mult: 3, color: '#c77dff' },
-  { name: 'サイン入り', mult: 6, color: '#ffd166' },
-  { name: '黄金', mult: 15, color: '#ffcf33' },
+  { name: t('鑑定済み', 'Appraised'), mult: 1.6, color: '#9be7ff' },
+  { name: t('刻印入り', 'Engraved'), mult: 3, color: '#c77dff' },
+  { name: t('サイン入り', 'Signed'), mult: 6, color: '#ffd166' },
+  { name: t('黄金', 'Golden'), mult: 15, color: '#ffcf33' },
 ];
 
 /** Base chance per craft of each edition (before luck), for editions 1..4. */
@@ -48,5 +49,5 @@ export function itemValue(code: ItemCode): number {
 /** Display name, e.g. "【刻印入り】ブレイブブレード". */
 export function itemName(code: ItemCode): string {
   const ed = EDITIONS[itemEdition(code)];
-  return (ed.name ? `【${ed.name}】` : '') + itemExt(code).name;
+  return (ed.name ? t(`【${ed.name}】`, `[${ed.name}] `) : '') + itemExt(code).name;
 }

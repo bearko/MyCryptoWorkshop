@@ -20,6 +20,7 @@ import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
 import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
+import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 
 const save = loadSave();
@@ -44,21 +45,21 @@ const FACILITY_NODES = new Set(['forge', 'conveyor', 'rare', 'lantern']);
 
 const gumText = h('span.gum-amount', {}, '0');
 const dustText = h('span.dust-amount', {}, '0');
-const dustBox = h('div.dust', { title: 'ゴールドダスト' }, icon(icons.dust, 'px'), dustText);
+const dustBox = h('div.dust', { title: t('ゴールドダスト', 'Gold dust') }, icon(icons.dust, 'px'), dustText);
 const researchText = h('span.research-amount', {}, '0');
-const researchBox = h('div.dust.research', { title: '研究ポイント' }, icon(CURRENCIES.research.icon, 'px'), researchText);
+const researchBox = h('div.dust.research', { title: t('研究ポイント', 'Research points') }, icon(CURRENCIES.research.icon, 'px'), researchText);
 const emblemText = h('span.emblem-amount', {}, '0');
-const emblemBox = h('div.dust.emblem', { title: 'エンブレム' }, icon(CURRENCIES.emblem.icon, 'px'), emblemText);
+const emblemBox = h('div.dust.emblem', { title: t('エンブレム', 'Emblems') }, icon(CURRENCIES.emblem.icon, 'px'), emblemText);
 const cpText = h('span.cp-amount', {}, '0');
-const cpBox = h('div.dust.cp', { title: 'Cp（移転ポイント）' }, icon(CURRENCIES.cp.icon, 'px'), cpText);
+const cpBox = h('div.dust.cp', { title: t('Cp（移転ポイント）', 'Cp (relocation points)') }, icon(CURRENCIES.cp.icon, 'px'), cpText);
 const dayText = h('span.day-label');
 const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
 const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
 const topbar = h(
   'header.topbar',
   {},
-  h('div.brand', {}, icon(icons.gum, 'px brand-icon'), h('div', {}, h('b', {}, 'My Crypto Workshop'), h('small', {}, 'マイクリ クラフト工房'))),
-  h('div.gum', { title: '所持GUM' }, icon(icons.gum, 'px'), gumText),
+  h('div.brand', {}, icon(icons.gum, 'px brand-icon'), h('div', {}, h('b', {}, 'My Crypto Workshop'), h('small', {}, t('マイクリ クラフト工房', 'MCH Craft Workshop')))),
+  h('div.gum', { title: t('所持GUM', 'GUM') }, icon(icons.gum, 'px'), gumText),
   dustBox,
   researchBox,
   emblemBox,
@@ -69,13 +70,13 @@ const topbar = h(
     {},
     bgmBtn,
     seBtn,
-    h('button.btn.small', { onclick: () => openCollection(), title: '図鑑' }, '📖'),
-    h('button.btn.small', { onclick: () => openMenu(), title: 'メニュー' }, '☰'),
+    h('button.btn.small', { onclick: () => openCollection(), title: t('図鑑', 'Collection') }, '📖'),
+    h('button.btn.small', { onclick: () => openMenu(), title: t('メニュー', 'Menu') }, '☰'),
   ),
 );
 
 const workshop = h('div.workshop');
-workshop.append(icon(workshopImages.workshop_base, 'ws-base', '工房'));
+workshop.append(icon(workshopImages.workshop_base, 'ws-base', t('工房', 'Workshop')));
 const overlayEls = new Map<string, HTMLImageElement>();
 for (const key of OVERLAY_ORDER) {
   const el = document.createElement('img');
@@ -103,13 +104,13 @@ const hud = h(
   h('div.hud-gum', {}, icon(icons.gum, 'px'), hudGum),
   h('div.hud-row', {}, hudDay, hudTime),
   h('div.hud-bar', {}, hudBar),
-  h('div.hud-row', {}, h('span', {}, '本日'), hudRevenue),
+  h('div.hud-row', {}, h('span', {}, t('本日', 'Today')), hudRevenue),
   hudStats,
   hudEvent,
 );
 const gearBtn = h(
   'button.hud-gear',
-  { 'aria-label': 'メニュー（一時停止）', title: 'メニュー（一時停止）', onclick: () => openPauseMenu() },
+  { 'aria-label': t('メニュー（一時停止）', 'Menu (pause)'), title: t('メニュー（一時停止）', 'Menu (pause)'), onclick: () => openPauseMenu() },
   h('span', {
     html: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="3.2 3.1"/><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>',
   }),
@@ -157,7 +158,7 @@ function updateTopbar(): void {
   emblemBox.hidden = save.resources.emblem <= 0 && save.achievements.length === 0;
   cpText.textContent = fmt(save.prestige.cp);
   cpBox.hidden = save.prestige.cp <= 0 && save.prestige.runs === 0;
-  dayText.textContent = save.prestige.runs > 0 ? `${save.prestige.runs + 1}周目 Day ${save.day}` : `Day ${save.day}`;
+  dayText.textContent = save.prestige.runs > 0 ? t(`${save.prestige.runs + 1}周目 Day ${save.day}`, `Run ${save.prestige.runs + 1} · Day ${save.day}`) : `Day ${save.day}`;
   bgmBtn.classList.toggle('off', !save.settings.bgm);
   seBtn.classList.toggle('off', !save.settings.se);
 }
@@ -188,7 +189,7 @@ function say(text: string): void {
   naviToast.classList.add('show');
   window.clearTimeout(naviHideTimer);
   naviHideTimer = window.setTimeout(() => (naviToast.hidden = true), 3500 + text.length * 70);
-  log(h('span.navi-log', {}, 'マインちゃん：', text));
+  log(h('span.navi-log', {}, t('マインちゃん：', 'Mine-chan: '), text));
 }
 
 /** Shows a Mine-chan tip once per save. */
@@ -205,6 +206,9 @@ function log(html: HTMLElement | string, cls = ''): void {
   logList.prepend(li);
   while (logList.children.length > 30) logList.lastChild?.remove();
 }
+
+/** Play time as "1時間23分" / "1h 23m". */
+const hoursMinutes = (sec: number) => t(`${Math.floor(sec / 3600)}時間${Math.floor((sec % 3600) / 60)}分`, `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`);
 
 /** An item name coloured by rarity; editions get their own colour and a 【】 prefix. */
 const extLabel = (code: number) => {
@@ -274,30 +278,37 @@ function openPauseMenu(): void {
     'div.pause',
     {},
     toggles,
-    h('h3', {}, `Day ${save.day} 本日の成績`),
+    h('h3', {}, t(`Day ${save.day} 本日の成績`, `Day ${save.day}: today so far`)),
     h(
       'div.stat-grid',
       {},
       ...(
         [
-          ['売上', `${fmt(r.revenue)} GUM`],
-          ['販売', `${r.sold}個`],
-          ['来客', `${r.customers}人`],
-          ['帰った客', `${r.lost}人`],
-          ['クラフト', `${r.crafted}個`],
-          ['盗難 / 捕獲', `${r.stolen} / ${r.caught}`],
+          [t('売上', 'Sales'), `${fmt(r.revenue)} GUM`],
+          [t('販売', 'Sold'), t(`${r.sold}個`, `${r.sold}`)],
+          [t('来客', 'Customers'), t(`${r.customers}人`, `${r.customers}`)],
+          [t('帰った客', 'Left unhappy'), t(`${r.lost}人`, `${r.lost}`)],
+          [t('クラフト', 'Crafted'), t(`${r.crafted}個`, `${r.crafted}`)],
+          [t('盗難 / 捕獲', 'Stolen / caught'), `${r.stolen} / ${r.caught}`],
         ] as [string, string][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
     ),
-    ...(save.dailies.length ? [h('h3', {}, '今日のデイリー依頼'), dailyList(r)] : []),
-    h('h3', {}, 'できごと'),
-    logCopy.children.length ? logCopy : h('p.muted', {}, 'まだ何も起きていません'),
+    ...(save.dailies.length ? [h('h3', {}, t('今日のデイリー依頼', 'Today\'s daily requests')), dailyList(r)] : []),
+    h('h3', {}, t('できごと', 'Events')),
+    logCopy.children.length ? logCopy : h('p.muted', {}, t('まだ何も起きていません', 'Nothing has happened yet')),
   );
-  openModal('一時停止中', body, [
-    { label: '📖 図鑑', onClick: () => openCollection() },
-    { label: 'データ', onClick: () => openMenu() },
-    { label: '▶ 営業に戻る', primary: true },
+  openModal(t('一時停止中', 'Paused'), body, [
+    { label: t('📖 図鑑', '📖 Collection'), onClick: () => openCollection() },
+    { label: t('データ', 'Data'), onClick: () => openMenu() },
+    { label: t('▶ 営業に戻る', '▶ Back to work'), primary: true },
   ]);
+}
+
+/** 日本語 / English switch (reloads the page in the other language). */
+function langSwitch(): HTMLElement {
+  const opt = (code: 'ja' | 'en', label: string) =>
+    h('button.btn.small.toggle', { class: `btn small toggle ${lang === code ? '' : 'off'}`, 'aria-pressed': String(lang === code), onclick: () => lang !== code && (writeSave(save), setLang(code)) }, label);
+  return h('div.menu-sound', {}, h('span', {}, t('言語 / Language', 'Language / 言語')), opt('ja', '日本語'), opt('en', 'English')); // i18n-ja
 }
 
 /** The 番頭 on/off switch (the menu). */
@@ -317,14 +328,14 @@ function autoBuyBtn(): HTMLElement {
 }
 
 function openStats(): void {
-  openModal('統計', statsView(save), [{ label: '閉じる' }], 'wide');
+  openModal(t('統計', 'Statistics'), statsView(save), [{ label: t('閉じる', 'Close') }], 'wide');
 }
 
 /** ランド移転 (after the clear): choose a land, confirm, start the next run. */
 function openRelocate(): void {
   if (computeStats(save.levels).cleared <= 0) return;
   const close = openModal(
-    'ランド移転',
+    t('ランド移転', 'Relocation'),
     relocateView(save, (land) => {
       close();
       const record = relocate(save, land);
@@ -333,27 +344,27 @@ function openRelocate(): void {
       confetti(2500);
       const home = lands.find((l) => l.key === land)!;
       openModal(
-        `${home.name} へ移転した！`,
+        t(`${home.name} へ移転した！`, `Moved to ${home.name}!`),
         h(
           'div.gold-chest',
           {},
           icon(home.cryptid, 'px'),
-          h('p', {}, `${record.run}周目の工房は伝説となり、Cp +${fmt(record.cp)} を手に入れた。${home.name}のクリプタイドが新しい工房を見守っている。`),
-          h('p.muted', {}, 'スキルツリー右下の「移転」ブランチで Cp を使おう。'),
+          h('p', {}, t(`${record.run}周目の工房は伝説となり、Cp +${fmt(record.cp)} を手に入れた。${home.name}のクリプタイドが新しい工房を見守っている。`, `Your run-${record.run} workshop became a legend and earned Cp +${fmt(record.cp)}. The ${home.name} cryptid watches over the new workshop.`)),
+          h('p.muted', {}, t('スキルツリー右下の「移転」ブランチで Cp を使おう。', 'Spend Cp in the Relocation branch at the bottom right of the skill tree.')),
         ),
-        [{ label: `${record.run + 1}周目を始める`, primary: true, onClick: () => showTree() }],
+        [{ label: t(`${record.run + 1}周目を始める`, `Start run ${record.run + 1}`), primary: true, onClick: () => showTree() }],
         'gold-chest-modal',
       );
       tree.refresh();
       updateTopbar();
     }),
-    [{ label: 'やめる' }],
+    [{ label: t('やめる', 'Cancel') }],
     'wide',
   );
 }
 
 function openCollection(): void {
-  openModal('図鑑', collectionView(save), [{ label: '閉じる' }], 'wide');
+  openModal(t('図鑑', 'Collection'), collectionView(save), [{ label: t('閉じる', 'Close') }], 'wide');
 }
 
 function openMenu(): void {
@@ -371,27 +382,28 @@ function openMenu(): void {
   const body = h(
     'div.menu',
     {},
-    h('div.menu-sound', {}, h('span', {}, 'サウンド'), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
-    computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, '番頭の自動習得'), autoBuyBtn()) : null,
-    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, '📊 統計・周回の記録'), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, '🧭 ランド移転') : null),
-    h('p', {}, '累計成績'),
+    h('div.menu-sound', {}, h('span', {}, t('サウンド', 'Sound')), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
+    langSwitch(),
+    computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
+    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null),
+    h('p', {}, t('累計成績', 'Lifetime stats')),
     h(
       'div.stat-grid',
       {},
       ...(
         [
-          ['累計売上', `${fmt(save.totals.revenue)} GUM`],
-          ['販売数', save.totals.sold],
-          ['来客数', save.totals.customers],
-          ['クラフト数', save.totals.crafted],
-          ['捕まえた泥棒', save.totals.caught],
-          ['盗まれた数', save.totals.stolen],
-          ['最高日商', `${fmt(save.bestDayRevenue)} GUM`],
-          ['プレイ時間', `${Math.floor(save.meta.playSeconds / 3600)}時間${Math.floor((save.meta.playSeconds % 3600) / 60)}分`],
+          [t('累計売上', 'Total sales'), `${fmt(save.totals.revenue)} GUM`],
+          [t('販売数', 'Items sold'), save.totals.sold],
+          [t('来客数', 'Customers'), save.totals.customers],
+          [t('クラフト数', 'Items crafted'), save.totals.crafted],
+          [t('捕まえた泥棒', 'Thieves caught'), save.totals.caught],
+          [t('盗まれた数', 'Items stolen'), save.totals.stolen],
+          [t('最高日商', 'Best day'), `${fmt(save.bestDayRevenue)} GUM`],
+          [t('プレイ時間', 'Play time'), hoursMinutes(save.meta.playSeconds)],
         ] as [string, string | number][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, String(v)))),
     ),
-    h('p', {}, `実績（${save.achievements.length} / ${ACHIEVEMENTS.length}）`),
+    h('p', {}, t(`実績（${save.achievements.length} / ${ACHIEVEMENTS.length}）`, `Achievements (${save.achievements.length} / ${ACHIEVEMENTS.length})`)),
     achievementList(),
     saveTransfer(),
     h(
@@ -402,7 +414,7 @@ function openMenu(): void {
           const btn = ev.currentTarget as HTMLButtonElement;
           if (btn.dataset.armed !== '1') {
             btn.dataset.armed = '1';
-            btn.textContent = 'もう一度押すと削除します';
+            btn.textContent = t('もう一度押すと削除します', 'Press again to delete');
             return;
           }
           resetting = true;
@@ -410,11 +422,11 @@ function openMenu(): void {
           location.reload();
         },
       },
-      'セーブデータを削除',
+      t('セーブデータを削除', 'Delete save data'),
     ),
     credits(),
   );
-  openModal('メニュー', body, [{ label: '閉じる' }]);
+  openModal(t('メニュー', 'Menu'), body, [{ label: t('閉じる', 'Close') }]);
 }
 
 /** Today's (or the next day's) requests, with progress when a day report is given. */
@@ -425,9 +437,9 @@ function dailyList(r?: DayReport): HTMLElement {
     ...save.dailies.map((d) => {
       const v = r ? Math.min(d.target, dailyValue(d.kind, r)) : 0;
       const done = d.done || (r ? v >= d.target : false);
-      return h('div.daily-row', { class: `daily-row ${done ? 'done' : ''}` }, h('span', {}, dailyLabel(d)), h('b', {}, done ? '✓' : r ? `${fmt(v)} / ${fmt(d.target)}` : `エンブレム +1`));
+      return h('div.daily-row', { class: `daily-row ${done ? 'done' : ''}` }, h('span', {}, dailyLabel(d)), h('b', {}, done ? '✓' : r ? `${fmt(v)} / ${fmt(d.target)}` : t(`エンブレム +1`, `Emblem +1`)));
     }),
-    h('small.muted', {}, `3つすべて達成でエンブレム +${DAILY_BONUS}`),
+    h('small.muted', {}, t(`3つすべて達成でエンブレム +${DAILY_BONUS}`, `All three: Emblems +${DAILY_BONUS}`)),
   );
 }
 
@@ -445,7 +457,7 @@ function achievementList(): HTMLElement {
         h('b', {}, a.name),
         h('span', {}, a.desc),
         h('div.achievement-bar', {}, h('div', { style: `width:${Math.min(100, (v / target) * 100)}%` })),
-        h('small', {}, done ? '達成' : `エンブレム ${a.emblem}`),
+        h('small', {}, done ? t('達成', 'Done') : t(`エンブレム ${a.emblem}`, `Emblems ${a.emblem}`)),
       );
     }),
   );
@@ -453,30 +465,30 @@ function achievementList(): HTMLElement {
 
 /** Export / import of the save as a copy-pasteable code (for moving between devices or backups). */
 function saveTransfer(): HTMLElement {
-  const out = h('textarea.save-code', { readonly: true, rows: 3, 'aria-label': 'セーブコード', id: 'save-export' }) as HTMLTextAreaElement;
-  const copyBtn = h('button.btn.small', {}, 'コードを表示してコピー');
+  const out = h('textarea.save-code', { readonly: true, rows: 3, 'aria-label': t('セーブコード', 'Save code'), id: 'save-export' }) as HTMLTextAreaElement;
+  const copyBtn = h('button.btn.small', {}, t('コードを表示してコピー', 'Show and copy the code'));
   copyBtn.addEventListener('click', () => {
     writeSave(save);
     out.value = exportCode(save);
     out.hidden = false;
     out.select();
     navigator.clipboard?.writeText(out.value).then(
-      () => (copyBtn.textContent = 'コピーしました'),
-      () => (copyBtn.textContent = '選択中のコードをコピーしてください'),
+      () => (copyBtn.textContent = t('コピーしました', 'Copied')),
+      () => (copyBtn.textContent = t('選択中のコードをコピーしてください', 'Copy the selected code')),
     );
   });
   out.hidden = true;
 
-  const input = h('textarea.save-code', { rows: 3, placeholder: 'MCW: で始まるセーブコードを貼り付け', 'aria-label': '読み込むセーブコード', id: 'save-import' }) as HTMLTextAreaElement;
+  const input = h('textarea.save-code', { rows: 3, placeholder: t('MCW: で始まるセーブコードを貼り付け', 'Paste a save code starting with MCW:'), 'aria-label': t('読み込むセーブコード', 'Save code to load'), id: 'save-import' }) as HTMLTextAreaElement;
   const msg = h('p.save-msg');
-  const loadBtn = h('button.btn.small', {}, 'このコードを読み込む');
+  const loadBtn = h('button.btn.small', {}, t('このコードを読み込む', 'Load this code'));
   loadBtn.addEventListener('click', () => {
     try {
       const data = importCode(input.value);
       if (loadBtn.dataset.armed !== '1') {
         loadBtn.dataset.armed = '1';
-        loadBtn.textContent = '今のデータを上書きします。もう一度押すと読み込み';
-        msg.textContent = `読み込むデータ: Day ${data.day}・${fmt(data.gum)} GUM`;
+        loadBtn.textContent = t('今のデータを上書きします。もう一度押すと読み込み', 'This overwrites your current data. Press again to load');
+        msg.textContent = t(`読み込むデータ: Day ${data.day}・${fmt(data.gum)} GUM`, `Data to load: Day ${data.day} · ${fmt(data.gum)} GUM`);
         msg.className = 'save-msg';
         return;
       }
@@ -484,16 +496,16 @@ function saveTransfer(): HTMLElement {
       writeSave(data);
       location.reload();
     } catch (err) {
-      msg.textContent = err instanceof SaveError ? err.message : 'セーブコードを読み込めませんでした';
+      msg.textContent = err instanceof SaveError ? err.message : t('セーブコードを読み込めませんでした', 'Could not load the save code');
       msg.className = 'save-msg error';
       loadBtn.dataset.armed = '';
-      loadBtn.textContent = 'このコードを読み込む';
+      loadBtn.textContent = t('このコードを読み込む', 'Load this code');
     }
   });
   return h(
     'div.save-transfer',
     {},
-    h('p', {}, 'セーブデータの引き継ぎ'),
+    h('p', {}, t('セーブデータの引き継ぎ', 'Transfer save data')),
     h('div.save-row', {}, copyBtn),
     out,
     input,
@@ -506,9 +518,15 @@ function credits(): HTMLElement {
   return h(
     'p.credits',
     {},
-    '素材: My Crypto Heroes（© MCH Co.,Ltd.）のヒーロー・エクステンション・エネミー・背景・サウンドを ',
+    t(
+      '素材: My Crypto Heroes（© MCH Co.,Ltd.）のヒーロー・エクステンション・エネミー・背景・サウンドを ',
+      'An unofficial fan work using My Crypto Heroes (© MCH Co.,Ltd.) heroes, extensions, enemies, backgrounds and sounds via ',
+    ),
     h('a', { href: 'https://github.com/bearko/mycryptoheroes', target: '_blank', rel: 'noopener' }, 'bearko/mycryptoheroes'),
-    ' 経由で使用した非公式の二次創作です。クリスくん／マインちゃん ドット絵：こじもこ、マイクリくん 原画：こはる／ドット絵：こじもこ。紙吹雪とカットインの演出は同リポジトリの実装（MIT License）を移植しています。',
+    t(
+      ' 経由で使用した非公式の二次創作です。クリスくん／マインちゃん ドット絵：こじもこ、マイクリくん 原画：こはる／ドット絵：こじもこ。紙吹雪とカットインの演出は同リポジトリの実装（MIT License）を移植しています。',
+      '. Chris-kun / Mine-chan pixel art: Kojimoko; Maycri-kun original art: Koharu, pixel art: Kojimoko. The confetti and cut-in effects are ported from that repository (MIT License).',
+    ),
   );
 }
 
@@ -524,8 +542,15 @@ function showTitle(): void {
     'div.title',
     {},
     h('div.title-art', {}, icon(workshopImages.workshop_base, 'title-bg'), mine),
-    h('p.title-lead', {}, 'エクステンションをクラフトして、来店するヒーローに売ろう。', h('br'), '稼いだ GUM で工房を強化して、伝説の工房を目指せ！'),
-    hasProgress ? h('p.title-save', {}, `セーブデータ: Day ${save.day}・所持 ${fmt(save.gum)} GUM`) : null,
+    h(
+      'p.title-lead',
+      {},
+      t('エクステンションをクラフトして、来店するヒーローに売ろう。', 'Craft extensions and sell them to the heroes who visit.'),
+      h('br'),
+      t('稼いだ GUM で工房を強化して、伝説の工房を目指せ！', 'Spend your GUM to grow the workshop into a legend!'),
+    ),
+    langSwitch(),
+    hasProgress ? h('p.title-save', {}, t(`セーブデータ: Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Save: Day ${save.day} · ${fmt(save.gum)} GUM`)) : null,
     credits(),
   );
   openModal(
@@ -533,7 +558,7 @@ function showTitle(): void {
     body,
     [
       {
-        label: hasProgress ? 'つづきから' : '開店する',
+        label: hasProgress ? t('つづきから', 'Continue') : t('開店する', 'Open the shop'),
         primary: true,
         onClick: () => {
           window.clearInterval(anim);
@@ -549,52 +574,65 @@ function showTitle(): void {
 
 function showResults(report: DayReport, auto: SkillNode[] = []): void {
   const rows: [string, string | number, string?][] = [
-    ['来客', `${report.customers}人`],
-    ['販売', `${report.sold}個`],
-    ['帰ってしまった客', `${report.lost}人`, report.lost ? 'bad' : ''],
-    ['クラフト', `${report.crafted}個`],
+    [t('来客', 'Customers'), t(`${report.customers}人`, `${report.customers}`)],
+    [t('販売', 'Sold'), t(`${report.sold}個`, `${report.sold}`)],
+    [t('帰ってしまった客', 'Left unhappy'), t(`${report.lost}人`, `${report.lost}`), report.lost ? 'bad' : ''],
+    [t('クラフト', 'Crafted'), t(`${report.crafted}個`, `${report.crafted}`)],
   ];
-  if (report.day >= 2) rows.push(['捕まえた泥棒', `${report.caught}人`], ['盗まれた商品', `${report.stolen}個`, report.stolen ? 'bad' : '']);
-  if (report.day >= 3) rows.push(['退治したエネミー', `${report.pests}体`]);
+  if (report.day >= 2) rows.push([t('捕まえた泥棒', 'Thieves caught'), t(`${report.caught}人`, `${report.caught}`)], [t('盗まれた商品', 'Items stolen'), t(`${report.stolen}個`, `${report.stolen}`), report.stolen ? 'bad' : '']);
+  if (report.day >= 3) rows.push([t('退治したエネミー', 'Enemies chased off'), t(`${report.pests}体`, `${report.pests}`)]);
   const extras: [ExtraSource, string][] = [
-    ['bar', 'ポーションバー'],
-    ['trial', '試し斬り'],
-    ['market', 'マーケット'],
-    ['peddler', '行商'],
-    ['bonus', '会計係のボーナス'],
-    ['chest', '宝箱'],
-    ['coin', '拾ったコイン'],
-    ['merchant', '悪徳商人への売却'],
-    ['raid', '海賊の懸賞金'],
+    ['bar', t('ポーションバー', 'Potion bar')],
+    ['trial', t('試し斬り', 'Test-cutting range')],
+    ['market', t('マーケット', 'Market')],
+    ['peddler', t('行商', 'Peddling')],
+    ['bonus', t('会計係のボーナス', 'Accountant\'s bonus')],
+    ['chest', t('宝箱', 'Treasure chests')],
+    ['coin', t('拾ったコイン', 'Coins picked up')],
+    ['merchant', t('悪徳商人への売却', 'Sold to the shady merchant')],
+    ['raid', t('海賊の懸賞金', 'Pirate bounties')],
   ];
   for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
-  if (report.research > 0) rows.push(['研究ポイント', `+${report.research}`]);
-  if (report.guests > 0) rows.push(['乗り物で来た客', `${report.guests}人`]);
-  if (report.newHeroes.length > 0) rows.push(['初めて買ってくれたヒーロー', `${report.newHeroes.length}人`]);
-  if (report.ordersDone > 0) rows.push(['届けた注文', `${report.ordersDone}件`]);
-  if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
-  if (report.donated > 0) rows.push(['寄付した品', `${report.donated}個`], ['名声', `+${fmt(report.fame)}`]);
-  if (report.raid) rows.push(['海賊を撃退', `${report.raid.caught} / ${report.raid.pirates}人`, report.raid.won ? '' : 'bad']);
+  if (report.research > 0) rows.push([t('研究ポイント', 'Research points'), `+${report.research}`]);
+  if (report.guests > 0) rows.push([t('乗り物で来た客', 'Customers by vehicle'), t(`${report.guests}人`, `${report.guests}`)]);
+  if (report.newHeroes.length > 0) rows.push([t('初めて買ってくれたヒーロー', 'New heroes who bought'), t(`${report.newHeroes.length}人`, `${report.newHeroes.length}`)]);
+  if (report.ordersDone > 0) rows.push([t('届けた注文', 'Orders delivered'), t(`${report.ordersDone}件`, `${report.ordersDone}`)]);
+  if (report.dust > 0) rows.push([t('分解で得たダスト', 'Dust from dismantling'), fmt(report.dust)]);
+  if (report.donated > 0) rows.push([t('寄付した品', 'Items donated'), t(`${report.donated}個`, `${report.donated}`)], [t('名声', 'Fame'), `+${fmt(report.fame)}`]);
+  if (report.raid) rows.push([t('海賊を撃退', 'Pirates repelled'), t(`${report.raid.caught} / ${report.raid.pirates}人`, `${report.raid.caught} / ${report.raid.pirates}`), report.raid.won ? '' : 'bad']);
   const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
-  if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
+  if (gemsGot > 0) rows.push([t('分解で得た魔石', 'Stones from dismantling'), t(`${gemsGot}個`, `${gemsGot}`)]);
   const body = h(
     'div.results',
     {},
-    h('div.results-hero', {}, icon(staffFrames.chrisCheer, 'px results-chris'), h('div', {}, h('div.results-label', {}, '本日の売上'), h('div.results-revenue', {}, icon(icons.gum, 'px'), fmt(report.revenue)))),
+    h('div.results-hero', {}, icon(staffFrames.chrisCheer, 'px results-chris'), h('div', {}, h('div.results-label', {}, t('本日の売上', 'Today\'s sales')), h('div.results-revenue', {}, icon(icons.gum, 'px'), fmt(report.revenue)))),
     h('div.stat-grid', {}, ...rows.map(([k, v, c]) => h('div.stat-row', { class: `stat-row ${c ?? ''}` }, h('span', {}, k), h('b', {}, String(v))))),
     report.bestSale
-      ? h('p.best-sale', {}, '最高額: ', h('b', {}, report.bestSale.hero), ' が ', extLabel(report.bestSale.item), ` を ${fmt(report.bestSale.price)} GUM で購入`)
+      ? h(
+          'p.best-sale',
+          {},
+          ...(isEn
+            ? ['Best sale: ', h('b', {}, report.bestSale.hero), ' bought ', extLabel(report.bestSale.item), ` for ${fmt(report.bestSale.price)} GUM`]
+            : ['最高額: ', h('b', {}, report.bestSale.hero), ' が ', extLabel(report.bestSale.item), ` を ${fmt(report.bestSale.price)} GUM で購入`]), // i18n-ja
+        )
       : null,
-    report.sets.length ? h('p.best-sale', {}, '🏆 コンプリート達成: ', h('b', {}, report.sets.join('・'))) : null,
-    report.achievements.length ? h('p.best-sale', {}, '🎖️ 実績: ', h('b', {}, report.achievements.join('・'))) : null,
-    report.dailyEmblems > 0 ? h('p.best-sale', {}, `デイリー依頼を達成！ エンブレム +${report.dailyEmblems}`) : null,
-    report.raid?.won ? h('p.best-sale', {}, `☠ 黒髭海賊団を完全撃退！ エンブレム +${report.raid.emblems}`) : null,
-    auto.length ? h('p.best-sale', {}, `番頭が ${auto.length} 件習得: `, h('b', {}, [...new Set(auto.map((n) => n.name))].slice(0, 6).join('・') + (new Set(auto.map((n) => n.name)).size > 6 ? ' ほか' : ''))) : null,
+    report.sets.length ? h('p.best-sale', {}, t('🏆 コンプリート達成: ', '🏆 Set complete: '), h('b', {}, report.sets.join(t('・', ', ')))) : null,
+    report.achievements.length ? h('p.best-sale', {}, t('🎖️ 実績: ', '🎖️ Achievements: '), h('b', {}, report.achievements.join(t('・', ', ')))) : null,
+    report.dailyEmblems > 0 ? h('p.best-sale', {}, t(`デイリー依頼を達成！ エンブレム +${report.dailyEmblems}`, `Daily requests done! Emblems +${report.dailyEmblems}`)) : null,
+    report.raid?.won ? h('p.best-sale', {}, t(`☠ 黒髭海賊団を完全撃退！ エンブレム +${report.raid.emblems}`, `☠ Blackbeard's pirates fully repelled! Emblems +${report.raid.emblems}`)) : null,
+    auto.length
+      ? h(
+          'p.best-sale',
+          {},
+          t(`番頭が ${auto.length} 件習得: `, `The head clerk learned ${auto.length}: `),
+          h('b', {}, [...new Set(auto.map((n) => n.name))].slice(0, 6).join(t('・', ', ')) + (new Set(auto.map((n) => n.name)).size > 6 ? t(' ほか', ' and more') : '')),
+        )
+      : null,
     report.newEntries.length
-      ? h('div.new-entries', {}, h('div', {}, `図鑑に新しく登録 (${report.newEntries.length})`), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
+      ? h('div.new-entries', {}, h('div', {}, t(`図鑑に新しく登録 (${report.newEntries.length})`, `New in the collection (${report.newEntries.length})`)), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
       : null,
   );
-  openModal(`Day ${report.day} 閉店`, body, [{ label: 'スキルツリーへ', primary: true, onClick: () => showTree() }], 'results-modal');
+  openModal(t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`), body, [{ label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => showTree() }], 'results-modal');
 }
 
 // ------------------------------------------------------------------ flow
@@ -622,29 +660,29 @@ function buyNode(node: SkillNode): void {
 function showEnding(): void {
   sound.play('win');
   confetti(6000);
-  const t = save.meta.playSeconds;
+  const played = save.meta.playSeconds;
   const rows: [string, string][] = [
-    ['営業日数', `${save.day - 1}日`],
-    ['プレイ時間', `${Math.floor(t / 3600)}時間${Math.floor((t % 3600) / 60)}分`],
-    ['累計売上', `${fmt(save.totals.revenue)} GUM`],
-    ['販売数', `${fmt(save.totals.sold)}個`],
-    ['図鑑', `${save.collection.length}種`],
-    ['出会ったヒーロー', `${customers.filter((c) => (save.heroes[c.id] ?? 0) > 0).length}人`],
-    ['実績', `${save.achievements.length} / ${ACHIEVEMENTS.length}`],
+    [t('営業日数', 'Days open'), t(`${save.day - 1}日`, `${save.day - 1}`)],
+    [t('プレイ時間', 'Play time'), hoursMinutes(played)],
+    [t('累計売上', 'Total sales'), `${fmt(save.totals.revenue)} GUM`],
+    [t('販売数', 'Items sold'), t(`${fmt(save.totals.sold)}個`, `${fmt(save.totals.sold)}`)],
+    [t('図鑑', 'Collection'), t(`${save.collection.length}種`, `${save.collection.length}`)],
+    [t('出会ったヒーロー', 'Heroes met'), t(`${customers.filter((c) => (save.heroes[c.id] ?? 0) > 0).length}人`, `${customers.filter((c) => (save.heroes[c.id] ?? 0) > 0).length}`)],
+    [t('実績', 'Achievements'), `${save.achievements.length} / ${ACHIEVEMENTS.length}`],
   ];
   openModal(
-    '伝説の工房',
+    t('伝説の工房', 'A Legendary Workshop'),
     h(
       'div.gold-chest',
       {},
       h('div.gold-chest-head', {}, '★ GAME CLEAR ★'),
       icon(series[0].items[4].image, 'px'),
-      h('p', {}, '黄金のエクステンションが完成した！あなたの工房は、マイクリの世界で伝説として語り継がれるだろう。'),
+      h('p', {}, t('黄金のエクステンションが完成した！あなたの工房は、マイクリの世界で伝説として語り継がれるだろう。', 'The golden extension is done! Your workshop will be told as a legend across the world of My Crypto Heroes.')),
       h('div.stat-grid', {}, ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v)))),
-      h('p.muted', {}, 'このまま営業を続けることも、工房を新しいランドへ移転して 2 周目を始めることもできます（スキルツリーの「ランド移転」から）。'),
+      h('p.muted', {}, t('このまま営業を続けることも、工房を新しいランドへ移転して 2 周目を始めることもできます（スキルツリーの「ランド移転」から）。', 'You can keep running the shop, or move the workshop to a new land and start run 2 (from "Relocate" in the skill tree).')),
       credits(),
     ),
-    [{ label: 'ランド移転へ', primary: true, onClick: () => openRelocate() }, { label: '営業を続ける' }],
+    [{ label: t('ランド移転へ', 'Relocate'), primary: true, onClick: () => openRelocate() }, { label: t('営業を続ける', 'Keep going') }],
     'gold-chest-modal',
   );
 }
@@ -662,25 +700,25 @@ function startDay(): void {
   sound.playBgm('bgmShop');
   updateTopbar();
   if (save.day === 1) {
-    tip('welcome', 'いらっしゃいませ！ここはあなたのクラフト工房。魔法の壺をクリックするとクラフトが早くなるよ！');
+    tip('welcome', t('いらっしゃいませ！ここはあなたのクラフト工房。魔法の壺をクリックするとクラフトが早くなるよ！', 'Welcome! This is your crafting workshop. Click the magic pot to craft faster!'));
   } else if (save.day === 2) {
-    tip('thiefWarn', '今日から泥棒が出るみたい…赤く光っているヒーローを見つけたらクリックで捕まえて！');
+    tip('thiefWarn', t('今日から泥棒が出るみたい…赤く光っているヒーローを見つけたらクリックで捕まえて！', 'Thieves may show up from today... If you see a hero glowing red, click to catch them!'));
   } else if (save.day === 3) {
-    tip('pestWarn', '工房にエネミーが入り込むことがあるよ。跳ね回るエネミーを見つけたらタップで追い払おう！');
+    tip('pestWarn', t('工房にエネミーが入り込むことがあるよ。跳ね回るエネミーを見つけたらタップで追い払おう！', 'Enemies sometimes get into the workshop. Tap the bouncing enemies to chase them off!'));
   } else if (shop.staffMembers.length > 0 && !save.tips.includes('staff')) {
-    tip('staff', 'スタッフが店で働いているよ！足元の名札で役割がわかるよ。ヒーローを雇うともっと頼もしくなる！');
+    tip('staff', t('スタッフが店で働いているよ！足元の名札で役割がわかるよ。ヒーローを雇うともっと頼もしくなる！', 'Your staff are at work! Their name tags show their jobs. Hire heroes to make them even better!'));
   } else if (shop.condition.kind !== 'sunny') {
-    say(`Day ${save.day} 開店！今日は ${conditionLabel(shop.condition)}。${CONDITIONS[shop.condition.kind].desc}`);
+    say(t(`Day ${save.day} 開店！今日は ${conditionLabel(shop.condition)}。${CONDITIONS[shop.condition.kind].desc}`, `Day ${save.day}: open! Today: ${conditionLabel(shop.condition)}. ${CONDITIONS[shop.condition.kind].desc}`));
   } else {
-    say(`Day ${save.day} 開店！今日もがんばろう！`);
+    say(t(`Day ${save.day} 開店！今日もがんばろう！`, `Day ${save.day}: open! Let's do our best today!`));
   }
 }
 
 const LOST_TEXT = {
-  empty: ' は品切れで帰ってしまった…',
-  queue: ' は待ちきれず帰ってしまった…',
-  mess: ' は泥を踏んで怒って帰ってしまった…',
-  scared: ' はエネミーに驚いて逃げ帰ってしまった…',
+  empty: t(' は品切れで帰ってしまった…', ' left: nothing on the shelves...'),
+  queue: t(' は待ちきれず帰ってしまった…', ' got tired of waiting and left...'),
+  mess: t(' は泥を踏んで怒って帰ってしまった…', ' stepped in mud and stormed off...'),
+  scared: t(' はエネミーに驚いて逃げ帰ってしまった…', ' was scared off by an enemy...'),
 };
 
 /** Seconds before a decision picks its fallback on its own (so an idle shop keeps going). */
@@ -707,7 +745,7 @@ function showDecision(d: Decision): void {
     ),
     timer,
   );
-  const update = () => (timer.textContent = `${left} 秒後に「${d.options[d.fallback].label}」を選びます`);
+  const update = () => (timer.textContent = t(`${left} 秒後に「${d.options[d.fallback].label}」を選びます`, `Choosing "${d.options[d.fallback].label}" in ${left}s`));
   update();
   const tick = window.setInterval(() => {
     left--;
@@ -728,8 +766,8 @@ function goldChest(code: number): boolean {
   confetti(3000);
   openModal(
     'CONGRATULATIONS',
-    h('div.gold-chest', {}, h('div.gold-chest-head', {}, '★ GOLD CHEST ★'), icon(ext.image, 'px'), h('p', {}, extLabel(code), ' が完成！')),
-    [{ label: 'やった！', primary: true }],
+    h('div.gold-chest', {}, h('div.gold-chest-head', {}, '★ GOLD CHEST ★'), icon(ext.image, 'px'), h('p', {}, extLabel(code), t(' が完成！', ' is done!'))),
+    [{ label: t('やった！', 'Hooray!'), primary: true }],
     'gold-chest-modal',
   );
   return true;
@@ -743,68 +781,78 @@ function onShopEvent(e: ShopEvent): void {
       goldChest(e.item);
       if (edition > 0 || ext.shin) {
         sound.play('rare');
-        log(h('span', {}, h('span.tag.edition', {}, ext.shin ? '真' : EDITIONS[edition].name), ' ', extLabel(e.item), ` が${LINES[e.line].name}で完成！`), 'rare');
-        tip('edition', 'エディション付きの品ができたよ！鑑定済み・刻印入り…と、珍しいほど高く売れるんだ');
+        log(h('span', {}, h('span.tag.edition', {}, ext.shin ? t('真', 'Shin') : EDITIONS[edition].name), ' ', extLabel(e.item), t(` が${LINES[e.line].name}で完成！`, ` finished in the ${LINES[e.line].name}!`)), 'rare');
+        tip('edition', t('エディション付きの品ができたよ！鑑定済み・刻印入り…と、珍しいほど高く売れるんだ', 'You made an edition item! Appraised, Engraved... the rarer the edition, the higher the price'));
       } else if (e.isNew && ext.rarityIndex >= 2) {
         sound.play('rare');
-        log(h('span', {}, h('span.tag.new', {}, 'NEW'), ` [${RARITY_JA[ext.rarity]}] `, extLabel(e.item), ' が完成！'), 'rare');
+        log(h('span', {}, h('span.tag.new', {}, 'NEW'), ` [${RARITY_JA[ext.rarity]}] `, extLabel(e.item), t(' が完成！', ' is done!')), 'rare');
       } else {
         sound.play(ext.rarityIndex >= 3 ? 'rare' : 'craft');
-        if (e.isNew) log(h('span', {}, h('span.tag.new', {}, 'NEW'), ' ', extLabel(e.item), ' が完成'));
+        if (e.isNew) log(h('span', {}, h('span.tag.new', {}, 'NEW'), ' ', extLabel(e.item), t(' が完成', ' is done')));
       }
       break;
     }
     case 'dismantle':
-      tip('dismantle', '置き場所がいっぱいの時は、分解炉が安い品をゴールドダストと魔石に変えてくれるよ！');
+      tip('dismantle', t('置き場所がいっぱいの時は、分解炉が安い品をゴールドダストと魔石に変えてくれるよ！', 'When there\'s no room, the dismantler turns cheap items into gold dust and magic stones!'));
       break;
     case 'overheat':
       sound.play('fail');
-      log(h('span', {}, `${LINES[e.line].name}が過熱して止まった！（3秒）`), 'bad');
-      tip('overheat', '熱くなりすぎて失敗しちゃった…長押しはゲージが赤くなる前に離そう！');
+      log(h('span', {}, t(`${LINES[e.line].name}が過熱して止まった！（3秒）`, `The ${LINES[e.line].name} overheated and stopped! (3s)`)), 'bad');
+      tip('overheat', t('熱くなりすぎて失敗しちゃった…長押しはゲージが赤くなる前に離そう！', 'It got too hot... Let go before the gauge turns red!'));
       break;
     case 'sale':
       sound.play('sale');
-      log(h('span', {}, h('b', {}, e.hero.name), ' が ', extLabel(e.item), ' を購入 ', h('span.gum-text', {}, `+${fmt(e.price)}`), e.tip ? h('span.tag', {}, 'チップ') : ''));
+      log(h('span', {}, h('b', {}, e.hero.name), t(' が ', ' bought '), extLabel(e.item), t(' を購入 ', ' '), h('span.gum-text', {}, `+${fmt(e.price)}`), e.tip ? h('span.tag', {}, t('チップ', 'Tip')) : ''));
       break;
     case 'lost':
       sound.play('debuff');
       log(h('span', {}, h('b', {}, e.hero.name), LOST_TEXT[e.reason]), 'bad');
-      if (e.reason === 'empty') tip('lostEmpty', '棚が空っぽでお客さんが帰っちゃった…「壺の火力」でクラフトを早くしよう！');
-      else tip('lostQueue', 'レジが混みすぎて帰っちゃった！カウンターをクリックして会計を手伝うか「クリスくん研修」を！');
+      if (e.reason === 'empty') tip('lostEmpty', t('棚が空っぽでお客さんが帰っちゃった…「壺の火力」でクラフトを早くしよう！', 'The shelves were empty and a customer left... Speed up crafting with "Pot Heat"!'));
+      else tip('lostQueue', t('レジが混みすぎて帰っちゃった！カウンターをクリックして会計を手伝うか「クリスくん研修」を！', 'The line was too long and they left! Click the counter to help check out, or get "Train Chris-kun"!'));
       break;
     case 'thief':
       sound.play('debuff');
-      log(h('span', {}, '泥棒 ', h('b.villain', {}, e.hero.name), ` が現れた！（${e.style.trait}）`), 'bad');
-      if (e.style.entry === 'ceiling') tip('ceiling', '天井からロープで降りてくる泥棒もいるよ！上にも注意して！');
-      else if (e.style.entry === 'window') tip('window', '窓から飛び込んでくる泥棒だ！窓から逃げられる前にタップ！');
-      else if (e.style.disguise) tip('disguise', 'お客さんのふりをした泥棒がいるみたい…商品に手を伸ばした瞬間を狙って！');
-      else if (e.style.hp > 1) tip('tough', 'しぶとい泥棒は何回かタップしないと捕まらないよ！');
+      log(h('span', {}, t('泥棒 ', 'Thief '), h('b.villain', {}, e.hero.name), t(` が現れた！（${e.style.trait}）`, ` appeared! (${e.style.trait})`)), 'bad');
+      if (e.style.entry === 'ceiling') tip('ceiling', t('天井からロープで降りてくる泥棒もいるよ！上にも注意して！', 'Some thieves drop from the ceiling on a rope! Watch above too!'));
+      else if (e.style.entry === 'window') tip('window', t('窓から飛び込んでくる泥棒だ！窓から逃げられる前にタップ！', 'A thief jumping in through the window! Tap before they escape the same way!'));
+      else if (e.style.disguise) tip('disguise', t('お客さんのふりをした泥棒がいるみたい…商品に手を伸ばした瞬間を狙って！', 'A thief is posing as a customer... Catch them the moment they reach for an item!'));
+      else if (e.style.hp > 1) tip('tough', t('しぶとい泥棒は何回かタップしないと捕まらないよ！', 'Tough thieves take several taps to catch!'));
       break;
     case 'thiefHit':
       sound.play('hit');
       break;
     case 'stolen':
       sound.play('fail');
-      log(h('span', {}, h('b.villain', {}, e.hero.name), ' に ', extLabel(e.item), ' を盗まれた！'), 'bad');
-      tip('stolen', '盗まれちゃった…！赤く光る泥棒は逃げる前にクリック！「マイクリくん警備」も頼りになるよ');
+      log(h('span', {}, h('b.villain', {}, e.hero.name), t(' に ', ' stole '), extLabel(e.item), t(' を盗まれた！', '!')), 'bad');
+      tip('stolen', t('盗まれちゃった…！赤く光る泥棒は逃げる前にクリック！「マイクリくん警備」も頼りになるよ', 'Something got stolen...! Click red-glowing thieves before they escape. "Maycri-kun on Guard" helps too'));
       break;
     case 'caught':
       sound.play('hit');
-      log(h('span', {}, e.byGuard ? `${e.guard ?? 'マイクリくん'}が ` : '', h('b.villain', {}, e.hero.name), ' を捕まえた！ 懸賞金 ', h('span.gum-text', {}, `+${fmt(e.bounty)}`)), 'good');
+      log(
+        h(
+          'span',
+          {},
+          e.byGuard ? t(`${e.guard ?? 'マイクリくん'}が `, `${e.guard ?? 'Maycri-kun'} caught `) : t('', 'Caught '),
+          h('b.villain', {}, e.hero.name),
+          t(' を捕まえた！ 懸賞金 ', '! Bounty '),
+          h('span.gum-text', {}, `+${fmt(e.bounty)}`),
+        ),
+        'good',
+      );
       break;
     case 'pest':
       sound.play('debuff');
-      log(h('span', {}, 'エネミー ', h('b.villain', {}, e.name), ' が工房に入り込んだ！クラフト速度ダウン'), 'bad');
+      log(h('span', {}, t('エネミー ', 'Enemy '), h('b.villain', {}, e.name), t(' が工房に入り込んだ！クラフト速度ダウン', ' got into the workshop! Crafting slows down')), 'bad');
       break;
     case 'pestCleared':
       sound.play('hit');
-      log(h('span', {}, 'エネミーを追い払った！ ', h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
+      log(h('span', {}, t('エネミーを追い払った！ ', 'Chased off an enemy! '), h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
       break;
     case 'mine':
       break;
     case 'orderDone':
       sound.play('rare');
-      log(h('span', {}, h('b', {}, e.hero.name), ' が注文の ', extLabel(e.item), ' を受け取った！ ', h('span.gum-text', {}, `+${fmt(e.price)}`)), 'rare');
+      log(h('span', {}, h('b', {}, e.hero.name), t(' が注文の ', ' picked up their order: '), extLabel(e.item), t(' を受け取った！ ', '! '), h('span.gum-text', {}, `+${fmt(e.price)}`)), 'rare');
       break;
     case 'decision':
       showDecision(e.decision);
@@ -816,44 +864,48 @@ function onShopEvent(e: ShopEvent): void {
       sound.play('helper');
       if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally');
       log(
-        h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? ' が現れて店を清めた！' : ' が来店！しばらく売上 2 倍！'),
+        h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れて店を清めた！', ' appeared and purified the shop!') : t(' が来店！しばらく売上 2 倍！', ' is here! Sales ×2 for a while!')),
         'rare',
       );
       break;
     case 'vehicle':
       sound.play('buff');
-      log(h('span', {}, `${['', '乗合馬車', '飛空艇', 'ランドゲート'][e.kind]}で ${e.count} 人の団体客が到着！`), 'good');
+      const vehicle = ['', t('乗合馬車', 'stagecoach'), t('飛空艇', 'airship'), t('ランドゲート', 'land gate')][e.kind];
+      log(h('span', {}, t(`${vehicle}で ${e.count} 人の団体客が到着！`, `A group of ${e.count} arrived by ${vehicle}!`)), 'good');
       break;
     case 'special':
       if (e.kind === 'owner') {
         sound.play('buff');
-        log(h('span', {}, 'ランドオーナー ', h('b', {}, e.hero.name), ' が来店！最高の品を高く買ってくれる'), 'rare');
+        log(h('span', {}, t('ランドオーナー ', 'Land owner '), h('b', {}, e.hero.name), t(' が来店！最高の品を高く買ってくれる', ' is here! They pay well for the best item')), 'rare');
       } else if (e.kind === 'collector') {
-        log(h('span', {}, 'コレクター ', h('b', {}, e.hero.name), ' が探し物をしている'));
-        tip('collector', '吹き出しにシリーズを出しているのはコレクター客！そのシリーズを並べておくと 2 倍で買ってくれるよ');
+        log(h('span', {}, t('コレクター ', 'Collector '), h('b', {}, e.hero.name), t(' が探し物をしている', ' is looking for something')));
+        tip('collector', t('吹き出しにシリーズを出しているのはコレクター客！そのシリーズを並べておくと 2 倍で買ってくれるよ', 'Customers showing a series in their bubble are collectors! Stock that series and they\'ll pay double'));
       } else if (e.kind === 'order') {
-        log(h('span', {}, h('b', {}, e.hero.name), ' が注文の品を受け取りに来た'), 'rare');
-        tip('orderCome', '注文したヒーローが来たよ！注文の品が棚にあれば高く買ってくれる。吹き出しの品を確認してね');
+        log(h('span', {}, h('b', {}, e.hero.name), t(' が注文の品を受け取りに来た', ' came to pick up their order')), 'rare');
+        tip('orderCome', t('注文したヒーローが来たよ！注文の品が棚にあれば高く買ってくれる。吹き出しの品を確認してね', 'A hero who ordered is here! If the ordered item is on the shelf, they pay a lot. Check their bubble'));
       } else if (e.kind === 'regular') {
-        log(h('span', {}, '常連客の ', h('b', {}, e.hero.name), ' が来てくれた'));
+        log(h('span', {}, t('常連客の ', 'Your regular '), h('b', {}, e.hero.name), t(' が来てくれた', ' dropped by')));
       }
       break;
     case 'chest':
       sound.play('rare');
-      log(h('span', {}, '宝箱を開けた！ ', e.reward === 'gum' ? h('span.gum-text', {}, `+${fmt(e.amount)}`) : e.reward === 'dust' ? `ダスト +${e.amount}` : `魔石 +${e.amount}`), 'good');
+      log(
+        h('span', {}, t('宝箱を開けた！ ', 'Opened a chest! '), e.reward === 'gum' ? h('span.gum-text', {}, `+${fmt(e.amount)}`) : e.reward === 'dust' ? t(`ダスト +${e.amount}`, `Dust +${e.amount}`) : t(`魔石 +${e.amount}`, `Stones +${e.amount}`)),
+        'good',
+      );
       break;
     case 'storePest':
       sound.play('debuff');
-      log(h('span', {}, 'エネミー ', h('b.villain', {}, e.name), ' が店に入り込んだ！客が怖がっている'), 'bad');
-      tip('storePest', '店にエネミーが！近くのお客さんが怖がって帰っちゃうよ。2回タップで追い払おう');
+      log(h('span', {}, t('エネミー ', 'Enemy '), h('b.villain', {}, e.name), t(' が店に入り込んだ！客が怖がっている', ' got into the shop! Customers are scared')), 'bad');
+      tip('storePest', t('店にエネミーが！近くのお客さんが怖がって帰っちゃうよ。2回タップで追い払おう', 'An enemy in the shop! Nearby customers will get scared and leave. Tap twice to chase it off'));
       break;
     case 'storePestCleared':
       sound.play(e.by === 'cryptid' ? 'zap' : 'hit');
-      log(h('span', {}, e.by === 'cryptid' ? 'クリプタイドの雷でエネミーを倒した！ ' : '店のエネミーを追い払った！ ', h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
+      log(h('span', {}, e.by === 'cryptid' ? t('クリプタイドの雷でエネミーを倒した！ ', "The cryptid's lightning struck an enemy down! ") : t('店のエネミーを追い払った！ ', 'Chased an enemy out of the shop! '), h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
       break;
     case 'mess':
-      if (e.kind === 'mud') tip('mud', '雨の日はお客さんが泥を持ち込むよ。踏んだお客さんは怒って帰ることも…タップで掃除しよう！');
-      else tip('litter', '宝箱の箱が散らかっちゃった。タップで片付けよう');
+      if (e.kind === 'mud') tip('mud', t('雨の日はお客さんが泥を持ち込むよ。踏んだお客さんは怒って帰ることも…タップで掃除しよう！', 'On rainy days customers track in mud. Anyone who steps in it may leave angry... Tap to clean it!'));
+      else tip('litter', t('宝箱の箱が散らかっちゃった。タップで片付けよう', 'The chest left a mess. Tap to tidy up'));
       break;
     case 'cleaned':
       if (!e.byStaff) sound.play('clean');
@@ -861,42 +913,49 @@ function onShopEvent(e: ShopEvent): void {
     case 'extra':
       if (e.source === 'peddler') {
         sound.play('sale');
-        log(h('span', {}, '行商人が町から帰ってきた！ ', h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
+        log(h('span', {}, t('行商人が町から帰ってきた！ ', 'The peddler is back from town! '), h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
       } else if (e.source === 'bonus') {
-        log(h('span', {}, '会計係の閉店ボーナス ', h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
+        log(h('span', {}, t('会計係の閉店ボーナス ', "Accountant's closing bonus "), h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
       } else if (e.source === 'market') {
-        tip('market', '棚がいっぱいの間は、倉庫の余りをマーケットで売ってくれるよ！');
+        tip('market', t('棚がいっぱいの間は、倉庫の余りをマーケットで売ってくれるよ！', 'While the shelves are full, spare stock is sold on the market!'));
       } else if (e.source === 'bar') {
-        tip('bar', 'ポーションバーでひと休みしていくお客さんもいるみたい！');
+        tip('bar', t('ポーションバーでひと休みしていくお客さんもいるみたい！', 'Some customers stop for a break at the potion bar!'));
       }
       break;
     case 'batch':
-      tip('batch', 'まとめ会計！次のお客さんも一緒に会計したよ');
+      tip('batch', t('まとめ会計！次のお客さんも一緒に会計したよ', 'Batch checkout! The next customer was rung up too'));
       break;
     case 'research':
-      tip('research', '研究者が研究ポイントを見つけたよ！スキルツリーの「研究」で使えるよ');
+      tip('research', t('研究者が研究ポイントを見つけたよ！スキルツリーの「研究」で使えるよ', 'The researcher found research points! Spend them in the Research branch of the skill tree'));
       break;
     case 'raidWarn':
       sound.play('debuff');
       sound.playBgm('bgmRaid');
-      cutin(scene, thieves.find((t) => t.id === 4036)?.image ?? thieves[0].image, '黒髭', `黒髭海賊団 ${e.pirates}人が襲来！`, 'opponent');
-      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), ` 黒髭海賊団 ${e.pirates}人が店に向かっている！`), 'bad');
-      tip('raid', '海賊の襲撃（レイド）だ！オレンジに光る海賊は2回タップで捕まえられるよ。全員捕まえるとエンブレムがもらえる！');
+      cutin(scene, thieves.find((x) => x.id === 4036)?.image ?? thieves[0].image, thieves.find((x) => x.id === 4036)?.name ?? '', t(`黒髭海賊団 ${e.pirates}人が襲来！`, `${e.pirates} of Blackbeard's pirates attack!`), 'opponent');
+      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), t(` 黒髭海賊団 ${e.pirates}人が店に向かっている！`, ` ${e.pirates} of Blackbeard's pirates are heading for the shop!`)), 'bad');
+      tip('raid', t('海賊の襲撃（レイド）だ！オレンジに光る海賊は2回タップで捕まえられるよ。全員捕まえるとエンブレムがもらえる！', 'A pirate raid! Tap the orange-glowing pirates twice to catch them. Catch them all to earn emblems!'));
       break;
     case 'raidStart':
-      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), ' 海賊が乗り込んできた！'), 'bad');
+      log(h('span', {}, h('span.tag.raid', {}, 'RAID'), t(' 海賊が乗り込んできた！', ' The pirates are storming in!')), 'bad');
       break;
     case 'raidEnd':
       sound.play(e.result.won ? 'win' : 'fail');
       sound.playBgm('bgmShop');
       if (e.result.won) confetti(1500);
       log(
-        h('span', {}, h('span.tag.raid', {}, 'RAID'), e.result.won ? ' 黒髭海賊団を完全撃退！' : ` 海賊 ${e.result.caught}/${e.result.pirates}人を捕まえた`, e.result.reward ? h('span.gum-text', {}, ` +${fmt(e.result.reward)}`) : '', e.result.emblems ? ` エンブレム +${e.result.emblems}` : ''),
+        h(
+          'span',
+          {},
+          h('span.tag.raid', {}, 'RAID'),
+          e.result.won ? t(' 黒髭海賊団を完全撃退！', " Blackbeard's pirates fully repelled!") : t(` 海賊 ${e.result.caught}/${e.result.pirates}人を捕まえた`, ` Caught ${e.result.caught}/${e.result.pirates} pirates`),
+          e.result.reward ? h('span.gum-text', {}, ` +${fmt(e.result.reward)}`) : '',
+          e.result.emblems ? t(` エンブレム +${e.result.emblems}`, ` Emblems +${e.result.emblems}`) : '',
+        ),
         e.result.won ? 'rare' : '',
       );
       break;
     case 'donate':
-      log(h('span', {}, `寄付係が ${e.items} 個を寄付した（名声 +${fmt(e.fame)}）`));
+      log(h('span', {}, t(`寄付係が ${e.items} 個を寄付した（名声 +${fmt(e.fame)}）`, `The charity clerk donated ${e.items} items (fame +${fmt(e.fame)})`)));
       break;
     case 'dayEnd':
       sound.play('win');
@@ -953,7 +1012,7 @@ canvas.addEventListener('pointerdown', (ev) => {
       line,
       timer: window.setTimeout(() => {
         shop?.holdLine(line, true);
-        tip('overclock', '長押しすると高速でクラフトできるよ！でも熱くなりすぎると失敗しちゃうから、ゲージが赤くなる前に離してね');
+        tip('overclock', t('長押しすると高速でクラフトできるよ！でも熱くなりすぎると失敗しちゃうから、ゲージが赤くなる前に離してね', 'Hold to craft at high speed! But if it gets too hot it fails, so let go before the gauge turns red'));
       }, HOLD_DELAY),
     };
   } else if (target === 'register') shop.clickRegister();
@@ -1000,9 +1059,9 @@ function frame(now: number): void {
   const running = shop && !paused && modalOpen === 0 && !document.hidden;
   if (shop && running) {
     shop.update(dt);
-    if (shop.queue.length >= 3 && tip('queue', 'レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ')) lastQueueTip = shop.elapsed;
-    if (shop.lines.some((l) => l.blocked)) tip('full', '棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう');
-    if (shop.pestList.length) tip('pest', 'エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！');
+    if (shop.queue.length >= 3 && tip('queue', t('レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ', 'There\'s a line at the register! Click the counter to help check out'))) lastQueueTip = shop.elapsed;
+    if (shop.lines.some((l) => l.blocked)) tip('full', t('棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう', 'The shelves are full and crafting stopped! Make room with "More Shelves" or "Conveyor Lane"'));
+    if (shop.pestList.length) tip('pest', t('エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！', 'An enemy is wrecking the workshop! Tap the bouncing enemy to chase it off!'));
   }
   if (shop) {
     renderer.render(shop, now, {
@@ -1019,23 +1078,23 @@ function frame(now: number): void {
 }
 
 function updateHud(s: Shop): void {
-  const t = Math.max(0, s.timeLeft);
+  const left = Math.max(0, s.timeLeft);
   hudGum.textContent = fmt(save.gum);
   hudDay.textContent = `Day ${save.day}`;
-  hudTime.textContent = `残り${t.toFixed(0)}秒`;
-  hudTime.classList.toggle('hurry', t <= 5 && !s.over);
-  hudBar.style.width = `${(t / s.stats.dayLength) * 100}%`;
+  hudTime.textContent = t(`残り${left.toFixed(0)}秒`, `${left.toFixed(0)}s left`);
+  hudTime.classList.toggle('hurry', left <= 5 && !s.over);
+  hudBar.style.width = `${(left / s.stats.dayLength) * 100}%`;
   hudRevenue.textContent = `+${fmt(s.report.revenue)}`;
   const r = s.report;
-  hudStats.textContent = `販売${r.sold} 来客${r.customers} 帰${r.lost} 盗${r.stolen}`;
+  hudStats.textContent = t(`販売${r.sold} 来客${r.customers} 帰${r.lost} 盗${r.stolen}`, `Sold ${r.sold} · In ${r.customers} · Left ${r.lost} · Stolen ${r.stolen}`);
   hudStats.classList.toggle('warn', r.lost + r.stolen > 0);
   const boost = s.visitors.boostTime;
   const raid = s.raid.active;
   hudEvent.textContent = raid
     ? s.raid.countdown > 0
-      ? `☠ 黒髭海賊団 襲来まで ${Math.ceil(s.raid.countdown)}秒`
-      : `☠ レイド！ 残り ${s.raid.left}人`
-    : boost > 0 ? `✨ 売上 ×${s.visitors.salesMult} あと${boost.toFixed(0)}秒` : s.condition.kind !== 'sunny' ? conditionLabel(s.condition) : '';
+      ? t(`☠ 黒髭海賊団 襲来まで ${Math.ceil(s.raid.countdown)}秒`, `☠ Blackbeard's pirates in ${Math.ceil(s.raid.countdown)}s`)
+      : t(`☠ レイド！ 残り ${s.raid.left}人`, `☠ Raid! ${s.raid.left} left`)
+    : boost > 0 ? t(`✨ 売上 ×${s.visitors.salesMult} あと${boost.toFixed(0)}秒`, `✨ Sales ×${s.visitors.salesMult} for ${boost.toFixed(0)}s`) : s.condition.kind !== 'sunny' ? conditionLabel(s.condition) : '';
   hudEvent.hidden = !hudEvent.textContent;
   hudEvent.classList.toggle('boost', boost > 0 && !raid);
   hudEvent.classList.toggle('raid', raid);
@@ -1067,6 +1126,9 @@ window.setInterval(() => {
 }, 300);
 
 // ------------------------------------------------------------------ boot
+
+document.documentElement.lang = lang;
+if (isEn) document.querySelector('meta[name=description]')?.setAttribute('content', 'An incremental shop game in the world of My Crypto Heroes: craft extensions and sell them (unofficial fan work)');
 
 updateTopbar();
 stage.hidden = true;
