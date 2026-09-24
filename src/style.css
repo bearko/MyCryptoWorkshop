@@ -769,12 +769,157 @@ body.in-day {
   color: var(--muted);
 }
 
+.tree-stage {
+  position: relative;
+  min-height: 0;
+  display: grid;
+}
+
+.tree-stage > .tree-viewport {
+  grid-area: 1 / 1;
+}
+
 .tree-zoom {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
+  left: 12px;
+  bottom: 12px;
   display: flex;
   gap: 6px;
+}
+
+.tree-minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 56px;
+  width: 150px;
+  height: 110px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.branch-chips {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.branch-chip {
+  pointer-events: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--branch);
+  background: rgba(15, 9, 5, 0.8);
+  color: var(--branch);
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.branch-chip:focus-visible,
+.buy-item:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.detail-changes {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0005;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detail-changes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-changes span {
+  color: var(--muted);
+}
+
+.detail-changes b {
+  color: var(--good);
+  font-weight: normal;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-buy-max {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.buy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.buy-list:empty {
+  display: none;
+}
+
+.buy-list h3 {
+  margin: 0 0 2px;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.buy-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--branch);
+  background: #0004;
+  text-align: left;
+  cursor: pointer;
+}
+
+.buy-item.selected {
+  border-color: #fff;
+}
+
+.buy-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.buy-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.buy-name small {
+  color: var(--muted);
+}
+
+.buy-cost {
+  font-family: var(--font-pixel);
+  color: var(--gold);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.buy-list .btn.small {
+  margin-top: 4px;
 }
 
 /* ---------------------------------------------------------------- modals */
@@ -1114,8 +1259,11 @@ body.in-day {
     display: none;
   }
 
-  .tree-zoom {
-    top: 12px;
-    bottom: auto;
+  .tree-minimap {
+    width: 90px;
+    height: 66px;
+    left: auto;
+    right: 10px;
+    bottom: 10px;
   }
 }

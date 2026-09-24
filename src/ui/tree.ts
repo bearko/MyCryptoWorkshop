@@ -1,10 +1,25 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
+import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
 
 const UNIT = 104;
+const MINIMAP_W = 150;
+const MINIMAP_H = 110;
+
+/** Grid-space bounds of the whole tree (for the minimap). */
+const BOUNDS = SKILLS.reduce(
+  (b, n) => ({ x0: Math.min(b.x0, n.x), x1: Math.max(b.x1, n.x), y0: Math.min(b.y0, n.y), y1: Math.max(b.y1, n.y) }),
+  { x0: 0, x1: 0, y0: 0, y1: 0 },
+);
+
+/** Grid-space centre of each branch (for the jump chips). */
+function branchCenter(branch: string): { x: number; y: number } {
+  const nodes = SKILLS.filter((n) => n.branch === branch);
+  return { x: nodes.reduce((a, n) => a + n.x, 0) / nodes.length, y: nodes.reduce((a, n) => a + n.y, 0) / nodes.length };
+}
 
 export interface TreeCallbacks {
   onBuy(node: SkillNode): void;
@@ -20,6 +35,9 @@ export class TreeView {
   private readonly detail: HTMLElement;
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
+  private readonly buyList: HTMLElement;
+  private readonly minimap: HTMLCanvasElement;
+  private readonly viewport: HTMLElement;
   private selected: string | null = null;
   private pan = { x: 0, y: 0 };
   private zoom = 0.85;
@@ -56,31 +74,71 @@ export class TreeView {
 
     const viewport = h('div.tree-viewport');
     viewport.append(this.world);
+    this.viewport = viewport;
     this.attachPan(viewport);
 
     this.detail = h('div.tree-detail');
     this.statsBox = h('div.tree-stats');
+    this.buyList = h('div.buy-list');
     this.startBtn = h('button.btn.btn-primary.start-day', { onclick: () => this.cb.onStartDay() }) as HTMLButtonElement;
+
+    // Minimap: tap to jump there.
+    this.minimap = h('canvas.tree-minimap', { width: MINIMAP_W * 2, height: MINIMAP_H * 2, 'aria-label': 'スキルツリー全体図' }) as HTMLCanvasElement;
+    const jump = (ev: PointerEvent) => {
+      const r = this.minimap.getBoundingClientRect();
+      const gx = BOUNDS.x0 - 1 + ((ev.clientX - r.left) / r.width) * (BOUNDS.x1 - BOUNDS.x0 + 2);
+      const gy = BOUNDS.y0 - 1 + ((ev.clientY - r.top) / r.height) * (BOUNDS.y1 - BOUNDS.y0 + 2);
+      this.panTo(gx, gy);
+    };
+    this.minimap.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation();
+      jump(ev);
+      this.minimap.setPointerCapture(ev.pointerId);
+    });
+    this.minimap.addEventListener('pointermove', (ev) => {
+      if (this.minimap.hasPointerCapture(ev.pointerId)) jump(ev);
+    });
+
+    // Branch chips: jump to a faction's branch.
+    const chips = h(
+      'div.branch-chips',
+      {},
+      ...Object.entries(BRANCHES).map(([key, b]) =>
+        h(
+          'button.branch-chip',
+          {
+            style: `--branch:${b.color}`,
+            onclick: () => {
+              const c = key === 'root' ? { x: 0, y: 0 } : branchCenter(key);
+              this.panTo(c.x, c.y);
+            },
+          },
+          b.name,
+        ),
+      ),
+    );
+
+    const zoomButtons = h(
+      'div.tree-zoom',
+      {},
+      h('button.btn.small', { onclick: () => this.setZoom(this.zoom * 1.2), 'aria-label': 'ズームイン' }, '＋'),
+      h('button.btn.small', { onclick: () => this.setZoom(this.zoom / 1.2), 'aria-label': 'ズームアウト' }, '－'),
+      h('button.btn.small', { onclick: () => this.center(), 'aria-label': '中央へ' }, '◎'),
+    );
 
     this.root = h(
       'section.tree-view',
       {},
-      viewport,
+      h('div.tree-stage', {}, viewport, chips, this.minimap, zoomButtons),
       h(
         'div.tree-side',
         {},
         this.startBtn,
-        h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度クリック）で強化。ドラッグで移動、ホイールで拡大縮小。'),
+        h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
+        this.buyList,
         h('button.btn', { onclick: () => this.cb.onCollection() }, '📖 図鑑を見る'),
         this.statsBox,
-      ),
-      h(
-        'div.tree-zoom',
-        {},
-        h('button.btn.small', { onclick: () => this.setZoom(this.zoom * 1.2), 'aria-label': 'ズームイン' }, '＋'),
-        h('button.btn.small', { onclick: () => this.setZoom(this.zoom / 1.2), 'aria-label': 'ズームアウト' }, '－'),
-        h('button.btn.small', { onclick: () => this.center(), 'aria-label': '中央へ' }, '◎'),
       ),
     );
   }
@@ -116,6 +174,52 @@ export class TreeView {
 
   private applyTransform(): void {
     this.world.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
+    this.drawMinimap();
+  }
+
+  /** Centres the view on a grid position. */
+  private panTo(gx: number, gy: number): void {
+    const rect = this.viewport.getBoundingClientRect();
+    this.pan = { x: rect.width / 2 - gx * UNIT * this.zoom, y: rect.height / 2 - gy * UNIT * this.zoom };
+    this.applyTransform();
+  }
+
+  private drawMinimap(): void {
+    const ctx = this.minimap.getContext('2d');
+    if (!ctx) return;
+    const W = this.minimap.width;
+    const H = this.minimap.height;
+    const spanX = BOUNDS.x1 - BOUNDS.x0 + 2;
+    const spanY = BOUNDS.y1 - BOUNDS.y0 + 2;
+    const mx = (gx: number) => ((gx - BOUNDS.x0 + 1) / spanX) * W;
+    const my = (gy: number) => ((gy - BOUNDS.y0 + 1) / spanY) * H;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(15,9,5,0.85)';
+    ctx.fillRect(0, 0, W, H);
+    const levels = this.save.levels;
+    for (const n of SKILLS) {
+      if (!isVisible(n, levels)) continue;
+      const lv = level(levels, n.id);
+      const color = BRANCHES[n.branch].color;
+      ctx.globalAlpha = lv > 0 ? 1 : isAvailable(n, levels) ? 0.8 : 0.3;
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mx(n.x), my(n.y), 5, 0, Math.PI * 2);
+      if (lv > 0) ctx.fill();
+      else ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Current view rectangle
+    const rect = this.viewport.getBoundingClientRect();
+    const gx0 = -this.pan.x / (UNIT * this.zoom);
+    const gy0 = -this.pan.y / (UNIT * this.zoom);
+    const gx1 = (rect.width - this.pan.x) / (UNIT * this.zoom);
+    const gy1 = (rect.height - this.pan.y) / (UNIT * this.zoom);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mx(gx0), my(gy0), mx(gx1) - mx(gx0), my(gy1) - my(gy0));
   }
 
   private attachPan(vp: HTMLElement): void {
@@ -142,8 +246,38 @@ export class TreeView {
     );
   }
 
-  private select(id: string): void {
+  private select(id: string, pan = false): void {
     this.selected = id;
+    const node = skillById.get(id);
+    if (pan && node) this.panTo(node.x, node.y);
+    this.refresh();
+  }
+
+  /** Buys up to `count` levels of a node while affordable. Returns levels bought. */
+  private buyLevels(node: SkillNode, count: number): number {
+    let bought = 0;
+    while (bought < count) {
+      const lv = level(this.save.levels, node.id);
+      if (!isAvailable(node, this.save.levels) || lv >= node.max || this.save.gum < costOf(node, lv)) break;
+      this.cb.onBuy(node);
+      bought++;
+    }
+    return bought;
+  }
+
+  /** Nodes buyable right now, cheapest first. */
+  private affordable(): { node: SkillNode; cost: number }[] {
+    const levels = this.save.levels;
+    return SKILLS.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max)
+      .map((node) => ({ node, cost: costOf(node, level(levels, node.id)) }))
+      .filter((o) => o.cost <= this.save.gum)
+      .sort((a, b) => a.cost - b.cost);
+  }
+
+  /** Buys the cheapest affordable level repeatedly until nothing is affordable. */
+  private buyCheapestRepeatedly(): void {
+    let guard = 0;
+    for (let next = this.affordable()[0]; next && guard < 500; next = this.affordable()[0], guard++) this.cb.onBuy(next.node);
     this.refresh();
   }
 
@@ -218,6 +352,13 @@ export class TreeView {
         h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? '習得済み' : '未習得'),
       );
       if (available && !maxed) {
+        // Exact effect of the next level, from the node's effect data.
+        const changes = describeChanges(computeStats(levels), computeStats({ ...levels, [node.id]: lv + 1 }));
+        if (changes.length) {
+          this.detail.append(
+            h('ul.detail-changes', {}, ...changes.map((c) => h('li', {}, h('span', {}, c.label), h('b', {}, `${c.from} → ${c.to}`)))),
+          );
+        }
         const can = this.save.gum >= cost;
         this.detail.append(
           h(
@@ -227,8 +368,46 @@ export class TreeView {
             ` ${fmt(cost)} で${lv > 0 ? '強化' : '習得'}`,
           ),
         );
+        // How many more levels the current GUM covers.
+        let n = 0;
+        let total = 0;
+        while (lv + n < node.max && total + costOf(node, lv + n) <= this.save.gum) total += costOf(node, lv + n++);
+        if (n >= 2) {
+          this.detail.append(
+            h(
+              'button.btn.small.btn-buy-max',
+              {
+                onclick: () => {
+                  this.buyLevels(node, n);
+                  this.refresh();
+                },
+              },
+              `まとめて Lv+${n}（${fmt(total)} GUM）`,
+            ),
+          );
+        }
       }
     }
+
+    // Everything affordable right now
+    const options = this.affordable();
+    this.buyList.replaceChildren();
+    if (options.length) {
+      this.buyList.append(
+        h('h3', {}, `今習得できるスキル（${options.length}）`),
+        ...options.slice(0, 8).map(({ node: n, cost: c }) =>
+          h(
+            'button.buy-item',
+            { class: `buy-item ${n.id === this.selected ? 'selected' : ''}`, style: `--branch:${BRANCHES[n.branch].color}`, onclick: () => this.select(n.id, true) },
+            icon(n.icon, 'px'),
+            h('span.buy-name', {}, n.name, n.max > 1 ? h('small', {}, ` Lv${level(levels, n.id) + 1}`) : ''),
+            h('span.buy-cost', {}, fmt(c)),
+          ),
+        ),
+        h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, '安い順にまとめて習得'),
+      );
+    }
+    this.drawMinimap();
 
     // Stats summary
     const s = computeStats(levels);
