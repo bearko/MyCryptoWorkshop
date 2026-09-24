@@ -1334,11 +1334,7 @@ body.in-day {
   position: relative;
 }
 
-.cell > :not(.edition-dot) {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
+
 
 .cell.has {
   border-color: color-mix(in srgb, var(--rarity) 70%, transparent);
@@ -1653,5 +1649,110 @@ body.in-day {
 }
 
 .forecast span {
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- collection tabs, heroes */
+
+.collection-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.collection-tabs .tab.on {
+  background: var(--gold-2);
+  color: #2a1a0c;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 4px;
+}
+
+.affinity-badge {
+  position: absolute;
+  bottom: 0;
+  right: 2px;
+  font-size: 9px;
+  color: #ffd966;
+  text-shadow: 0 0 2px #000;
+}
+
+.cell > :not(.edition-dot):not(.affinity-badge) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.affinity {
+  color: #ffd966;
+}
+
+.set-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px;
+  font-size: 12px;
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #0003;
+}
+
+.set-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.set-row.done {
+  background: color-mix(in srgb, var(--gold-2) 25%, #0003);
+}
+
+.set-row.done b {
+  color: var(--good);
+}
+
+/* ---------------------------------------------------------------- orders */
+
+.orders h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.order-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 32px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: #0004;
+  font-size: 12px;
+}
+
+.order-row .px {
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+}
+
+.order-row .px:nth-child(3) {
+  width: 32px;
+  height: 32px;
+}
+
+.order-row div {
+  display: grid;
+}
+
+.order-row span,
+.order-row small {
   color: var(--muted);
 }

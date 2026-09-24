@@ -790,5 +790,268 @@
     3015,
     2038,
     5003
-  ]
+  ],
+  "favorites": {
+    "$comment": "ゆかりの品: which series heroes with each attribute ask for in orders (see src/game/orders.ts).",
+    "長柄武器": [
+      "Cross Spear",
+      "Halberd",
+      "Javelin"
+    ],
+    "銃火器": [
+      "Musket",
+      "Revolver",
+      "Arquebus",
+      "Hand cannon",
+      "Raygun"
+    ],
+    "弓": [
+      "Yumi",
+      "Bow Gun"
+    ],
+    "斧": [
+      "Axe"
+    ],
+    "決闘": [
+      "Rapier",
+      "Katana",
+      "Twin Blade",
+      "Knife"
+    ],
+    "戦国": [
+      "Katana",
+      "Kabuto",
+      "Yoroi",
+      "Gunbai",
+      "Saihai"
+    ],
+    "平安鎌倉": [
+      "Yumi",
+      "Katana",
+      "Sensu"
+    ],
+    "江戸": [
+      "Sensu",
+      "Japanese dolls",
+      "Haori"
+    ],
+    "幕末": [
+      "Katana",
+      "Revolver",
+      "Haori"
+    ],
+    "新撰組": [
+      "Katana",
+      "Haori"
+    ],
+    "三国志": [
+      "Halberd",
+      "Cross Spear",
+      "Gunbai",
+      "Orb"
+    ],
+    "蜀": [
+      "Halberd",
+      "Cross Spear"
+    ],
+    "魏": [
+      "Orb",
+      "Gunbai"
+    ],
+    "呉": [
+      "Ship",
+      "Gunbai"
+    ],
+    "中国": [
+      "Orb",
+      "Erhu",
+      "Sickle"
+    ],
+    "秦": [
+      "Orb",
+      "Crown"
+    ],
+    "文系学問": [
+      "Book",
+      "Quill",
+      "Scrolls"
+    ],
+    "理系学問": [
+      "Astronomical Model",
+      "Glasses",
+      "Monocle",
+      "Compass"
+    ],
+    "政治": [
+      "Crown",
+      "Scrolls",
+      "Oriflamme"
+    ],
+    "指導者": [
+      "Crown",
+      "Oriflamme",
+      "Saihai",
+      "Mantle"
+    ],
+    "女性": [
+      "Ring",
+      "Necklace",
+      "Ribbon",
+      "Mirror",
+      "Parasol"
+    ],
+    "美術": [
+      "Brush & pallete",
+      "Lithography"
+    ],
+    "音楽": [
+      "Flute",
+      "Harp",
+      "Violin",
+      "Horn",
+      "Clavia",
+      "Drum",
+      "Music Box"
+    ],
+    "芸能": [
+      "Pierrot",
+      "Sensu",
+      "Maracas"
+    ],
+    "海": [
+      "Ship",
+      "Steering Wheel",
+      "Raft",
+      "Swan boats"
+    ],
+    "旅": [
+      "Boots",
+      "Compass",
+      "Mantle"
+    ],
+    "信仰": [
+      "Talisman",
+      "Goblet",
+      "Wand"
+    ],
+    "オカルト": [
+      "Skull",
+      "Wand",
+      "Magic Card",
+      "Summon Board"
+    ],
+    "伝承": [
+      "Dragon",
+      "Fairy",
+      "Pegasus",
+      "Mandragora"
+    ],
+    "動物": [
+      "Horse",
+      "Tiger",
+      "Dog",
+      "Lion",
+      "Monkey",
+      "Elephant"
+    ],
+    "機械": [
+      "Combined Robots",
+      "Imperial Magic Armor",
+      "Panda Machine"
+    ],
+    "宇宙": [
+      "Spaceship",
+      "Raygun",
+      "Astronomical Model"
+    ],
+    "隠密": [
+      "Shuriken",
+      "Knife",
+      "Claw"
+    ],
+    "ウェスタン": [
+      "Revolver",
+      "Whip",
+      "Boots"
+    ],
+    "アメリカ大陸": [
+      "Revolver",
+      "Hat",
+      "Belt"
+    ],
+    "イギリス": [
+      "Hat",
+      "Rapier",
+      "Goblet"
+    ],
+    "フランス": [
+      "Rapier",
+      "Mantle"
+    ],
+    "ドイツ": [
+      "Hammer",
+      "Gauntlet"
+    ],
+    "イタリア": [
+      "Brush & pallete",
+      "Goblet"
+    ],
+    "ロシア": [
+      "Crown"
+    ],
+    "ギリシャ": [
+      "Shield",
+      "Harp"
+    ],
+    "ローマ": [
+      "Shield",
+      "Armor"
+    ],
+    "ケルト": [
+      "Harp",
+      "Mace"
+    ],
+    "地中海": [
+      "Ship",
+      "Shield"
+    ],
+    "ヨーロッパ": [
+      "Armor",
+      "Shield",
+      "Blade"
+    ],
+    "日本": [
+      "Katana",
+      "Japanese dolls",
+      "Bonsai",
+      "Sushi"
+    ],
+    "アジア": [
+      "Erhu",
+      "Sitar"
+    ],
+    "格闘": [
+      "Knuckle Duster",
+      "Gauntlet",
+      "Claw"
+    ],
+    "戦術": [
+      "Gunbai",
+      "Saihai",
+      "Oriflamme"
+    ],
+    "革命": [
+      "Oriflamme",
+      "Musket"
+    ],
+    "童話": [
+      "Pierrot",
+      "Dollhouse",
+      "Sweets"
+    ],
+    "謎": [
+      "Mirror",
+      "Moai"
+    ]
+  }
 }

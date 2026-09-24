@@ -44,6 +44,8 @@ export interface Hero {
   rarityIndex: number;
   faction?: string;
   passive?: string;
+  /** Tags such as 三国志 or 銃火器 (hero sets and order favourites). */
+  attributes?: string[];
   image: string;
 }
 
@@ -105,6 +107,7 @@ const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   rarityIndex: RARITIES.indexOf(h.rarity as Rarity),
   faction: h.faction,
   passive: h.passive,
+  attributes: h.attributes,
   image: h.image,
 });
 

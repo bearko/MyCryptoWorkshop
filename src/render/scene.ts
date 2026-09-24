@@ -794,7 +794,8 @@ export class SceneRenderer {
         ctx.stroke();
       } else {
         // Land owners stand on a golden ring; regulars on a pink one.
-        ctx.fillStyle = a.special === 'owner' ? 'rgba(255,207,51,0.7)' : a.special === 'regular' ? 'rgba(255,140,190,0.6)' : 'rgba(0,0,0,0.3)';
+        ctx.fillStyle =
+          a.special === 'owner' ? 'rgba(255,207,51,0.7)' : a.special === 'regular' ? 'rgba(255,140,190,0.6)' : a.special === 'order' ? 'rgba(255,170,60,0.7)' : 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.ellipse(a.x, a.y - 1, 18, 5, 0, 0, Math.PI * 2);
         ctx.fill();
@@ -947,6 +948,15 @@ export class SceneRenderer {
         ctx.arc(TRIAL.dummy.x, TRIAL.dummy.y - 50, 26 + k * 10, -Math.PI * 0.9, -Math.PI * 0.9 + k * Math.PI * 1.2);
         ctx.stroke();
       }
+      return;
+    }
+    if (a.special === 'order' && a.order && a.item === null && a.state !== 'leave') {
+      // The ordered item, with a scroll mark
+      bubble(64, 48, '#fff4d6');
+      drawImg(ctx, series[a.order.series].items[a.order.minRarity].image, bx - 26, by - 20, 38, 38);
+      ctx.fillStyle = '#b8860b';
+      ctx.font = `bold 18px ${FONT}`;
+      ctx.fillText('注', bx + 20, by);
       return;
     }
     if (a.special === 'collector' && a.item === null && a.wants !== undefined && a.state !== 'leave') {

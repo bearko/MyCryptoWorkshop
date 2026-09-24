@@ -1,5 +1,5 @@
 // Pacing targets from docs/ROADMAP.md §5, checked by `npm run balance`.
-import { SKILLS } from '../skills';
+import { TREE_NODES } from '../skills';
 import type { DayRow } from './autoplay';
 
 export interface Milestone {
@@ -17,7 +17,7 @@ export const MILESTONES: Milestone[] = [
   { label: '3号機（カプセル）', targetMin: 60, reached: (r) => r.lines >= 3 },
   { label: 'Epic 解放', targetMin: 90, reached: (r) => r.maxRarity >= 3 },
   { label: 'Legendary 解放', targetMin: 210, reached: (r) => r.maxRarity >= 4 },
-  { label: 'スキルツリー全習得', targetMin: 420, reached: (r) => r.nodesMaxed >= SKILLS.length },
+  { label: 'スキルツリー全習得', targetMin: 420, reached: (r) => r.nodesMaxed >= TREE_NODES.length },
 ];
 
 export interface MilestoneResult {

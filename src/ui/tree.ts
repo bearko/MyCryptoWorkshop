@@ -1,9 +1,10 @@
-import { icons } from '../game/catalog';
+import { icons, series } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
 import { conditionLabel, CONDITIONS } from '../game/conditions';
+import { orderHero, orderLabel } from '../game/orders';
 import { STAFF_ROLES } from '../game/staff';
-import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
+import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
 import { GEM_COST } from '../game/shop/production';
@@ -16,14 +17,14 @@ const MINIMAP_W = 150;
 const MINIMAP_H = 110;
 
 /** Grid-space bounds of the whole tree (for the minimap). */
-const BOUNDS = SKILLS.reduce(
+const BOUNDS = TREE_NODES.reduce(
   (b, n) => ({ x0: Math.min(b.x0, n.x), x1: Math.max(b.x1, n.x), y0: Math.min(b.y0, n.y), y1: Math.max(b.y1, n.y) }),
   { x0: 0, x1: 0, y0: 0, y1: 0 },
 );
 
 /** Grid-space centre of each branch (for the jump chips). */
 function branchCenter(branch: string): { x: number; y: number } {
-  const nodes = SKILLS.filter((n) => n.branch === branch);
+  const nodes = TREE_NODES.filter((n) => n.branch === branch);
   return { x: nodes.reduce((a, n) => a + n.x, 0) / nodes.length, y: nodes.reduce((a, n) => a + n.y, 0) / nodes.length };
 }
 
@@ -42,6 +43,7 @@ export class TreeView {
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
   private readonly forecast = h('div.forecast');
+  private readonly ordersBox = h('div.orders');
   private readonly buyList: HTMLElement;
   private readonly infusionBox: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
@@ -66,7 +68,7 @@ export class TreeView {
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
     }
-    for (const node of SKILLS) {
+    for (const node of TREE_NODES) {
       const el = h('button.node', {
         style: `left:${node.x * UNIT}px;top:${node.y * UNIT}px;--branch:${BRANCHES[node.branch].color}`,
         onclick: (ev: Event) => {
@@ -143,6 +145,7 @@ export class TreeView {
         'div.tree-side',
         {},
         this.forecast,
+        this.ordersBox,
         this.startBtn,
         h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
@@ -166,7 +169,7 @@ export class TreeView {
 
   /** Picks the cheapest affordable node so the detail card starts with something useful. */
   private suggest(): string {
-    const buyable = SKILLS.filter((n) => isAvailable(n, this.save.levels) && level(this.save.levels, n.id) < n.max);
+    const buyable = TREE_NODES.filter((n) => isAvailable(n, this.save.levels) && level(this.save.levels, n.id) < n.max);
     buyable.sort((a, b) => costOf(a, level(this.save.levels, a.id)) - costOf(b, level(this.save.levels, b.id)));
     return buyable[0]?.id ?? 'root';
   }
@@ -209,7 +212,7 @@ export class TreeView {
     ctx.fillStyle = 'rgba(15,9,5,0.85)';
     ctx.fillRect(0, 0, W, H);
     const levels = this.save.levels;
-    for (const n of SKILLS) {
+    for (const n of TREE_NODES) {
       if (!isVisible(n, levels)) continue;
       const lv = level(levels, n.id);
       const color = BRANCHES[n.branch].color;
@@ -322,7 +325,7 @@ export class TreeView {
   /** Nodes buyable right now, cheapest first. */
   private affordable(): { node: SkillNode; cost: number }[] {
     const levels = this.save.levels;
-    return SKILLS.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max)
+    return TREE_NODES.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max)
       .map((node) => ({ node, cost: costOf(node, level(levels, node.id)) }))
       .filter((o) => o.cost <= balanceFor(this.save, o.node))
       .sort((a, b) => a.cost - b.cost);
@@ -351,7 +354,7 @@ export class TreeView {
   refresh(): void {
     const levels = this.save.levels;
     // Nodes
-    for (const node of SKILLS) {
+    for (const node of TREE_NODES) {
       const el = this.nodeEls.get(node.id)!;
       const lv = level(levels, node.id);
       const visible = isVisible(node, levels);
@@ -369,7 +372,7 @@ export class TreeView {
     }
     // Lines
     const parts: string[] = [];
-    for (const node of SKILLS) {
+    for (const node of TREE_NODES) {
       if (!isVisible(node, levels)) continue;
       for (const r of node.requires) {
         const p = skillById.get(r);
@@ -387,6 +390,21 @@ export class TreeView {
     this.startBtn.textContent = `▶ Day ${this.save.day} 開店する`;
     const c = this.save.forecast;
     this.forecast.replaceChildren(h('b', {}, `次の営業日: ${conditionLabel(c)}`), h('span', {}, CONDITIONS[c.kind].desc));
+    const orders = this.save.orders;
+    this.ordersBox.replaceChildren(
+      ...(orders.length ? [h('h3', {}, `注文（${orders.length}件）`)] : []),
+      ...orders.map((o) => {
+        const hero = orderHero(o);
+        return h(
+          'div.order-row',
+          {},
+          icon(hero.image, 'px'),
+          h('div', {}, h('b', {}, hero.name), h('span', {}, `${orderLabel(o)} を ×${computeStats(this.save.levels).orderPay} で買いに来る`)),
+          icon(series[o.series].items[o.minRarity].image, 'px'),
+          h('small', {}, o.days > 1 ? `あと${o.days}日` : '明日まで'),
+        );
+      }),
+    );
 
     // Detail card
     const node = this.selected ? skillById.get(this.selected) : undefined;

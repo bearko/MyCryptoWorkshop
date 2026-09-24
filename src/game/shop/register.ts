@@ -69,10 +69,19 @@ export class Register {
     shop.addGum(price, a.x, a.y - HERO_PX - 30);
     shop.report.sold++;
     shop.save.totals.sold++;
+    if (!shop.save.heroes[a.hero.id]) shop.report.newHeroes.push(a.hero.id);
+    shop.save.heroes[a.hero.id] = (shop.save.heroes[a.hero.id] ?? 0) + 1;
     if (!shop.report.bestSale || price > shop.report.bestSale.price) {
       shop.report.bestSale = { price, item: a.item, hero: a.hero.name };
     }
     shop.emit({ type: 'sale', price, item: a.item, hero: a.hero, tip });
+    if (a.special === 'order' && a.order && shop.save.orders.includes(a.order)) {
+      // Order filled: the hero is delighted (affinity +3) and the order is done.
+      shop.save.orders = shop.save.orders.filter((o) => o !== a.order);
+      shop.save.heroes[a.hero.id] += 3;
+      shop.report.ordersDone++;
+      shop.emit({ type: 'orderDone', hero: a.hero, item: a.item, price });
+    }
     a.paid = price;
     a.item = null;
     shop.hazards.onPaid(a, price);

@@ -139,6 +139,7 @@ const heroes = readJson('Data/Heroes/heroes.json')
     category: h.category,
     faction: h.faction?.name?.ja ?? '',
     passive: h.passive?.name?.ja ?? '',
+    attributes: (h.attributes ?? []).map((a) => a.name.ja),
     image: sprite('hero', h.image_file_path),
   }));
 
