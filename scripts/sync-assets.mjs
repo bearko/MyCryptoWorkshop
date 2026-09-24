@@ -298,6 +298,28 @@ const catalog = {
 
 mkdirSync(dirname(outCatalog), { recursive: true });
 writeFileSync(outCatalog, JSON.stringify(catalog, null, 1));
+
+// ---------------------------------------------------------------- app icons (PWA / home screen)
+// The GUM coin (64px pixel art) scaled up without smoothing onto the game's dark brown. The
+// coin stays inside the central 80% so the same file works as a maskable icon.
+const outIcons = join(root, 'public', 'icons');
+mkdirSync(outIcons, { recursive: true });
+const coin = PNG.sync.read(readFileSync(join(src, 'Image/Icons/gum.png')));
+for (const size of [192, 512]) {
+  const scale = Math.floor((size * 0.72) / coin.width);
+  const offset = Math.floor((size - coin.width * scale) / 2);
+  const out = new PNG({ width: size, height: size });
+  for (let i = 0; i < size * size; i++) out.data.set([0x2b, 0x1d, 0x14, 0xff], i * 4);
+  for (let y = 0; y < coin.height * scale; y++) {
+    for (let x = 0; x < coin.width * scale; x++) {
+      const si = (Math.floor(y / scale) * coin.width + Math.floor(x / scale)) * 4;
+      const a = coin.data[si + 3] / 255;
+      const di = ((y + offset) * size + x + offset) * 4;
+      for (let c = 0; c < 3; c++) out.data[di + c] = Math.round(coin.data[si + c] * a + out.data[di + c] * (1 - a));
+    }
+  }
+  writeFileSync(join(outIcons, `icon-${size}.png`), PNG.sync.write(out));
+}
 console.log(
   `[sync-assets] ${series.length} series / ${extensions.length} extensions, ${heroes.length} heroes, ` +
     `${enemies.length} enemies, ${Object.keys(atlases).length} atlas sheets, ${copied.size} other files`,
