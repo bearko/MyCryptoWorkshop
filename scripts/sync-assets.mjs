@@ -5,15 +5,20 @@
 //   node scripts/sync-assets.mjs
 //
 // Source directory: $MCH_ASSETS_DIR, else vendor/mycryptoheroes (git submodule).
-// Outputs: public/mch/** (copied assets) and src/generated/catalog.json.
+// Outputs: public/mch/** (copied assets), public/mch-atlas/*.png (sprite sheets) and
+// src/generated/catalog.json.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import pngjs from 'pngjs';
+
+const { PNG } = pngjs;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const src = resolve(root, process.env.MCH_ASSETS_DIR ?? 'vendor/mycryptoheroes');
 const outPublic = join(root, 'public', 'mch');
+const outAtlas = join(root, 'public', 'mch-atlas');
 const outCatalog = join(root, 'src', 'generated', 'catalog.json');
 
 if (!existsSync(join(src, 'Data'))) {
@@ -38,68 +43,109 @@ function use(relPath) {
 }
 
 rmSync(outPublic, { recursive: true, force: true });
+rmSync(outAtlas, { recursive: true, force: true });
 
-// Extension series used by the game. The first is available from the start; the rest are
-// unlocked by recipe nodes in the skill tree. Every series here has a Common→Legendary line.
-const SERIES = [
-  'ブレード', 'マスケット', 'ペン', 'アーマー', 'カタナ', 'ブック',
-  'リング', 'シールド', 'レイピア', 'ワンド', 'ハット', 'ゴブレット',
-];
+// ---------------------------------------------------------------- sprite atlases
+// 64×64 pixel-art sprites (extensions, heroes, enemies) are packed into sheets of 16×16 cells
+// (8×8 for enemies, of which only a few are used at a time). A sprite is referenced as
+// "#<sheet>/<cell>", e.g. "#ext-0/37".
+const CELL = 64;
+const SHEET_COLS = { ext: 16, hero: 16, enemy: 8 };
+const atlasQueues = {};
+const spriteRefs = new Map();
+/** Queues a 64×64 sprite for an atlas and returns its reference (or a plain file for odd sizes). */
+function sprite(kind, relPath) {
+  const known = spriteRefs.get(relPath);
+  if (known) return known;
+  const ref = packSprite(kind, relPath);
+  spriteRefs.set(relPath, ref);
+  return ref;
+}
+
+function packSprite(kind, relPath) {
+  const png = PNG.sync.read(readFileSync(join(src, relPath)));
+  if (png.width !== CELL || png.height !== CELL) return use(relPath);
+  const queue = (atlasQueues[kind] ??= []);
+  const index = queue.length;
+  const perSheet = SHEET_COLS[kind] ** 2;
+  queue.push(png);
+  return `#${kind}-${Math.floor(index / perSheet)}/${index % perSheet}`;
+}
+
+function writeAtlases() {
+  const sheets = {};
+  mkdirSync(outAtlas, { recursive: true });
+  for (const [kind, pngs] of Object.entries(atlasQueues)) {
+    const cols = SHEET_COLS[kind];
+    const perSheet = cols * cols;
+    for (let page = 0; page * perSheet < pngs.length; page++) {
+      const cells = pngs.slice(page * perSheet, (page + 1) * perSheet);
+      const rows = Math.ceil(cells.length / cols);
+      const sheet = new PNG({ width: cols * CELL, height: rows * CELL });
+      cells.forEach((png, i) => {
+        PNG.bitblt(png, sheet, 0, 0, CELL, CELL, (i % cols) * CELL, Math.floor(i / cols) * CELL);
+      });
+      const name = `${kind}-${page}`;
+      writeFileSync(join(outAtlas, `${name}.png`), PNG.sync.write(sheet, { deflateLevel: 9 }));
+      sheets[name] = { url: `mch-atlas/${name}.png`, cols, rows, cell: CELL };
+    }
+  }
+  return sheets;
+}
+
 const RARITIES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 
-const extensions = readJson('Data/Extensions/extensions.json');
-const series = SERIES.map((ja) => {
-  const items = extensions
-    .filter((e) => e.category === 'legacy' && e.series.name.ja === ja && RARITIES.includes(e.rarity.name))
-    // Exclude the "真" (55xx/56xx) re-releases; they are reserved for a later ultra-rare tier.
-    .filter((e) => e.id < 5500)
-    .sort((a, b) => a.id - b.id);
-  if (items.length === 0) throw new Error(`series not found: ${ja}`);
-  const first = items[0];
-  return {
-    key: first.series.name.en,
-    name: ja,
-    items: items.map((e) => ({
-      id: e.id,
-      name: e.name.ja,
-      rarity: e.rarity.name,
-      skill: e.active_skill?.name?.ja ?? '',
-      stats: e.max_level_stats,
-      image: use(e.image_file_path),
-    })),
-  };
-});
+// What the game uses right now is packed first, so the first sheet of each atlas covers it.
+const content = JSON.parse(readFileSync(join(root, 'src', 'game', 'content.json'), 'utf8'));
+const firstBy = (isFirst) => (a, b) => Number(isFirst(b)) - Number(isFirst(a));
 
-// Customers: original heroes grouped by rarity. Heroes that play thieves are excluded.
-const THIEF_IDS = [2003, 3013, 4036, 3032, 3036, 3049, 3007, 4046, 4006];
-// $MCH_MAX_CUSTOMERS_PER_TIER caps heroes per rarity (used for size-limited preview builds).
-const maxPerTier = Number(process.env.MCH_MAX_CUSTOMERS_PER_TIER ?? Infinity);
-const heroes = readJson('Data/Heroes/heroes.json');
-const tierCount = {};
-const customers = heroes
-  .filter((h) => h.category === 'original' && h.rarity && RARITIES.includes(h.rarity.name))
-  .filter((h) => !THIEF_IDS.includes(h.id))
-  .filter((h) => (tierCount[h.rarity.name] = (tierCount[h.rarity.name] ?? 0) + 1) <= maxPerTier)
+// ---------------------------------------------------------------- extensions (all series)
+// Every Legacy and Modern extension, grouped by series. Which series the game uses is decided
+// in src/game/catalog.ts. "真" re-releases (ids 55xx/56xx) are flagged with `shin`.
+const isActiveExt = (e) => e.category === 'legacy' && content.activeSeries.includes(e.series.name.en) && e.id < 5500;
+const extensions = readJson('Data/Extensions/extensions.json')
+  .filter((e) => e.category === 'legacy' || e.category === 'modern')
+  .sort((a, b) => a.id - b.id)
+  .sort(firstBy(isActiveExt));
+const seriesMap = new Map();
+for (const e of extensions) {
+  const key = `${e.category}:${e.series.name.en}`;
+  if (!seriesMap.has(key)) {
+    seriesMap.set(key, { key: e.series.name.en, name: e.series.name.ja, expansion: e.category, items: [] });
+  }
+  seriesMap.get(key).items.push({
+    id: e.id,
+    name: e.name.ja,
+    rarity: e.rarity.name,
+    shin: e.category === 'legacy' && e.id >= 5500,
+    skill: e.active_skill?.name?.ja ?? '',
+    stats: e.max_level_stats,
+    image: sprite('ext', e.image_file_path),
+  });
+}
+const series = [...seriesMap.values()].sort((a, b) => a.items[0].id - b.items[0].id);
+for (const s of series) s.items.sort((a, b) => a.id - b.id);
+
+// ---------------------------------------------------------------- heroes (all usable)
+// Original, novice and replica heroes. Customers and thieves are chosen in src/game/catalog.ts.
+const heroes = readJson('Data/Heroes/heroes.json')
+  .filter((h) => ['original', 'novice', 'replica'].includes(h.category))
+  .sort(firstBy((h) => h.category === 'original'))
   .map((h) => ({
     id: h.id,
     name: h.name.ja,
-    rarity: h.rarity.name,
+    rarity: h.rarity?.name ?? null,
+    category: h.category,
     faction: h.faction?.name?.ja ?? '',
     passive: h.passive?.name?.ja ?? '',
-    image: use(h.image_file_path),
+    image: sprite('hero', h.image_file_path),
   }));
-const thieves = THIEF_IDS.map((id) => {
-  const h = heroes.find((x) => x.id === id);
-  if (!h) throw new Error(`thief hero not found: ${id}`);
-  return { id: h.id, name: h.name.ja, rarity: h.rarity.name, image: use(h.image_file_path) };
-});
 
-// Workshop pests: small enemies that sit on the magic pot.
-const PEST_IDS = [101, 111, 121, 131, 102, 112, 122, 132];
-const enemies = readJson('Data/Enemies/enemies.json');
-const pests = PEST_IDS.map((id) => enemies.find((e) => e.id === id))
-  .filter((e) => e && e.image_exists)
-  .map((e) => ({ id: e.id, name: e.name.ja, image: use(e.image_file_path) }));
+// ---------------------------------------------------------------- enemies (all with 64px art)
+const enemies = readJson('Data/Enemies/enemies.json')
+  .filter((e) => e.image_exists)
+  .sort(firstBy((e) => content.pestIds.includes(e.id)))
+  .map((e) => ({ id: e.id, name: e.name.ja, image: sprite('enemy', e.image_file_path) }));
 
 // Workshop background and facility overlays.
 const craftBgs = readJson('Data/CraftBackgrounds/craft_backgrounds.json');
@@ -141,12 +187,14 @@ const audio = {
   win: use('Audio/SE/Jingles/win.mp3'),
 };
 
+const atlases = writeAtlases();
+
 const catalog = {
   generatedFrom: 'https://github.com/bearko/mycryptoheroes',
+  atlases,
   series,
-  customers,
-  thieves,
-  pests,
+  heroes,
+  enemies,
   workshop,
   windowView,
   staff: {
@@ -178,6 +226,6 @@ const catalog = {
 mkdirSync(dirname(outCatalog), { recursive: true });
 writeFileSync(outCatalog, JSON.stringify(catalog, null, 1));
 console.log(
-  `[sync-assets] ${series.length} series / ${series.reduce((n, s) => n + s.items.length, 0)} extensions, ` +
-    `${customers.length} customers, ${thieves.length} thieves, ${pests.length} pests, ${copied.size} files`,
+  `[sync-assets] ${series.length} series / ${extensions.length} extensions, ${heroes.length} heroes, ` +
+    `${enemies.length} enemies, ${Object.keys(atlases).length} atlas sheets, ${copied.size} other files`,
 );

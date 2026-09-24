@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/bearko/MyCryptoWorkshop#readme",
   "devDependencies": {
+    "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

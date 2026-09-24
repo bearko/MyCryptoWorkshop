@@ -1,4 +1,4 @@
-import { catalog, customersByTier, icons, series } from './catalog';
+import { catalog, customersByTier, icons, pests, series, thieves } from './catalog';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, used as the branches of the skill tree. */
@@ -98,12 +98,12 @@ export const SKILLS: SkillNode[] = [
   { id: 'brand', branch: 'kouryu', name: 'ブランド力', desc: '販売価格 +15%', icon: ext(10, 4), x: 0, y: 5, max: 10, baseCost: 10000, growth: 1.6, requires: ['register'], effects: [mul('priceMult', 0.15)] },
 
   // 白虎: security (down-left)
-  { id: 'bounty', branch: 'byakko', name: '懸賞金', desc: '泥棒を捕まえた時の報酬 +50%', icon: catalog.thieves[0].image, x: -1, y: 1, max: 5, baseCost: 60, growth: 1.7, requires: ['root'], effects: [add('bountyMult', 0.5)] },
+  { id: 'bounty', branch: 'byakko', name: '懸賞金', desc: '泥棒を捕まえた時の報酬 +50%', icon: thieves[0].image, x: -1, y: 1, max: 5, baseCost: 60, growth: 1.7, requires: ['root'], effects: [add('bountyMult', 0.5)] },
   { id: 'trap', branch: 'byakko', name: '足止め罠', desc: '泥棒の逃げ足 -12%', icon: icons.fear, x: -2, y: 2, max: 5, baseCost: 120, growth: 1.7, requires: ['bounty'], effects: [pow('thiefSpeed', 0.88)] },
   { id: 'bell', branch: 'byakko', name: '防犯ベル', desc: '泥棒が盗むのにかかる時間 +0.5秒', icon: icons.decoy, x: -1, y: 2, max: 5, baseCost: 150, growth: 1.7, requires: ['bounty'], effects: [add('stealTime', 0.5)] },
   { id: 'guard', branch: 'byakko', name: 'マイクリくん警備', desc: 'マイクリくんが逃げる泥棒を捕まえる（確率 +15%）', icon: catalog.staff.maycri[0].image, x: -2, y: 3, max: 5, baseCost: 1500, growth: 2, requires: ['trap'], effects: [add('guardChance', 0.15)] },
   { id: 'ward', branch: 'byakko', name: '虫除け結界', desc: '工房荒らしの出現間隔 +20%', icon: icons.gems.garuda, x: -1, y: 3, max: 5, baseCost: 400, growth: 1.7, requires: ['bell'], effects: [add('pestInterval', 0.2)] },
-  { id: 'exterminate', branch: 'byakko', name: '退治報酬', desc: '工房荒らし退治の報酬 +100%', icon: catalog.pests[0].image, x: -1, y: 4, max: 5, baseCost: 600, growth: 1.8, requires: ['ward'], effects: [add('pestBountyMult', 1)] },
+  { id: 'exterminate', branch: 'byakko', name: '退治報酬', desc: '工房荒らし退治の報酬 +100%', icon: pests[0].image, x: -1, y: 4, max: 5, baseCost: 600, growth: 1.8, requires: ['ward'], effects: [add('pestBountyMult', 1)] },
 
   // 玄武: shelves, storage and recipes (left)
   { id: 'shelf', branch: 'genbu', name: '陳列棚増設', desc: '陳列スペース +1', icon: ext(9, 0), x: -1, y: 0, max: 9, baseCost: 25, growth: 1.65, requires: ['root'], effects: [add('shelfSlots', 1)] },

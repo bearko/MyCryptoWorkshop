@@ -52,6 +52,13 @@ img.px,
   image-rendering: pixelated;
 }
 
+/* Atlas sprites (see spriteStyle in render/images.ts): sized by their own class. */
+.sprite {
+  display: inline-block;
+  background-repeat: no-repeat;
+  flex: none;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -896,7 +903,7 @@ body.in-day {
   border-color: #fff;
 }
 
-.buy-item img {
+.buy-item .px {
   width: 28px;
   height: 28px;
   object-fit: contain;
@@ -1090,7 +1097,7 @@ body.in-day {
   margin-top: 6px;
 }
 
-.new-icons img {
+.new-icons > * {
   width: 48px;
   height: 48px;
   background: #0005;
@@ -1201,7 +1208,8 @@ body.in-day {
   cursor: pointer;
 }
 
-.cell img {
+.cell > * {
+  display: block;
   width: 100%;
   height: 100%;
 }
@@ -1211,7 +1219,7 @@ body.in-day {
   background: color-mix(in srgb, var(--rarity) 15%, #0005);
 }
 
-.cell.unknown img {
+.cell.unknown > * {
   filter: brightness(0) opacity(0.35);
 }
 

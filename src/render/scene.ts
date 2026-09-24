@@ -27,7 +27,7 @@ import {
   WORKSHOP_H,
 } from '../game/layout';
 import type { Actor, Shop } from '../game/shop';
-import { img, ready } from './images';
+import { drawRef, img, ready } from './images';
 
 /** Staff sprites are drawn at this scale so they match the ~64px heroes. */
 const STAFF_SCALE = 0.55;
@@ -44,17 +44,15 @@ function frameAt(frames: Frame[], now: number): string {
   return frames[0].image;
 }
 
-function drawImg(ctx: CanvasRenderingContext2D, path: string, x: number, y: number, w: number, h: number, flip = false): void {
-  const im = img(path);
-  if (!ready(im)) return;
+function drawImg(ctx: CanvasRenderingContext2D, ref: string, x: number, y: number, w: number, h: number, flip = false): void {
   if (flip) {
     ctx.save();
     ctx.translate(x + w, y);
     ctx.scale(-1, 1);
-    ctx.drawImage(im, 0, 0, w, h);
+    drawRef(ctx, ref, 0, 0, w, h);
     ctx.restore();
   } else {
-    ctx.drawImage(im, x, y, w, h);
+    drawRef(ctx, ref, x, y, w, h);
   }
 }
 
