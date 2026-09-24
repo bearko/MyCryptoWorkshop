@@ -1,6 +1,6 @@
 import { customersByTier } from '../catalog';
 import { itemValue } from '../items';
-import { DOOR, queuePos, SHOP_LANE_Y, slotPos } from '../layout';
+import { DOOR, HERO_PX, POTION_BAR, queuePos, SHOP_LANE_Y, TRIAL } from '../layout';
 import { tierWeights } from '../stats';
 import { makeActor, releaseClaim } from './actors';
 import type { Shop } from './index';
@@ -38,6 +38,7 @@ export class Customers {
     shop.actors.push(a);
     shop.report.customers++;
     shop.save.totals.customers++;
+    shop.staff.cheer('host');
     this.chooseShelfTarget(a);
   }
 
@@ -51,14 +52,15 @@ export class Customers {
       a.slot = -1;
       a.timer = 0;
       a.mood = 'thinking';
-      const spot = slotPos(Math.floor(rand.next() * slots.length));
+      const spot = slots[Math.floor(rand.next() * slots.length)];
       a.tx = spot.x + rand.range(-30, 30);
       a.ty = SHOP_LANE_Y;
       return;
     }
     let slot = rand.pick(options);
     const laneY = SHOP_LANE_Y + rand.range(-14, 14);
-    if (rand.next() < a.tier * 0.2) {
+    // Richer customers (and the consultant's advice) go for the priciest item.
+    if (rand.next() < a.tier * 0.2 + this.shop.stats.upsell) {
       const value = (i: number) => itemValue(slots[i].item!);
       slot = options.reduce((best, i) => (value(i) > value(best) ? i : best), options[0]);
     }
@@ -66,7 +68,7 @@ export class Customers {
     a.slot = slot;
     a.state = a.state === 'enter' || a.state === 'waitShelf' ? 'toShelf' : a.state;
     a.mood = 'none';
-    const p = slotPos(slot);
+    const p = slots[slot];
     a.tx = p.x;
     a.ty = laneY;
   }
@@ -108,10 +110,11 @@ export class Customers {
         break;
       }
       case 'browse': {
-        if (a.timer < 0.45) break;
+        if (a.timer < shop.stats.browseTime) break;
         const slot = slots[a.slot];
         if (slot && slot.item !== null && slot.claimedBy === a.id) {
           a.item = slot.item;
+          a.priceBonus = slot.showcase ? shop.stats.showcaseMult : 1;
           slot.item = null;
           slot.claimedBy = null;
           a.slot = -1;
@@ -155,12 +158,47 @@ export class Customers {
         }
         break;
       }
+      case 'toBar':
+      case 'toTrial':
+        if (followPath(a, dt, a.speed)) {
+          a.state = a.state === 'toBar' ? 'drink' : 'trial';
+          a.timer = 0;
+          a.facing = a.state === 'trial' ? 1 : -1;
+        }
+        break;
+      case 'drink':
+      case 'trial': {
+        const bar = a.state === 'drink';
+        if (a.timer < (bar ? 1.4 : 1.8)) break;
+        const { stats } = shop;
+        const amount = Math.max(1, Math.round((a.paid ?? 0) * (bar ? stats.barPrice : stats.trialFee)));
+        shop.addExtra(bar ? 'bar' : 'trial', amount, a.x, a.y - HERO_PX - 30);
+        this.leave(a, 'happy');
+        break;
+      }
       case 'leave':
         if (followPath(a, dt, a.speed * 1.2)) a.gone = true;
         break;
       default:
         break;
     }
+  }
+
+  /** After paying: maybe a drink at the potion bar or a go at the trial area, then home. */
+  afterCheckout(a: Actor): void {
+    const { stats, rand } = this.shop;
+    if (rand.next() < stats.barChance) {
+      a.state = 'toBar';
+      a.path = [{ x: POTION_BAR.spot.x + rand.range(-30, 30), y: POTION_BAR.spot.y }];
+    } else if (rand.next() < stats.trialChance) {
+      a.state = 'toTrial';
+      a.path = [{ x: TRIAL.spot.x, y: TRIAL.spot.y }];
+    } else {
+      this.leave(a, 'happy');
+      return;
+    }
+    a.mood = 'happy';
+    a.timer = 0;
   }
 
   /** Keeps queue targets in sync with queue order. */

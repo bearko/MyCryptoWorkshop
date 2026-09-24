@@ -1,11 +1,17 @@
 import type { Hero } from '../catalog';
 import type { GemId, LineId } from '../lines';
+import type { StaffRole } from '../staff';
 import type { ThiefStyle } from '../thieves';
 
 export type Rng = () => number;
 
 export interface Slot {
   item: number | null;
+  /** Item centre on the shelf or in the showcase. */
+  x: number;
+  y: number;
+  /** Showcase slot: only valuable items, sold at a premium. */
+  showcase: boolean;
   /** An item is flying toward this slot. */
   incoming: boolean;
   /** Entity id of the customer or thief that is heading for this item. */
@@ -20,6 +26,10 @@ export type ActorState =
   | 'toQueue'
   | 'queue'
   | 'leave'
+  | 'toBar'
+  | 'drink'
+  | 'toTrial'
+  | 'trial'
   | 'steal'
   | 'flee'
   | 'caught';
@@ -44,6 +54,8 @@ export interface Actor {
   facing: 1 | -1;
   bob: number;
   paid?: number;
+  /** Price multiplier for the item in hand (showcase items sell at a premium). */
+  priceBonus: number;
   /** Waypoints to walk through before the current target. */
   path: { x: number; y: number }[];
   style?: ThiefStyle;
@@ -64,7 +76,8 @@ export interface Flyer {
   toY: number;
   t: number;
   dur: number;
-  dest: { kind: 'slot'; index: number } | { kind: 'storage' } | { kind: 'dismantle' };
+  /** 'away' = shipped out of the shop (market sales). */
+  dest: { kind: 'slot'; index: number } | { kind: 'storage' } | { kind: 'dismantle' } | { kind: 'away' };
 }
 
 export interface Popup {
@@ -102,6 +115,31 @@ export interface Fx {
   t: number;
 }
 
+/** Revenue that does not come from the register. */
+export type ExtraSource = 'bar' | 'trial' | 'market' | 'peddler' | 'bonus';
+
+/** A staff member at work in the shop or the workshop. */
+export interface StaffMember {
+  role: StaffRole;
+  hero: Hero;
+  ace: boolean;
+  x: number;
+  y: number;
+  homeX: number;
+  homeY: number;
+  facing: 1 | -1;
+  bob: number;
+  /** Brief highlight when the staff member does something (0–1). */
+  pulse: number;
+  /** idle: at the post · walk: heading somewhere · away: out of the shop · return: heading back. */
+  state: 'idle' | 'walk' | 'away' | 'return';
+  /** Out of the shop (the peddler on a trip). */
+  away: boolean;
+  timer: number;
+  /** Items the peddler is carrying. */
+  bag: number[];
+}
+
 export interface DayReport {
   day: number;
   revenue: number;
@@ -117,6 +155,9 @@ export interface DayReport {
   /** Gold dust and 魔石 from the dismantler. */
   dust: number;
   gems: Partial<Record<GemId, number>>;
+  /** Research points earned. */
+  research: number;
+  extras: Record<ExtraSource, number>;
 }
 
 export type ShopEvent =
@@ -132,4 +173,7 @@ export type ShopEvent =
   | { type: 'pest'; name: string }
   | { type: 'pestCleared'; reward: number }
   | { type: 'mine' }
+  | { type: 'extra'; source: ExtraSource; amount: number }
+  | { type: 'batch' }
+  | { type: 'research'; points: number }
   | { type: 'dayEnd'; report: DayReport };

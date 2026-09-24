@@ -5,6 +5,7 @@ import { GEM_IDS, LINE_IDS } from '../lines';
 import { buy, canBuy } from '../purchase';
 import { GEM_COST } from '../shop/production';
 import { costOf, isAvailable, level, SKILLS } from '../skills';
+import { STAFF_ROLES } from '../staff';
 import { computeStats } from '../stats';
 
 /** Deterministic PRNG (mulberry32). */
@@ -83,18 +84,18 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {
   for (;;) {
-    // Gold-dust nodes are bought whenever affordable (dust has no other use).
-    const dustNode = SKILLS.find((n) => n.currency === 'dust' && canBuy(save, n));
-    if (dustNode) {
-      buy(save, dustNode);
+    // Gold-dust and research nodes are bought whenever affordable (those have no other use).
+    const materialNode = SKILLS.find((n) => n.currency && canBuy(save, n));
+    if (materialNode) {
+      buy(save, materialNode);
       continue;
     }
-    const options = SKILLS.filter((n) => n.currency !== 'dust' && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
+    const options = SKILLS.filter((n) => !n.currency && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
       .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') }))
       .sort((a, b) => a.cost - b.cost);
     const nextKey = options.find((o) => o.key);
@@ -129,6 +130,11 @@ export interface DayRow {
   lines: number;
   /** Gold dust held after spending. */
   dust: number;
+  /** Staff members hired. */
+  staff: number;
+  research: number;
+  /** Skill nodes not yet maxed (ids), for the report. */
+  unfinished: string[];
 }
 
 /** Runs `days` business days from a new save. */
@@ -160,6 +166,9 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
       collection: save.collection.length,
       lines: LINE_IDS.filter((id) => stats[`${id}.unlocked`] > 0).length,
       dust: save.resources.dust,
+      staff: STAFF_ROLES.filter((r) => stats[`staff_${r}`] > 0).length,
+      research: save.resources.research,
+      unfinished: SKILLS.filter((n) => level(save.levels, n.id) < n.max).map((n) => n.id),
     });
   }
   return rows;
@@ -167,6 +176,6 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
 
 export function toCsv(rows: DayRow[]): string {
   if (!rows.length) return '';
-  const keys = Object.keys(rows[0]) as (keyof DayRow)[];
+  const keys = (Object.keys(rows[0]) as (keyof DayRow)[]).filter((k) => k !== 'unfinished');
   return [keys.join(','), ...rows.map((r) => keys.map((k) => r[k]).join(','))].join('\n') + '\n';
 }

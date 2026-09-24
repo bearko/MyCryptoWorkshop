@@ -108,5 +108,52 @@
     112,
     122,
     132
-  ]
+  ],
+  "staff": {
+    "$comment": "Heroes hired as shop staff: the first hire, and the 'ace' hero who replaces them (see src/game/staff.ts).",
+    "stocker": {
+      "hero": 1008,
+      "ace": 3018
+    },
+    "host": {
+      "hero": 2030,
+      "ace": 3035
+    },
+    "promoter": {
+      "hero": 2005,
+      "ace": 3030
+    },
+    "consultant": {
+      "hero": 2034,
+      "ace": 4011
+    },
+    "guard": {
+      "hero": 2011,
+      "ace": 4027
+    },
+    "accountant": {
+      "hero": 2041,
+      "ace": 5004
+    },
+    "exterminator": {
+      "hero": 1004,
+      "ace": 4044
+    },
+    "appraiser": {
+      "hero": 2006,
+      "ace": 5005
+    },
+    "delivery": {
+      "hero": 2001,
+      "ace": 4008
+    },
+    "researcher": {
+      "hero": 1006,
+      "ace": 5010
+    },
+    "peddler": {
+      "hero": 3016,
+      "ace": 3037
+    }
+  }
 }

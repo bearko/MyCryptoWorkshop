@@ -117,10 +117,21 @@ const byId = <T>(map: Map<number, T>, id: number, what: string): T => {
 
 /** Villain heroes that play thieves (see content.json and thieves.ts). */
 export const thieves: Hero[] = content.thiefIds.map((id) => toHero(byId(heroById, id, 'thief hero')));
-/** Customers: original heroes with a rarity, excluding the thieves. */
+/** Heroes hired as staff, per role: the first hire and the ace (see content.json and staff.ts). */
+export const staffHeroes: Record<string, { hero: Hero; ace: Hero }> = Object.fromEntries(
+  Object.entries(content.staff)
+    .filter(([role]) => !role.startsWith('$'))
+    .map(([role, v]) => {
+      const ids = v as { hero: number; ace: number };
+      return [role, { hero: toHero(byId(heroById, ids.hero, 'staff hero')), ace: toHero(byId(heroById, ids.ace, 'staff hero')) }];
+    }),
+);
+const staffIds = new Set(Object.values(staffHeroes).flatMap((s) => [s.hero.id, s.ace.id]));
+
+/** Customers: original heroes with a rarity, excluding the thieves and the staff. */
 export const customers: Hero[] = raw.heroes
   .filter((h) => h.category === 'original' && h.rarity && RARITIES.includes(h.rarity as Rarity))
-  .filter((h) => !content.thiefIds.includes(h.id))
+  .filter((h) => !content.thiefIds.includes(h.id) && !staffIds.has(h.id))
   .map(toHero);
 export const customersByTier: Hero[][] = RARITIES.map((r) => customers.filter((c) => c.rarity === r));
 const enemyById = new Map(raw.enemies.map((e) => [e.id, e]));
@@ -134,4 +145,12 @@ export const staffFrames = raw.staff as {
   maycri: Frame[];
 };
 export const icons = raw.icons;
+
+const allSeriesByKey = new Map(raw.series.map((s) => [s.key, s]));
+/** Icon of any series in the asset database (not only the active ones), for decoration. */
+export function seriesIcon(key: string, rarityIndex = 0): string {
+  const s = allSeriesByKey.get(key);
+  if (!s) throw new Error(`series ${key} not in catalog`);
+  return s.items.filter((i) => !i.shin)[Math.min(rarityIndex, s.items.length - 1)].image;
+}
 export const audioFiles = raw.audio as Record<string, string>;

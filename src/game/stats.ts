@@ -3,6 +3,7 @@ import { LINE_IDS, type LineId } from './lines';
 import { itemExt, itemValue, type ItemCode } from './items';
 export { RARITY_PRICE } from './items';
 import { series } from './catalog';
+import { STAFF_ROLES, type StaffRole } from './staff';
 import { level, SKILLS, type Levels } from './skills';
 
 /** Payment multiplier per customer tier (Common → Legendary heroes). */
@@ -52,6 +53,41 @@ export const BASE_STATS = {
   infusionPower: 1,
   /** 1 once the packer restocks the most valuable items first. */
   packer: 0,
+  // Phase 3
+  /** Seconds between restocks from storage to the shelf. */
+  restockTime: 0.8,
+  /** Seconds a customer looks at an item before taking it. */
+  browseTime: 0.45,
+  /** Extra chance that a customer goes for the priciest item. */
+  upsell: 0,
+  /** Share of the day's revenue added at closing. */
+  closingBonus: 0,
+  guardSpeed: 190,
+  hunterSpeed: 220,
+  /** Research points per minute of business. */
+  researchRate: 0,
+  market: 0,
+  marketInterval: 9,
+  /** Share of the shop price the market pays. */
+  marketRate: 0.4,
+  /** Seconds the peddler is out of the shop. */
+  peddlerTrip: 16,
+  peddlerLoad: 1,
+  peddlerRate: 0.8,
+  /** Self-checkout machines (slower than Chris-kun, no taps). */
+  autoRegisters: 0,
+  /** Chance that a checkout also serves the next customer in line. */
+  batchChance: 0,
+  rug: 0,
+  potionStand: 0,
+  barChance: 0,
+  /** A drink costs this share of what the customer just paid. */
+  barPrice: 0.2,
+  trialChance: 0,
+  trialFee: 0.25,
+  showcaseSlots: 0,
+  showcaseMult: 1.5,
+  ...(Object.fromEntries(STAFF_ROLES.map((r) => [`staff_${r}`, 0])) as Record<`staff_${StaffRole}`, number>),
   ...(Object.fromEntries(
     LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
   ) as Record<`${LineId}.${LineStat}`, number>),

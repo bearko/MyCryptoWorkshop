@@ -5,7 +5,7 @@
 // is sized to the ~64px heroes.
 
 export const SCENE_W = 1000;
-export const MIN_SCENE_H = 1320;
+export const MIN_SCENE_H = 1440;
 export const MAX_SCENE_H = 1900;
 export let SCENE_H = MIN_SCENE_H;
 export const WORKSHOP_CROP = 20;
@@ -56,8 +56,27 @@ export let QUEUE_LANE_Y = FLOOR_Y + 160;
 export const DOOR = { x: 925, y: FLOOR_Y + 4, x0: 895, x1: 955, top: FLOOR_Y - 96 };
 export let COUNTER = { x0: 34, x1: 186, top: FLOOR_Y + 118, bottom: FLOOR_Y + 162 };
 export let CHRIS_POS = { x: 100, y: FLOOR_Y + 128 };
-/** Decorative rug between the shelves and the counter (null when there is no room). */
+/** Rug on the lower floor, below the queue (null when there is no room). */
 export let RUG: { x0: number; x1: number; y0: number; y1: number } | null = null;
+
+type Point = { x: number; y: number };
+
+/** Where each staff role stands (feet position). Mobile staff return here between jobs. */
+export let STAFF_POSTS: Record<string, Point> = {};
+/** Potion bar under the counter: the bar top, and where a customer stands to drink. */
+export let POTION_BAR = { x0: 16, x1: 196, y: 0, spot: { x: 110, y: 0 } };
+/** 試し斬り場 (trial area) in the lower right: the straw dummy and where the customer stands. */
+export let TRIAL = { dummy: { x: 920, y: 0 }, spot: { x: 850, y: 0 } };
+/** Free potion stand against the back wall, next to the door. */
+export const POTION_STAND = { x: 836, y: FLOOR_Y - 2 };
+/** Showcase unit on the back wall, between the shelves and the potion stand. */
+export const SHOWCASE = { x0: 676, x1: 776, top: FLOOR_Y - 104 };
+export const MAX_SHOWCASE = 4;
+
+/** Item centre of showcase slot `i` (2 × 2, filled top row first). */
+export function showcasePos(i: number): Point {
+  return { x: SHOWCASE.x0 + 28 + (i % 2) * 44, y: SHELF_ROW_Y[Math.floor(i / 2)] };
+}
 
 /**
  * Sets the scene height (clamped to MIN/MAX_SCENE_H) and lays out the storefront floor.
@@ -70,10 +89,27 @@ export function setSceneHeight(h: number): void {
   QUEUE_LANE_Y = FLOOR_Y + 160 + Math.round(extra * 0.4);
   COUNTER = { x0: 34, x1: 186, top: QUEUE_LANE_Y - 42, bottom: QUEUE_LANE_Y + 2 };
   CHRIS_POS = { x: 100, y: QUEUE_LANE_Y - 32 };
-  // A large rug covers the lower floor on tall storefronts.
-  const rugTop = SHOP_LANE_Y + 40;
-  const rugBottom = SCENE_H - 50;
-  RUG = extra > 120 ? { x0: 230, x1: 820, y0: rugTop, y1: rugBottom } : null;
+  // Lower floor, below the queue: bar (left), rug with desks (middle), trial area (right).
+  const bottom = SCENE_H - 28;
+  const rugTop = QUEUE_LANE_Y + 36;
+  const rugBottom = bottom - 58;
+  RUG = rugBottom - rugTop > 36 ? { x0: 236, x1: 660, y0: rugTop, y1: rugBottom } : null;
+  POTION_BAR = { x0: 16, x1: 196, y: bottom - 44, spot: { x: 118, y: bottom - 6 } };
+  TRIAL = { dummy: { x: 930, y: bottom - 16 }, spot: { x: 868, y: bottom - 10 } };
+  STAFF_POSTS = {
+    stocker: { x: 236, y: FLOOR_Y + 34 },
+    consultant: { x: 726, y: FLOOR_Y + 40 },
+    host: { x: 872, y: SHOP_LANE_Y + 34 },
+    promoter: { x: 978, y: FLOOR_Y + 46 },
+    guard: { x: 600, y: SHOP_LANE_Y + 42 },
+    peddler: { x: 760, y: QUEUE_LANE_Y + 64 },
+    accountant: { x: 300, y: bottom },
+    researcher: { x: 420, y: bottom },
+    appraiser: { x: 540, y: bottom },
+    // In the workshop
+    exterminator: { x: 470, y: wy(700) },
+    delivery: { x: 222, y: wy(745) },
+  };
 }
 
 /** Extra walking-speed factor so longer walks on tall storefronts take about the same time. */
@@ -111,3 +147,6 @@ export function slotPos(index: number): { x: number; y: number } {
 export function queuePos(index: number): { x: number; y: number } {
   return { x: 212 + index * 38, y: QUEUE_LANE_Y };
 }
+
+// Default layout until the game measures the screen (also used by tests and the balance sim).
+setSceneHeight(MIN_SCENE_H);

@@ -13,6 +13,7 @@ export interface Milestone {
 export const MILESTONES: Milestone[] = [
   { label: 'Uncommon 解放', targetMin: 5, reached: (r) => r.maxRarity >= 1 },
   { label: '2号機（鍛冶炉）', targetMin: 30, reached: (r) => r.lines >= 2 },
+  { label: '最初のスタッフ', targetMin: 45, reached: (r) => r.staff >= 1 },
   { label: '3号機（カプセル）', targetMin: 60, reached: (r) => r.lines >= 3 },
   { label: 'Epic 解放', targetMin: 90, reached: (r) => r.maxRarity >= 3 },
   { label: 'Legendary 解放', targetMin: 210, reached: (r) => r.maxRarity >= 4 },
