@@ -1,5 +1,5 @@
 import { catalog, icons, RARITY_COLOR, staffFrames, type Frame } from '../game/catalog';
-import { itemExt } from '../game/items';
+import { EDITIONS, itemEdition, itemExt } from '../game/items';
 import {
   CHRIS_POS,
   COUNTER,
@@ -289,6 +289,37 @@ export class SceneRenderer {
       }
       drawImg(ctx, e.image, p.x - SHELF_ITEM_PX / 2, p.y + 16 - SHELF_ITEM_PX, SHELF_ITEM_PX, SHELF_ITEM_PX);
     });
+    // Sparkles go on top so neighbouring items never hide them.
+    shop.slots.forEach((slot, i) => {
+      if (slot.item === null) return;
+      const edition = itemEdition(slot.item);
+      const shin = itemExt(slot.item).shin;
+      if (edition === 0 && !shin) return;
+      const p = slotPos(i);
+      this.drawSparkle(p.x + SHELF_ITEM_PX / 2 - 2, p.y + 22 - SHELF_ITEM_PX, shin ? '#ff5d8f' : EDITIONS[edition].color, now / 400 + i);
+    });
+  }
+
+  /** A twinkling four-point star marking edition and 真 items. */
+  private drawSparkle(x: number, y: number, color: string, phase: number): void {
+    const ctx = this.ctx;
+    const r = 10 + 2.5 * Math.sin(phase * 2);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(phase * 0.5);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(40, 20, 0, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const rr = k % 2 === 0 ? r : r * 0.38;
+      const a = (k * Math.PI) / 4;
+      ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawCounter(shop: Shop, now: number, hint: boolean): void {
