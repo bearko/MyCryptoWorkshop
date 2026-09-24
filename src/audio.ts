@@ -1,10 +1,10 @@
 import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
-type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win';
+type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
 type Bgm = 'bgmShop' | 'bgmTree';
 
-const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5 };
+const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5, clean: 0.4, zap: 0.5 };
 
 /** Minimal sound manager: looping BGM plus a small pool of one-shot SE players. */
 export class Sound {

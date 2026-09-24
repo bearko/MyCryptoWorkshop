@@ -1,4 +1,5 @@
-import { catalog, icons, RARITY_COLOR, seriesIcon, staffFrames, staffHeroes, type Frame } from '../game/catalog';
+import { catalog, icons, lands, merchants, RARITY_COLOR, series, seriesIcon, staffFrames, staffHeroes, storePests, type Frame } from '../game/catalog';
+import { landOf } from '../game/conditions';
 import { EDITIONS, itemEdition, itemExt } from '../game/items';
 import {
   CHRIS_POS,
@@ -72,6 +73,8 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 
 /** What is built in the shop; the static storefront is repainted when this changes. */
 interface Furnishing {
+  /** Scenery in the window (a land's view on its land day). */
+  view: string;
   slotCount: number;
   rug: number;
   showcase: number;
@@ -83,6 +86,7 @@ interface Furnishing {
 function furnishingOf(shop: Shop): Furnishing {
   const s = shop.stats;
   return {
+    view: landOf(shop.condition)?.view ?? catalog.windowView,
     slotCount: shop.shelfSlots,
     rug: s.rug,
     showcase: Math.min(MAX_SHOWCASE, s.showcaseSlots),
@@ -105,13 +109,27 @@ const DECOR = {
   sword: seriesIcon('Enhanced Sword', 2),
   bundle: seriesIcon('Mantle', 0),
   net: seriesIcon('Cat Teaser', 1),
+  crownVip: seriesIcon('Crown', 4),
+  flag: seriesIcon('Oriflamme', 1),
 };
+
+/** Vehicle icons by stats.vehicle (1 carriage, 2 airship, 3 land gate). */
+const VEHICLE_ICONS = ['', seriesIcon('Horse', 3), seriesIcon('Spaceship', 2), seriesIcon('Ferris wheel', 3)];
+const VEHICLE_NAMES = ['', '乗合馬車', '飛空艇', 'ランドゲート'];
 
 /** Staff who work at a desk, and what lies on it. */
 const DESKS: Partial<Record<string, string>> = { accountant: DECOR.coin, researcher: DECOR.book, appraiser: DECOR.monocle };
 
 /** Extra sprites the scene draws (preloaded at boot so the cached storefront is complete). */
-export const SCENE_SPRITES = [...Object.values(DECOR), ...Object.values(staffHeroes).flatMap((s) => [s.hero.image, s.ace.image])];
+export const SCENE_SPRITES = [
+  ...Object.values(DECOR),
+  ...VEHICLE_ICONS.filter(Boolean),
+  ...Object.values(staffHeroes).flatMap((s) => [s.hero.image, s.ace.image]),
+  ...storePests.map((p) => p.image),
+  ...merchants.map((m) => m.image),
+  icons.mai,
+  lands[0].cryptid,
+];
 
 /** Draws the storefront (static parts) into an offscreen canvas; redrawn when the furnishing changes. */
 function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
@@ -137,10 +155,9 @@ function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
   const { x0: wx0, x1: wx1, top: wtop } = WINDOW;
   const ww = wx1 - wx0;
   const wh = WINDOW.y - wtop;
-  const view = img(catalog.windowView);
+  const view = img(f.view);
   if (ready(view)) {
-    const sw = view.naturalWidth;
-    ctx.drawImage(view, 0, view.naturalHeight * 0.3, sw, (sw * wh) / ww, wx0, wtop, ww, wh);
+    ctx.drawImage(view, wx0, wtop, ww, wh);
   } else {
     ctx.fillStyle = '#9fd4ff';
     ctx.fillRect(wx0, wtop, ww, wh);
@@ -422,7 +439,7 @@ export class SceneRenderer {
     ctx.imageSmoothingEnabled = false;
 
     const furnish = furnishingOf(shop);
-    const loaded = ready(img(catalog.windowView)) && Object.values(DECOR).every((r) => ready(img(fileOf(r))));
+    const loaded = ready(img(furnish.view)) && Object.values(DECOR).every((r) => ready(img(fileOf(r))));
     const key = `${JSON.stringify(furnish)}|${loaded}|${SCENE_H}`;
     if (key !== this.bgKey) {
       this.bg.height = SCENE_H;
@@ -434,16 +451,227 @@ export class SceneRenderer {
     }
     ctx.drawImage(this.bg, 0, 0, SCENE_W, SCENE_H);
 
+    this.drawFloorHazards(shop, now);
     this.drawShelfItems(shop, now);
     this.drawCounter(shop, now, hints.register);
     this.drawActors(shop, now);
+    this.drawShopEvents(shop, now);
     if (shop.stats.guardChance > 0) {
       drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 22, MAYCRI_POS.y - 44, 44, 44);
     }
     this.drawWorkshop(shop, now, hints.pot);
     this.drawFlyers(shop);
+    this.drawWeather(shop, now);
     this.drawEffects(shop);
     this.drawPopups(shop);
+  }
+
+  /** Last lightning strike of the cryptid (drawn for a moment). */
+  private strike: { x: number; y: number; at: number } | null = null;
+
+  /** Mud, litter and dropped coins on the shop floor (under everyone's feet). */
+  private drawFloorHazards(shop: Shop, now: number): void {
+    const ctx = this.ctx;
+    for (const m of shop.hazards.messes) {
+      const grow = Math.min(1, m.t / 0.4);
+      if (m.kind === 'mud') {
+        ctx.fillStyle = 'rgba(78,52,30,0.85)';
+        for (const [dx, dy, r] of [[0, 0, 22], [-16, 4, 12], [15, -3, 13], [6, 7, 10]]) {
+          ctx.beginPath();
+          ctx.ellipse(m.x + dx, m.y + dy, r * grow, r * 0.45 * grow, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.beginPath();
+        ctx.ellipse(m.x - 5, m.y - 3, 7 * grow, 2 * grow, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Broken chest boards and packing paper
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.scale(grow, grow);
+        ctx.fillStyle = '#8a5a2b';
+        ctx.rotate(0.4);
+        ctx.fillRect(-20, -4, 26, 7);
+        ctx.rotate(-0.9);
+        ctx.fillRect(-4, 2, 22, 6);
+        ctx.fillStyle = '#e8d6a8';
+        ctx.fillRect(6, -10, 10, 8);
+        ctx.restore();
+      }
+    }
+    for (const c of shop.hazards.coins) {
+      const blink = c.t > 12 ? (Math.sin(now / 80) > 0 ? 1 : 0.3) : 1;
+      ctx.globalAlpha = blink;
+      drawImg(ctx, icons.gum, c.x - 11, c.y - 16, 22, 22);
+      if (Math.sin(now / 200 + c.id) > 0.7) this.drawSparkle(c.x + 9, c.y - 16, '#fff6c8', now / 300 + c.id);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** Shop enemies, chests, the cryptid, visitors and the vehicle banner. */
+  private drawShopEvents(shop: Shop, now: number): void {
+    const ctx = this.ctx;
+    const hz = shop.hazards;
+    for (const p of hz.pests) {
+      const shake = p.hitFlash > 0 ? Math.sin(now / 20) * 5 : 0;
+      const bob = Math.abs(Math.sin(now / 160 + p.id)) * 4;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y - 1, 22, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,60,200,0.9)';
+      ctx.shadowBlur = 16;
+      drawImg(ctx, p.image, p.x - 32 + shake, p.y - 64 - bob, 64, 64, p.tx < p.x);
+      ctx.restore();
+      for (let i = 0; i < 2; i++) {
+        ctx.fillStyle = i < p.hp ? '#ff4dd2' : 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.arc(p.x - 7 + i * 14, p.y + 10, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // The shop's cryptid floats by the counter; its lightning hits enemies.
+    const cryptid = landOf(shop.condition)?.cryptid ?? lands[0].cryptid;
+    // Floats above the left end of the counter, clear of the queue.
+    const cx = COUNTER.x0 + 6;
+    const cy = COUNTER.top - 104 + Math.sin(now / 400) * 6;
+    if (shop.stats.cryptid > 0) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(140,220,255,0.9)';
+      ctx.shadowBlur = 14;
+      drawImg(ctx, cryptid, cx - 24, cy - 24, 48, 48);
+      ctx.restore();
+    }
+    if (hz.strike) this.strike = { ...hz.strike, at: now };
+    if (this.strike && now - this.strike.at < 250) {
+      const { x, y } = this.strike;
+      ctx.strokeStyle = '#bfefff';
+      ctx.lineWidth = 4;
+      ctx.shadowColor = '#7fdcff';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      for (let k = 1; k <= 6; k++) ctx.lineTo(cx + ((x - cx) * k) / 6 + (k < 6 ? (k % 2 ? 14 : -14) : 0), cy + ((y - 40 - cy) * k) / 6);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Treasure chests drifting on balloons
+    for (const c of hz.chests) {
+      const y = c.y + Math.sin(c.t * 2) * 8;
+      ctx.strokeStyle = '#eee';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(c.x, y - 16);
+      ctx.lineTo(c.x, y - 48);
+      ctx.stroke();
+      for (const [dx, col] of [[-12, '#ff6b6b'], [12, '#ffd43b'], [0, '#74c0fc']] as const) {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.ellipse(c.x + dx, y - 62 + (dx ? 6 : 0), 13, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#8a5a2b';
+      roundRect(ctx, c.x - 20, y - 16, 40, 28, 4);
+      ctx.fill();
+      ctx.fillStyle = '#a0692f';
+      roundRect(ctx, c.x - 21, y - 22, 42, 12, 5);
+      ctx.fill();
+      ctx.fillStyle = '#ffcf33';
+      ctx.fillRect(c.x - 21, y - 12, 42, 4);
+      ctx.fillRect(c.x - 3, y - 14, 6, 10);
+    }
+
+    // Visitors: a land's cryptid, or a legendary hero with a golden aura
+    for (const v of shop.visitors.visits) {
+      const fade = Math.min(1, v.t / 0.5, (v.dur - v.t) / 0.8);
+      ctx.globalAlpha = Math.max(0, fade);
+      const float = Math.sin(now / 300) * 6;
+      ctx.save();
+      ctx.shadowColor = v.kind === 'legend' ? 'rgba(255,215,90,1)' : 'rgba(140,220,255,1)';
+      ctx.shadowBlur = 24;
+      if (v.kind === 'cryptid') drawImg(ctx, v.image, v.x - 48, v.y - 110 + float, 96, 96);
+      else drawImg(ctx, v.image, v.x - HERO_PX / 2, v.y - HERO_PX, HERO_PX, HERO_PX, true);
+      ctx.restore();
+      ctx.font = `bold 14px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = v.kind === 'legend' ? '#ffd966' : '#bfefff';
+      ctx.fillText(v.kind === 'legend' ? `伝説 ${v.name}` : v.name, v.x, v.y + 14);
+      ctx.globalAlpha = 1;
+    }
+
+    // Vehicle arrival banner over the door
+    const arrival = shop.visitors.arrival;
+    if (arrival && arrival.t < 3) {
+      const a = Math.min(1, arrival.t / 0.3, (3 - arrival.t) / 0.5);
+      ctx.globalAlpha = a;
+      const bx = DOOR.x - 60;
+      const by = DOOR.top - 50;
+      ctx.fillStyle = 'rgba(20,40,70,0.85)';
+      roundRect(ctx, bx - 100, by - 22, 160, 44, 10);
+      ctx.fill();
+      drawImg(ctx, VEHICLE_ICONS[arrival.kind], bx - 96, by - 20, 40, 40);
+      ctx.fillStyle = '#e7f5ff';
+      ctx.font = `bold 15px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${VEHICLE_NAMES[arrival.kind]} 到着！`, bx - 52, by);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** Rain in the window, fog over the shop, bunting on a festival day. */
+  private drawWeather(shop: Shop, now: number): void {
+    const ctx = this.ctx;
+    const kind = shop.condition.kind;
+    if (kind === 'rain') {
+      const { x0, x1, top, y } = WINDOW;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, top, x1 - x0, y - top);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(40,60,90,0.35)';
+      ctx.fillRect(x0, top, x1 - x0, y - top);
+      ctx.strokeStyle = 'rgba(200,220,255,0.7)';
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 24; i++) {
+        const rx = x0 + ((i * 37 + now / 6) % (x1 - x0 + 20)) - 10;
+        const ry = top + ((i * 53 + now / 3) % (y - top + 20)) - 10;
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 4, ry + 12);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else if (kind === 'fog') {
+      // Drifting fog banks over the shop floor
+      for (let i = 0; i < 6; i++) {
+        const fx = ((i * 211 + now / 40) % (SCENE_W + 400)) - 200;
+        const fy = WORKSHOP_H + 60 + ((i * 97) % Math.max(1, SCENE_H - WORKSHOP_H - 80));
+        const g = ctx.createRadialGradient(fx, fy, 10, fx, fy, 180);
+        g.addColorStop(0, 'rgba(225,230,235,0.28)');
+        g.addColorStop(1, 'rgba(225,230,235,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(fx - 180, fy - 180, 360, 360);
+      }
+    } else if (kind === 'festival') {
+      const colors = ['#ff6b6b', '#ffd43b', '#69db7c', '#74c0fc', '#da77f2'];
+      const y0 = WORKSHOP_H + 16;
+      for (let i = 0, x = 10; x < SCENE_W; i++, x += 34) {
+        const sway = Math.sin(now / 500 + i) * 2;
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.beginPath();
+        ctx.moveTo(x, y0);
+        ctx.lineTo(x + 26, y0);
+        ctx.lineTo(x + 13, y0 + 22 + sway);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
   }
 
   private drawShelfItems(shop: Shop, now: number): void {
@@ -565,11 +793,13 @@ export class SceneRenderer {
         ctx.lineTo(a.x, y + 10);
         ctx.stroke();
       } else {
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        // Land owners stand on a golden ring; regulars on a pink one.
+        ctx.fillStyle = a.special === 'owner' ? 'rgba(255,207,51,0.7)' : a.special === 'regular' ? 'rgba(255,140,190,0.6)' : 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.ellipse(a.x, a.y - 1, 18, 5, 0, 0, Math.PI * 2);
         ctx.fill();
       }
+      if (a.special === 'owner') drawImg(ctx, DECOR.crownVip, a.x - 12, a.y - HERO_PX - hop - 18, 24, 24);
       const disguised = a.style?.disguise && (a.state === 'enter' || a.state === 'toShelf');
       if (a.kind === 'thief' && a.state !== 'caught' && !disguised) {
         // Villains glow red so they are easy to spot and tap.
@@ -717,6 +947,15 @@ export class SceneRenderer {
         ctx.arc(TRIAL.dummy.x, TRIAL.dummy.y - 50, 26 + k * 10, -Math.PI * 0.9, -Math.PI * 0.9 + k * Math.PI * 1.2);
         ctx.stroke();
       }
+      return;
+    }
+    if (a.special === 'collector' && a.item === null && a.wants !== undefined && a.state !== 'leave') {
+      // What the collector is looking for
+      bubble(64, 48, '#f3e8ff');
+      drawImg(ctx, series[a.wants].items[0].image, bx - 26, by - 20, 38, 38);
+      ctx.fillStyle = '#7048e8';
+      ctx.font = `bold 22px ${FONT}`;
+      ctx.fillText('?', bx + 20, by);
       return;
     }
     if (a.item !== null) {
