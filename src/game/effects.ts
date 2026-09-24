@@ -99,7 +99,8 @@ export type GlobalStat =
   | 'affinityPower'
   | 'orderSlots'
   | 'orderPay'
-  | 'orderFocus';
+  | 'orderFocus'
+  | 'cleared';
 
 /** The five factions, as heroes' home factions and as stat keys. */
 export type FactionKey = 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu';

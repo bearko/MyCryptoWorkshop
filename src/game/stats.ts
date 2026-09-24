@@ -141,6 +141,8 @@ export const BASE_STATS = {
   orderPay: 3,
   /** Extra crafting weight for a series someone ordered for today. */
   orderFocus: 2,
+  /** 1 once the golden extension is made (the game is cleared). */
+  cleared: 0,
   ...(Object.fromEntries(
     LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
   ) as Record<`${LineId}.${LineStat}`, number>),

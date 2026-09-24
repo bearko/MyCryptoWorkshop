@@ -98,7 +98,7 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid', 'goldenExtension', 'orders']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {
@@ -147,6 +147,8 @@ export interface DayRow {
   /** Staff members hired. */
   staff: number;
   research: number;
+  cleared: boolean;
+  emblem: number;
   /** Skill nodes not yet maxed (ids), for the report. */
   unfinished: string[];
 }
@@ -182,6 +184,8 @@ export function simulate(days: number, seed: number, player: PlayerModel = PLAYE
       dust: save.resources.dust,
       staff: STAFF_ROLES.filter((r) => stats[`staff_${r}`] > 0).length,
       research: save.resources.research,
+      cleared: stats.cleared > 0,
+      emblem: save.resources.emblem,
       unfinished: TREE_NODES.filter((n) => level(save.levels, n.id) < n.max).map((n) => n.id),
     });
   }

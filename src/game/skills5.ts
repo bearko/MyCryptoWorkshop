@@ -3,7 +3,7 @@
 // and 真打ち (真 chance, paid in research points, series with a 真 only). Rows run in bands of 30:
 // the first band goes up from the レシピ帳 hub, the next comes back down, and so on.
 import { icons, series, seriesIcon } from './catalog';
-import { add, mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
+import { add, atLeast, mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
 import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 
@@ -124,20 +124,29 @@ const HONOR: { key: string; name: string; desc: string; icon: string; effects: E
   { key: 'fans', name: '看板', desc: '顔なじみ・常連の支払いボーナス +20%', icon: seriesIcon('Oriflamme', 2), effects: [mul('affinityPower', 0.2, 'honor')] },
 ];
 const HONOR_RANKS = ['I', 'II', 'III', 'IV', 'V'];
+/** Emblems per rank (× 1–3 by row: the lower perks cost more). */
+const HONOR_COSTS = [2, 5, 10, 20, 40];
 
 const honorNodes: SkillNode[] = [
   { id: 'honorHub', branch: 'honor', name: '名誉の殿堂', desc: '実績とデイリー依頼で得たエンブレムで、永続の特典を習得できる', icon: icons.emblem, x: 13, y: 0, max: 1, baseCost: 1, growth: 1, requires: [], effects: [mul('priceMult', 0.02, 'honor')], currency: 'emblem' },
   ...HONOR.flatMap((perk, row) =>
     HONOR_RANKS.map((rank, r): SkillNode => ({
       id: `honor_${perk.key}_${r + 1}`, branch: 'honor', name: `${perk.name} ${rank}`, desc: perk.desc, icon: perk.icon,
-      x: 14 + r, y: row - 7, max: 1, baseCost: 2 ** r * (1 + Math.floor(row / 5)), growth: 1,
+      x: 14 + r, y: row - 7, max: 1, baseCost: HONOR_COSTS[r] * (1 + Math.floor(row / 5)), growth: 1,
       requires: [r === 0 ? 'honorHub' : `honor_${perk.key}_${r}`], effects: perk.effects, currency: 'emblem',
     })),
   ),
 ];
 
+/** GUM price of the clear goal (tuned with `npm run balance` for about 6 hours of play). */
+export const CLEAR_COST = 3e11;
+
 export const PHASE5_SERIES_NODES: SkillNode[] = [
   ...honorNodes,
+  {
+    id: 'goldenExtension', branch: 'suzaku', name: '黄金のエクステンション', desc: '伝説の工房の証。すべてのシリーズの技を注ぎ込んだ黄金のエクステンションを作る（ゲームクリア）。販売価格 +100%',
+    icon: series[0].items[4].image, x: 0, y: -7, max: 1, baseCost: CLEAR_COST, growth: 1, requires: ['legendary'], effects: [atLeast('cleared', 1), mul('priceMult', 1)],
+  },
   // Hubs next to 陳列棚増設
   { id: 'recipeBook', branch: 'series', name: 'レシピ帳', desc: 'シリーズのレシピを集め始める。品揃えを意識して来客ペース +5%', icon: icons.gems.leviathan, x: -2, y: -1, max: 1, baseCost: 20, growth: 1, requires: ['shelf'], effects: [mul('spawnRate', 0.05)] },
   { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -2, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },

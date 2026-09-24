@@ -42,7 +42,7 @@ export const HERO_SETS: HeroSet[] = [
   ...[...byAttribute.entries()]
     .filter(([, list]) => list.length >= MIN_SET)
     .sort((a, b) => a[1].length - b[1].length)
-    .map(([attr, list]): HeroSet => ({ id: `set_attr_${attr}`, kind: 'attribute', name: attr, heroes: list, reward: '販売価格 +2%', effects: [mul('priceMult', 0.02, 'sets')] })),
+    .map(([attr, list]): HeroSet => ({ id: `set_attr_${attr}`, kind: 'attribute', name: attr, heroes: list, reward: '販売価格 +1%', effects: [mul('priceMult', 0.01, 'sets')] })),
   ...Object.entries(FACTION_NAME).map(([key, name]): HeroSet => ({
     id: `set_faction_${key}`,
     kind: 'faction',
@@ -56,8 +56,8 @@ export const HERO_SETS: HeroSet[] = [
     kind: 'rarity',
     name: `${RARITY_JA[r]}ヒーロー`,
     heroes: customers.filter((h) => h.rarityIndex === i),
-    reward: '販売価格 +5%',
-    effects: [mul('priceMult', 0.05, 'sets')],
+    reward: '販売価格 +3%',
+    effects: [mul('priceMult', 0.03, 'sets')],
   })),
 ];
 

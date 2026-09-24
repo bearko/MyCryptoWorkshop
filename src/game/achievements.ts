@@ -117,7 +117,7 @@ export function dailyValue(kind: DailyKind, r: DayReport): number {
 /** Daily requests start on this day. */
 export const DAILY_DAY = 3;
 /** Emblems for finishing all of a day's requests (on top of one per request). */
-export const DAILY_BONUS = 2;
+export const DAILY_BONUS = 1;
 
 /** Three requests for the next day, scaled to how the shop has been doing. */
 export function rollDailies(save: SaveData, stats: Stats, report: DayReport, rand: () => number): Daily[] {

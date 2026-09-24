@@ -5,7 +5,7 @@ import { conditionLabel, CONDITIONS } from '../game/conditions';
 import { orderHero, orderLabel } from '../game/orders';
 import { dailyLabel } from '../game/achievements';
 import { STAFF_ROLES } from '../game/staff';
-import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type SkillNode } from '../game/skills';
+import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type Levels, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
 import { GEM_COST } from '../game/shop/production';
@@ -23,9 +23,15 @@ const BOUNDS = TREE_NODES.reduce(
   { x0: 0, x1: 0, y0: 0, y1: 0 },
 );
 
-/** Grid-space centre of each branch (for the jump chips). */
-function branchCenter(branch: string): { x: number; y: number } {
-  const nodes = TREE_NODES.filter((n) => n.branch === branch);
+/**
+ * Where a jump chip takes you: the centre of the branch's nodes that can be bought now, else of
+ * its visible nodes, else of the whole branch.
+ */
+function branchCenter(branch: string, levels: Levels): { x: number; y: number } {
+  const all = TREE_NODES.filter((n) => n.branch === branch);
+  const open = all.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max);
+  const seen = all.filter((n) => isVisible(n, levels));
+  const nodes = open.length ? open : seen.length ? seen : all;
   return { x: nodes.reduce((a, n) => a + n.x, 0) / nodes.length, y: nodes.reduce((a, n) => a + n.y, 0) / nodes.length };
 }
 
@@ -122,7 +128,7 @@ export class TreeView {
           {
             style: `--branch:${b.color}`,
             onclick: () => {
-              const c = key === 'root' ? { x: 0, y: 0 } : branchCenter(key);
+              const c = key === 'root' ? { x: 0, y: 0 } : branchCenter(key, this.save.levels);
               this.panTo(c.x, c.y);
             },
           },

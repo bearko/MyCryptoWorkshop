@@ -293,7 +293,7 @@ function openPauseMenu(): void {
 }
 
 function openCollection(): void {
-  openModal('エクステンション図鑑', collectionView(save), [{ label: '閉じる' }], 'wide');
+  openModal('図鑑', collectionView(save), [{ label: '閉じる' }], 'wide');
 }
 
 function openMenu(): void {
@@ -548,6 +548,38 @@ function buyNode(node: SkillNode): void {
   sound.play(FACILITY_NODES.has(node.id) ? 'build' : 'unlock');
   writeSave(save);
   updateTopbar();
+  if (node.id === 'goldenExtension') showEnding();
+}
+
+/** The clear screen: the golden extension, and how the run went. */
+function showEnding(): void {
+  sound.play('win');
+  confetti(6000);
+  const t = save.meta.playSeconds;
+  const rows: [string, string][] = [
+    ['営業日数', `${save.day - 1}日`],
+    ['プレイ時間', `${Math.floor(t / 3600)}時間${Math.floor((t % 3600) / 60)}分`],
+    ['累計売上', `${fmt(save.totals.revenue)} GUM`],
+    ['販売数', `${fmt(save.totals.sold)}個`],
+    ['図鑑', `${save.collection.length}種`],
+    ['出会ったヒーロー', `${customers.filter((c) => (save.heroes[c.id] ?? 0) > 0).length}人`],
+    ['実績', `${save.achievements.length} / ${ACHIEVEMENTS.length}`],
+  ];
+  openModal(
+    '伝説の工房',
+    h(
+      'div.gold-chest',
+      {},
+      h('div.gold-chest-head', {}, '★ GAME CLEAR ★'),
+      icon(series[0].items[4].image, 'px'),
+      h('p', {}, '黄金のエクステンションが完成した！あなたの工房は、マイクリの世界で伝説として語り継がれるだろう。'),
+      h('div.stat-grid', {}, ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v)))),
+      h('p.muted', {}, 'このまま営業を続けて、図鑑やスキルツリーの完成を目指すこともできます。'),
+      credits(),
+    ),
+    [{ label: '営業を続ける', primary: true }],
+    'gold-chest-modal',
+  );
 }
 
 function startDay(): void {
