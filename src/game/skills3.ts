@@ -7,10 +7,12 @@ import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 import { ROLES, staffHero, type StaffRole } from './staff';
 
-interface StaffPlan {
+export interface StaffPlan {
   role: StaffRole;
   /** Column of the role (its hire node sits on row 7). */
   x: number;
+  /** Laid out as a row going left from (x, y) instead of a column (and what the hire requires). */
+  row?: { y: number; requires: string };
   hireCost: number;
   hire: Effect[];
   hireDesc: string;
@@ -103,33 +105,35 @@ const STAFF: StaffPlan[] = [
 
 const HIRE_ROW = 7;
 
-function staffNodes(plan: StaffPlan): SkillNode[] {
-  const { role, x } = plan;
+export function staffNodes(plan: StaffPlan): SkillNode[] {
+  const { role, x, row } = plan;
+  // Position of the k-th node of the chain (hire, upgrade 1, upgrade 2, ace).
+  const at = (k: number) => (row ? { x: x - k, y: row.y } : { x, y: HIRE_ROW + k });
   const { job, work } = ROLES[role];
   const first = staffHero(role, 1);
   const ace = staffHero(role, 2);
   // Each hire requires the one next to it, closer to the centre column.
-  const neighbour = x === 0 ? 'storeHub' : `hire_${STAFF.find((p) => p.x === (x > 0 ? x - 1 : x + 1))!.role}`;
+  const neighbour = row ? row.requires : x === 0 ? 'storeHub' : `hire_${STAFF.find((p) => p.x === (x > 0 ? x - 1 : x + 1))!.role}`;
   const cost = plan.hireCost;
   return [
     {
       id: `hire_${role}`, branch: 'store', name: `${job}：${first.name}`,
       desc: `${first.name}を${job}として雇う。${work}。${plan.hireDesc}`,
-      icon: first.image, x, y: HIRE_ROW, max: 1, baseCost: cost, growth: 1, requires: [neighbour],
+      icon: first.image, ...at(0), max: 1, baseCost: cost, growth: 1, requires: [neighbour],
       effects: [atLeast(`staff_${role}`, 1), ...plan.hire],
     },
     {
       id: `${role}_1`, branch: 'store', name: plan.up1.name, desc: `${job}: ${plan.up1.desc}`, icon: plan.up1.icon,
-      x, y: HIRE_ROW + 1, max: plan.up1.max, baseCost: Math.round(cost * 0.4), growth: 1.8, requires: [`hire_${role}`], effects: plan.up1.effects,
+      ...at(1), max: plan.up1.max, baseCost: Math.round(cost * 0.4), growth: 1.8, requires: [`hire_${role}`], effects: plan.up1.effects,
     },
     {
       id: `${role}_2`, branch: 'store', name: plan.up2.name, desc: `${job}: ${plan.up2.desc}`, icon: plan.up2.icon,
-      x, y: HIRE_ROW + 2, max: plan.up2.max, baseCost: Math.round(cost * 0.6), growth: 1.9, requires: [`${role}_1`], effects: plan.up2.effects,
+      ...at(2), max: plan.up2.max, baseCost: Math.round(cost * 0.6), growth: 1.9, requires: [`${role}_1`], effects: plan.up2.effects,
     },
     {
       id: `ace_${role}`, branch: 'store', name: `ヒーロー雇用：${ace.name}`,
       desc: `${job}を${ace.name}に任せる。パッシブ「${ace.passive}」: ${plan.aceDesc}`,
-      icon: ace.image, x, y: HIRE_ROW + 3, max: 1, baseCost: cost * 25, growth: 1, requires: [`${role}_2`],
+      icon: ace.image, ...at(3), max: 1, baseCost: cost * 25, growth: 1, requires: [`${role}_2`],
       effects: [atLeast(`staff_${role}`, 2), ...plan.ace],
     },
   ];

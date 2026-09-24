@@ -108,7 +108,7 @@ const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   image: h.image,
 });
 
-const heroById = new Map(raw.heroes.map((h) => [h.id, h]));
+export const heroById = new Map(raw.heroes.map((h) => [h.id, h]));
 const byId = <T>(map: Map<number, T>, id: number, what: string): T => {
   const v = map.get(id);
   if (!v) throw new Error(`${what} ${id} not in catalog`);
@@ -126,7 +126,9 @@ export const staffHeroes: Record<string, { hero: Hero; ace: Hero }> = Object.fro
       return [role, { hero: toHero(byId(heroById, ids.hero, 'staff hero')), ace: toHero(byId(heroById, ids.ace, 'staff hero')) }];
     }),
 );
-const staffIds = new Set(Object.values(staffHeroes).flatMap((s) => [s.hero.id, s.ace.id]));
+/** Shady merchants who offer to buy up the stock (a decision event). */
+export const merchants: Hero[] = content.merchantIds.map((id) => toHero(byId(heroById, id, 'merchant hero')));
+const staffIds = new Set([...Object.values(staffHeroes).flatMap((s) => [s.hero.id, s.ace.id]), ...content.merchantIds]);
 
 /** Customers: original heroes with a rarity, excluding the thieves and the staff. */
 export const customers: Hero[] = raw.heroes
@@ -137,6 +139,10 @@ export const customersByTier: Hero[][] = RARITIES.map((r) => customers.filter((c
 const enemyById = new Map(raw.enemies.map((e) => [e.id, e]));
 /** Enemies that get into the workshop (see content.json). */
 export const pests = content.pestIds.map((id) => byId(enemyById, id, 'pest enemy'));
+/** Enemies that wander into the shop and scare customers (see content.json). */
+export const storePests = content.storePestIds.map((id) => byId(enemyById, id, 'store pest'));
+/** Lands (guilds): window view on the land's day and its guardian cryptid. */
+export const lands = raw.lands as { key: string; name: string; view: string; cryptid: string }[];
 export const workshopImages = raw.workshop as Record<string, string>;
 export const staffFrames = raw.staff as {
   chris: Frame[];

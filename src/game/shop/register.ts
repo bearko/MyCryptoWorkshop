@@ -65,7 +65,7 @@ export class Register {
       return;
     }
     const tip = shop.rand.next() < shop.stats.tipChance;
-    const price = Math.round(salePrice(a.item, shop.stats, shop.save.collection.length, a.tier, tip) * a.priceBonus);
+    const price = Math.round(salePrice(a.item, shop.stats, shop.save.collection.length, a.tier, tip) * customers.payMult(a, a.item));
     shop.addGum(price, a.x, a.y - HERO_PX - 30);
     shop.report.sold++;
     shop.save.totals.sold++;
@@ -75,6 +75,7 @@ export class Register {
     shop.emit({ type: 'sale', price, item: a.item, hero: a.hero, tip });
     a.paid = price;
     a.item = null;
+    shop.hazards.onPaid(a, price);
     customers.afterCheckout(a);
     // まとめ会計: the next customer in line is served in the same go.
     if (!batched && shop.rand.next() < shop.stats.batchChance) {

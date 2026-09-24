@@ -6,6 +6,13 @@ import { isAvailable, level, SKILLS, skillById } from '../src/game/skills';
 import { computeStats, rarityWeights } from '../src/game/stats';
 import { THIEF_STYLES } from '../src/game/thieves';
 
+/** Advances one frame, answering any decision event with its fallback. */
+function step(shop: Shop): void {
+  const d = shop.pendingDecision;
+  if (d) shop.decide(d.fallback);
+  shop.update(1 / 30);
+}
+
 describe('skill tree', () => {
   it('has unique ids, valid parents and unique positions', () => {
     const ids = new Set<string>();
@@ -65,7 +72,7 @@ describe('shop simulation', () => {
     save.day = 5;
     const shop = new Shop(save, seeded(7));
     for (let i = 0; i < 30 * 60 && !shop.over; i++) {
-      shop.update(1 / 30);
+      step(shop);
       for (const s of shop.slots) {
         const claimants = shop.actors.filter((a) => a.slot >= 0 && shop.slots[a.slot] === s && a.id === s.claimedBy);
         expect(claimants.length).toBeLessThanOrEqual(1);
@@ -87,7 +94,7 @@ describe('shop simulation', () => {
       const tapChance = seed % 2 ? 0 : 0.02;
       const tapRng = seeded(seed + 100);
       for (let i = 0; i < 30 * 120 && !shop.over; i++) {
-        shop.update(1 / 30);
+        step(shop);
         for (const a of shop.actors) {
           if (a.kind !== 'thief') continue;
           expect(a.timer, `${a.hero.name} stuck in ${a.state}`).toBeLessThan(20);
@@ -109,7 +116,7 @@ describe('shop simulation', () => {
     const events: string[] = [];
     shop.on((e) => events.push(e.type));
     for (let i = 0; i < 30 * 120 && !shop.over; i++) {
-      shop.update(1 / 30);
+      step(shop);
       const tough = shop.actors.find((a) => a.kind === 'thief' && a.style!.hp > 1 && a.state !== 'caught');
       if (tough) {
         shop.clickThief(tough);

@@ -145,14 +145,58 @@ const heroes = readJson('Data/Heroes/heroes.json')
 // ---------------------------------------------------------------- enemies (all with 64px art)
 const enemies = readJson('Data/Enemies/enemies.json')
   .filter((e) => e.image_exists)
-  .sort(firstBy((e) => content.pestIds.includes(e.id)))
+  .sort(firstBy((e) => content.pestIds.includes(e.id) || content.storePestIds.includes(e.id)))
   .map((e) => ({ id: e.id, name: e.name.ja, image: sprite('enemy', e.image_file_path) }));
+
+// ---------------------------------------------------------------- window views
+// Battle backgrounds are 1000×1500; the storefront window only shows a 2:1 strip, so a small
+// box-filtered crop is written instead of shipping the full image.
+const WINDOW_W = 320;
+const WINDOW_H = 160;
+function windowCrop(relPath, key) {
+  const png = PNG.sync.read(readFileSync(join(src, relPath)));
+  const cropH = Math.round(png.width / 2);
+  const y0 = Math.round(png.height * 0.3);
+  const out = new PNG({ width: WINDOW_W, height: WINDOW_H });
+  const sx = png.width / WINDOW_W;
+  const sy = cropH / WINDOW_H;
+  for (let y = 0; y < WINDOW_H; y++) {
+    for (let x = 0; x < WINDOW_W; x++) {
+      const acc = [0, 0, 0, 0];
+      let n = 0;
+      for (let v = Math.floor(y0 + y * sy); v < Math.floor(y0 + (y + 1) * sy); v++) {
+        for (let u = Math.floor(x * sx); u < Math.floor((x + 1) * sx); u++) {
+          const i = (v * png.width + u) * 4;
+          for (let c = 0; c < 4; c++) acc[c] += png.data[i + c];
+          n++;
+        }
+      }
+      const o = (y * WINDOW_W + x) * 4;
+      for (let c = 0; c < 4; c++) out.data[o + c] = Math.round(acc[c] / Math.max(1, n));
+    }
+  }
+  mkdirSync(outAtlas, { recursive: true });
+  writeFileSync(join(outAtlas, `window-${key}.png`), PNG.sync.write(out, { deflateLevel: 9 }));
+  return `mch-atlas/window-${key}.png`;
+}
 
 // Workshop background and facility overlays.
 const craftBgs = readJson('Data/CraftBackgrounds/craft_backgrounds.json');
 const workshop = Object.fromEntries(craftBgs.map((b) => [b.key, use(b.image_file_path)]));
 // Scenery seen through the storefront window.
-const windowView = use('Image/Backgrounds/1056.png');
+const windowView = windowCrop('Image/Backgrounds/1056.png', 'default');
+
+// Lands (guilds of MCH): the window view on a land's day, and its guardian cryptid.
+const backgrounds = readJson('Data/Backgrounds/backgrounds.json');
+const cryptids = readJson('Data/Cryptids/cryptids.json');
+const lands = backgrounds
+  .filter((b) => b.node_type === 'land')
+  .map((b) => ({
+    key: b.node_name_en,
+    name: b.node_name_ja,
+    view: windowCrop(b.image_file_path, b.node_name_en.toLowerCase()),
+    cryptid: use(cryptids.find((c) => c.image_file_path === b.cryptid_ref).image_file_path),
+  }));
 
 // Staff (original characters, free to use).
 const chars = readJson('Data/Characters/characters.json');
@@ -186,6 +230,10 @@ const audio = {
   buff: use('Audio/SE/Battle/4_buff.mp3'),
   debuff: use('Audio/SE/Battle/5_debuff_status_effect.mp3'),
   win: use('Audio/SE/Jingles/win.mp3'),
+  helper: use('Audio/SE/Jingles/knight.mp3'),
+  clean: use('Audio/SE/Battle/3_heal_resurrection.mp3'),
+  zap: use('Audio/SE/Battle/2_area_damage.mp3'),
+  bgmRaid: use('Audio/BGM/raid.mp3'),
 };
 
 const atlases = writeAtlases();
@@ -198,6 +246,7 @@ const catalog = {
   enemies,
   workshop,
   windowView,
+  lands,
   staff: {
     chris: frames.chris_loop,
     chrisCheer: staffPose('chris_03_cheer.png'),
@@ -222,6 +271,7 @@ const catalog = {
     sleep: bicon('sleep'),
     fear: bicon('fear'),
     decoy: bicon('decoy'),
+    mai: icon('mai_sd'),
   },
   audio,
 };

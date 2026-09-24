@@ -11,6 +11,8 @@ import type { Actor, Slot } from './types';
 export class Thieves {
   private timer = 0;
   private next: number;
+  /** No more thieves today (MAI chased them off). */
+  suppressed = false;
 
   constructor(private readonly shop: Shop) {
     this.next = shop.rand.range(10, 16);
@@ -18,19 +20,23 @@ export class Thieves {
 
   updateSpawns(dt: number): void {
     const shop = this.shop;
-    if (shop.save.day < 2) return;
+    if (shop.save.day < 2 || this.suppressed) return;
     this.timer += dt;
     if (this.timer >= this.next) {
       this.timer = 0;
       const scale = Math.max(0.45, 1 - 0.04 * (shop.save.day - 2));
-      this.next = shop.rand.range(14, 22) * scale;
+      // Thieves love the fog.
+      const fog = shop.condition.kind === 'fog' ? shop.stats.fogThieves : 1;
+      this.next = (shop.rand.range(14, 22) * scale) / fog;
       if (shop.stock.hasItemOnShelf()) this.spawn();
     }
   }
 
   spawn(): void {
     const shop = this.shop;
-    const hero = shop.rand.pick(thieves);
+    // In the fog, the ones who pass for customers come out.
+    const disguised = thieves.filter((t) => thiefStyle(t.id).disguise);
+    const hero = shop.condition.kind === 'fog' && disguised.length && shop.rand.next() < 0.6 ? shop.rand.pick(disguised) : shop.rand.pick(thieves);
     const style = thiefStyle(hero.id);
     const a = makeActor(shop, 'thief', hero, 0);
     a.style = style;
@@ -188,16 +194,23 @@ export class Thieves {
     a.gone = true;
   }
 
-  /** Catches a thief (by a tap, Maycri-kun or the guard); the stolen item goes back. */
-  catch(a: Actor, byGuard: boolean, guard?: string): void {
+  bounty(): number {
+    const { stats } = this.shop;
+    const topValue = RARITY_PRICE[stats.maxRarity] * stats.priceMult;
+    return Math.round((5 + 0.6 * topValue) * stats.bountyMult);
+  }
+
+  /**
+   * Catches a thief (by a tap, Maycri-kun, the guard or MAI); the stolen item goes back.
+   * The bounty is not paid when the thief asks to reform (the choice pays it instead).
+   */
+  catch(a: Actor, byGuard: boolean, guard?: string, payBounty = true): void {
     const shop = this.shop;
-    const { stats } = shop;
     releaseClaim(shop, a);
     if (a.item !== null) shop.stock.returnItem(a.item);
     a.item = null;
-    const topValue = RARITY_PRICE[stats.maxRarity] * stats.priceMult;
-    const bounty = Math.round((5 + 0.6 * topValue) * stats.bountyMult);
-    shop.addGum(bounty, a.x, a.y - HERO_PX - 30);
+    const bounty = this.bounty();
+    if (payBounty) shop.addGum(bounty, a.x, a.y - HERO_PX - 30);
     shop.report.caught++;
     shop.save.totals.caught++;
     a.state = 'caught';
@@ -205,7 +218,7 @@ export class Thieves {
     a.rope = false;
     a.path = [];
     a.timer = 0;
-    shop.emit({ type: 'caught', hero: a.hero, bounty, byGuard, guard });
+    shop.emit({ type: 'caught', hero: a.hero, bounty: payBounty ? bounty : 0, byGuard, guard });
   }
 
   /** Returns the thief under the point, if any. Hit boxes are generous for touch. */
@@ -223,6 +236,18 @@ export class Thieves {
     a.hitFlash = 1;
     this.shop.fx.push({ kind: 'hit', x: a.x, y: a.y - HERO_PX / 2, t: 0 });
     if (a.hp > 0) this.shop.emit({ type: 'thiefHit', hero: a.hero, hpLeft: a.hp });
-    else this.catch(a, false);
+    else this.catch(a, false, undefined, !this.shop.decisions.offerReform(a, this.bounty()));
+  }
+
+  /** Catches every thief in the shop and keeps new ones away for the day. Returns how many. */
+  clearAll(): number {
+    let n = 0;
+    for (const a of this.shop.actors) {
+      if (a.kind !== 'thief' || a.state === 'caught' || a.gone) continue;
+      this.catch(a, true, 'MAI');
+      n++;
+    }
+    this.suppressed = true;
+    return n;
   }
 }

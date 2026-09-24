@@ -1,6 +1,6 @@
 // Headless auto-player used by the balance tests and `npm run balance`.
 import { newSave, type SaveData } from '../save';
-import { Shop, type DayReport, type Rng } from '../shop';
+import { Shop, type DayReport, type Decision, type Rng } from '../shop';
 import { GEM_IDS, LINE_IDS } from '../lines';
 import { buy, canBuy } from '../purchase';
 import { GEM_COST } from '../shop/production';
@@ -30,12 +30,14 @@ export interface PlayerModel {
   overclocks: boolean;
   /** Infuses 魔石 into lines between days. */
   usesGems: boolean;
+  /** Answers decision events with a simple policy (otherwise the fallback, as when idle). */
+  decides: boolean;
 }
 
 export const PLAYERS: PlayerModel[] = [
-  { name: 'active', clicksPerSec: 3, thiefAccuracy: 0.8, overclocks: true, usesGems: true },
-  { name: 'casual', clicksPerSec: 1, thiefAccuracy: 0.5, overclocks: false, usesGems: true },
-  { name: 'idle', clicksPerSec: 0, thiefAccuracy: 0, overclocks: false, usesGems: false },
+  { name: 'active', clicksPerSec: 3, thiefAccuracy: 0.8, overclocks: true, usesGems: true, decides: true },
+  { name: 'casual', clicksPerSec: 1, thiefAccuracy: 0.5, overclocks: false, usesGems: true, decides: true },
+  { name: 'idle', clicksPerSec: 0, thiefAccuracy: 0, overclocks: false, usesGems: false, decides: false },
 ];
 
 /** Picks today's 魔石 for each line: the gem the player has most of. */
@@ -53,6 +55,16 @@ function chooseGems(save: SaveData): void {
   }
 }
 
+/**
+ * A simple policy for decision events: sell to the merchant only when storage is overflowing,
+ * take MAI's sales boost, and forgive thieves until there are a few regulars.
+ */
+export function policy(shop: Shop, d: Decision): number {
+  if (d.kind === 'merchant') return shop.stock.storage.length >= Math.max(4, shop.stats.storageCap) ? 0 : 1;
+  if (d.kind === 'reform') return shop.save.regulars.length < 6 ? 1 : 0;
+  return 0;
+}
+
 /** Plays one business day with the given player model. */
 export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[0]): { report: DayReport; seconds: number } {
   if (player.usesGems) chooseGems(save);
@@ -61,6 +73,8 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
   let clickBudget = 0;
   let tapLine = 0;
   while (!shop.over) {
+    const pending = shop.pendingDecision;
+    if (pending) shop.decide(player.decides ? policy(shop, pending) : pending.fallback);
     if (player.overclocks) {
       // Keep the slowest-progressing line held while it is cool enough.
       const target = shop.lines.reduce((a, b) => (b.stats.craftTime > a.stats.craftTime ? b : a));
@@ -84,7 +98,7 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {

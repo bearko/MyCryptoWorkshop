@@ -56,6 +56,12 @@ export interface Actor {
   paid?: number;
   /** Price multiplier for the item in hand (showcase items sell at a premium). */
   priceBonus: number;
+  /** Special customers: collectors want one series, land owners buy the best, regulars are reformed thieves, guilds come by vehicle. */
+  special?: 'collector' | 'owner' | 'regular' | 'guild';
+  /** Series index a collector is looking for. */
+  wants?: number;
+  /** Seconds before this customer can be bothered by mud again. */
+  mudCooldown: number;
   /** Waypoints to walk through before the current target. */
   path: { x: number; y: number }[];
   style?: ThiefStyle;
@@ -116,7 +122,72 @@ export interface Fx {
 }
 
 /** Revenue that does not come from the register. */
-export type ExtraSource = 'bar' | 'trial' | 'market' | 'peddler' | 'bonus';
+export type ExtraSource = 'bar' | 'trial' | 'market' | 'peddler' | 'bonus' | 'chest' | 'coin' | 'merchant';
+
+/** Mud (rainy days) or litter (from opened chests) on the shop floor. */
+export interface Mess {
+  id: number;
+  x: number;
+  y: number;
+  kind: 'mud' | 'litter';
+  t: number;
+}
+
+/** A coin a customer dropped in the fog; tap (or the cleaner) picks it up. */
+export interface Coin {
+  id: number;
+  x: number;
+  y: number;
+  value: number;
+  t: number;
+}
+
+/** An enemy wandering the shop floor, scaring customers. */
+export interface StorePest {
+  id: number;
+  name: string;
+  image: string;
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  hp: number;
+  hitFlash: number;
+  t: number;
+}
+
+/** A treasure chest drifting across the shop on a balloon. */
+export interface Chest {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  t: number;
+}
+
+/** A helper or VIP visiting for a while (cryptid, legendary hero). */
+export interface Visit {
+  kind: 'cryptid' | 'legend';
+  name: string;
+  image: string;
+  /** The hero's passive skill, shown in the cut-in. */
+  skill: string;
+  x: number;
+  y: number;
+  t: number;
+  dur: number;
+}
+
+/** A choice the player has to make; the shop pauses until it is answered. */
+export interface Decision {
+  kind: 'merchant' | 'reform' | 'mai';
+  title: string;
+  text: string;
+  image: string;
+  options: { label: string; detail: string }[];
+  /** Chosen automatically if the player does not answer in time (and by idle play). */
+  fallback: number;
+}
 
 /** A staff member at work in the shop or the workshop. */
 export interface StaffMember {
@@ -158,6 +229,10 @@ export interface DayReport {
   /** Research points earned. */
   research: number;
   extras: Record<ExtraSource, number>;
+  /** Customers who arrived by vehicle. */
+  guests: number;
+  /** Decisions made today (kind → option index). */
+  decisions: { kind: Decision['kind']; choice: number }[];
 }
 
 export type ShopEvent =
@@ -165,7 +240,7 @@ export type ShopEvent =
   | { type: 'overheat'; line: LineId }
   | { type: 'dismantle'; item: number; dust: number; gem: GemId | null }
   | { type: 'sale'; price: number; item: number; hero: Hero; tip: boolean }
-  | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' }
+  | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' | 'mess' | 'scared' }
   | { type: 'thief'; hero: Hero; style: ThiefStyle }
   | { type: 'thiefHit'; hero: Hero; hpLeft: number }
   | { type: 'stolen'; hero: Hero; item: number }
@@ -176,4 +251,14 @@ export type ShopEvent =
   | { type: 'extra'; source: ExtraSource; amount: number }
   | { type: 'batch' }
   | { type: 'research'; points: number }
+  | { type: 'mess'; kind: Mess['kind'] }
+  | { type: 'cleaned'; byStaff: boolean }
+  | { type: 'chest'; reward: 'gum' | 'dust' | 'gem'; amount: number }
+  | { type: 'storePest'; name: string }
+  | { type: 'storePestCleared'; reward: number; by: 'tap' | 'cryptid' }
+  | { type: 'vehicle'; kind: number; count: number }
+  | { type: 'special'; kind: NonNullable<Actor['special']>; hero: Hero }
+  | { type: 'visit'; visit: Visit }
+  | { type: 'decision'; decision: Decision }
+  | { type: 'decided'; kind: Decision['kind']; choice: number; result: string }
   | { type: 'dayEnd'; report: DayReport };

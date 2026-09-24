@@ -68,7 +68,36 @@ export type GlobalStat =
   | 'trialChance'
   | 'trialFee'
   | 'showcaseSlots'
-  | 'showcaseMult';
+  | 'showcaseMult'
+  // Phase 4: day conditions, hazards, visitors, decisions
+  | `fav_${FactionKey}`
+  | 'cleanerSpeed'
+  | 'mudChance'
+  | 'coinChance'
+  | 'coinValue'
+  | 'storePestInterval'
+  | 'storePestBounty'
+  | 'cryptid'
+  | 'cryptidInterval'
+  | 'chestInterval'
+  | 'chestMult'
+  | 'vehicle'
+  | 'vehicleSize'
+  | 'vehicleInterval'
+  | 'collectorChance'
+  | 'collectorPay'
+  | 'ownerChance'
+  | 'ownerPay'
+  | 'merchantRate'
+  | 'reformChance'
+  | 'regularPay'
+  | 'blessingPower'
+  | 'legendChance'
+  | 'fogThieves'
+  | 'festivalCrowd';
+
+/** The five factions, as heroes' home factions and as stat keys. */
+export type FactionKey = 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu';
 
 /** Per-production-line stats; the full key is `${line}.${stat}`, e.g. "forge.craftTime". */
 export type LineStat =

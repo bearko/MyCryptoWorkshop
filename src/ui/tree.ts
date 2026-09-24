@@ -59,7 +59,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [6.6, -1.2], kouryu: [9.8, 3], byakko: [-3.2, 3.4], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );

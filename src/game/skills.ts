@@ -1,6 +1,7 @@
 import { catalog, customersByTier, icons, pests, series, thieves } from './catalog';
 import type { Currency } from './currency';
 import { PHASE3_NODES } from './skills3';
+import { PHASE4_NODES } from './skills4';
 import { add, atLeast, mul, overlay, pow, seriesPrice, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
@@ -205,6 +206,7 @@ export const SKILLS: SkillNode[] = [
   ...recipeNodes,
   ...PHASE2_NODES,
   ...PHASE3_NODES,
+  ...PHASE4_NODES,
 ];
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));
