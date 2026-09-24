@@ -74,7 +74,9 @@ export type Effect =
   /** Shows a workshop facility layer once the node reaches `minLevel` (default 1). */
   | { op: 'overlay'; key: string; minLevel?: number }
   /** Unlocks an extension series for crafting. */
-  | { op: 'series'; index: number };
+  | { op: 'series'; index: number }
+  /** Multiplies one series' sale price by (1 + per × level). */
+  | { op: 'seriesMul'; index: number; per: number };
 
 // Small constructors keep the skill table readable.
 export const add = (stat: NumStat, per: number, base = 0): Effect => ({ op: 'add', stat, per, base });
@@ -83,3 +85,4 @@ export const pow = (stat: NumStat, factor: number): Effect => ({ op: 'pow', stat
 export const atLeast = (stat: NumStat, value: number): Effect => ({ op: 'max', stat, value });
 export const overlay = (key: string, minLevel = 1): Effect => ({ op: 'overlay', key, minLevel });
 export const unlockSeries = (index: number): Effect => ({ op: 'series', index });
+export const seriesPrice = (index: number, per: number): Effect => ({ op: 'seriesMul', index, per });

@@ -7,6 +7,9 @@ describe('data-driven skill effects', () => {
   // The snapshot was produced by the original hand-written computeStats before effects became data.
   // Phase 2 renamed the crafting stats to the magic pot's line stats, and turned the 鍛冶ハンマー
   // (-15% craft time) into the forge line, so that one value is expected to differ.
+  // Phase 2-6 also retuned the pot's base craft time and tap power; both are only ever
+  // multiplied by skills, so the old values scale by the same factor.
+  const RETUNED: Record<string, number> = { 'pot.craftTime': 4.2 / 2.6, 'pot.craftClick': 0.22 / 0.12 };
   const RENAMED: Record<string, string> = {
     craftTime: 'pot.craftTime',
     craftClick: 'pot.craftClick',
@@ -21,7 +24,7 @@ describe('data-driven skill effects', () => {
         if (key === 'pot.craftTime' && (levels as Record<string, number>).forge) continue;
         if (key === 'overlays') continue;
         const got = actual[key as keyof typeof actual];
-        if (typeof value === 'number') expect(got, key).toBeCloseTo(value, 9);
+        if (typeof value === 'number') expect(got, key).toBeCloseTo(value * (RETUNED[key] ?? 1), 9);
         else expect([...(got as unknown[])].sort(), key).toEqual([...(value as unknown[])].sort());
       }
     }
@@ -38,7 +41,7 @@ describe('describeChanges', () => {
   it('shows the next level of a node as before → after', () => {
     const before = computeStats({ root: 1, craftSpeed: 1 });
     const after = computeStats({ root: 1, craftSpeed: 2 });
-    expect(describeChanges(before, after)).toEqual([{ label: '魔法の壺: クラフト時間', from: '2.39秒', to: '2.20秒' }]);
+    expect(describeChanges(before, after)).toEqual([{ label: '魔法の壺: クラフト時間', from: '3.86秒', to: '3.55秒' }]);
   });
 
   it('describes unlocks and new series', () => {

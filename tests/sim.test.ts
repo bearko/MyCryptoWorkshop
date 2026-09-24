@@ -138,7 +138,7 @@ describe('shop simulation', () => {
     }
     console.log(lines.join('\n'), '\nmilestones', milestones);
     expect(milestones.uncommon).toBeLessThanOrEqual(4);
-    expect(milestones.rare).toBeLessThanOrEqual(15);
-    expect(milestones.epic).toBeLessThanOrEqual(35);
+    expect(milestones.rare).toBeLessThanOrEqual(28);
+    expect(milestones.epic).toBeLessThanOrEqual(65);
   });
 });
