@@ -189,7 +189,7 @@ export class Thieves {
   }
 
   /** Catches a thief (by a tap, Maycri-kun or the guard); the stolen item goes back. */
-  catch(a: Actor, byGuard: boolean): void {
+  catch(a: Actor, byGuard: boolean, guard?: string): void {
     const shop = this.shop;
     const { stats } = shop;
     releaseClaim(shop, a);
@@ -205,7 +205,7 @@ export class Thieves {
     a.rope = false;
     a.path = [];
     a.timer = 0;
-    shop.emit({ type: 'caught', hero: a.hero, bounty, byGuard });
+    shop.emit({ type: 'caught', hero: a.hero, bounty, byGuard, guard });
   }
 
   /** Returns the thief under the point, if any. Hit boxes are generous for touch. */

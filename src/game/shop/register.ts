@@ -23,7 +23,8 @@ export class Register {
     this.pulse = Math.max(0, this.pulse - dt * 4);
   }
 
-  private laneTime(r: number): number {
+  /** Seconds a checkout takes on lane r. */
+  laneTime(r: number): number {
     return this.shop.stats.cashierTime * (r >= this.autoFrom ? AUTO_REGISTER_SLOWDOWN : 1);
   }
 

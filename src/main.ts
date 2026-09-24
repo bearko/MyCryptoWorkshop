@@ -6,12 +6,12 @@ import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
-import { Shop, type DayReport, type ShopEvent } from './game/shop';
+import { Shop, type DayReport, type ExtraSource, type ShopEvent } from './game/shop';
 import { buy } from './game/purchase';
 import { computeStats } from './game/stats';
 import type { SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
-import { SceneRenderer } from './render/scene';
+import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
 import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
@@ -285,9 +285,21 @@ function openCollection(): void {
 }
 
 function openMenu(): void {
+  // Sound toggles live here too: the topbar hides them on narrow screens.
+  const soundBtn = (key: 'bgm' | 'se', label: string) => {
+    const btn = h('button.btn.small.toggle', {}, label) as HTMLButtonElement;
+    const sync = () => btn.classList.toggle('off', !save.settings[key]);
+    btn.addEventListener('click', () => {
+      toggleSetting(key);
+      sync();
+    });
+    sync();
+    return btn;
+  };
   const body = h(
     'div.menu',
     {},
+    h('div.menu-sound', {}, h('span', {}, 'サウンド'), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
     h('p', {}, '累計成績'),
     h(
       'div.stat-grid',
@@ -434,6 +446,15 @@ function showResults(report: DayReport): void {
   ];
   if (report.day >= 2) rows.push(['捕まえた泥棒', `${report.caught}人`], ['盗まれた商品', `${report.stolen}個`, report.stolen ? 'bad' : '']);
   if (report.day >= 3) rows.push(['退治したエネミー', `${report.pests}体`]);
+  const extras: [ExtraSource, string][] = [
+    ['bar', 'ポーションバー'],
+    ['trial', '試し斬り'],
+    ['market', 'マーケット'],
+    ['peddler', '行商'],
+    ['bonus', '会計係のボーナス'],
+  ];
+  for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
+  if (report.research > 0) rows.push(['研究ポイント', `+${report.research}`]);
   if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
   const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
   if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
@@ -490,6 +511,8 @@ function startDay(): void {
     tip('thiefWarn', '今日から泥棒が出るみたい…赤く光っているヒーローを見つけたらクリックで捕まえて！');
   } else if (save.day === 3) {
     tip('pestWarn', '工房にエネミーが入り込むことがあるよ。跳ね回るエネミーを見つけたらタップで追い払おう！');
+  } else if (shop.staffMembers.length > 0 && !save.tips.includes('staff')) {
+    tip('staff', 'スタッフが店で働いているよ！足元の名札で役割がわかるよ。ヒーローを雇うともっと頼もしくなる！');
   } else {
     say(`Day ${save.day} 開店！今日もがんばろう！`);
   }
@@ -549,7 +572,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'caught':
       sound.play('hit');
-      log(h('span', {}, e.byGuard ? 'マイクリくんが ' : '', h('b.villain', {}, e.hero.name), ' を捕まえた！ 懸賞金 ', h('span.gum-text', {}, `+${fmt(e.bounty)}`)), 'good');
+      log(h('span', {}, e.byGuard ? `${e.guard ?? 'マイクリくん'}が ` : '', h('b.villain', {}, e.hero.name), ' を捕まえた！ 懸賞金 ', h('span.gum-text', {}, `+${fmt(e.bounty)}`)), 'good');
       break;
     case 'pest':
       sound.play('debuff');
@@ -560,6 +583,24 @@ function onShopEvent(e: ShopEvent): void {
       log(h('span', {}, 'エネミーを追い払った！ ', h('span.gum-text', {}, `+${fmt(e.reward)}`)), 'good');
       break;
     case 'mine':
+      break;
+    case 'extra':
+      if (e.source === 'peddler') {
+        sound.play('sale');
+        log(h('span', {}, '行商人が町から帰ってきた！ ', h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
+      } else if (e.source === 'bonus') {
+        log(h('span', {}, '会計係の閉店ボーナス ', h('span.gum-text', {}, `+${fmt(e.amount)}`)), 'good');
+      } else if (e.source === 'market') {
+        tip('market', '棚がいっぱいの間は、倉庫の余りをマーケットで売ってくれるよ！');
+      } else if (e.source === 'bar') {
+        tip('bar', 'ポーションバーでひと休みしていくお客さんもいるみたい！');
+      }
+      break;
+    case 'batch':
+      tip('batch', 'まとめ会計！次のお客さんも一緒に会計したよ');
+      break;
+    case 'research':
+      tip('research', '研究者が研究ポイントを見つけたよ！スキルツリーの「研究」で使えるよ');
       break;
     case 'dayEnd':
       sound.play('win');
@@ -728,6 +769,7 @@ void preload([
   ...pests.map((p) => p.image),
   ...staffFrames.chris.map((f) => f.image),
   ...staffFrames.mine.map((f) => f.image),
+  ...SCENE_SPRITES,
 ]).then(() => {
   document.body.classList.add('loaded');
   showTitle();

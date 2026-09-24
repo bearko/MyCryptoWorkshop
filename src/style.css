@@ -1348,6 +1348,18 @@ body.in-day {
   box-shadow: 0 0 0 1.5px #0009, 0 0 6px currentColor;
 }
 
+.menu-sound {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.menu-sound span {
+  margin-right: auto;
+  color: var(--muted);
+}
+
 /* ---------------------------------------------------------------- responsive */
 
 @media (max-width: 860px) {
@@ -1398,5 +1410,39 @@ body.in-day {
     left: auto;
     right: 10px;
     bottom: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .topbar .settings .toggle {
+    display: none;
+  }
+
+  .gum {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .gum img {
+    width: 24px;
+    height: 24px;
+  }
+
+  .dust {
+    font-size: 13px;
+  }
+
+  .dust img {
+    width: 18px;
+    height: 18px;
+  }
+
+  .day-label {
+    font-size: 14px;
   }
 }
