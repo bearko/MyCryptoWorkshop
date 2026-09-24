@@ -778,6 +778,10 @@
     "cleaner": {
       "hero": 1007,
       "ace": 4002
+    },
+    "charity": {
+      "hero": 2007,
+      "ace": 4033
     }
   },
   "storePestIds": [
@@ -1053,5 +1057,10 @@
       "Mirror",
       "Moai"
     ]
-  }
+  },
+  "pirateIds": [
+    4036,
+    3032,
+    3029
+  ]
 }

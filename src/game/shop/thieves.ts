@@ -1,7 +1,8 @@
 import { thieves } from '../catalog';
 import { itemValue, RARITY_PRICE } from '../items';
 import { CEILING_Y, DOOR, HERO_PX, SHOP_LANE_Y, WINDOW } from '../layout';
-import { thiefStyle } from '../thieves';
+import type { Hero } from '../catalog';
+import { thiefStyle, type ThiefStyle } from '../thieves';
 import { makeActor, releaseClaim } from './actors';
 import type { Shop } from './index';
 import { followPath, moveToward } from './movement';
@@ -32,12 +33,13 @@ export class Thieves {
     }
   }
 
-  spawn(): void {
+  /** Sends a thief in (a random villain, or the given pirate of a raid). */
+  spawn(who?: Hero, how?: ThiefStyle): Actor {
     const shop = this.shop;
     // In the fog, the ones who pass for customers come out.
     const disguised = thieves.filter((t) => thiefStyle(t.id).disguise);
-    const hero = shop.condition.kind === 'fog' && disguised.length && shop.rand.next() < 0.6 ? shop.rand.pick(disguised) : shop.rand.pick(thieves);
-    const style = thiefStyle(hero.id);
+    const hero = who ?? (shop.condition.kind === 'fog' && disguised.length && shop.rand.next() < 0.6 ? shop.rand.pick(disguised) : shop.rand.pick(thieves));
+    const style = how ?? thiefStyle(hero.id);
     const a = makeActor(shop, 'thief', hero, 0);
     a.style = style;
     a.hp = style.hp;
@@ -62,6 +64,7 @@ export class Thieves {
       }
     }
     shop.emit({ type: 'thief', hero, style });
+    return a;
   }
 
   private isClaimedByThief(s: Slot): boolean {

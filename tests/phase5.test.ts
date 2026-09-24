@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACHIEVEMENTS, checkAchievements, DAILY_BONUS, rollDailies, settleDailies } from '../src/game/achievements';
 import { seeded } from '../src/game/balance/autoplay';
-import { customers, series } from '../src/game/catalog';
+import { customers, lands, series } from '../src/game/catalog';
 import { affinityRank, grantSets, HERO_SETS } from '../src/game/heroes';
 import { favoriteSeries, placeOrders, type Order } from '../src/game/orders';
 import { buy } from '../src/game/purchase';
@@ -54,7 +54,7 @@ describe('all series', () => {
   it('the tree has at least 1000 nodes; set rewards stay hidden', () => {
     expect(TREE_NODES.length).toBeGreaterThanOrEqual(1000);
     const hidden = SKILLS.filter((n) => n.hidden);
-    expect(hidden.length).toBe(HERO_SETS.length);
+    expect(hidden.length).toBe(HERO_SETS.length + lands.length);
     for (const n of hidden) expect(isAvailable(n, { root: 1 })).toBe(false);
   });
 });

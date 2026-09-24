@@ -100,7 +100,17 @@ export type GlobalStat =
   | 'orderSlots'
   | 'orderPay'
   | 'orderFocus'
-  | 'cleared';
+  | 'cleared'
+  // Phase 6
+  | 'cpMult'
+  | 'startGum'
+  | 'keepRecipes'
+  | 'autoBuyer'
+  | 'raidReward'
+  | 'charity'
+  | 'charityLoad'
+  | 'fameMult'
+  | 'raidChance';
 
 /** The five factions, as heroes' home factions and as stat keys. */
 export type FactionKey = 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu';

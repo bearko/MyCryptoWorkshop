@@ -68,6 +68,8 @@ export interface Actor {
   /** Waypoints to walk through before the current target. */
   path: { x: number; y: number }[];
   style?: ThiefStyle;
+  /** One of the pirates of a raid. */
+  raider?: boolean;
   /** Taps left before a thief is caught. */
   hp: number;
   hitFlash: number;
@@ -125,7 +127,7 @@ export interface Fx {
 }
 
 /** Revenue that does not come from the register. */
-export type ExtraSource = 'bar' | 'trial' | 'market' | 'peddler' | 'bonus' | 'chest' | 'coin' | 'merchant';
+export type ExtraSource = 'bar' | 'trial' | 'market' | 'peddler' | 'bonus' | 'chest' | 'coin' | 'merchant' | 'raid';
 
 /** Mud (rainy days) or litter (from opened chests) on the shop floor. */
 export interface Mess {
@@ -248,9 +250,27 @@ export interface DayReport {
   /** Achievements earned and emblems from requests at closing. */
   achievements: string[];
   dailyEmblems: number;
+  /** Fame from the charity clerk's donations (items donated). */
+  fame: number;
+  donated: number;
+  /** The pirate raid today, if one came. */
+  raid: RaidResult | null;
+}
+
+export interface RaidResult {
+  pirates: number;
+  caught: number;
+  /** All pirates caught without losing an item. */
+  won: boolean;
+  reward: number;
+  emblems: number;
 }
 
 export type ShopEvent =
+  | { type: 'raidWarn'; pirates: number }
+  | { type: 'raidStart'; pirates: number }
+  | { type: 'raidEnd'; result: RaidResult }
+  | { type: 'donate'; items: number; fame: number }
   | { type: 'craft'; item: number; isNew: boolean; line: LineId }
   | { type: 'overheat'; line: LineId }
   | { type: 'dismantle'; item: number; dust: number; gem: GemId | null }

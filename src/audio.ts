@@ -2,7 +2,7 @@ import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
 type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
-type Bgm = 'bgmShop' | 'bgmTree';
+type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid';
 
 const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5, clean: 0.4, zap: 0.5 };
 

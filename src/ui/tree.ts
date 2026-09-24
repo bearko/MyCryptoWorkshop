@@ -39,6 +39,7 @@ export interface TreeCallbacks {
   onBuy(node: SkillNode): void;
   onStartDay(): void;
   onCollection(): void;
+  onRelocate(): void;
 }
 
 /** Pannable skill-tree screen shown between business days. */
@@ -49,6 +50,7 @@ export class TreeView {
   private readonly detail: HTMLElement;
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
+  private readonly moveBtn = h('button.btn.relocate-btn', {}, '🧭 ランド移転（2周目へ）') as HTMLButtonElement;
   private readonly forecast = h('div.forecast');
   private readonly ordersBox = h('div.orders');
   private readonly dailyBox = h('div.dailies');
@@ -71,7 +73,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2], series: [-26, -32], honor: [16, -8.6] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2], series: [-26, -32], honor: [16, -8.6], prestige: [9, 13.1] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -100,6 +102,7 @@ export class TreeView {
     this.buyList = h('div.buy-list');
     this.infusionBox = h('div.infusion');
     this.startBtn = h('button.btn.btn-primary.start-day', { onclick: () => this.cb.onStartDay() }) as HTMLButtonElement;
+    this.moveBtn.addEventListener('click', () => this.cb.onRelocate());
 
     // Minimap: tap to jump there.
     this.minimap = h('canvas.tree-minimap', { width: MINIMAP_W * 2, height: MINIMAP_H * 2, 'aria-label': 'スキルツリー全体図' }) as HTMLCanvasElement;
@@ -156,6 +159,7 @@ export class TreeView {
         this.ordersBox,
         this.dailyBox,
         this.startBtn,
+        this.moveBtn,
         h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
         this.infusionBox,
@@ -397,6 +401,8 @@ export class TreeView {
 
     // Start button
     this.startBtn.textContent = `▶ Day ${this.save.day} 開店する`;
+    this.moveBtn.hidden = computeStats(levels).cleared <= 0;
+    this.moveBtn.textContent = `🧭 ランド移転（${this.save.prestige.runs + 2}周目へ）`;
     const c = this.save.forecast;
     this.forecast.replaceChildren(h('b', {}, `次の営業日: ${conditionLabel(c)}`), h('span', {}, CONDITIONS[c.kind].desc));
     this.dailyBox.replaceChildren(

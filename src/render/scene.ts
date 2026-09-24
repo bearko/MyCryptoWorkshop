@@ -86,7 +86,7 @@ interface Furnishing {
 function furnishingOf(shop: Shop): Furnishing {
   const s = shop.stats;
   return {
-    view: landOf(shop.condition)?.view ?? catalog.windowView,
+    view: landOf(shop.condition)?.view ?? homeLand(shop)?.view ?? catalog.windowView,
     slotCount: shop.shelfSlots,
     rug: s.rug,
     showcase: Math.min(MAX_SHOWCASE, s.showcaseSlots),
@@ -113,6 +113,9 @@ const DECOR = {
   flag: seriesIcon('Oriflamme', 1),
 };
 
+/** The land the workshop moved to (its view and cryptid by default). */
+const homeLand = (shop: Shop) => lands.find((l) => l.key === shop.save.prestige.home);
+
 /** Vehicle icons by stats.vehicle (1 carriage, 2 airship, 3 land gate). */
 const VEHICLE_ICONS = ['', seriesIcon('Horse', 3), seriesIcon('Spaceship', 2), seriesIcon('Ferris wheel', 3)];
 const VEHICLE_NAMES = ['', '乗合馬車', '飛空艇', 'ランドゲート'];
@@ -128,7 +131,7 @@ export const SCENE_SPRITES = [
   ...storePests.map((p) => p.image),
   ...merchants.map((m) => m.image),
   icons.mai,
-  lands[0].cryptid,
+  ...lands.map((l) => l.cryptid),
 ];
 
 /** Draws the storefront (static parts) into an offscreen canvas; redrawn when the furnishing changes. */
@@ -534,7 +537,7 @@ export class SceneRenderer {
     }
 
     // The shop's cryptid floats by the counter; its lightning hits enemies.
-    const cryptid = landOf(shop.condition)?.cryptid ?? lands[0].cryptid;
+    const cryptid = landOf(shop.condition)?.cryptid ?? homeLand(shop)?.cryptid ?? lands[0].cryptid;
     // Floats above the left end of the counter, clear of the queue.
     const cx = COUNTER.x0 + 6;
     const cy = COUNTER.top - 104 + Math.sin(now / 400) * 6;
@@ -805,7 +808,8 @@ export class SceneRenderer {
       if (a.kind === 'thief' && a.state !== 'caught' && !disguised) {
         // Villains glow red so they are easy to spot and tap.
         ctx.save();
-        ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : 'rgba(255,40,40,0.95)';
+        // Raid pirates glow orange.
+        ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : a.raider ? 'rgba(255,150,20,1)' : 'rgba(255,40,40,0.95)';
         ctx.shadowBlur = 14;
         drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
         ctx.restore();
