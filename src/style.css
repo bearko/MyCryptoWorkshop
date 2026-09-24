@@ -190,6 +190,20 @@ a {
   height: 30px;
 }
 
+.dust {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-pixel);
+  color: #ffd98a;
+  white-space: nowrap;
+}
+
+.dust img {
+  width: 22px;
+  height: 22px;
+}
+
 .day-label {
   font-family: var(--font-pixel);
   font-size: 16px;
@@ -875,6 +889,90 @@ body.in-day {
   margin-top: 6px;
 }
 
+.infusion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0004;
+}
+
+.infusion:empty {
+  display: none;
+}
+
+.infusion h3 {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.infusion-help,
+.infusion-effect {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.infusion-effect {
+  color: var(--good);
+}
+
+.gem-stock {
+  display: flex;
+  gap: 10px;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+}
+
+.gem-stock span {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gem-stock img,
+.gem-choice img {
+  width: 22px;
+  height: 22px;
+}
+
+.infusion-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.infusion-line {
+  flex: 1;
+  font-size: 13px;
+}
+
+.gem-choice {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0006;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.gem-choice.on {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold);
+}
+
+.gem-choice.short {
+  opacity: 0.45;
+}
+
 .buy-list {
   display: flex;
   flex-direction: column;
@@ -922,6 +1020,10 @@ body.in-day {
 
 .buy-name small {
   color: var(--muted);
+}
+
+.buy-cost.dust {
+  color: #ffd98a;
 }
 
 .buy-cost {

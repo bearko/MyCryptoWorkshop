@@ -30,6 +30,8 @@ export interface SkillNode {
   requires: string[];
   /** What each level does (see effects.ts). */
   effects: Effect[];
+  /** Paid in gold dust instead of GUM. */
+  currency?: 'dust';
 }
 
 const ext = (seriesIndex: number, rarityIndex: number) => series[seriesIndex].items[rarityIndex].image;

@@ -1,6 +1,7 @@
 // Headless auto-player used by the balance tests and `npm run balance`.
 import { newSave, type SaveData } from '../save';
 import { Shop, type DayReport, type Rng } from '../shop';
+import { buy, canBuy } from '../purchase';
 import { costOf, isAvailable, level, SKILLS } from '../skills';
 import { computeStats } from '../stats';
 
@@ -56,7 +57,13 @@ const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'ti
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {
   for (;;) {
-    const options = SKILLS.filter((n) => isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
+    // Gold-dust nodes are bought whenever affordable (dust has no other use).
+    const dustNode = SKILLS.find((n) => n.currency === 'dust' && canBuy(save, n));
+    if (dustNode) {
+      buy(save, dustNode);
+      continue;
+    }
+    const options = SKILLS.filter((n) => n.currency !== 'dust' && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
       .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') }))
       .sort((a, b) => a.cost - b.cost);
     const nextKey = options.find((o) => o.key);
@@ -66,8 +73,7 @@ export function spend(save: SaveData, lastRevenue: number): void {
       pick = options.find((o) => o.cost <= save.gum && (!saving || o.cost + nextKey!.cost <= save.gum + lastRevenue));
     }
     if (!pick) return;
-    save.gum -= pick.cost;
-    save.levels[pick.n.id] = level(save.levels, pick.n.id) + 1;
+    buy(save, pick.n);
   }
 }
 

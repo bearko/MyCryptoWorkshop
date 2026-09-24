@@ -3,6 +3,7 @@ import { MAX_SLOTS } from '../layout';
 import type { SaveData } from '../save';
 import { computeStats, type Stats } from '../stats';
 import { Customers } from './customers';
+import { Dismantler } from './dismantler';
 import { Pests } from './pests';
 import { Production } from './production';
 import { Random } from './random';
@@ -31,6 +32,7 @@ export class Shop {
   over = false;
 
   readonly stock: Stock;
+  readonly dismantler: Dismantler;
   readonly production: Production;
   readonly customers: Customers;
   readonly thieves: Thieves;
@@ -59,8 +61,12 @@ export class Shop {
       crafted: 0,
       newEntries: [],
       bestSale: null,
+      dust: 0,
+      gems: {},
     };
     this.stock = new Stock(save, this.stats);
+    this.dismantler = new Dismantler(this);
+    this.stock.freeUp = () => this.dismantler.freeOne();
     this.production = new Production(this);
     this.customers = new Customers(this);
     this.register = new Register(this);

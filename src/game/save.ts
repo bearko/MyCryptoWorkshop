@@ -127,7 +127,8 @@ export function sanitize(data: SaveData): number {
   for (const [id, lv] of Object.entries(data.levels)) {
     const node = skillById.get(id);
     const keep = node ? Math.min(lv, node.max) : 0;
-    if (node) for (let l = keep; l < lv; l++) refund += costOf(node, l);
+    if (node) for (let l = keep; l < lv; l++) refund += node.currency === 'dust' ? 0 : costOf(node, l);
+    if (node?.currency === 'dust') for (let l = keep; l < lv; l++) data.resources.dust += costOf(node, l);
     // Nodes that were removed entirely: nothing to price them by, so they are simply dropped.
     if (keep > 0) data.levels[id] = keep;
     else delete data.levels[id];
