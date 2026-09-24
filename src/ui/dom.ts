@@ -34,19 +34,4 @@ export function icon(path: string, cls = 'px', alt = ''): HTMLImageElement {
   return im;
 }
 
-export function fmt(n: number): string {
-  if (n < 10000) return Math.floor(n).toLocaleString('ja-JP');
-  const units: [number, string][] = [
-    [1e12, '兆'],
-    [1e8, '億'],
-    [1e4, '万'],
-  ];
-  for (const [v, u] of units) {
-    if (n >= v) return `${(n / v).toFixed(n / v < 100 ? 2 : 1).replace(/\.?0+$/, '')}${u}`;
-  }
-  return String(Math.floor(n));
-}
-
-export function secs(s: number): string {
-  return `${s.toFixed(s < 10 ? 2 : 1)}秒`;
-}
+export { fmt, secs } from '../game/format';
