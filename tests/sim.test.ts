@@ -29,7 +29,7 @@ function playDay(save: SaveData, rng: () => number, clicksPerSec = 3) {
       clickBudget -= 1;
       const thief = shop.actors.find((a) => a.kind === 'thief' && (a.state === 'steal' || a.state === 'flee'));
       if (thief && rng() < 0.8) shop.clickThief(thief);
-      else if (shop.pests.length) shop.clickPest(shop.pests[0]);
+      else if (shop.pestList.length) shop.clickPest(shop.pestList[0]);
       else if (shop.queue.length >= 2) shop.clickRegister();
       else shop.clickPot();
     }
@@ -145,7 +145,7 @@ describe('shop simulation', () => {
           expect(a.timer, `${a.hero.name} stuck in ${a.state}`).toBeLessThan(20);
           if (tapRng() < tapChance) shop.clickThief(a);
         }
-        for (const p of shop.pests) {
+        for (const p of shop.pestList) {
           expect(p.x).toBeGreaterThanOrEqual(0);
           expect(p.x).toBeLessThanOrEqual(1000);
         }

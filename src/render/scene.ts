@@ -493,7 +493,7 @@ export class SceneRenderer {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = shop.craftBlocked ? '#ff6b6b' : shop.pests.length ? '#ff9f43' : '#ffd166';
+    ctx.strokeStyle = shop.craftBlocked ? '#ff6b6b' : shop.pestList.length ? '#ff9f43' : '#ffd166';
     ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.arc(cx, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, shop.craftProgress));
@@ -520,7 +520,7 @@ export class SceneRenderer {
     }
 
     // Pests roaming the workshop
-    for (const p of shop.pests) {
+    for (const p of shop.pestList) {
       const k = p.hopDur > 0 ? p.hopT / p.hopDur : 1;
       const lift = k < 1 ? Math.sin(Math.PI * k) * 60 : 0;
       const wob = k >= 1 ? Math.sin(now / 90 + p.id) * 3 : 0;
@@ -539,7 +539,7 @@ export class SceneRenderer {
 
   private drawEffects(shop: Shop): void {
     const ctx = this.ctx;
-    for (const e of shop.effects) {
+    for (const e of shop.fx) {
       const k = e.t / 0.7;
       if (e.kind === 'smoke') {
         ctx.fillStyle = `rgba(220,210,230,${0.6 * (1 - k)})`;

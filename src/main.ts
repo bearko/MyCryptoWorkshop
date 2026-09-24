@@ -523,7 +523,7 @@ if (import.meta.env.DEV) {
       tree.refresh();
     }
     if (ev.key === 'e' && shop) shop.timeLeft = 0;
-    if (ev.key === 't' && shop) (shop as unknown as { spawnThief(): void }).spawnThief();
+    if (ev.key === 't' && shop) shop.thieves.spawn();
   });
 }
 
@@ -545,7 +545,7 @@ function frame(now: number): void {
     shop.update(dt);
     if (shop.queue.length >= 3 && tip('queue', 'レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ')) lastQueueTip = shop.elapsed;
     if (shop.craftBlocked) tip('full', '棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう');
-    if (shop.pests.length) tip('pest', 'エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！');
+    if (shop.pestList.length) tip('pest', 'エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！');
   }
   if (shop) {
     renderer.render(shop, now, {
