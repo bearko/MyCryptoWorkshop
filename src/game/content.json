@@ -1,0 +1,38 @@
+{
+  "$comment": "What the game currently uses from the asset database. Read by scripts/sync-assets.mjs (to pack these sprites into the first atlas sheet) and by src/game/catalog.ts.",
+  "activeSeries": [
+    "Blade",
+    "Musket",
+    "Quill",
+    "Armor",
+    "Katana",
+    "Book",
+    "Ring",
+    "Shield",
+    "Rapier",
+    "Wand",
+    "Hat",
+    "Goblet"
+  ],
+  "thiefIds": [
+    2003,
+    3013,
+    4036,
+    3032,
+    3036,
+    3049,
+    3007,
+    4046,
+    4006
+  ],
+  "pestIds": [
+    101,
+    111,
+    121,
+    131,
+    102,
+    112,
+    122,
+    132
+  ]
+}

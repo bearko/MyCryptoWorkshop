@@ -1,4 +1,4 @@
-import { assetUrl } from '../render/images';
+import { assetUrl, isSprite, spriteStyle } from '../render/images';
 
 type Attrs = Record<string, string | number | boolean | undefined | ((ev: Event) => void)>;
 type Child = Node | string | number | null | undefined | false;
@@ -25,7 +25,23 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K | string, attrs:
   return el;
 }
 
-export function icon(path: string, cls = 'px', alt = ''): HTMLImageElement {
+/** A catalog image as an element: <img> for files, a background-positioned <span> for atlas cells. */
+export function icon(ref: string, cls = 'px', alt = ''): HTMLElement {
+  if (!isSprite(ref)) return fileImg(ref, cls, alt);
+  const el = document.createElement('span');
+  el.className = `${cls} sprite`;
+  el.setAttribute('style', spriteStyle(ref));
+  if (alt) {
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', alt);
+  } else {
+    el.setAttribute('aria-hidden', 'true');
+  }
+  return el;
+}
+
+/** An <img> for a plain image file (e.g. animation frames whose src is swapped). */
+export function fileImg(path: string, cls = 'px', alt = ''): HTMLImageElement {
   const im = document.createElement('img');
   im.src = assetUrl(path);
   im.className = cls;

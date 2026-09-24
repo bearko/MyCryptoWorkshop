@@ -1,6 +1,6 @@
 import './style.css';
 import { Sound } from './audio';
-import { catalog, getExtension, icons, RARITY_COLOR, RARITY_JA, staffFrames, workshopImages } from './game/catalog';
+import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
@@ -8,7 +8,7 @@ import { costOf, level, type SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
 import { SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
-import { fmt, h, icon } from './ui/dom';
+import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
 
 const save = loadSave();
@@ -90,7 +90,7 @@ const gearBtn = h(
   }),
 );
 // Mine-chan's tips pop up briefly over the scene instead of occupying a side panel.
-const naviImg = icon(staffFrames.mine[0].image, 'px navi-img');
+const naviImg = fileImg(staffFrames.mine[0].image, 'px navi-img');
 const naviText = h('p.navi-text');
 const naviToast = h('div.navi-toast', {}, naviImg, naviText);
 naviToast.hidden = true;
@@ -374,7 +374,7 @@ function credits(): HTMLElement {
 
 function showTitle(): void {
   const hasProgress = save.day > 1;
-  const mine = icon(staffFrames.mine[0].image, 'px title-mine');
+  const mine = fileImg(staffFrames.mine[0].image, 'px title-mine');
   let frame = 0;
   const anim = window.setInterval(() => {
     frame = (frame + 1) % staffFrames.mine.length;
@@ -661,6 +661,11 @@ void preload([
   workshopImages.workshop_base,
   catalog.windowView,
   icons.gum,
+  // Sprite sheets holding the extensions, customers, thieves and pests in use.
+  ...series.map((x) => x.items[0].image),
+  ...customers.map((c) => c.image),
+  ...thieves.map((t) => t.image),
+  ...pests.map((p) => p.image),
   ...staffFrames.chris.map((f) => f.image),
   ...staffFrames.mine.map((f) => f.image),
 ]).then(() => {
