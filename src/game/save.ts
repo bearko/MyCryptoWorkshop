@@ -41,7 +41,19 @@ export interface SaveData {
   totals: Totals;
   bestDayRevenue: number;
   /** autoBuy: 番頭 buys GUM skills after each day (once learned). */
-  settings: { bgm: boolean; se: boolean; autoBuy: boolean };
+  settings: {
+    bgm: boolean;
+    se: boolean;
+    autoBuy: boolean;
+    /** Drawing quality: auto drops to low on slow devices. */
+    quality: 'auto' | 'high' | 'low';
+    /** Color-vision friendly rarity colors, with rarity letters. */
+    colorAssist: boolean;
+    /** No confetti or UI animations (defaults to the system setting). */
+    reduceMotion: boolean;
+    /** On-screen alerts for events (always shown while sound effects are off). */
+    alerts: boolean;
+  };
   tips: string[];
   meta: {
     /** Epoch ms when this save was started. */
@@ -101,7 +113,15 @@ export function newSave(now = Date.now()): SaveData {
     storage: [],
     totals: emptyTotals(),
     bestDayRevenue: 0,
-    settings: { bgm: true, se: true, autoBuy: true },
+    settings: {
+      bgm: true,
+      se: true,
+      autoBuy: true,
+      quality: 'auto',
+      colorAssist: false,
+      reduceMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+      alerts: false,
+    },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
     resources: { dust: 0, gems: emptyGems(), research: 0, emblem: 0 },

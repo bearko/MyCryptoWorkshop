@@ -2123,3 +2123,110 @@ body.in-day {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------- accessibility & display */
+
+/* On-screen alerts (shown while sound effects are off, or when turned on in the menu). */
+.alert-chip {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 6;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #3b0d0d;
+  border: 2px solid #ff6b6b;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: alert-chip 1.8s ease-out forwards;
+}
+
+.alert-chip.rare {
+  background: #3a2a05;
+  border-color: var(--gold);
+}
+
+.alert-chip.good {
+  background: #0d3b22;
+  border-color: var(--good);
+}
+
+@keyframes alert-chip {
+  0% {
+    opacity: 0;
+    translate: -50% 8px;
+  }
+  12%,
+  75% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A brief colored edge around the scene. */
+.scene.alert-bad::after,
+.scene.alert-rare::after,
+.scene.alert-good::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  animation: alert-edge 0.9s ease-out forwards;
+}
+
+.scene.alert-bad::after {
+  box-shadow: inset 0 0 0 4px #ff4d4d, inset 0 0 40px #ff4d4d88;
+}
+
+.scene.alert-rare::after {
+  box-shadow: inset 0 0 0 4px var(--gold), inset 0 0 40px #ffcf5a88;
+}
+
+.scene.alert-good::after {
+  box-shadow: inset 0 0 0 4px var(--good), inset 0 0 40px #7cffb288;
+}
+
+@keyframes alert-edge {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Rarity letters on collection cells with color-vision support on. */
+.color-assist .cell[data-r]::before {
+  content: attr(data-r);
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+
+.menu-display {
+  margin-bottom: 6px;
+}
+
+.menu-display .menu-sound {
+  margin-bottom: 6px;
+}
+
+/* Reduce motion: the menu setting (it follows the system setting by default). */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

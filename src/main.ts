@@ -2,10 +2,10 @@ import './style.css';
 import { CURRENCIES } from './game/currency';
 import { conditionLabel, CONDITIONS } from './game/conditions';
 import { ACHIEVEMENTS, DAILY_BONUS, dailyLabel, dailyValue } from './game/achievements';
-import { confetti } from './ui/confetti';
+import { confetti, confettiSettings } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
-import { catalog, customers, getExtension, icons, lands, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
+import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, SCENE_W, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
@@ -437,6 +437,84 @@ function openPauseMenu(): void {
   ]);
 }
 
+// ------------------------------------------------------------------ display & accessibility
+
+/** Quality actually used (auto can drop to low for this session on a slow device). */
+let autoLow = false;
+function applyDisplaySettings(): void {
+  const st = save.settings;
+  setColorAssist(st.colorAssist);
+  document.body.classList.toggle('color-assist', st.colorAssist);
+  document.body.classList.toggle('reduce-motion', st.reduceMotion);
+  confettiSettings.enabled = !st.reduceMotion;
+  renderer.quality = st.quality === 'low' || (st.quality === 'auto' && autoLow) ? 'low' : 'high';
+}
+
+/** Frame times while the day runs; a slow device switches to low quality (auto only). */
+const frameSamples: number[] = [];
+function watchFrameRate(dt: number): void {
+  if (save.settings.quality !== 'auto' || autoLow) return;
+  frameSamples.push(dt);
+  if (frameSamples.length < 120) return;
+  const avg = frameSamples.reduce((a, b) => a + b, 0) / frameSamples.length;
+  frameSamples.length = 0;
+  if (avg > 1 / 36) {
+    autoLow = true;
+    applyDisplaySettings();
+  }
+}
+
+/** Events shown on screen as well as heard: always while sound effects are off, or when asked. */
+function alertOnScreen(text: string, kind: 'bad' | 'good' | 'rare' = 'bad'): void {
+  if (save.settings.se && !save.settings.alerts) return;
+  const chip = h('div.alert-chip', { class: `alert-chip ${kind}`, role: 'status' }, text);
+  scene.append(chip);
+  scene.classList.remove('alert-bad', 'alert-good', 'alert-rare');
+  void scene.offsetWidth;
+  scene.classList.add(`alert-${kind}`);
+  window.setTimeout(() => chip.remove(), 1800);
+}
+
+/** Settings rows for the menu: quality, color vision, motion, on-screen alerts. */
+function displaySettings(): HTMLElement {
+  const toggle = (key: 'colorAssist' | 'reduceMotion' | 'alerts', label: string) => {
+    const btn = h('button.btn.small.toggle', { 'aria-pressed': String(save.settings[key]) }, save.settings[key] ? 'ON' : 'OFF') as HTMLButtonElement;
+    const sync = () => {
+      btn.textContent = save.settings[key] ? 'ON' : 'OFF';
+      btn.classList.toggle('off', !save.settings[key]);
+      btn.setAttribute('aria-pressed', String(save.settings[key]));
+    };
+    btn.addEventListener('click', () => {
+      save.settings[key] = !save.settings[key];
+      applyDisplaySettings();
+      writeSave(save);
+      sync();
+    });
+    sync();
+    return h('div.menu-sound', {}, h('span', {}, label), btn);
+  };
+  const QUALITY = { auto: t('自動', 'Auto'), high: t('高', 'High'), low: t('低（軽い）', 'Low (light)') } as const;
+  const qBtn = h('button.btn.small', {}) as HTMLButtonElement;
+  const syncQ = () => (qBtn.textContent = QUALITY[save.settings.quality] + (save.settings.quality === 'auto' && autoLow ? t('：低', ': low') : ''));
+  qBtn.addEventListener('click', () => {
+    const order = ['auto', 'high', 'low'] as const;
+    save.settings.quality = order[(order.indexOf(save.settings.quality) + 1) % order.length];
+    autoLow = false;
+    applyDisplaySettings();
+    writeSave(save);
+    syncQ();
+  });
+  syncQ();
+  return h(
+    'div.menu-display',
+    {},
+    h('div.menu-sound', {}, h('span', {}, t('画質', 'Graphics')), qBtn),
+    toggle('colorAssist', t('色覚サポート（レア度の色と文字）', 'Color-vision support (rarity colors & letters)')),
+    toggle('reduceMotion', t('動きを減らす（紙吹雪・アニメーション）', 'Reduce motion (confetti, animations)')),
+    toggle('alerts', t('できごとを画面にも表示（効果音オフ時は常に表示）', 'Show events on screen (always when sound effects are off)')),
+  );
+}
+
 /** 日本語 / English switch (reloads the page in the other language). */
 function langSwitch(): HTMLElement {
   const opt = (code: 'ja' | 'en', label: string) =>
@@ -517,6 +595,7 @@ function openMenu(): void {
     {},
     h('div.menu-sound', {}, h('span', {}, t('サウンド', 'Sound')), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
     langSwitch(),
+    displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
     h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null),
     h('p', {}, t('累計成績', 'Lifetime stats')),
@@ -943,6 +1022,7 @@ function onShopEvent(e: ShopEvent): void {
       goldChest(e.item);
       if (edition > 0 || ext.shin) {
         sound.play('rare');
+        alertOnScreen(t('✨ エディション品！', '✨ Edition item!'), 'rare');
         log(h('span', {}, h('span.tag.edition', {}, ext.shin ? t('真', 'Shin') : EDITIONS[edition].name), ' ', extLabel(e.item), t(` が${LINES[e.line].name}で完成！`, ` finished in the ${LINES[e.line].name}!`)), 'rare');
         tip('edition', t('エディション付きの品ができたよ！鑑定済み・刻印入り…と、珍しいほど高く売れるんだ', 'You made an edition item! Appraised, Engraved... the rarer the edition, the higher the price'));
       } else if (e.isNew && ext.rarityIndex >= 2) {
@@ -959,6 +1039,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'overheat':
       sound.play('fail');
+      alertOnScreen(t(`🔥 ${LINES[e.line].name}が過熱！`, `🔥 ${LINES[e.line].name} overheated!`));
       log(h('span', {}, t(`${LINES[e.line].name}が過熱して止まった！（3秒）`, `The ${LINES[e.line].name} overheated and stopped! (3s)`)), 'bad');
       tip('overheat', t('熱くなりすぎて失敗しちゃった…長押しはゲージが赤くなる前に離そう！', 'It got too hot... Let go before the gauge turns red!'));
       break;
@@ -968,12 +1049,14 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'lost':
       sound.play('debuff');
+      alertOnScreen(t('😢 お客さんが帰った', '😢 A customer left'));
       log(h('span', {}, h('b', {}, e.hero.name), LOST_TEXT[e.reason]), 'bad');
       if (e.reason === 'empty') tip('lostEmpty', t('棚が空っぽでお客さんが帰っちゃった…「壺の火力」でクラフトを早くしよう！', 'The shelves were empty and a customer left... Speed up crafting with "Pot Heat"!'));
       else tip('lostQueue', t('レジが混みすぎて帰っちゃった！カウンターをクリックして会計を手伝うか「クリスくん研修」を！', 'The line was too long and they left! Click the counter to help check out, or get "Train Chris-kun"!'));
       break;
     case 'thief':
       sound.play('debuff');
+      alertOnScreen(t(`⚠ 泥棒 ${e.hero.name}！`, `⚠ Thief: ${e.hero.name}!`));
       log(h('span', {}, t('泥棒 ', 'Thief '), h('b.villain', {}, e.hero.name), t(` が現れた！（${e.style.trait}）`, ` appeared! (${e.style.trait})`)), 'bad');
       if (e.style.entry === 'ceiling') tip('ceiling', t('天井からロープで降りてくる泥棒もいるよ！上にも注意して！', 'Some thieves drop from the ceiling on a rope! Watch above too!'));
       else if (e.style.entry === 'window') tip('window', t('窓から飛び込んでくる泥棒だ！窓から逃げられる前にタップ！', 'A thief jumping in through the window! Tap before they escape the same way!'));
@@ -985,6 +1068,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'stolen':
       sound.play('fail');
+      alertOnScreen(t('💢 盗まれた！', '💢 Stolen!'));
       log(h('span', {}, h('b.villain', {}, e.hero.name), t(' に ', ' stole '), extLabel(e.item), t(' を盗まれた！', '!')), 'bad');
       tip('stolen', t('盗まれちゃった…！赤く光る泥棒は逃げる前にクリック！「マイクリくん警備」も頼りになるよ', 'Something got stolen...! Click red-glowing thieves before they escape. "Maycri-kun on Guard" helps too'));
       break;
@@ -1004,6 +1088,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'pest':
       sound.play('debuff');
+      alertOnScreen(t(`👾 工房にエネミー！`, `👾 Enemy in the workshop!`));
       log(h('span', {}, t('エネミー ', 'Enemy '), h('b.villain', {}, e.name), t(' が工房に入り込んだ！クラフト速度ダウン', ' got into the workshop! Crafting slows down')), 'bad');
       break;
     case 'pestCleared':
@@ -1058,6 +1143,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'storePest':
       sound.play('debuff');
+      alertOnScreen(t('👾 店にエネミー！', '👾 Enemy in the shop!'));
       log(h('span', {}, t('エネミー ', 'Enemy '), h('b.villain', {}, e.name), t(' が店に入り込んだ！客が怖がっている', ' got into the shop! Customers are scared')), 'bad');
       tip('storePest', t('店にエネミーが！近くのお客さんが怖がって帰っちゃうよ。2回タップで追い払おう', 'An enemy in the shop! Nearby customers will get scared and leave. Tap twice to chase it off'));
       break;
@@ -1092,6 +1178,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'raidWarn':
       sound.play('debuff');
+      alertOnScreen(t('☠ 海賊の襲撃！', '☠ Pirate raid!'));
       sound.playBgm('bgmRaid');
       cutin(scene, thieves.find((x) => x.id === 4036)?.image ?? thieves[0].image, thieves.find((x) => x.id === 4036)?.name ?? '', t(`黒髭海賊団 ${e.pirates}人が襲来！`, `${e.pirates} of Blackbeard's pirates attack!`), 'opponent');
       log(h('span', {}, h('span.tag.raid', {}, 'RAID'), t(` 黒髭海賊団 ${e.pirates}人が店に向かっている！`, ` ${e.pirates} of Blackbeard's pirates are heading for the shop!`)), 'bad');
@@ -1191,6 +1278,35 @@ canvas.addEventListener('pointermove', (ev) => {
   const { x, y } = renderer.toScene(ev.clientX, ev.clientY);
   canvas.style.cursor = hitTest(x, y) ? 'pointer' : 'default';
 });
+// Keyboard: Space taps (and, held, overclocks) the magic pot, Enter helps at the register,
+// Escape opens the menu.
+let spaceHeld = false;
+window.addEventListener('keydown', (ev) => {
+  const typing = ev.target instanceof HTMLTextAreaElement || ev.target instanceof HTMLInputElement;
+  if (typing || !shop || paused || modalOpen > 0) return;
+  if (ev.code === 'Space') {
+    ev.preventDefault();
+    if (ev.repeat) {
+      if (!spaceHeld) shop.holdLine('pot', true);
+      spaceHeld = true;
+      return;
+    }
+    shop.clickLine('pot');
+    potClicks++;
+  } else if (ev.code === 'Enter') {
+    ev.preventDefault();
+    shop.clickRegister();
+    registerClicks++;
+  } else if (ev.code === 'Escape') {
+    openPauseMenu();
+  }
+});
+window.addEventListener('keyup', (ev) => {
+  if (ev.code === 'Space' && spaceHeld) {
+    spaceHeld = false;
+    shop?.holdLine('pot', false);
+  }
+});
 // Long-press on touch devices would otherwise open the context menu.
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
@@ -1224,6 +1340,7 @@ function frame(now: number): void {
   const running = shop && !paused && modalOpen === 0 && !document.hidden && !tutorial.blocking;
   if (shop && running) {
     shop.update(dt);
+    watchFrameRate(dt);
     if (shop.queue.length >= 3 && tip('queue', t('レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ', 'There\'s a line at the register! Click the counter to help check out'))) lastQueueTip = shop.elapsed;
     if (shop.lines.some((l) => l.blocked)) tip('full', t('棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう', 'The shelves are full and crafting stopped! Make room with "More Shelves" or "Conveyor Lane"'));
     if (shop.pestList.length) tip('pest', t('エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！', 'An enemy is wrecking the workshop! Tap the bouncing enemy to chase it off!'));
@@ -1294,6 +1411,7 @@ window.setInterval(() => {
 // ------------------------------------------------------------------ boot
 
 document.documentElement.lang = lang;
+applyDisplaySettings();
 
 // Offline play (PWA): the service worker is built into dist/ only. Embeds that forbid service
 // workers (sandboxed previews) simply play online.

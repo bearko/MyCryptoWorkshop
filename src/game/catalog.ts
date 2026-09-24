@@ -18,6 +18,16 @@ export const RARITY_COLOR: Record<Rarity, string> = {
   Epic: '#c77dff',
   Legendary: '#ffb627',
 };
+const RARITY_COLOR_DEFAULT = { ...RARITY_COLOR };
+/** Okabe–Ito colors, told apart with any color vision (with rarity letters in the UI). */
+const RARITY_COLOR_ASSIST: Record<Rarity, string> = { Common: '#c8c8c8', Uncommon: '#56b4e9', Rare: '#0072b2', Epic: '#cc79a7', Legendary: '#e69f00' };
+/** One-letter rarity marks (shown with color-vision support on). */
+export const RARITY_LETTER: Record<Rarity, string> = { Common: 'C', Uncommon: 'U', Rare: 'R', Epic: 'E', Legendary: 'L' };
+
+/** Switches the rarity palette (the scene and UI read RARITY_COLOR every time they draw). */
+export function setColorAssist(on: boolean): void {
+  Object.assign(RARITY_COLOR, on ? RARITY_COLOR_ASSIST : RARITY_COLOR_DEFAULT);
+}
 
 export type Family = keyof typeof content.families;
 export const FAMILIES = Object.fromEntries(

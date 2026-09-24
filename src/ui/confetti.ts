@@ -104,7 +104,11 @@ function loop(now: number): void {
 }
 
 /** Starts a confetti burst for `ms` milliseconds (pieces already falling finish their fall). */
+/** Turned off with "reduce motion". */
+export const confettiSettings = { enabled: true };
+
 export function confetti(ms = 2500): void {
+  if (!confettiSettings.enabled) return;
   const width = window.innerWidth;
   const height = window.innerHeight;
   if (!canvas) {
