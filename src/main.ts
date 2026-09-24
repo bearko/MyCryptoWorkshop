@@ -2,7 +2,7 @@ import './style.css';
 import { Sound } from './audio';
 import { catalog, getExtension, icons, RARITY_COLOR, RARITY_JA, staffFrames, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
-import { clearSave, loadSave, writeSave } from './game/save';
+import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
 import { costOf, level, type SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
@@ -283,9 +283,11 @@ function openMenu(): void {
           ['捕まえた泥棒', save.totals.caught],
           ['盗まれた数', save.totals.stolen],
           ['最高日商', `${fmt(save.bestDayRevenue)} GUM`],
+          ['プレイ時間', `${Math.floor(save.meta.playSeconds / 3600)}時間${Math.floor((save.meta.playSeconds % 3600) / 60)}分`],
         ] as [string, string | number][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, String(v)))),
     ),
+    saveTransfer(),
     h(
       'button.btn.danger',
       {
@@ -307,6 +309,57 @@ function openMenu(): void {
     credits(),
   );
   openModal('メニュー', body, [{ label: '閉じる' }]);
+}
+
+/** Export / import of the save as a copy-pasteable code (for moving between devices or backups). */
+function saveTransfer(): HTMLElement {
+  const out = h('textarea.save-code', { readonly: true, rows: 3, 'aria-label': 'セーブコード', id: 'save-export' }) as HTMLTextAreaElement;
+  const copyBtn = h('button.btn.small', {}, 'コードを表示してコピー');
+  copyBtn.addEventListener('click', () => {
+    writeSave(save);
+    out.value = exportCode(save);
+    out.hidden = false;
+    out.select();
+    navigator.clipboard?.writeText(out.value).then(
+      () => (copyBtn.textContent = 'コピーしました'),
+      () => (copyBtn.textContent = '選択中のコードをコピーしてください'),
+    );
+  });
+  out.hidden = true;
+
+  const input = h('textarea.save-code', { rows: 3, placeholder: 'MCW: で始まるセーブコードを貼り付け', 'aria-label': '読み込むセーブコード', id: 'save-import' }) as HTMLTextAreaElement;
+  const msg = h('p.save-msg');
+  const loadBtn = h('button.btn.small', {}, 'このコードを読み込む');
+  loadBtn.addEventListener('click', () => {
+    try {
+      const data = importCode(input.value);
+      if (loadBtn.dataset.armed !== '1') {
+        loadBtn.dataset.armed = '1';
+        loadBtn.textContent = '今のデータを上書きします。もう一度押すと読み込み';
+        msg.textContent = `読み込むデータ: Day ${data.day}・${fmt(data.gum)} GUM`;
+        msg.className = 'save-msg';
+        return;
+      }
+      resetting = true;
+      writeSave(data);
+      location.reload();
+    } catch (err) {
+      msg.textContent = err instanceof SaveError ? err.message : 'セーブコードを読み込めませんでした';
+      msg.className = 'save-msg error';
+      loadBtn.dataset.armed = '';
+      loadBtn.textContent = 'このコードを読み込む';
+    }
+  });
+  return h(
+    'div.save-transfer',
+    {},
+    h('p', {}, 'セーブデータの引き継ぎ'),
+    h('div.save-row', {}, copyBtn),
+    out,
+    input,
+    h('div.save-row', {}, loadBtn),
+    msg,
+  );
 }
 
 function credits(): HTMLElement {
@@ -479,6 +532,7 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'dayEnd':
       sound.play('win');
+      save.meta.playSeconds += Math.round(shop?.elapsed ?? 0);
       writeSave(save);
       updateTopbar();
       window.setTimeout(() => showResults(e.report), 500);

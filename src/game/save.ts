@@ -1,5 +1,5 @@
 import { extensionById } from './catalog';
-import type { Levels } from './skills';
+import { costOf, skillById, type Levels } from './skills';
 
 export interface Totals {
   revenue: number;
@@ -12,8 +12,11 @@ export interface Totals {
   crafted: number;
 }
 
+/** Bump when the save shape changes, and add a step to MIGRATIONS. */
+export const SAVE_VERSION = 2;
+
 export interface SaveData {
-  version: 1;
+  version: typeof SAVE_VERSION;
   gum: number;
   day: number;
   levels: Levels;
@@ -26,6 +29,14 @@ export interface SaveData {
   bestDayRevenue: number;
   settings: { bgm: boolean; se: boolean };
   tips: string[];
+  meta: {
+    /** Epoch ms when this save was started. */
+    createdAt: number;
+    /** Epoch ms of the last write. */
+    savedAt: number;
+    /** In-game seconds spent in business days. */
+    playSeconds: number;
+  };
 }
 
 export const emptyTotals = (): Totals => ({
@@ -39,9 +50,9 @@ export const emptyTotals = (): Totals => ({
   crafted: 0,
 });
 
-export function newSave(): SaveData {
+export function newSave(now = Date.now()): SaveData {
   return {
-    version: 1,
+    version: SAVE_VERSION,
     gum: 0,
     day: 1,
     levels: { root: 1 },
@@ -52,39 +63,158 @@ export function newSave(): SaveData {
     bestDayRevenue: 0,
     settings: { bgm: true, se: true },
     tips: [],
+    meta: { createdAt: now, savedAt: now, playSeconds: 0 },
   };
 }
 
-const KEY = 'mycryptoworkshop.save.v1';
+// ---------------------------------------------------------------- migrations
 
-export function loadSave(): SaveData {
+type RawSave = Record<string, unknown> & { version?: number };
+
+/** MIGRATIONS[n] upgrades a version-n save to version n+1. */
+const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
+  // v1 → v2: adds `meta`. Play time before v2 is estimated from the days played.
+  1: (d) => ({
+    ...d,
+    version: 2,
+    meta: { createdAt: Date.now(), savedAt: Date.now(), playSeconds: Math.max(0, ((d.day as number) ?? 1) - 1) * 45 },
+  }),
+};
+
+export class SaveError extends Error {}
+
+/** Upgrades any older save to SAVE_VERSION. Throws SaveError for unknown or future versions. */
+export function migrate(raw: RawSave): RawSave {
+  let d = { ...raw };
+  let v = typeof d.version === 'number' ? d.version : 1;
+  if (v > SAVE_VERSION) throw new SaveError(`このセーブデータは新しいバージョン（v${v}）のものです`);
+  while (v < SAVE_VERSION) {
+    const step = MIGRATIONS[v];
+    if (!step) throw new SaveError(`v${v} のセーブデータは読み込めません`);
+    d = step(d);
+    v = d.version as number;
+  }
+  return d;
+}
+
+/**
+ * Fixes a save against the current game data: unknown extension ids are dropped, and skill
+ * levels that no longer exist (removed nodes, lowered max) are refunded as GUM.
+ * Returns the GUM refunded.
+ */
+export function sanitize(data: SaveData): number {
+  const known = (id: number | null) => id === null || extensionById.has(id);
+  data.collection = data.collection.filter((id) => extensionById.has(id));
+  data.shelf = data.shelf.map((id) => (known(id) ? id : null));
+  data.storage = data.storage.filter((id) => extensionById.has(id));
+  data.totals = { ...emptyTotals(), ...data.totals };
+
+  let refund = 0;
+  for (const [id, lv] of Object.entries(data.levels)) {
+    const node = skillById.get(id);
+    const keep = node ? Math.min(lv, node.max) : 0;
+    if (node) for (let l = keep; l < lv; l++) refund += costOf(node, l);
+    // Nodes that were removed entirely: nothing to price them by, so they are simply dropped.
+    if (keep > 0) data.levels[id] = keep;
+    else delete data.levels[id];
+  }
+  data.levels.root = 1;
+  data.gum += refund;
+  return refund;
+}
+
+/** Parses, migrates and sanitizes a JSON save. */
+export function parseSave(json: string): SaveData {
+  let raw: RawSave;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return newSave();
-    const data = { ...newSave(), ...JSON.parse(raw) } as SaveData;
-    // Drop ids that no longer exist in the catalog (e.g. after an asset update).
-    const known = (id: number | null) => id === null || extensionById.has(id);
-    data.collection = data.collection.filter((id) => extensionById.has(id));
-    data.shelf = data.shelf.map((id) => (known(id) ? id : null));
-    data.storage = data.storage.filter((id) => extensionById.has(id));
-    data.totals = { ...emptyTotals(), ...data.totals };
-    return data;
+    raw = JSON.parse(json) as RawSave;
   } catch {
-    return newSave();
+    throw new SaveError('セーブデータの形式が正しくありません');
+  }
+  if (!raw || typeof raw !== 'object' || typeof raw.levels !== 'object') throw new SaveError('セーブデータの形式が正しくありません');
+  const base = newSave();
+  const migrated = migrate(raw);
+  const data = { ...base, ...migrated, meta: { ...base.meta, ...(migrated.meta as object) } } as SaveData;
+  sanitize(data);
+  return data;
+}
+
+// ---------------------------------------------------------------- export / import codes
+
+const CODE_PREFIX = 'MCW:';
+
+/** A copy-pasteable save code (prefix + base64 of the JSON). */
+export function exportCode(data: SaveData): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(data));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return CODE_PREFIX + btoa(bin);
+}
+
+export function importCode(code: string): SaveData {
+  const trimmed = code.trim();
+  if (!trimmed.startsWith(CODE_PREFIX)) throw new SaveError('My Crypto Workshop のセーブコードではありません');
+  let json: string;
+  try {
+    const bin = atob(trimmed.slice(CODE_PREFIX.length));
+    json = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  } catch {
+    throw new SaveError('セーブコードが壊れています（途中で切れていないか確認してください）');
+  }
+  return parseSave(json);
+}
+
+// ---------------------------------------------------------------- storage
+
+const KEY = 'mycryptoworkshop.save';
+const LEGACY_KEYS = ['mycryptoworkshop.save.v1'];
+const BACKUP_KEY = 'mycryptoworkshop.save.backup';
+
+function storageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
   }
 }
 
-export function writeSave(data: SaveData): void {
+function storageSet(key: string, value: string): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(key, value);
   } catch {
     // Storage may be unavailable (private mode); the game keeps running without saving.
   }
 }
 
+export function loadSave(): SaveData {
+  let raw = storageGet(KEY);
+  let fromLegacy = false;
+  for (const legacy of LEGACY_KEYS) {
+    if (raw) break;
+    raw = storageGet(legacy);
+    fromLegacy = !!raw;
+  }
+  if (!raw) return newSave();
+  try {
+    const version = (JSON.parse(raw) as RawSave).version ?? 1;
+    // Keep a copy of the original before upgrading it.
+    if (fromLegacy || version !== SAVE_VERSION) storageSet(BACKUP_KEY, raw);
+    return parseSave(raw);
+  } catch {
+    storageSet(BACKUP_KEY, raw);
+    return newSave();
+  }
+}
+
+export function writeSave(data: SaveData): void {
+  data.meta.savedAt = Date.now();
+  storageSet(KEY, JSON.stringify(data));
+}
+
 export function clearSave(): void {
   try {
     localStorage.removeItem(KEY);
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k);
   } catch {
     // ignore
   }

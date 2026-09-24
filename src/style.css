@@ -957,6 +957,49 @@ body.in-day {
   color: var(--muted);
 }
 
+.save-transfer {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.save-transfer > p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.save-code {
+  width: 100%;
+  resize: vertical;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0006;
+  color: var(--text);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.save-row {
+  display: flex;
+  gap: 8px;
+}
+
+.save-msg {
+  margin: 0;
+  font-size: 13px;
+  color: var(--good);
+}
+
+.save-msg:empty {
+  display: none;
+}
+
+.save-msg.error {
+  color: var(--bad);
+}
+
 .menu .btn.danger {
   margin-top: 16px;
   width: 100%;
