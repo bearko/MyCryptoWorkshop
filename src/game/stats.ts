@@ -1,8 +1,9 @@
 import type { NumStat } from './effects';
+import { itemExt, itemValue, type ItemCode } from './items';
+export { RARITY_PRICE } from './items';
+import { series } from './catalog';
 import { level, SKILLS, type Levels } from './skills';
 
-/** Base sale price per rarity (Common → Legendary). */
-export const RARITY_PRICE = [5, 15, 50, 170, 600];
 /** Payment multiplier per customer tier (Common → Legendary heroes). */
 export const TIER_PAY = [1, 1.25, 1.5, 1.8, 2.2];
 
@@ -47,6 +48,8 @@ export interface Stats extends Record<NumStat, number> {
   seriesUnlocked: number[];
   /** Workshop facility layers to show. */
   overlays: string[];
+  /** Price multiplier per series index (reputation skills). */
+  seriesPrice: number[];
 }
 
 export function computeStats(levels: Levels): Stats {
@@ -103,6 +106,7 @@ export function computeStats(levels: Levels): Stats {
     spawnInterval: BASE_SPAWN_INTERVAL / values.spawnRate,
     seriesUnlocked,
     overlays,
+    seriesPrice: series.map(() => 1),
   };
 }
 
@@ -124,7 +128,9 @@ export function tierWeights(maxTier: number): number[] {
   return Array.from({ length: maxTier + 1 }, (_, t) => Math.pow(0.6, maxTier - t));
 }
 
-export function salePrice(rarityIndex: number, stats: Stats, uniqueCount: number, tier: number, tip: boolean): number {
-  const base = RARITY_PRICE[rarityIndex] * stats.priceMult * (1 + stats.collectionBonus * uniqueCount);
+/** What a customer of `tier` pays for an item. */
+export function salePrice(code: ItemCode, stats: Stats, uniqueCount: number, tier: number, tip: boolean): number {
+  const series = stats.seriesPrice[itemExt(code).seriesIndex] ?? 1;
+  const base = itemValue(code) * series * stats.priceMult * (1 + stats.collectionBonus * uniqueCount);
   return Math.max(1, Math.round(base * TIER_PAY[tier] * (tip ? 1.5 : 1)));
 }

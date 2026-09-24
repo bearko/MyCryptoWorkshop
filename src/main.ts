@@ -2,6 +2,7 @@ import './style.css';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
+import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
 import { costOf, level, type SkillNode } from './game/skills';
@@ -171,9 +172,11 @@ function log(html: HTMLElement | string, cls = ''): void {
   while (logList.children.length > 30) logList.lastChild?.remove();
 }
 
-const extLabel = (id: number) => {
-  const e = getExtension(id);
-  return h('b', { style: `color:${RARITY_COLOR[e.rarity]}` }, e.name);
+/** An item name coloured by rarity; editions get their own colour and a 【】 prefix. */
+const extLabel = (code: number) => {
+  const e = itemExt(code);
+  const ed = EDITIONS[itemEdition(code)];
+  return h('b', { style: `color:${ed.color || RARITY_COLOR[e.rarity]}` }, itemName(code));
 };
 
 // ------------------------------------------------------------------ modals
@@ -480,7 +483,7 @@ function startDay(): void {
 function onShopEvent(e: ShopEvent): void {
   switch (e.type) {
     case 'craft': {
-      const ext = getExtension(e.item);
+      const ext = itemExt(e.item);
       if (e.isNew && ext.rarityIndex >= 2) {
         sound.play('rare');
         log(h('span', {}, h('span.tag.new', {}, 'NEW'), ` [${RARITY_JA[ext.rarity]}] `, extLabel(e.item), ' が完成！'), 'rare');

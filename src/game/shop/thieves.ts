@@ -1,6 +1,6 @@
-import { getExtension, thieves } from '../catalog';
+import { thieves } from '../catalog';
+import { itemValue, RARITY_PRICE } from '../items';
 import { CEILING_Y, DOOR, HERO_PX, SHOP_LANE_Y, slotPos, WINDOW } from '../layout';
-import { RARITY_PRICE } from '../stats';
 import { thiefStyle } from '../thieves';
 import { makeActor, releaseClaim } from './actors';
 import type { Shop } from './index';
@@ -69,7 +69,7 @@ export class Thieves {
       this.startFlee(a);
       return;
     }
-    const value = (i: number) => RARITY_PRICE[getExtension(slots[i].item!).rarityIndex];
+    const value = (i: number) => itemValue(slots[i].item!);
     const slot = options.reduce((best, i) => (value(i) > value(best) ? i : best), options[0]);
     slots[slot].claimedBy = a.id;
     a.slot = slot;

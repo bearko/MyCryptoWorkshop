@@ -38,7 +38,8 @@ const ws = catalog.workshop as Record<string, string>;
 
 export const RECIPE_COSTS = [0, 40, 100, 250, 600, 1500, 3500, 5000, 9000, 16000, 30000, 55000];
 
-const recipeNodes: SkillNode[] = series.slice(1).map((s, i) => {
+// Recipes for the magic-item and gear series (beast recipes live on the capsule branch).
+const recipeNodes: SkillNode[] = series.slice(1).filter((s) => s.family !== 'beast').map((s, i) => {
   const index = i + 1;
   // Row 1: series 1..6 run left from the shelf node. Row 2: series 7..11 branch off the armor recipe.
   const row1 = index <= 6;

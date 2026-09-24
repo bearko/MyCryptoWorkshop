@@ -20,6 +20,9 @@ export const RARITY_COLOR: Record<Rarity, string> = {
   Legendary: '#ffb627',
 };
 
+export type Family = keyof typeof content.families;
+export const FAMILIES = content.families as Record<Family, { name: string; priceMult: number }>;
+
 export interface Extension {
   id: number;
   name: string;
@@ -27,6 +30,9 @@ export interface Extension {
   rarityIndex: number;
   seriesIndex: number;
   seriesName: string;
+  family: Family;
+  /** The "真" re-release of a Legendary (rarer, pricier, own art). */
+  shin: boolean;
   skill: string;
   image: string;
 }
@@ -57,34 +63,34 @@ type RawSeries = (typeof raw.series)[number];
 export const allSeries: RawSeries[] = raw.series;
 
 /** The series the game currently uses, in skill-tree order (see content.json). */
-export const series = content.activeSeries.map((key, seriesIndex) => {
+export const series = content.activeSeries.map(({ key, family }, seriesIndex) => {
   const s = raw.series.find((x) => x.expansion === 'legacy' && x.key === key);
   if (!s) throw new Error(`series not in catalog: ${key}`);
-  // One item per rarity, Common → Legendary; the "真" re-releases are not used yet.
+  const toExt = (e: (typeof s.items)[number]): Extension => ({
+    id: e.id,
+    name: e.name,
+    rarity: e.rarity as Rarity,
+    rarityIndex: RARITIES.indexOf(e.rarity as Rarity),
+    seriesIndex,
+    seriesName: s.name,
+    family: family as Family,
+    shin: e.shin,
+    skill: e.skill,
+    image: e.image,
+  });
+  // One item per rarity, Common → Legendary.
   const items = RARITIES.map((r) => {
     const e = s.items.find((i) => i.rarity === r && !i.shin);
     if (!e) throw new Error(`series ${key} has no ${r}`);
-    return e;
+    return toExt(e);
   });
-  return {
-    key: s.key,
-    name: s.name,
-    items: items.map(
-      (e): Extension => ({
-        id: e.id,
-        name: e.name,
-        rarity: e.rarity as Rarity,
-        rarityIndex: RARITIES.indexOf(e.rarity as Rarity),
-        seriesIndex,
-        seriesName: s.name,
-        skill: e.skill,
-        image: e.image,
-      }),
-    ),
-  };
+  const shinRaw = s.items.find((i) => i.shin);
+  return { key: s.key, name: s.name, family: family as Family, items, shin: shinRaw ? toExt(shinRaw) : null };
 });
 
-export const extensionById = new Map<number, Extension>(series.flatMap((s) => s.items).map((e) => [e.id, e]));
+export const extensionById = new Map<number, Extension>(
+  series.flatMap((s) => (s.shin ? [...s.items, s.shin] : s.items)).map((e) => [e.id, e]),
+);
 
 export function getExtension(id: number): Extension {
   const e = extensionById.get(id);

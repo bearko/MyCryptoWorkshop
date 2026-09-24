@@ -1,4 +1,3 @@
-import { getExtension } from '../catalog';
 import { COUNTER, HERO_PX } from '../layout';
 import { salePrice } from '../stats';
 import type { Shop } from './index';
@@ -54,8 +53,7 @@ export class Register {
       return;
     }
     const tip = shop.rand.next() < shop.stats.tipChance;
-    const ext = getExtension(a.item);
-    const price = salePrice(ext.rarityIndex, shop.stats, shop.save.collection.length, a.tier, tip);
+    const price = salePrice(a.item, shop.stats, shop.save.collection.length, a.tier, tip);
     shop.addGum(price, a.x, a.y - HERO_PX - 30);
     shop.report.sold++;
     shop.save.totals.sold++;

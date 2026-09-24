@@ -1,6 +1,7 @@
-import { customersByTier, getExtension } from '../catalog';
+import { customersByTier } from '../catalog';
+import { itemValue } from '../items';
 import { DOOR, queuePos, SHOP_LANE_Y, slotPos } from '../layout';
-import { RARITY_PRICE, tierWeights } from '../stats';
+import { tierWeights } from '../stats';
 import { makeActor, releaseClaim } from './actors';
 import type { Shop } from './index';
 import { followPath, moveToward } from './movement';
@@ -58,7 +59,7 @@ export class Customers {
     let slot = rand.pick(options);
     const laneY = SHOP_LANE_Y + rand.range(-14, 14);
     if (rand.next() < a.tier * 0.2) {
-      const value = (i: number) => RARITY_PRICE[getExtension(slots[i].item!).rarityIndex];
+      const value = (i: number) => itemValue(slots[i].item!);
       slot = options.reduce((best, i) => (value(i) > value(best) ? i : best), options[0]);
     }
     slots[slot].claimedBy = a.id;

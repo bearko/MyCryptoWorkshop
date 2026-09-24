@@ -102,7 +102,8 @@ const firstBy = (isFirst) => (a, b) => Number(isFirst(b)) - Number(isFirst(a));
 // ---------------------------------------------------------------- extensions (all series)
 // Every Legacy and Modern extension, grouped by series. Which series the game uses is decided
 // in src/game/catalog.ts. "真" re-releases (ids 55xx/56xx) are flagged with `shin`.
-const isActiveExt = (e) => e.category === 'legacy' && content.activeSeries.includes(e.series.name.en) && e.id < 5500;
+const activeKeys = content.activeSeries.map((s) => s.key);
+const isActiveExt = (e) => e.category === 'legacy' && activeKeys.includes(e.series.name.en);
 const extensions = readJson('Data/Extensions/extensions.json')
   .filter((e) => e.category === 'legacy' || e.category === 'modern')
   .sort((a, b) => a.id - b.id)
@@ -205,6 +206,8 @@ const catalog = {
   },
   icons: {
     gum: icon('gum'),
+    dust: icon('gold_dust'),
+    emblem: icon('emblem'),
     mch: icon('mch_icon'),
     logo: icon('mch_logo_horizontal'),
     ce: icon('ce'),
