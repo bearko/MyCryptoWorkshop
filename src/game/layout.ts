@@ -42,6 +42,8 @@ export const STATIONS = {
   capsule: { ring: { x: 640, y: wy(470) }, from: { x: 770, y: wy(520) }, hit: { x0: 680, y0: wy(370), x1: 870, y1: wy(630) } },
 };
 export const MINE_POS = { x: 620, y: wy(930) };
+/** The fireplace doubles as the 分解炉 (dismantler). */
+export const DISMANTLER = { x: 62, y: wy(590) };
 export const STORAGE_POS = { x: 150, y: wy(720) };
 
 const TOP = WORKSHOP_H;

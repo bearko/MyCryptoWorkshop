@@ -6,7 +6,9 @@ import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type ShopEvent } from './game/shop';
-import { costOf, level, type SkillNode } from './game/skills';
+import { buy } from './game/purchase';
+import { computeStats } from './game/stats';
+import type { SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
 import { SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
@@ -34,6 +36,8 @@ const FACILITY_NODES = new Set(['forge', 'conveyor', 'rare', 'lantern']);
 // ------------------------------------------------------------------ layout
 
 const gumText = h('span.gum-amount', {}, '0');
+const dustText = h('span.dust-amount', {}, '0');
+const dustBox = h('div.dust', { title: 'ゴールドダスト' }, icon(icons.dust, 'px'), dustText);
 const dayText = h('span.day-label');
 const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
 const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
@@ -42,6 +46,7 @@ const topbar = h(
   {},
   h('div.brand', {}, icon(icons.gum, 'px brand-icon'), h('div', {}, h('b', {}, 'My Crypto Workshop'), h('small', {}, 'マイクリ クラフト工房'))),
   h('div.gum', { title: '所持GUM' }, icon(icons.gum, 'px'), gumText),
+  dustBox,
   dayText,
   h(
     'div.settings',
@@ -124,6 +129,8 @@ let modalOpen = 0;
 
 function updateTopbar(): void {
   gumText.textContent = fmt(save.gum);
+  dustText.textContent = fmt(save.resources.dust);
+  dustBox.hidden = save.resources.dust <= 0 && computeStats(save.levels).dismantleRarity < 0;
   dayText.textContent = `Day ${save.day}`;
   bgmBtn.classList.toggle('off', !save.settings.bgm);
   seBtn.classList.toggle('off', !save.settings.se);
@@ -420,6 +427,9 @@ function showResults(report: DayReport): void {
   ];
   if (report.day >= 2) rows.push(['捕まえた泥棒', `${report.caught}人`], ['盗まれた商品', `${report.stolen}個`, report.stolen ? 'bad' : '']);
   if (report.day >= 3) rows.push(['退治したエネミー', `${report.pests}体`]);
+  if (report.dust > 0) rows.push(['分解で得たダスト', fmt(report.dust)]);
+  const gemsGot = Object.values(report.gems).reduce((a, b) => a + (b ?? 0), 0);
+  if (gemsGot > 0) rows.push(['分解で得た魔石', `${gemsGot}個`]);
   const body = h(
     'div.results',
     {},
@@ -449,10 +459,7 @@ function showTree(): void {
 }
 
 function buyNode(node: SkillNode): void {
-  const cost = costOf(node, level(save.levels, node.id));
-  if (save.gum < cost) return;
-  save.gum -= cost;
-  save.levels[node.id] = level(save.levels, node.id) + 1;
+  if (!buy(save, node)) return;
   sound.play(FACILITY_NODES.has(node.id) ? 'build' : 'unlock');
   writeSave(save);
   updateTopbar();
@@ -499,6 +506,9 @@ function onShopEvent(e: ShopEvent): void {
       }
       break;
     }
+    case 'dismantle':
+      tip('dismantle', '置き場所がいっぱいの時は、分解炉が安い品をゴールドダストと魔石に変えてくれるよ！');
+      break;
     case 'overheat':
       sound.play('fail');
       log(h('span', {}, `${LINES[e.line].name}が過熱して止まった！（3秒）`), 'bad');

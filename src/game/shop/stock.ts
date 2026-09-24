@@ -1,3 +1,4 @@
+import { itemValue } from '../items';
 import { slotPos, STORAGE_POS } from '../layout';
 import type { SaveData } from '../save';
 import type { Stats } from '../stats';
@@ -42,9 +43,12 @@ export class Stock {
     return this.slots.some((s) => s.item !== null);
   }
 
-  /** True if a newly crafted item has somewhere to go. */
+  /** Called when storage is full; returns true if it freed a place (the dismantler). */
+  freeUp: () => boolean = () => false;
+
+  /** True if a newly crafted item has somewhere to go (dismantling something if needed). */
   makeRoom(): boolean {
-    return this.capacity() > 0;
+    return this.capacity() > 0 || (this.freeUp() && this.capacity() > 0);
   }
 
   /** Sends a freshly crafted item from a station to a free slot, or to storage. */
@@ -84,23 +88,27 @@ export class Stock {
         const slot = this.slots[f.dest.index];
         slot.incoming = false;
         slot.item = f.item;
-      } else {
+      } else if (f.dest.kind === 'storage') {
         this.storage.push(f.item);
       }
     }
     while (this.storage.length > 0) {
       const slot = this.freeSlotIndex();
       if (slot < 0) return;
-      const item = this.storage.shift()!;
+      // With the packer, the most valuable item in storage goes out first (and faster).
+      let pick = 0;
+      if (this.stats.packer > 0) this.storage.forEach((code, i) => itemValue(code) > itemValue(this.storage[pick]) && (pick = i));
+      const item = this.storage.splice(pick, 1)[0];
       this.slots[slot].incoming = true;
       const to = slotPos(slot);
-      this.flyers.push({ item, fromX: STORAGE_POS.x, fromY: STORAGE_POS.y, toX: to.x, toY: to.y, t: 0, dur: RESTOCK_FLIGHT, dest: { kind: 'slot', index: slot } });
+      const dur = this.stats.packer > 0 ? RESTOCK_FLIGHT * 0.6 : RESTOCK_FLIGHT;
+      this.flyers.push({ item, fromX: STORAGE_POS.x, fromY: STORAGE_POS.y, toX: to.x, toY: to.y, t: 0, dur, dest: { kind: 'slot', index: slot } });
     }
   }
 
   /** At closing: in-flight and held items go back to the shelf / storage; returns nothing lost. */
   closeOut(heldItems: number[]): void {
-    const held = [...heldItems, ...this.flyers.map((f) => f.item)];
+    const held = [...heldItems, ...this.flyers.filter((f) => f.dest.kind !== 'dismantle').map((f) => f.item)];
     for (const f of this.flyers) if (f.dest.kind === 'slot') this.slots[f.dest.index].incoming = false;
     this.flyers = [];
     for (const item of held) this.returnItem(item);

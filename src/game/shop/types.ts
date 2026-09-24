@@ -1,5 +1,5 @@
 import type { Hero } from '../catalog';
-import type { LineId } from '../lines';
+import type { GemId, LineId } from '../lines';
 import type { ThiefStyle } from '../thieves';
 
 export type Rng = () => number;
@@ -64,7 +64,7 @@ export interface Flyer {
   toY: number;
   t: number;
   dur: number;
-  dest: { kind: 'slot'; index: number } | { kind: 'storage' };
+  dest: { kind: 'slot'; index: number } | { kind: 'storage' } | { kind: 'dismantle' };
 }
 
 export interface Popup {
@@ -114,11 +114,15 @@ export interface DayReport {
   crafted: number;
   newEntries: number[];
   bestSale: { price: number; item: number; hero: string } | null;
+  /** Gold dust and 魔石 from the dismantler. */
+  dust: number;
+  gems: Partial<Record<GemId, number>>;
 }
 
 export type ShopEvent =
   | { type: 'craft'; item: number; isNew: boolean; line: LineId }
   | { type: 'overheat'; line: LineId }
+  | { type: 'dismantle'; item: number; dust: number; gem: GemId | null }
   | { type: 'sale'; price: number; item: number; hero: Hero; tip: boolean }
   | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' }
   | { type: 'thief'; hero: Hero; style: ThiefStyle }

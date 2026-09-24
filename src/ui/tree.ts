@@ -1,6 +1,9 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { BRANCHES, costOf, isAvailable, isVisible, level, SKILLS, skillById, type SkillNode } from '../game/skills';
+import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
+import { balanceFor } from '../game/purchase';
+import { GEM_COST } from '../game/shop/production';
 import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
@@ -36,6 +39,7 @@ export class TreeView {
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
   private readonly buyList: HTMLElement;
+  private readonly infusionBox: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
   private readonly viewport: HTMLElement;
   private selected: string | null = null;
@@ -80,6 +84,7 @@ export class TreeView {
     this.detail = h('div.tree-detail');
     this.statsBox = h('div.tree-stats');
     this.buyList = h('div.buy-list');
+    this.infusionBox = h('div.infusion');
     this.startBtn = h('button.btn.btn-primary.start-day', { onclick: () => this.cb.onStartDay() }) as HTMLButtonElement;
 
     // Minimap: tap to jump there.
@@ -136,6 +141,7 @@ export class TreeView {
         this.startBtn,
         h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
         this.detail,
+        this.infusionBox,
         this.buyList,
         h('button.btn', { onclick: () => this.cb.onCollection() }, '📖 図鑑を見る'),
         this.statsBox,
@@ -174,6 +180,7 @@ export class TreeView {
 
   private applyTransform(): void {
     this.world.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
+    this.renderInfusion();
     this.drawMinimap();
   }
 
@@ -253,12 +260,54 @@ export class TreeView {
     this.refresh();
   }
 
+  /** 魔石 infusion picker for tomorrow's business day (one 魔石 type per line). */
+  private renderInfusion(): void {
+    const stats = computeStats(this.save.levels);
+    this.infusionBox.replaceChildren();
+    if (stats.infusion <= 0) return;
+    const gems = this.save.resources.gems;
+    this.infusionBox.append(
+      h('h3', {}, '魔石の投入（次の営業日）'),
+      h('p.infusion-help', {}, `ラインごとに1種類。1日あたり魔石${GEM_COST}個を使います。`),
+      h('div.gem-stock', {}, ...GEM_IDS.map((g) => h('span', { title: GEMS[g].name }, icon(icons.gems[g], 'px'), `×${gems[g]}`))),
+    );
+    for (const line of LINE_IDS) {
+      if (stats[`${line}.unlocked`] <= 0) continue;
+      const current = this.save.infusion[line] ?? null;
+      const choose = (g: GemId | null) => {
+        if (g) this.save.infusion[line] = g;
+        else delete this.save.infusion[line];
+        this.refresh();
+      };
+      this.infusionBox.append(
+        h(
+          'div.infusion-row',
+          {},
+          h('span.infusion-line', {}, LINES[line].name),
+          h('button.gem-choice', { class: `gem-choice ${current === null ? 'on' : ''}`, onclick: () => choose(null), title: '投入しない' }, 'なし'),
+          ...GEM_IDS.map((g) =>
+            h(
+              'button.gem-choice',
+              {
+                class: `gem-choice ${current === g ? 'on' : ''} ${gems[g] < GEM_COST ? 'short' : ''}`,
+                onclick: () => choose(g),
+                title: `${GEMS[g].name}: ${GEMS[g].effect}`,
+              },
+              icon(icons.gems[g], 'px'),
+            ),
+          ),
+        ),
+      );
+      if (current) this.infusionBox.append(h('p.infusion-effect', {}, `${GEMS[current].effect}${gems[current] < GEM_COST ? '（魔石が足りません）' : ''}`));
+    }
+  }
+
   /** Buys up to `count` levels of a node while affordable. Returns levels bought. */
   private buyLevels(node: SkillNode, count: number): number {
     let bought = 0;
     while (bought < count) {
       const lv = level(this.save.levels, node.id);
-      if (!isAvailable(node, this.save.levels) || lv >= node.max || this.save.gum < costOf(node, lv)) break;
+      if (!isAvailable(node, this.save.levels) || lv >= node.max || balanceFor(this.save, node) < costOf(node, lv)) break;
       this.cb.onBuy(node);
       bought++;
     }
@@ -270,7 +319,7 @@ export class TreeView {
     const levels = this.save.levels;
     return SKILLS.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max)
       .map((node) => ({ node, cost: costOf(node, level(levels, node.id)) }))
-      .filter((o) => o.cost <= this.save.gum)
+      .filter((o) => o.cost <= balanceFor(this.save, o.node))
       .sort((a, b) => a.cost - b.cost);
   }
 
@@ -285,7 +334,7 @@ export class TreeView {
     const lv = level(this.save.levels, node.id);
     if (!isAvailable(node, this.save.levels) || lv >= node.max) return;
     const cost = costOf(node, lv);
-    if (this.save.gum < cost) return;
+    if (balanceFor(this.save, node) < cost) return;
     this.cb.onBuy(node);
     const el = this.nodeEls.get(node.id);
     el?.classList.remove('bought');
@@ -303,7 +352,7 @@ export class TreeView {
       const visible = isVisible(node, levels);
       const available = isAvailable(node, levels);
       const maxed = lv >= node.max;
-      const affordable = available && !maxed && this.save.gum >= costOf(node, lv);
+      const affordable = available && !maxed && balanceFor(this.save, node) >= costOf(node, lv);
       el.hidden = !visible;
       el.classList.toggle('locked', !available);
       el.classList.toggle('owned', lv > 0);
@@ -359,19 +408,19 @@ export class TreeView {
             h('ul.detail-changes', {}, ...changes.map((c) => h('li', {}, h('span', {}, c.label), h('b', {}, `${c.from} → ${c.to}`)))),
           );
         }
-        const can = this.save.gum >= cost;
+        const can = balanceFor(this.save, node) >= cost;
         this.detail.append(
           h(
             'button.btn.btn-buy',
             { disabled: !can, onclick: () => this.tryBuy(node) },
-            icon(icons.gum, 'px gum-icon'),
+            icon(node.currency === 'dust' ? icons.dust : icons.gum, 'px gum-icon'),
             ` ${fmt(cost)} で${lv > 0 ? '強化' : '習得'}`,
           ),
         );
         // How many more levels the current GUM covers.
         let n = 0;
         let total = 0;
-        while (lv + n < node.max && total + costOf(node, lv + n) <= this.save.gum) total += costOf(node, lv + n++);
+        while (lv + n < node.max && total + costOf(node, lv + n) <= balanceFor(this.save, node)) total += costOf(node, lv + n++);
         if (n >= 2) {
           this.detail.append(
             h(
@@ -382,7 +431,7 @@ export class TreeView {
                   this.refresh();
                 },
               },
-              `まとめて Lv+${n}（${fmt(total)} GUM）`,
+              `まとめて Lv+${n}（${fmt(total)} ${node.currency === 'dust' ? 'ダスト' : 'GUM'}）`,
             ),
           );
         }
@@ -401,12 +450,13 @@ export class TreeView {
             { class: `buy-item ${n.id === this.selected ? 'selected' : ''}`, style: `--branch:${BRANCHES[n.branch].color}`, onclick: () => this.select(n.id, true) },
             icon(n.icon, 'px'),
             h('span.buy-name', {}, n.name, n.max > 1 ? h('small', {}, ` Lv${level(levels, n.id) + 1}`) : ''),
-            h('span.buy-cost', {}, fmt(c)),
+            h('span.buy-cost', { class: n.currency === 'dust' ? 'buy-cost dust' : 'buy-cost' }, fmt(c)),
           ),
         ),
         h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, '安い順にまとめて習得'),
       );
     }
+    this.renderInfusion();
     this.drawMinimap();
 
     // Stats summary
