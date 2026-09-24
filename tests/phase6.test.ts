@@ -29,7 +29,7 @@ describe('save v7', () => {
     const data = parseSave(JSON.stringify(v6));
     expect(data.version).toBe(SAVE_VERSION);
     expect(data.prestige).toMatchObject({ runs: 0, cp: 0, home: null, fame: 0, history: [] });
-    expect(data.settings).toEqual({ bgm: false, se: true, autoBuy: true });
+    expect(data.settings).toMatchObject({ bgm: false, se: true, autoBuy: true, quality: 'auto', colorAssist: false, alerts: false });
     expect(migrate({ version: 6 }).version).toBe(SAVE_VERSION);
   });
 });

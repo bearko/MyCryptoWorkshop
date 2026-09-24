@@ -1,4 +1,4 @@
-import { attributeName, customers, factionName, RARITIES, RARITY_COLOR, RARITY_JA, series } from '../game/catalog';
+import { attributeName, customers, factionName, RARITIES, RARITY_COLOR, RARITY_JA, RARITY_LETTER, series } from '../game/catalog';
 import { AFFINITY, affinityRank, HERO_SETS } from '../game/heroes';
 import { EDITIONS } from '../game/items';
 import type { SaveData } from '../game/save';
@@ -43,6 +43,7 @@ function heroView(save: SaveData): HTMLElement {
       const cell = h('button.cell', {
         class: `cell ${visits ? 'has' : 'unknown'}`,
         style: `--rarity:${RARITY_COLOR[c.rarity]}`,
+        'data-r': RARITY_LETTER[c.rarity],
         title: visits ? c.name : t('？？？', '???'),
         onclick: () =>
           info.replaceChildren(
@@ -100,6 +101,7 @@ function extensionView(save: SaveData): HTMLElement {
       const cell = h('button.cell', {
         class: `cell ${has ? 'has' : 'unknown'}`,
         style: `--rarity:${RARITY_COLOR[e.rarity]}`,
+        'data-r': RARITY_LETTER[e.rarity],
         title: has ? e.name : t('？？？', '???'),
         onclick: () => {
           info.replaceChildren(

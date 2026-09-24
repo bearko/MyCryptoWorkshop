@@ -406,6 +406,8 @@ export class SceneRenderer {
   private bgKey = '';
   private readonly ctx: CanvasRenderingContext2D;
   private scale = 1;
+  /** Low: 1× resolution and no glow (shadowBlur), for slow devices. */
+  quality: 'high' | 'low' = 'high';
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -414,9 +416,14 @@ export class SceneRenderer {
     this.bg.height = SCENE_H;
   }
 
+  /** Glow radius for the current quality (blur is the costliest thing to draw). */
+  private glow(px: number): number {
+    return this.quality === 'low' ? 0 : px;
+  }
+
   resize(): void {
     const rect = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = this.quality === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(rect.width * dpr));
     const h = Math.max(1, Math.round(rect.height * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -527,7 +534,7 @@ export class SceneRenderer {
       ctx.fill();
       ctx.save();
       ctx.shadowColor = 'rgba(255,60,200,0.9)';
-      ctx.shadowBlur = 16;
+      ctx.shadowBlur = this.glow(16);
       drawImg(ctx, p.image, p.x - 32 + shake, p.y - 64 - bob, 64, 64, p.tx < p.x);
       ctx.restore();
       for (let i = 0; i < 2; i++) {
@@ -546,7 +553,7 @@ export class SceneRenderer {
     if (shop.stats.cryptid > 0) {
       ctx.save();
       ctx.shadowColor = 'rgba(140,220,255,0.9)';
-      ctx.shadowBlur = 14;
+      ctx.shadowBlur = this.glow(14);
       drawImg(ctx, cryptid, cx - 24, cy - 24, 48, 48);
       ctx.restore();
     }
@@ -556,7 +563,7 @@ export class SceneRenderer {
       ctx.strokeStyle = '#bfefff';
       ctx.lineWidth = 4;
       ctx.shadowColor = '#7fdcff';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = this.glow(12);
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       for (let k = 1; k <= 6; k++) ctx.lineTo(cx + ((x - cx) * k) / 6 + (k < 6 ? (k % 2 ? 14 : -14) : 0), cy + ((y - 40 - cy) * k) / 6);
@@ -597,7 +604,7 @@ export class SceneRenderer {
       const float = Math.sin(now / 300) * 6;
       ctx.save();
       ctx.shadowColor = v.kind === 'legend' ? 'rgba(255,215,90,1)' : 'rgba(140,220,255,1)';
-      ctx.shadowBlur = 24;
+      ctx.shadowBlur = this.glow(24);
       if (v.kind === 'cryptid') drawImg(ctx, v.image, v.x - 48, v.y - 110 + float, 96, 96);
       else drawImg(ctx, v.image, v.x - HERO_PX / 2, v.y - HERO_PX, HERO_PX, HERO_PX, true);
       ctx.restore();
@@ -812,9 +819,22 @@ export class SceneRenderer {
         ctx.save();
         // Raid pirates glow orange.
         ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : a.raider ? 'rgba(255,150,20,1)' : 'rgba(255,40,40,0.95)';
-        ctx.shadowBlur = 14;
+        ctx.shadowBlur = this.glow(14);
         drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
         ctx.restore();
+        // A mark above villains, so they are not told apart by color alone (☠ for raid pirates).
+        // (Beside the head: speech bubbles use the space above it.)
+        const mx = a.x - HERO_PX / 2 - 4;
+        const my = a.y - HERO_PX - hop + 10;
+        ctx.fillStyle = a.raider ? '#1b120c' : '#e0282e';
+        ctx.beginPath();
+        ctx.arc(mx, my, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold 15px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(a.raider ? '☠' : '!', mx, my + 1);
         // Remaining taps for tough villains
         if (a.style && a.style.hp > 1) {
           for (let i = 0; i < a.style.hp; i++) {
@@ -846,7 +866,7 @@ export class SceneRenderer {
     if (m.ace) {
       ctx.save();
       ctx.shadowColor = 'rgba(255,215,90,0.9)';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = this.glow(12);
     }
     drawImg(ctx, m.hero.image, m.x - HERO_PX / 2, m.y - HERO_PX - hop, HERO_PX, HERO_PX, m.facing < 0);
     if (m.ace) ctx.restore();
@@ -1050,7 +1070,7 @@ export class SceneRenderer {
       ctx.fill();
       ctx.save();
       ctx.shadowColor = 'rgba(255,60,200,0.9)';
-      ctx.shadowBlur = 16;
+      ctx.shadowBlur = this.glow(16);
       drawImg(ctx, p.image, p.x - PEST_PX / 2 + wob, p.y - PEST_PX - lift, PEST_PX, PEST_PX, p.toX < p.fromX);
       ctx.restore();
       drawImg(ctx, icons.sleep, p.x + 18, p.y - PEST_PX - lift - 14, 24, 24);
