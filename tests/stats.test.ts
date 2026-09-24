@@ -20,3 +20,19 @@ describe('data-driven skill effects', () => {
     for (const n of SKILLS) if (n.id !== 'root') expect(n.effects.length, n.id).toBeGreaterThan(0);
   });
 });
+
+import { describeChanges } from '../src/game/statInfo';
+
+describe('describeChanges', () => {
+  it('shows the next level of a node as before → after', () => {
+    const before = computeStats({ root: 1, craftSpeed: 1 });
+    const after = computeStats({ root: 1, craftSpeed: 2 });
+    expect(describeChanges(before, after)).toEqual([{ label: 'クラフト時間', from: '2.39秒', to: '2.20秒' }]);
+  });
+
+  it('describes unlocks and new series', () => {
+    const changes = describeChanges(computeStats({ root: 1 }), computeStats({ root: 1, shelf: 1, recipe_Musket: 1 }));
+    expect(changes.map((c) => c.label)).toEqual(['陳列スペース', '来客間隔', 'クラフトできるシリーズ']);
+    expect(changes[2].to).toContain('マスケット');
+  });
+});
