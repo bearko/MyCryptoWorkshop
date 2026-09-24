@@ -30,7 +30,7 @@ export const EDITION_BASE_CHANCE = [0, 0.08, 0.025, 0.008, 0.002];
 export const SHIN_MULT = 4;
 
 /** Base sale price per rarity (Common → Legendary). */
-export const RARITY_PRICE = [5, 15, 50, 170, 600];
+export const RARITY_PRICE = [5, 14, 42, 130, 400];
 
 const EDITION_STRIDE = 100000;
 

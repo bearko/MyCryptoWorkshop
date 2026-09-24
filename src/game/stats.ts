@@ -10,9 +10,9 @@ export const TIER_PAY = [1, 1.25, 1.5, 1.8, 2.2];
 
 /** Per-line defaults. */
 const LINE_BASE: Record<LineId, Record<LineStat, number>> = {
-  pot: { unlocked: 1, craftTime: 2.6, craftClick: 0.12, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1 },
-  forge: { unlocked: 0, craftTime: 3.2, craftClick: 0.12, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1.5 },
-  capsule: { unlocked: 0, craftTime: 4.0, craftClick: 0.1, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.4, coolRate: 0.45, editionLuck: 1 },
+  pot: { unlocked: 1, craftTime: 4.2, craftClick: 0.22, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1 },
+  forge: { unlocked: 0, craftTime: 5.0, craftClick: 0.22, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1.5 },
+  capsule: { unlocked: 0, craftTime: 6.5, craftClick: 0.2, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.4, coolRate: 0.45, editionLuck: 1 },
 };
 
 /** Stat values with no skills owned. Skills change them through their `effects`. */
@@ -85,6 +85,7 @@ export function computeStats(levels: Levels): Stats {
   const mulGroups = new Map<NumStat, Map<string, number>>();
   const pows: Partial<Record<NumStat, number>> = {};
   const seriesUnlocked = [0];
+  const seriesMult = series.map(() => 1);
   const overlays = ['magic_pot'];
 
   for (const node of SKILLS) {
@@ -114,6 +115,9 @@ export function computeStats(levels: Levels): Stats {
         case 'series':
           if (!seriesUnlocked.includes(e.index)) seriesUnlocked.push(e.index);
           break;
+        case 'seriesMul':
+          seriesMult[e.index] *= 1 + e.per * lv;
+          break;
       }
     }
   }
@@ -132,7 +136,7 @@ export function computeStats(levels: Levels): Stats {
     spawnInterval: BASE_SPAWN_INTERVAL / values.spawnRate,
     seriesUnlocked,
     overlays,
-    seriesPrice: series.map(() => 1),
+    seriesPrice: seriesMult,
   };
 }
 

@@ -1,7 +1,9 @@
 // Headless auto-player used by the balance tests and `npm run balance`.
 import { newSave, type SaveData } from '../save';
 import { Shop, type DayReport, type Rng } from '../shop';
+import { GEM_IDS, LINE_IDS } from '../lines';
 import { buy, canBuy } from '../purchase';
+import { GEM_COST } from '../shop/production';
 import { costOf, isAvailable, level, SKILLS } from '../skills';
 import { computeStats } from '../stats';
 
@@ -19,24 +21,53 @@ export function seeded(seed: number): Rng {
 
 export interface PlayerModel {
   name: string;
-  /** Taps per second the player spends on the pot, register, thieves and pests. */
+  /** Taps per second the player spends on the lines, register, thieves and pests. */
   clicksPerSec: number;
   /** Chance a tap aimed at a thief connects. */
   thiefAccuracy: number;
+  /** Holds one production line to overclock it, releasing before it overheats. */
+  overclocks: boolean;
+  /** Infuses 魔石 into lines between days. */
+  usesGems: boolean;
 }
 
 export const PLAYERS: PlayerModel[] = [
-  { name: 'active', clicksPerSec: 3, thiefAccuracy: 0.8 },
-  { name: 'casual', clicksPerSec: 1, thiefAccuracy: 0.5 },
-  { name: 'idle', clicksPerSec: 0, thiefAccuracy: 0 },
+  { name: 'active', clicksPerSec: 3, thiefAccuracy: 0.8, overclocks: true, usesGems: true },
+  { name: 'casual', clicksPerSec: 1, thiefAccuracy: 0.5, overclocks: false, usesGems: true },
+  { name: 'idle', clicksPerSec: 0, thiefAccuracy: 0, overclocks: false, usesGems: false },
 ];
+
+/** Picks today's 魔石 for each line: the gem the player has most of. */
+function chooseGems(save: SaveData): void {
+  const stats = computeStats(save.levels);
+  save.infusion = {};
+  if (stats.infusion <= 0) return;
+  const pool = { ...save.resources.gems };
+  for (const line of LINE_IDS) {
+    if (stats[`${line}.unlocked`] <= 0) continue;
+    const gem = GEM_IDS.reduce((best, g) => (pool[g] > pool[best] ? g : best), GEM_IDS[0]);
+    if (pool[gem] < GEM_COST) continue;
+    pool[gem] -= GEM_COST;
+    save.infusion[line] = gem;
+  }
+}
 
 /** Plays one business day with the given player model. */
 export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[0]): { report: DayReport; seconds: number } {
+  if (player.usesGems) chooseGems(save);
   const shop = new Shop(save, rng);
   const dt = 1 / 30;
   let clickBudget = 0;
+  let tapLine = 0;
   while (!shop.over) {
+    if (player.overclocks) {
+      // Keep the slowest-progressing line held while it is cool enough.
+      const target = shop.lines.reduce((a, b) => (b.stats.craftTime > a.stats.craftTime ? b : a));
+      for (const line of shop.lines) {
+        const hold = line === target && line.jam <= 0 && (line.holding ? line.heat < 0.8 : line.heat < 0.5);
+        shop.holdLine(line.id, hold);
+      }
+    }
     shop.update(dt);
     clickBudget += player.clicksPerSec * dt;
     while (clickBudget >= 1) {
@@ -45,14 +76,14 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
       if (thief && rng() < player.thiefAccuracy) shop.clickThief(thief);
       else if (shop.pestList.length) shop.clickPest(shop.pestList[0]);
       else if (shop.queue.length >= 2) shop.clickRegister();
-      else shop.clickLine('pot');
+      else shop.clickLine(shop.lines[tapLine++ % shop.lines.length].id);
     }
   }
   return { report: shop.report, seconds: shop.elapsed };
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {

@@ -57,7 +57,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [0, -6.1], seiryu: [6.1, 0], kouryu: [0, 6.1], byakko: [-3.2, 4.8], genbu: [-9, -0.3] }[key]!;
+      const pos = { suzaku: [-4.4, -7],  seiryu: [6.6, -1.2], kouryu: [0, 6.1], byakko: [-3.2, 4.8], genbu: [-9.4, 0.4] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
