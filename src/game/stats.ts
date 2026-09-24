@@ -1,95 +1,107 @@
-import { series } from './catalog';
-import { level, type Levels } from './skills';
+import type { NumStat } from './effects';
+import { level, SKILLS, type Levels } from './skills';
 
 /** Base sale price per rarity (Common → Legendary). */
 export const RARITY_PRICE = [5, 15, 50, 170, 600];
 /** Payment multiplier per customer tier (Common → Legendary heroes). */
 export const TIER_PAY = [1, 1.25, 1.5, 1.8, 2.2];
 
-export interface Stats {
-  dayLength: number;
-  craftTime: number;
-  /** Fraction of a craft completed per pot click. */
-  craftClick: number;
-  doubleChance: number;
-  /** Highest craftable rarity index. */
-  maxRarity: number;
-  luck: number;
-  /** Seconds between Mine-chan's automatic pot clicks (0 = not hired). */
-  mineInterval: number;
-  storageCap: number;
-  shelfSlots: number;
-  seriesUnlocked: number[];
+/** Stat values with no skills owned. Skills change them through their `effects`. */
+export const BASE_STATS: Record<NumStat, number> = {
+  dayLength: 40,
+  craftTime: 2.6,
+  craftClick: 0.12,
+  doubleChance: 0,
+  maxRarity: 0,
+  luck: 1,
+  mineInterval: 0,
+  storageCap: 0,
+  shelfSlots: 3,
+  spawnRate: 1,
+  groupChance: 0,
+  patience: 6,
+  queuePatience: 14,
+  walkSpeed: 115,
+  maxTier: 0,
+  priceMult: 1,
+  collectionBonus: 0.006,
+  cashierTime: 1.8,
+  registers: 1,
+  registerClick: 0.35,
+  tipChance: 0,
+  bountyMult: 1,
+  thiefSpeed: 1,
+  stealTime: 1.4,
+  guardChance: 0,
+  pestInterval: 1,
+  pestBountyMult: 1,
+};
+
+/** Seconds between customers at spawnRate 1. */
+const BASE_SPAWN_INTERVAL = 2.7;
+
+export interface Stats extends Record<NumStat, number> {
+  /** Seconds between customers (derived from spawnRate). */
   spawnInterval: number;
-  groupChance: number;
-  patience: number;
-  queuePatience: number;
-  walkSpeed: number;
-  maxTier: number;
-  priceMult: number;
-  collectionBonus: number;
-  cashierTime: number;
-  registers: number;
-  /** Seconds of checkout removed per register click. */
-  registerClick: number;
-  tipChance: number;
-  bountyMult: number;
-  thiefSpeed: number;
-  stealTime: number;
-  guardChance: number;
-  pestInterval: number;
-  pestBountyMult: number;
+  /** Indexes of craftable series. */
+  seriesUnlocked: number[];
+  /** Workshop facility layers to show. */
   overlays: string[];
 }
 
 export function computeStats(levels: Levels): Stats {
-  const lv = (id: string) => level(levels, id);
+  const floor: Partial<Record<NumStat, number>> = {};
+  const adds: Partial<Record<NumStat, number>> = {};
+  // Multiplier groups per stat: group key → Σ(per × level) for 'mul', or a running product for 'pow'.
+  const mulGroups = new Map<NumStat, Map<string, number>>();
+  const pows: Partial<Record<NumStat, number>> = {};
+  const seriesUnlocked = [0];
+  const overlays = ['magic_pot'];
 
-  const seriesUnlocked = [0, ...series.slice(1).flatMap((s, i) => (lv(`recipe_${s.key}`) > 0 ? [i + 1] : []))];
-  const variety = 1 + 0.06 * (seriesUnlocked.length - 1);
-  const spawnRate = variety * (1 + 0.15 * lv('ad')) * (lv('lantern') ? 1.2 : 1) * (1 + 0.06 * lv('wordOfMouth'));
+  for (const node of SKILLS) {
+    const lv = level(levels, node.id);
+    if (lv <= 0) continue;
+    for (const e of node.effects) {
+      switch (e.op) {
+        case 'add':
+          adds[e.stat] = (adds[e.stat] ?? 0) + (e.base ?? 0) + e.per * lv;
+          break;
+        case 'mul': {
+          const groups = mulGroups.get(e.stat) ?? new Map<string, number>();
+          const key = e.group ?? node.id;
+          groups.set(key, (groups.get(key) ?? 0) + e.per * lv);
+          mulGroups.set(e.stat, groups);
+          break;
+        }
+        case 'pow':
+          pows[e.stat] = (pows[e.stat] ?? 1) * Math.pow(e.factor, lv);
+          break;
+        case 'max':
+          floor[e.stat] = Math.max(floor[e.stat] ?? -Infinity, e.value);
+          break;
+        case 'overlay':
+          if (lv >= (e.minLevel ?? 1) && !overlays.includes(e.key)) overlays.push(e.key);
+          break;
+        case 'series':
+          if (!seriesUnlocked.includes(e.index)) seriesUnlocked.push(e.index);
+          break;
+      }
+    }
+  }
 
-  const maxRarity = lv('legendary') ? 4 : lv('epic') ? 3 : lv('rare') ? 2 : lv('uncommon') ? 1 : 0;
-  const maxTier = lv('tier4') ? 4 : lv('tier3') ? 3 : lv('tier2') ? 2 : lv('tier1') ? 1 : 0;
-
-  const overlays: string[] = ['magic_pot'];
-  if (lv('forge')) overlays.push('ambient_overlay_200');
-  if (lv('conveyor')) overlays.push('conveyor');
-  if (lv('rare')) overlays.push('capsule');
-  if (lv('lantern')) overlays.push('ambient_overlay_500');
-  if (lv('luck') >= 1) overlays.push('ambient_overlay_401');
-  if (lv('luck') >= 3) overlays.push('ambient_overlay_402');
-  if (lv('luck') >= 5) overlays.push('ambient_overlay_325');
+  const values = {} as Record<NumStat, number>;
+  for (const stat of Object.keys(BASE_STATS) as NumStat[]) {
+    let v = Math.max(BASE_STATS[stat], floor[stat] ?? -Infinity) + (adds[stat] ?? 0);
+    for (const sum of mulGroups.get(stat)?.values() ?? []) v *= 1 + sum;
+    v *= pows[stat] ?? 1;
+    values[stat] = v;
+  }
+  seriesUnlocked.sort((a, b) => a - b);
 
   return {
-    dayLength: 40 + 8 * lv('dayLength'),
-    craftTime: 2.6 * Math.pow(0.92, lv('craftSpeed')) * (lv('forge') ? 0.85 : 1) * Math.pow(0.94, lv('craftSpeed2')),
-    craftClick: 0.12 * (1 + 0.4 * lv('craftClick')),
-    doubleChance: 0.05 * lv('double'),
-    maxRarity,
-    luck: 1 + 0.25 * lv('luck'),
-    mineInterval: lv('mine') ? 2.4 - 0.35 * (lv('mine') - 1) : 0,
-    storageCap: lv('conveyor') ? 4 + 3 * lv('storage') : 0,
-    shelfSlots: 3 + lv('shelf'),
+    ...values,
+    spawnInterval: BASE_SPAWN_INTERVAL / values.spawnRate,
     seriesUnlocked,
-    spawnInterval: 2.7 / spawnRate,
-    groupChance: 0.08 * lv('group'),
-    patience: 6 + 1.5 * lv('patience'),
-    queuePatience: 14 + 1.5 * lv('patience'),
-    walkSpeed: 115 * (1 + 0.12 * lv('walk')),
-    maxTier,
-    priceMult: (1 + 0.15 * lv('price')) * (1 + 0.15 * lv('brand')),
-    collectionBonus: 0.006 + 0.003 * lv('collector'),
-    cashierTime: 1.8 * Math.pow(0.9, lv('cashier')),
-    registers: 1 + lv('register'),
-    registerClick: 0.35 * (1 + 0.4 * lv('registerClick')),
-    tipChance: 0.1 * lv('tip'),
-    bountyMult: 1 + 0.5 * lv('bounty'),
-    thiefSpeed: Math.pow(0.88, lv('trap')),
-    stealTime: 1.4 + 0.5 * lv('bell'),
-    guardChance: 0.15 * lv('guard'),
-    pestInterval: 1 + 0.2 * lv('ward'),
-    pestBountyMult: 1 + lv('exterminate'),
     overlays,
   };
 }
