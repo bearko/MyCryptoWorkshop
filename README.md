@@ -7,7 +7,7 @@ My Crypto Heroes の世界でエクステンション（装備品）をクラフ
 - 泥棒（ヴィラン寄りのヒーロー）や工房荒らし（エネミー）をクリックで撃退
 - 閉店後に、五勢力（朱雀・青龍・黄竜・白虎・玄武）の枝をもつスキルツリーで工房を強化
 
-ゲームデザイン・拡張計画・ロードマップは [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) を参照してください。
+ゲームデザインは [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)、本格開発のロードマップは [docs/ROADMAP.md](docs/ROADMAP.md) を参照してください。
 
 ## 遊び方
 
