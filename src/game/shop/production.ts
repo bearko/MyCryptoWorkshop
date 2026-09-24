@@ -133,7 +133,8 @@ export class Line {
     return makeItem(id, edition);
   }
 
-  private craftOne(): void {
+  /** Crafts one item from this line's recipes and sends it to the shelf (or storage). */
+  craftOne(): void {
     const { save, report } = this.shop;
     const code = this.rollItem();
     const id = itemId(code);
@@ -164,6 +165,15 @@ export class Production {
       if (paid) save.resources.gems[gem] -= GEM_COST;
       return new Line(shop, id, paid ? gem : null);
     });
+  }
+
+  /** Crafts an item for every empty shelf slot (MAI's blessing). Returns how many. */
+  fillShelf(): number {
+    const lines = this.lines.filter((l) => l.recipes().length > 0);
+    if (!lines.length) return 0;
+    const free = this.shop.stock.slots.filter((s) => !s.showcase && s.item === null && !s.incoming).length;
+    for (let i = 0; i < free; i++) lines[i % lines.length].craftOne();
+    return free;
   }
 
   line(id: LineId): Line | undefined {

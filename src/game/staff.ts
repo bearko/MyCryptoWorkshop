@@ -17,7 +17,8 @@ export type StaffRole =
   | 'appraiser'
   | 'delivery'
   | 'researcher'
-  | 'peddler';
+  | 'peddler'
+  | 'cleaner';
 
 export interface RoleInfo {
   /** Job title. */
@@ -40,6 +41,7 @@ export const ROLES: Record<StaffRole, RoleInfo> = {
   delivery: { job: '配達係', work: 'マーケット出品の出荷が速くなり、高く売れる', area: 'workshop' },
   researcher: { job: '研究者', work: '営業中に研究ポイントを生み出す', area: 'shop' },
   peddler: { job: '行商人', work: '倉庫の品を持って町へ売りに行く（客が来なくても売上）', area: 'shop' },
+  cleaner: { job: '清掃係', work: '泥や散らかりを片付け、落ちたコインを拾う', area: 'shop' },
 };
 
 export const STAFF_ROLES = Object.keys(ROLES) as StaffRole[];

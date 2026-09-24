@@ -4,6 +4,8 @@ import { itemExt, itemValue, type ItemCode } from './items';
 export { RARITY_PRICE } from './items';
 import { series } from './catalog';
 import { STAFF_ROLES, type StaffRole } from './staff';
+import { FACTION_KEYS } from './factions';
+import type { FactionKey } from './effects';
 import { level, SKILLS, type Levels } from './skills';
 
 /** Payment multiplier per customer tier (Common → Legendary heroes). */
@@ -88,6 +90,48 @@ export const BASE_STATS = {
   showcaseSlots: 0,
   showcaseMult: 1.5,
   ...(Object.fromEntries(STAFF_ROLES.map((r) => [`staff_${r}`, 0])) as Record<`staff_${StaffRole}`, number>),
+  // Phase 4
+  /** Extra pay from customers of each faction (0.1 = +10%). */
+  ...(Object.fromEntries(FACTION_KEYS.map((f) => [`fav_${f}`, 0])) as Record<`fav_${FactionKey}`, number>),
+  cleanerSpeed: 200,
+  /** Chance a customer walks in mud on a rainy day. */
+  mudChance: 0.35,
+  /** Chance a paying customer drops a coin on a foggy day. */
+  coinChance: 0.3,
+  /** A dropped coin is worth this share of the purchase. */
+  coinValue: 0.15,
+  /** Multiplier on the time between enemies wandering into the shop. */
+  storePestInterval: 1,
+  storePestBounty: 1,
+  /** 1 once a cryptid guards the shop. */
+  cryptid: 0,
+  /** Seconds between the cryptid's lightning strikes. */
+  cryptidInterval: 10,
+  /** Multiplier on the time between treasure chests. */
+  chestInterval: 1,
+  chestMult: 1,
+  /** Best vehicle unlocked: 0 none, 1 carriage, 2 airship, 3 land gate. */
+  vehicle: 0,
+  vehicleSize: 0,
+  /** Multiplier on the time between vehicles. */
+  vehicleInterval: 1,
+  collectorChance: 0,
+  collectorPay: 2,
+  /** Chance per customer of a land owner (land days always bring one). */
+  ownerChance: 0,
+  ownerPay: 3,
+  /** Share of the stock's value the shady merchant offers. */
+  merchantRate: 0.32,
+  /** Chance a thief caught by a tap asks to reform. */
+  reformChance: 0.3,
+  regularPay: 1.5,
+  blessingPower: 1,
+  /** Chance per day of a legendary hero's visit (sales ×2 for a while). */
+  legendChance: 0,
+  /** Thieves come this much more often in fog. */
+  fogThieves: 1.6,
+  /** Customers come this much more often on a festival day. */
+  festivalCrowd: 1.4,
   ...(Object.fromEntries(
     LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
   ) as Record<`${LineId}.${LineStat}`, number>),

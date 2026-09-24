@@ -24,6 +24,7 @@ export function makeActor(shop: Shop, kind: Actor['kind'], hero: Hero, tier: num
     bob: shop.rand.next() * 10,
     path: [],
     priceBonus: 1,
+    mudCooldown: 0,
     hp: 1,
     hitFlash: 0,
     rope: false,

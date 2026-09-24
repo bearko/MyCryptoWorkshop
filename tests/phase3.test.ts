@@ -23,7 +23,11 @@ function saveWith(levels: Record<string, number>, patch: Partial<SaveData> = {})
 function run(shop: Shop, seconds: number): ShopEvent[] {
   const events: ShopEvent[] = [];
   shop.on((e) => events.push(e));
-  for (let t = 0; t < seconds && !shop.over; t += 1 / 30) shop.update(1 / 30);
+  for (let t = 0; t < seconds && !shop.over; t += 1 / 30) {
+    const d = shop.pendingDecision;
+    if (d) shop.decide(d.fallback);
+    shop.update(1 / 30);
+  }
   return events;
 }
 

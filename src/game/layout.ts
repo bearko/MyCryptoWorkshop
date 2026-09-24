@@ -98,6 +98,7 @@ export function setSceneHeight(h: number): void {
   TRIAL = { dummy: { x: 930, y: bottom - 16 }, spot: { x: 868, y: bottom - 10 } };
   STAFF_POSTS = {
     stocker: { x: 236, y: FLOOR_Y + 34 },
+    cleaner: { x: 150, y: FLOOR_Y + 48 },
     consultant: { x: 726, y: FLOOR_Y + 40 },
     host: { x: 872, y: SHOP_LANE_Y + 34 },
     promoter: { x: 966, y: FLOOR_Y + 46 },

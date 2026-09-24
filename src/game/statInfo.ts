@@ -3,6 +3,7 @@ import type { LineStat, NumStat } from './effects';
 import { EDITIONS } from './items';
 import { LINE_IDS, LINES } from './lines';
 import { ROLES, STAFF_ROLES, staffHero } from './staff';
+import { FACTION_KEYS, FACTION_NAME } from './factions';
 import { secs } from './format';
 import type { Stats } from './stats';
 
@@ -81,6 +82,29 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   trialFee: { label: '試し斬り料（買い物の）', format: pct },
   showcaseSlots: { label: 'ショーケース', format: (v) => `${v}枠` },
   showcaseMult: { label: 'ショーケースの価格', format: times },
+  cleanerSpeed: { label: '清掃係の足の速さ', format: (v) => `${Math.round(v)}` },
+  mudChance: { label: '雨の日に泥が持ち込まれる確率', format: pct },
+  coinValue: { label: '落ちたコインの価値（買い物の）', format: pct },
+  storePestBounty: { label: '店のエネミー退治の報酬', format: times },
+  cryptid: { label: 'クリプタイドの守護', format: (v) => (v > 0 ? 'あり' : 'なし') },
+  cryptidInterval: { label: 'クリプタイドの雷の間隔', format: secs },
+  chestInterval: { label: '宝箱が飛んでくる間隔', format: times },
+  chestMult: { label: '宝箱の中身', format: times },
+  vehicle: { label: '乗り物', format: (v) => ['なし', '乗合馬車', '飛空艇', 'ランドゲート'][v] ?? 'なし' },
+  vehicleSize: { label: '乗り物で来る客（追加）', format: (v) => `+${v}人` },
+  vehicleInterval: { label: '乗り物が来る間隔', format: times },
+  collectorChance: { label: 'コレクター客の確率', format: pct },
+  collectorPay: { label: 'コレクター客の支払い', format: times },
+  ownerChance: { label: 'ランドオーナーが来る確率', format: pct },
+  ownerPay: { label: 'ランドオーナーの支払い', format: times },
+  merchantRate: { label: '悪徳商人の買取価格', format: pct },
+  reformChance: { label: '泥棒が改心を申し出る確率', format: pct },
+  regularPay: { label: '常連客の支払い', format: times },
+  blessingPower: { label: 'MAI のお手伝いの時間', format: times },
+  legendChance: { label: '伝説のヒーローが来る確率（1日）', format: pct },
+  fogThieves: { label: '霧の日の泥棒の多さ', format: times },
+  festivalCrowd: { label: '市場の日の客足', format: times },
+  ...Object.fromEntries(FACTION_KEYS.map((f) => [`fav_${f}`, { label: `${FACTION_NAME[f]}のヒーローの支払い`, format: (v: number) => `+${Math.round(v * 100)}%` }])),
   ...Object.fromEntries(
     STAFF_ROLES.map((r) => [`staff_${r}`, { label: ROLES[r].job, format: (v: number) => (v > 0 ? staffHero(r, v).name : 'なし') }]),
   ),

@@ -3,7 +3,9 @@ import { MAX_SLOTS } from '../layout';
 import type { SaveData } from '../save';
 import { computeStats, type Stats } from '../stats';
 import { Customers } from './customers';
+import { Decisions } from './decisions';
 import { Dismantler } from './dismantler';
+import { Hazards } from './hazards';
 import { Market } from './market';
 import { Pests } from './pests';
 import { Production } from './production';
@@ -12,6 +14,8 @@ import { Register } from './register';
 import { Staff } from './staff';
 import { Stock } from './stock';
 import { Thieves } from './thieves';
+import { Visitors } from './visitors';
+import { rollCondition, type DayCondition } from '../conditions';
 import type { LineId } from '../lines';
 import type { Actor, DayReport, ExtraSource, Fx, Pest, Popup, Rng, ShopEvent } from './types';
 
@@ -21,7 +25,7 @@ export type * from './types';
  * One business day. Owns the shared state (stats, actors, report, effects) and runs each
  * system in a fixed order every frame. Systems live in this folder:
  *   stock (shelf/showcase/storage/flyers) · production (lines) · customers · thieves · register ·
- *   pests · staff · market
+ *   pests · staff · market · hazards (mud, coins, shop enemies, chests) · visitors · decisions
  */
 export class Shop {
   readonly stats: Stats;
@@ -43,6 +47,13 @@ export class Shop {
   readonly pests: Pests;
   readonly staff: Staff;
   readonly market: Market;
+  readonly hazards: Hazards;
+  readonly visitors: Visitors;
+  readonly decisions: Decisions;
+  /** Today's weather / festival / land day. */
+  readonly condition: DayCondition;
+  /** Multiplier on how often customers come today (weather, festival). */
+  readonly crowd: number;
 
   private lastId = 0;
   private listeners: ((e: ShopEvent) => void)[] = [];
@@ -53,6 +64,8 @@ export class Shop {
   ) {
     this.rand = new Random(rng);
     this.stats = computeStats(save.levels);
+    this.condition = save.forecast;
+    this.crowd = this.condition.kind === 'rain' ? 0.85 : this.condition.kind === 'festival' ? this.stats.festivalCrowd : 1;
     this.timeLeft = this.stats.dayLength;
     this.report = {
       day: save.day,
@@ -69,7 +82,9 @@ export class Shop {
       dust: 0,
       gems: {},
       research: 0,
-      extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0 },
+      extras: { bar: 0, trial: 0, market: 0, peddler: 0, bonus: 0, chest: 0, coin: 0, merchant: 0 },
+      guests: 0,
+      decisions: [],
     };
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
@@ -82,6 +97,18 @@ export class Shop {
     this.pests = new Pests(this);
     this.staff = new Staff(this);
     this.market = new Market(this);
+    this.hazards = new Hazards(this);
+    this.visitors = new Visitors(this);
+    this.decisions = new Decisions(this);
+  }
+
+  /** A choice is waiting for the player; the day is paused. */
+  get pendingDecision() {
+    return this.decisions.pending;
+  }
+
+  decide(choice: number): void {
+    this.decisions.decide(choice);
   }
 
   // ---------------------------------------------------------------- shared helpers
@@ -115,7 +142,7 @@ export class Shop {
   // ---------------------------------------------------------------- update
 
   update(dt: number): void {
-    if (this.over) return;
+    if (this.over || this.decisions.pending) return;
     this.elapsed += dt;
     this.timeLeft -= dt;
     this.register.decay(dt);
@@ -139,6 +166,9 @@ export class Shop {
     this.pests.update(dt);
     this.staff.update(dt);
     this.market.update(dt);
+    this.hazards.update(dt);
+    this.visitors.update(dt);
+    this.decisions.update();
 
     for (const e of this.fx) e.t += dt;
     this.fx = this.fx.filter((e) => e.t < 0.7);
@@ -159,6 +189,7 @@ export class Shop {
     this.save.storage = [...this.stock.storage];
     this.save.bestDayRevenue = Math.max(this.save.bestDayRevenue, this.report.revenue);
     this.save.day++;
+    this.save.forecast = rollCondition(this.save.day, () => this.rand.next());
     this.emit({ type: 'dayEnd', report: this.report });
   }
 
@@ -189,6 +220,15 @@ export class Shop {
 
   clickPest(p: Pest): boolean {
     return !this.over && this.pests.click(p);
+  }
+
+  /** Taps on a chest, a shop enemy, a coin or a mess. Returns true if something was hit. */
+  clickHazard(x: number, y: number): boolean {
+    return !this.over && this.hazards.click(x, y);
+  }
+
+  hazardAt(x: number, y: number) {
+    return this.hazards.at(x, y);
   }
 
   thiefAt(x: number, y: number): Actor | null {

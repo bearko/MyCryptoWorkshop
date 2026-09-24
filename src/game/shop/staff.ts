@@ -99,6 +99,9 @@ export class Staff {
         case 'peddler':
           this.updatePeddler(m, dt);
           break;
+        case 'cleaner':
+          this.updateCleaner(m, dt);
+          break;
         default:
           break;
       }
@@ -151,6 +154,31 @@ export class Staff {
     if (Math.hypot(target.x - m.x, target.y - m.y) < CATCH_RANGE) {
       m.pulse = 1;
       shop.pests.click(target);
+    }
+  }
+
+  /** Mops up the nearest mud or litter and picks up dropped coins. */
+  private updateCleaner(m: StaffMember, dt: number): void {
+    const { hazards, stats } = this.shop;
+    const targets = [...hazards.messes, ...hazards.coins];
+    let target = null;
+    let best = Infinity;
+    for (const t of targets) {
+      const d = Math.hypot(t.x - m.x, t.y - m.y);
+      if (d < best) {
+        best = d;
+        target = t;
+      }
+    }
+    const speed = stats.cleanerSpeed * walkScale();
+    if (!target) {
+      walk(m, m.homeX, m.homeY, speed * 0.6, dt);
+      return;
+    }
+    if (walk(m, target.x, target.y, speed, dt) || best < 12) {
+      m.pulse = 1;
+      if ('value' in target) hazards.pickUp(target);
+      else hazards.clean(target, true);
     }
   }
 
