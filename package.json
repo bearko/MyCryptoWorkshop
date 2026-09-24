@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "pretest": "node scripts/sync-assets.mjs",
     "test": "vitest run",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "balance": "node scripts/sync-assets.mjs && node scripts/balance.mjs"
   },
   "repository": {
     "type": "git",

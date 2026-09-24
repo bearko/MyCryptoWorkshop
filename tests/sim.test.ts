@@ -1,62 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { newSave, type SaveData } from '../src/game/save';
+import { playDay, seeded, spend } from '../src/game/balance/autoplay';
+import { newSave } from '../src/game/save';
 import { Shop } from '../src/game/shop';
-import { costOf, isAvailable, level, SKILLS, skillById } from '../src/game/skills';
+import { isAvailable, level, SKILLS, skillById } from '../src/game/skills';
 import { computeStats, rarityWeights } from '../src/game/stats';
 import { THIEF_STYLES } from '../src/game/thieves';
-
-/** Deterministic PRNG (mulberry32). */
-function seeded(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Plays one day with a simple "attentive player" policy. */
-function playDay(save: SaveData, rng: () => number, clicksPerSec = 3) {
-  const shop = new Shop(save, rng);
-  const dt = 1 / 30;
-  let clickBudget = 0;
-  while (!shop.over) {
-    shop.update(dt);
-    clickBudget += clicksPerSec * dt;
-    while (clickBudget >= 1) {
-      clickBudget -= 1;
-      const thief = shop.actors.find((a) => a.kind === 'thief' && (a.state === 'steal' || a.state === 'flee'));
-      if (thief && rng() < 0.8) shop.clickThief(thief);
-      else if (shop.pestList.length) shop.clickPest(shop.pestList[0]);
-      else if (shop.queue.length >= 2) shop.clickRegister();
-      else shop.clickPot();
-    }
-  }
-  return shop.report;
-}
-
-/** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register']);
-
-/** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
-function spend(save: SaveData, lastRevenue: number) {
-  for (;;) {
-    const options = SKILLS.filter((n) => isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
-      .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') }))
-      .sort((a, b) => a.cost - b.cost);
-    const nextKey = options.find((o) => o.key);
-    let pick = options.find((o) => o.key && o.cost <= save.gum);
-    if (!pick) {
-      const saving = nextKey && nextKey.cost <= save.gum + lastRevenue * 2;
-      pick = options.find((o) => o.cost <= save.gum && (!saving || o.cost + nextKey!.cost <= save.gum + lastRevenue));
-    }
-    if (!pick) return;
-    save.gum -= pick.cost;
-    save.levels[pick.n.id] = level(save.levels, pick.n.id) + 1;
-  }
-}
 
 describe('skill tree', () => {
   it('has unique ids, valid parents and unique positions', () => {
@@ -103,7 +51,7 @@ describe('stats', () => {
 describe('shop simulation', () => {
   it('sells items and earns GUM on day 1', () => {
     const save = newSave();
-    const report = playDay(save, seeded(1));
+    const { report } = playDay(save, seeded(1));
     expect(report.sold).toBeGreaterThan(3);
     expect(report.revenue).toBeGreaterThan(0);
     expect(save.gum).toBe(report.revenue);
@@ -177,7 +125,7 @@ describe('shop simulation', () => {
     const milestones: Record<string, number> = {};
     const lines: string[] = [];
     for (let day = 1; day <= 60; day++) {
-      const report = playDay(save, rng);
+      const { report } = playDay(save, rng);
       spend(save, report.revenue);
       for (const id of ['uncommon', 'rare', 'epic', 'legendary', 'tier4']) {
         if (!milestones[id] && level(save.levels, id) > 0) milestones[id] = day;
