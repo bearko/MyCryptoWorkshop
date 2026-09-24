@@ -635,11 +635,34 @@ function saveTransfer(): HTMLElement {
       loadBtn.textContent = t('このコードを読み込む', 'Load this code');
     }
   });
+  // The same code as a file: download it, or pick one to fill the box above (then confirm as usual).
+  const fileBtn = h('button.btn.small', {}, t('ファイルに保存', 'Save to file'));
+  fileBtn.addEventListener('click', () => {
+    writeSave(save);
+    const url = URL.createObjectURL(new Blob([exportCode(save)], { type: 'text/plain' }));
+    const a = h('a', { href: url, download: `mycryptoworkshop-day${save.day}.mcwsave` }) as HTMLAnchorElement;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  const picker = h('input', { type: 'file', accept: '.mcwsave,.txt,text/plain', hidden: true, 'aria-label': t('セーブファイル', 'Save file') }) as HTMLInputElement;
+  picker.addEventListener('change', () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    void file.text().then((text) => {
+      input.value = text.trim();
+      loadBtn.dataset.armed = '';
+      loadBtn.click();
+    });
+    picker.value = '';
+  });
+  const pickBtn = h('button.btn.small', { onclick: () => picker.click() }, t('ファイルから読み込む', 'Load from file'));
   return h(
     'div.save-transfer',
     {},
     h('p', {}, t('セーブデータの引き継ぎ', 'Transfer save data')),
-    h('div.save-row', {}, copyBtn),
+    h('div.save-row', {}, copyBtn, fileBtn, pickBtn, picker),
     out,
     input,
     h('div.save-row', {}, loadBtn),
@@ -1271,6 +1294,12 @@ window.setInterval(() => {
 // ------------------------------------------------------------------ boot
 
 document.documentElement.lang = lang;
+
+// Offline play (PWA): the service worker is built into dist/ only. Embeds that forbid service
+// workers (sandboxed previews) simply play online.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+}
 if (isEn) document.querySelector('meta[name=description]')?.setAttribute('content', 'An incremental shop game in the world of My Crypto Heroes: craft extensions and sell them (unofficial fan work)');
 
 updateTopbar();
