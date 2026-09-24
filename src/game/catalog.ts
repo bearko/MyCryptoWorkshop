@@ -64,7 +64,7 @@ export const allSeries: RawSeries[] = raw.series;
 
 /** The series the game currently uses, in skill-tree order (see content.json). */
 export const series = content.activeSeries.map(({ key, family }, seriesIndex) => {
-  const s = raw.series.find((x) => x.expansion === 'legacy' && x.key === key);
+  const s = raw.series.find((x) => x.expansion === 'legacy' && x.key === key) ?? raw.series.find((x) => x.key === key);
   if (!s) throw new Error(`series not in catalog: ${key}`);
   const toExt = (e: (typeof s.items)[number]): Extension => ({
     id: e.id,
@@ -78,7 +78,7 @@ export const series = content.activeSeries.map(({ key, family }, seriesIndex) =>
     skill: e.skill,
     image: e.image,
   });
-  // One item per rarity, Common → Legendary.
+  // One item per rarity, Common → Legendary (series with variants use the first of each rarity).
   const items = RARITIES.map((r) => {
     const e = s.items.find((i) => i.rarity === r && !i.shin);
     if (!e) throw new Error(`series ${key} has no ${r}`);

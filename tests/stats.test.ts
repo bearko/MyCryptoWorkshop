@@ -22,7 +22,8 @@ describe('data-driven skill effects', () => {
       for (const [oldKey, value] of Object.entries(expected)) {
         const key = RENAMED[oldKey] ?? oldKey;
         if (key === 'pot.craftTime' && (levels as Record<string, number>).forge) continue;
-        if (key === 'overlays') continue;
+        // Retuned for ~900 collectable extensions in Phase 5.
+        if (key === 'overlays' || key === 'collectionBonus') continue;
         const got = actual[key as keyof typeof actual];
         if (typeof value === 'number') expect(got, key).toBeCloseTo(value * (RETUNED[key] ?? 1), 9);
         else expect([...(got as unknown[])].sort(), key).toEqual([...(value as unknown[])].sort());

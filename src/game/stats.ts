@@ -32,7 +32,8 @@ export const BASE_STATS = {
   walkSpeed: 115,
   maxTier: 0,
   priceMult: 1,
-  collectionBonus: 0.006,
+  /** Price bonus per extension in the collection (there are ~900 to collect). */
+  collectionBonus: 0.002,
   cashierTime: 1.8,
   registers: 1,
   registerClick: 0.35,
@@ -154,8 +155,22 @@ export interface Stats extends Record<NumStat, number> {
   seriesUnlocked: number[];
   /** Workshop facility layers to show. */
   overlays: string[];
-  /** Price multiplier per series index (reputation skills). */
+  /** Price multiplier per series index: the series' grade × reputation skills. */
   seriesPrice: number[];
+  /** Relative chance of each series being crafted (量産 skills). */
+  seriesWeight: number[];
+  /** Edition chance multiplier per series (名品 skills). */
+  seriesEdition: number[];
+  /** Extra 真 chance per series (真打ち skills). */
+  seriesShin: number[];
+}
+
+/**
+ * Later series sell for more: each step along the series order adds 2.5% to the base price,
+ * so opening new recipes keeps pushing prices up.
+ */
+export function seriesGrade(index: number): number {
+  return 1 + 0.025 * index;
 }
 
 export function computeStats(levels: Levels): Stats {
@@ -165,7 +180,10 @@ export function computeStats(levels: Levels): Stats {
   const mulGroups = new Map<NumStat, Map<string, number>>();
   const pows: Partial<Record<NumStat, number>> = {};
   const seriesUnlocked = [0];
-  const seriesMult = series.map(() => 1);
+  const seriesMult = series.map((_, i) => seriesGrade(i));
+  const weight = series.map(() => 1);
+  const edition = series.map(() => 1);
+  const shin = series.map(() => 0);
   const overlays = ['magic_pot'];
 
   for (const node of SKILLS) {
@@ -198,6 +216,15 @@ export function computeStats(levels: Levels): Stats {
         case 'seriesMul':
           seriesMult[e.index] *= 1 + e.per * lv;
           break;
+        case 'seriesWeight':
+          weight[e.index] += e.per * lv;
+          break;
+        case 'seriesEdition':
+          edition[e.index] *= 1 + e.per * lv;
+          break;
+        case 'seriesShin':
+          shin[e.index] += e.per * lv;
+          break;
       }
     }
   }
@@ -217,6 +244,9 @@ export function computeStats(levels: Levels): Stats {
     seriesUnlocked,
     overlays,
     seriesPrice: seriesMult,
+    seriesWeight: weight,
+    seriesEdition: edition,
+    seriesShin: shin,
   };
 }
 

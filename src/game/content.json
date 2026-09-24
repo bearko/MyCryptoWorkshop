@@ -86,6 +86,626 @@
     {
       "key": "Parrot",
       "family": "beast"
+    },
+    {
+      "key": "Axe",
+      "family": "arms"
+    },
+    {
+      "key": "ETHEREMON",
+      "family": "beast"
+    },
+    {
+      "key": "Yumi",
+      "family": "arms"
+    },
+    {
+      "key": "Cross Spear",
+      "family": "arms"
+    },
+    {
+      "key": "Halberd",
+      "family": "arms"
+    },
+    {
+      "key": "Scrolls",
+      "family": "arcane"
+    },
+    {
+      "key": "Necklace",
+      "family": "arcane"
+    },
+    {
+      "key": "Kabuto",
+      "family": "arms"
+    },
+    {
+      "key": "Turtle",
+      "family": "beast"
+    },
+    {
+      "key": "Rooster",
+      "family": "beast"
+    },
+    {
+      "key": "Bull",
+      "family": "beast"
+    },
+    {
+      "key": "Elephant",
+      "family": "beast"
+    },
+    {
+      "key": "Monkey",
+      "family": "beast"
+    },
+    {
+      "key": "Snake",
+      "family": "beast"
+    },
+    {
+      "key": "Dog",
+      "family": "beast"
+    },
+    {
+      "key": "Revolver",
+      "family": "arms"
+    },
+    {
+      "key": "Boots",
+      "family": "arms"
+    },
+    {
+      "key": "Sensu",
+      "family": "arcane"
+    },
+    {
+      "key": "MCHMedal",
+      "family": "arcane"
+    },
+    {
+      "key": "Hammer",
+      "family": "arms"
+    },
+    {
+      "key": "Bow Gun",
+      "family": "arms"
+    },
+    {
+      "key": "Crown",
+      "family": "arcane"
+    },
+    {
+      "key": "Gunbai",
+      "family": "arms"
+    },
+    {
+      "key": "Steering Wheel",
+      "family": "arcane"
+    },
+    {
+      "key": "Strawberry",
+      "family": "arcane"
+    },
+    {
+      "key": "Tangerine",
+      "family": "arcane"
+    },
+    {
+      "key": "Lime",
+      "family": "arcane"
+    },
+    {
+      "key": "Graphite",
+      "family": "arcane"
+    },
+    {
+      "key": "Grape",
+      "family": "arcane"
+    },
+    {
+      "key": "Sage",
+      "family": "arcane"
+    },
+    {
+      "key": "Blueberry",
+      "family": "arcane"
+    },
+    {
+      "key": "Ruby",
+      "family": "arcane"
+    },
+    {
+      "key": "Ship",
+      "family": "arcane"
+    },
+    {
+      "key": "Knife",
+      "family": "arms"
+    },
+    {
+      "key": "Arquebus",
+      "family": "arms"
+    },
+    {
+      "key": "Lithography",
+      "family": "arcane"
+    },
+    {
+      "key": "Whip",
+      "family": "arms"
+    },
+    {
+      "key": "Sweets",
+      "family": "arcane"
+    },
+    {
+      "key": "Sickle",
+      "family": "arms"
+    },
+    {
+      "key": "Sake",
+      "family": "arcane"
+    },
+    {
+      "key": "Mantle",
+      "family": "arcane"
+    },
+    {
+      "key": "Pierrot",
+      "family": "arcane"
+    },
+    {
+      "key": "Flute",
+      "family": "arcane"
+    },
+    {
+      "key": "Harp",
+      "family": "arcane"
+    },
+    {
+      "key": "Maracas",
+      "family": "arcane"
+    },
+    {
+      "key": "Horn",
+      "family": "arcane"
+    },
+    {
+      "key": "Clavia",
+      "family": "arcane"
+    },
+    {
+      "key": "Violin",
+      "family": "arcane"
+    },
+    {
+      "key": "Erhu",
+      "family": "arcane"
+    },
+    {
+      "key": "Drum",
+      "family": "arcane"
+    },
+    {
+      "key": "Sitar",
+      "family": "arcane"
+    },
+    {
+      "key": "Mallet",
+      "family": "arms"
+    },
+    {
+      "key": "Hand cannon",
+      "family": "arms"
+    },
+    {
+      "key": "Glasses",
+      "family": "arcane"
+    },
+    {
+      "key": "Staff",
+      "family": "arcane"
+    },
+    {
+      "key": "Broomstick",
+      "family": "arcane"
+    },
+    {
+      "key": "Yoroi",
+      "family": "arms"
+    },
+    {
+      "key": "Twin Blade",
+      "family": "arms"
+    },
+    {
+      "key": "Ammonite",
+      "family": "beast"
+    },
+    {
+      "key": "Pteranodon",
+      "family": "beast"
+    },
+    {
+      "key": "Tyrannosaurus",
+      "family": "beast"
+    },
+    {
+      "key": "Plesiosaurus",
+      "family": "beast"
+    },
+    {
+      "key": "Triceratops",
+      "family": "beast"
+    },
+    {
+      "key": "Longisquama",
+      "family": "beast"
+    },
+    {
+      "key": "Stegosaurus",
+      "family": "beast"
+    },
+    {
+      "key": "Megalodon",
+      "family": "beast"
+    },
+    {
+      "key": "Pachycephalosaurus",
+      "family": "beast"
+    },
+    {
+      "key": "Saihai",
+      "family": "arms"
+    },
+    {
+      "key": "Belt",
+      "family": "arms"
+    },
+    {
+      "key": "Claw",
+      "family": "arms"
+    },
+    {
+      "key": "Orb",
+      "family": "arcane"
+    },
+    {
+      "key": "Gauntlet",
+      "family": "arms"
+    },
+    {
+      "key": "Enhanced Sword",
+      "family": "arms"
+    },
+    {
+      "key": "Monocle",
+      "family": "arcane"
+    },
+    {
+      "key": "Talisman",
+      "family": "arcane"
+    },
+    {
+      "key": "Brush & pallete",
+      "family": "arcane"
+    },
+    {
+      "key": "Mirror",
+      "family": "arcane"
+    },
+    {
+      "key": "Moai",
+      "family": "arcane"
+    },
+    {
+      "key": "Node-Doll",
+      "family": "arcane"
+    },
+    {
+      "key": "Golem",
+      "family": "arcane"
+    },
+    {
+      "key": "Skull",
+      "family": "arcane"
+    },
+    {
+      "key": "Ribbon",
+      "family": "arcane"
+    },
+    {
+      "key": "Pocket Watch",
+      "family": "arcane"
+    },
+    {
+      "key": "Two wheeled vehicle",
+      "family": "arcane"
+    },
+    {
+      "key": "Imperial Magic Armor",
+      "family": "arms"
+    },
+    {
+      "key": "Ridragon",
+      "family": "beast"
+    },
+    {
+      "key": "Ferris wheel",
+      "family": "arcane"
+    },
+    {
+      "key": "Panda Machine",
+      "family": "arcane"
+    },
+    {
+      "key": "Spaceship",
+      "family": "arcane"
+    },
+    {
+      "key": "Raft",
+      "family": "arcane"
+    },
+    {
+      "key": "Combined Robots",
+      "family": "arcane"
+    },
+    {
+      "key": "Shuriken",
+      "family": "arms"
+    },
+    {
+      "key": "Frog",
+      "family": "beast"
+    },
+    {
+      "key": "Snowman",
+      "family": "arcane"
+    },
+    {
+      "key": "Japanese dolls",
+      "family": "arcane"
+    },
+    {
+      "key": "SDN Medal",
+      "family": "arcane"
+    },
+    {
+      "key": "Pancake",
+      "family": "arcane"
+    },
+    {
+      "key": "Raygun",
+      "family": "arms"
+    },
+    {
+      "key": "Grasshopper",
+      "family": "beast"
+    },
+    {
+      "key": "Limulus",
+      "family": "beast"
+    },
+    {
+      "key": "Moth",
+      "family": "beast"
+    },
+    {
+      "key": "Scorpion",
+      "family": "beast"
+    },
+    {
+      "key": "Weevil",
+      "family": "beast"
+    },
+    {
+      "key": "Beetle",
+      "family": "beast"
+    },
+    {
+      "key": "Bee",
+      "family": "beast"
+    },
+    {
+      "key": "Sweet Fluffy and chewy",
+      "family": "arcane"
+    },
+    {
+      "key": "Butterfly",
+      "family": "beast"
+    },
+    {
+      "key": "Oriflamme",
+      "family": "arms"
+    },
+    {
+      "key": "Haori",
+      "family": "arcane"
+    },
+    {
+      "key": "Cherry blossom viewing Bento",
+      "family": "arcane"
+    },
+    {
+      "key": "Astronomical Model",
+      "family": "arcane"
+    },
+    {
+      "key": "Shield System",
+      "family": "arms"
+    },
+    {
+      "key": "RYU.phy",
+      "family": "arcane"
+    },
+    {
+      "key": "RYU.int",
+      "family": "arcane"
+    },
+    {
+      "key": "Lantern",
+      "family": "arcane"
+    },
+    {
+      "key": "Hamburger",
+      "family": "arcane"
+    },
+    {
+      "key": "Mace",
+      "family": "arms"
+    },
+    {
+      "key": "Panjandrum",
+      "family": "arms"
+    },
+    {
+      "key": "Ramen",
+      "family": "arcane"
+    },
+    {
+      "key": "Swan boats",
+      "family": "arcane"
+    },
+    {
+      "key": "Compass",
+      "family": "arcane"
+    },
+    {
+      "key": "Sushi",
+      "family": "arcane"
+    },
+    {
+      "key": "Cyber Staff",
+      "family": "arcane"
+    },
+    {
+      "key": "Apple",
+      "family": "arcane"
+    },
+    {
+      "key": "Aquarium",
+      "family": "arcane"
+    },
+    {
+      "key": "Cyber Sword",
+      "family": "arms"
+    },
+    {
+      "key": "Mandragora",
+      "family": "beast"
+    },
+    {
+      "key": "Bonsai",
+      "family": "arcane"
+    },
+    {
+      "key": "Knuckle Duster",
+      "family": "arms"
+    },
+    {
+      "key": "Music Box",
+      "family": "arcane"
+    },
+    {
+      "key": "Wet Specimen",
+      "family": "arcane"
+    },
+    {
+      "key": "Chair",
+      "family": "arcane"
+    },
+    {
+      "key": "Scissors",
+      "family": "arcane"
+    },
+    {
+      "key": "Wallet",
+      "family": "arcane"
+    },
+    {
+      "key": "Magical girl's Stick & Brooch",
+      "family": "arcane"
+    },
+    {
+      "key": "Beast Horn",
+      "family": "arcane"
+    },
+    {
+      "key": "Strawberry Cake",
+      "family": "arcane"
+    },
+    {
+      "key": "Nature Golem",
+      "family": "arcane"
+    },
+    {
+      "key": "Magic Card",
+      "family": "arcane"
+    },
+    {
+      "key": "Trap",
+      "family": "arms"
+    },
+    {
+      "key": "Cat Teaser",
+      "family": "arcane"
+    },
+    {
+      "key": "Summon Board",
+      "family": "arcane"
+    },
+    {
+      "key": "Dollhouse",
+      "family": "arcane"
+    },
+    {
+      "key": "Flail",
+      "family": "arms"
+    },
+    {
+      "key": "Plant-Insect",
+      "family": "beast"
+    },
+    {
+      "key": "Jewel Worm Dragon",
+      "family": "beast"
+    },
+    {
+      "key": "Bird Chimera",
+      "family": "beast"
+    },
+    {
+      "key": "Javelin",
+      "family": "arms"
+    },
+    {
+      "key": "Boomerang",
+      "family": "arms"
+    },
+    {
+      "key": "Jewel Dragon",
+      "family": "beast"
+    },
+    {
+      "key": "Parasol",
+      "family": "arcane"
+    },
+    {
+      "key": "Nashi Pear",
+      "family": "arcane"
+    },
+    {
+      "key": "Chakram",
+      "family": "arms"
+    },
+    {
+      "key": "Bonnet",
+      "family": "arcane"
+    },
+    {
+      "key": "Lion",
+      "family": "beast"
     }
   ],
   "thiefIds": [
