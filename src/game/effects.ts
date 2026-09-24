@@ -131,7 +131,13 @@ export type Effect =
   /** Unlocks an extension series for crafting. */
   | { op: 'series'; index: number }
   /** Multiplies one series' sale price by (1 + per × level). */
-  | { op: 'seriesMul'; index: number; per: number };
+  | { op: 'seriesMul'; index: number; per: number }
+  /** Adds `per × level` to how often a line picks this series when crafting (base 1). */
+  | { op: 'seriesWeight'; index: number; per: number }
+  /** Multiplies this series' edition chance by (1 + per × level). */
+  | { op: 'seriesEdition'; index: number; per: number }
+  /** Adds `per × level` to this series' chance of a 真 Legendary. */
+  | { op: 'seriesShin'; index: number; per: number };
 
 // Small constructors keep the skill table readable.
 export const add = (stat: NumStat, per: number, base = 0): Effect => ({ op: 'add', stat, per, base });
@@ -141,3 +147,6 @@ export const atLeast = (stat: NumStat, value: number): Effect => ({ op: 'max', s
 export const overlay = (key: string, minLevel = 1): Effect => ({ op: 'overlay', key, minLevel });
 export const unlockSeries = (index: number): Effect => ({ op: 'series', index });
 export const seriesPrice = (index: number, per: number): Effect => ({ op: 'seriesMul', index, per });
+export const seriesWeight = (index: number, per: number): Effect => ({ op: 'seriesWeight', index, per });
+export const seriesEdition = (index: number, per: number): Effect => ({ op: 'seriesEdition', index, per });
+export const seriesShin = (index: number, per: number): Effect => ({ op: 'seriesShin', index, per });

@@ -2,10 +2,11 @@ import { catalog, customersByTier, icons, pests, series, thieves } from './catal
 import type { Currency } from './currency';
 import { PHASE3_NODES } from './skills3';
 import { PHASE4_NODES } from './skills4';
-import { add, atLeast, mul, overlay, pow, seriesPrice, unlockSeries, type Effect } from './effects';
+import { PHASE5_SERIES_NODES } from './skills5';
+import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research';
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: '工房', role: '開業', color: '#e8d6a8' },
@@ -13,9 +14,10 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   seiryu: { name: '青龍', role: '集客', color: '#3fb5ff' },
   kouryu: { name: '黄竜', role: '経営・レジ', color: '#ffd23f' },
   byakko: { name: '白虎', role: '防犯', color: '#e9eef5' },
-  genbu: { name: '玄武', role: '陳列・レシピ', color: '#58d6a0' },
+  genbu: { name: '玄武', role: '陳列・倉庫・分解', color: '#58d6a0' },
   store: { name: '店舗', role: 'スタッフ・設備', color: '#ff9ecb' },
   research: { name: '研究', role: '研究ポイント', color: '#b48cff' },
+  series: { name: 'シリーズ', role: 'レシピ・評判・量産', color: '#e6b56b' },
 };
 
 export interface SkillNode {
@@ -33,6 +35,8 @@ export interface SkillNode {
   growth: number;
   /** The node becomes available once any of these is at level ≥ 1. */
   requires: string[];
+  /** …and all of these (e.g. a series' 評判 also needs 評判の広がり). */
+  requiresAll?: string[];
   /** What each level does (see effects.ts). */
   effects: Effect[];
   /** Paid in gold dust or research points instead of GUM. */
@@ -43,68 +47,8 @@ const ext = (seriesIndex: number, rarityIndex: number) => series[seriesIndex].it
 const hero = (tier: number) => customersByTier[tier][0].image;
 const ws = catalog.workshop as Record<string, string>;
 
-export const RECIPE_COSTS = [0, 40, 100, 250, 600, 1500, 3500, 5000, 9000, 16000, 30000, 55000];
-
-// Recipes for the magic-item and gear series (beast recipes live on the capsule branch).
-const recipeNodes: SkillNode[] = series.slice(1).filter((s) => s.family !== 'beast').map((s, i) => {
-  const index = i + 1;
-  // Row 1: series 1..6 run left from the shelf node. Row 2: series 7..11 branch off the armor recipe.
-  const row1 = index <= 6;
-  return {
-    id: `recipe_${s.key}`,
-    branch: 'genbu',
-    name: `レシピ：${s.name}`,
-    desc: `${s.name}シリーズをクラフトできるようになる。品揃えが増えて来客ペースが上がる`,
-    icon: ext(index, 0),
-    x: row1 ? -1 - index : -4 - (index - 7),
-    y: row1 ? -1 : -2,
-    max: 1,
-    baseCost: RECIPE_COSTS[index],
-    growth: 1,
-    requires: [index === 1 ? 'shelf' : index === 7 ? `recipe_${series[3].key}` : `recipe_${series[index - 1].key}`],
-    // More variety draws more customers; all recipes add into one shared factor.
-    effects: [unlockSeries(index), mul('spawnRate', 0.06, 'variety')],
-  };
-});
-
 /** Series index by key, for readable node definitions. */
 const S = Object.fromEntries(series.map((s, i) => [s.key, i])) as Record<string, number>;
-
-/** One reputation node per series: a chain per row in the 黄竜 area. */
-const reputationNodes: SkillNode[] = series.map((s, i) => {
-  const row = Math.floor(i / 6);
-  const col = i % 6;
-  const beast = s.family === 'beast';
-  return {
-    id: `rep_${s.key}`,
-    branch: 'kouryu',
-    name: `評判：${s.name}`,
-    desc: `${s.name}シリーズの販売価格 +10%`,
-    icon: s.items[2].image,
-    x: 3 + col,
-    y: 2 + row,
-    max: 5,
-    baseCost: Math.round((beast ? 6000 : 800) * Math.pow(1.25, i % 12)),
-    growth: 1.7,
-    requires: [col === 0 ? 'reputation' : `rep_${series[i - 1].key}`],
-    effects: [seriesPrice(i, 0.1)],
-  };
-});
-
-const beastRecipes: SkillNode[] = ['Tiger', 'Dragon', 'Pegasus', 'Fairy', 'Parrot'].map((key, i, keys) => ({
-  id: `recipe_${key}`,
-  branch: 'suzaku',
-  name: `レシピ：${series[S[key]].name}`,
-  desc: `具現化カプセルで${series[S[key]].name}シリーズ（幻獣）を作れるようになる`,
-  icon: series[S[key]].items[0].image,
-  x: 3 + i,
-  y: -6,
-  max: 1,
-  baseCost: [5000, 12000, 25000, 50000, 90000][i],
-  growth: 1,
-  requires: [i === 0 ? 'capsuleLine' : `recipe_${keys[i - 1]}`],
-  effects: [unlockSeries(S[key]), mul('spawnRate', 0.06, 'variety')],
-}));
 
 /** Nodes added in Phase 2: production lines, overclock, editions, dismantling, 魔石, reputation. */
 const PHASE2_NODES: SkillNode[] = [
@@ -137,7 +81,6 @@ const PHASE2_NODES: SkillNode[] = [
   { id: 'capsuleLuck', branch: 'suzaku', name: '幻獣召喚陣', desc: 'カプセルの最高レアの出やすさ +25%', icon: ext(S.Pegasus, 2), x: 3, y: -5, max: 8, baseCost: 4000, growth: 1.7, requires: ['capsuleSpeed'], effects: [add('capsule.luck', 0.25)] },
   { id: 'capsuleOverclock', branch: 'suzaku', name: '過充電', desc: 'カプセルを長押ししたときの速さ +0.5倍', icon: icons.bufInt, x: 4, y: -5, max: 5, baseCost: 3500, growth: 1.8, requires: ['capsuleClick'], effects: [add('capsule.overclock', 0.5)] },
   { id: 'capsuleCooling', branch: 'suzaku', name: '冷却液', desc: 'カプセルの過熱ペース -10%、冷却ペース +15%', icon: ext(S.Tiger, 1), x: 5, y: -5, max: 5, baseCost: 3000, growth: 1.8, requires: ['capsuleDouble'], effects: [pow('capsule.heatRate', 0.9), mul('capsule.coolRate', 0.15)] },
-  ...beastRecipes,
 
   // 玄武: dismantling, 魔石, packer (left)
   { id: 'packer', branch: 'genbu', name: '梱包機', desc: '倉庫から棚へ、高い品を優先して素早く補充する', icon: ext(S.Book, 0), x: -3, y: 1, max: 1, baseCost: 1200, growth: 1, requires: ['storage'], effects: [atLeast('packer', 1)] },
@@ -150,7 +93,6 @@ const PHASE2_NODES: SkillNode[] = [
 
   // 黄竜: reputation
   { id: 'reputation', branch: 'kouryu', name: '評判の広がり', desc: '販売価格 +5%。シリーズごとの評判を上げられるようになる', icon: icons.emblem, x: 2, y: 3, max: 1, baseCost: 1000, growth: 1, requires: ['tip'], effects: [mul('priceMult', 0.05)] },
-  ...reputationNodes,
 ];
 
 export const SKILLS: SkillNode[] = [
@@ -188,7 +130,7 @@ export const SKILLS: SkillNode[] = [
   { id: 'dayLength', branch: 'kouryu', name: '営業時間延長', desc: '1日の営業時間 +8秒', icon: icons.sleep, x: 0, y: 3, max: 10, baseCost: 100, growth: 1.6, requires: ['cashier'], effects: [add('dayLength', 8)] },
   { id: 'tip', branch: 'kouryu', name: 'おもてなし', desc: '10%の確率でチップ（+50%）', icon: ext(6, 2), x: 1, y: 3, max: 5, baseCost: 300, growth: 1.7, requires: ['registerClick'], effects: [add('tipChance', 0.1)] },
   { id: 'register', branch: 'kouryu', name: 'レジ増設', desc: 'レジを1台増やす（同時に会計）', icon: icons.int, x: 0, y: 4, max: 2, baseCost: 2000, growth: 8, requires: ['dayLength'], effects: [add('registers', 1)] },
-  { id: 'collector', branch: 'kouryu', name: '図鑑の知識', desc: '図鑑1種あたりの価格ボーナス +0.3%', icon: ext(5, 3), x: 1, y: 4, max: 5, baseCost: 1500, growth: 2, requires: ['tip'], effects: [add('collectionBonus', 0.003)] },
+  { id: 'collector', branch: 'kouryu', name: '図鑑の知識', desc: '図鑑1種あたりの価格ボーナス +0.06%', icon: ext(5, 3), x: 1, y: 4, max: 5, baseCost: 1500, growth: 2, requires: ['tip'], effects: [add('collectionBonus', 0.0006)] },
   { id: 'brand', branch: 'kouryu', name: 'ブランド力', desc: '販売価格 +15%', icon: ext(10, 4), x: 0, y: 5, max: 10, baseCost: 4000, growth: 1.6, requires: ['register'], effects: [mul('priceMult', 0.15)] },
 
   // 白虎: security (down-left)
@@ -203,10 +145,10 @@ export const SKILLS: SkillNode[] = [
   { id: 'shelf', branch: 'genbu', name: '陳列棚増設', desc: '陳列スペース +1', icon: ext(9, 0), x: -1, y: 0, max: 9, baseCost: 25, growth: 1.65, requires: ['root'], effects: [add('shelfSlots', 1)] },
   { id: 'conveyor', branch: 'genbu', name: '搬送レーン', desc: '搬送レーンを導入。棚が満杯でも倉庫に4個までストック', icon: ws.conveyor, x: -2, y: 0, max: 1, baseCost: 200, growth: 1, requires: ['shelf'], effects: [add('storageCap', 0, 4), overlay('conveyor')] },
   { id: 'storage', branch: 'genbu', name: '倉庫拡張', desc: '倉庫の容量 +3', icon: ext(3, 1), x: -3, y: 0, max: 8, baseCost: 500, growth: 1.6, requires: ['conveyor'], effects: [add('storageCap', 3)] },
-  ...recipeNodes,
   ...PHASE2_NODES,
   ...PHASE3_NODES,
   ...PHASE4_NODES,
+  ...PHASE5_SERIES_NODES,
 ];
 
 export const skillById = new Map(SKILLS.map((s) => [s.id, s]));
@@ -220,6 +162,7 @@ export function costOf(node: SkillNode, currentLevel: number): number {
 }
 
 export function isAvailable(node: SkillNode, levels: Levels): boolean {
+  if (node.requiresAll?.some((r) => level(levels, r) <= 0)) return false;
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
 }
 

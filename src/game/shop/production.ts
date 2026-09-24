@@ -120,12 +120,16 @@ export class Line {
   private rollItem(): ItemCode {
     const { stats, rand } = this.shop;
     const rarity = rand.weighted(rarityWeights(stats.maxRarity, stats.luck * this.stats.luck));
-    const s = series[rand.pick(this.recipes())];
+    const recipes = this.recipes();
+    const index = recipes[rand.weighted(recipes.map((i) => stats.seriesWeight[i]))];
+    const s = series[index];
     let id = s.items[rarity].id;
-    if (rarity === 4 && s.shin && stats.shinChance > 0 && rand.next() < stats.shinChance) id = s.shin.id;
+    const shin = stats.shinChance + stats.seriesShin[index];
+    if (rarity === 4 && s.shin && shin > 0 && rand.next() < shin) id = s.shin.id;
     let edition = 0;
+    const luck = stats.editionLuck * this.stats.editionLuck * stats.seriesEdition[index];
     for (let ed = Math.min(stats.editionTier, EDITION_BASE_CHANCE.length - 1); ed >= 1; ed--) {
-      if (rand.next() < EDITION_BASE_CHANCE[ed] * stats.editionLuck * this.stats.editionLuck) {
+      if (rand.next() < EDITION_BASE_CHANCE[ed] * luck) {
         edition = ed;
         break;
       }
