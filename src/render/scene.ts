@@ -43,7 +43,8 @@ import { t } from '../i18n';
 const STAFF_SCALE = 0.55;
 const BUBBLE_SCALE = 0.72;
 const LINE_ICON = { pot: icons.gems.ifrit, forge: icons.phy, capsule: icons.gems.garuda };
-const FONT = '"DotGothic16", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
+// Japanese system fonts (Meiryo UI first), as in style.css.
+const FONT = '"Meiryo UI", Meiryo, "Yu Gothic UI", "Yu Gothic", YuGothic, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Noto Sans CJK JP", sans-serif';
 
 function frameAt(frames: Frame[], now: number): string {
   const total = frames.reduce((n, f) => n + f.ms, 0);

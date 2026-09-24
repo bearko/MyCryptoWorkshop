@@ -81,6 +81,7 @@ export class TreeView {
     }
     for (const node of TREE_NODES) {
       const el = h('button.node', {
+        'data-node': node.id,
         style: `left:${node.x * UNIT}px;top:${node.y * UNIT}px;--branch:${BRANCHES[node.branch].color}`,
         onclick: (ev: Event) => {
           ev.stopPropagation();
@@ -273,6 +274,11 @@ export class TreeView {
       },
       { passive: false },
     );
+  }
+
+  /** Selects a node and pans to it (the tutorial points at it). */
+  focusNode(id: string): void {
+    if (this.selected !== id) this.select(id, true);
   }
 
   private select(id: string, pan = false): void {

@@ -6,7 +6,7 @@ import { confetti } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, lands, pests, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
-import { SCENE_H, SCENE_W, setSceneHeight, WORKSHOP_CROP } from './game/layout';
+import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, SCENE_W, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
@@ -14,7 +14,7 @@ import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent }
 import { autoBuy, buy } from './game/purchase';
 import { relocate } from './game/prestige';
 import { computeStats } from './game/stats';
-import type { SkillNode } from './game/skills';
+import { level, skillById, type SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
 import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
@@ -22,6 +22,7 @@ import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
+import { Tutorial, type Box, type Place } from './ui/tutorial';
 
 const save = loadSave();
 const sound = new Sound();
@@ -88,6 +89,8 @@ for (const key of OVERLAY_ORDER) {
   workshop.append(el);
 }
 const canvas = h('canvas.scene-canvas') as HTMLCanvasElement;
+// Canvas text picks kanji glyphs by language too (Japanese forms, not Chinese).
+canvas.lang = lang;
 
 // HUD overlaid on the top-right of the scene (like Bookstore Incremental), so the whole screen
 // is the workshop and the store while it is open.
@@ -135,6 +138,132 @@ const tree = new TreeView(save, {
 });
 tree.hide();
 
+// ------------------------------------------------------------------ tutorial
+
+/** A rectangle in scene coordinates, on screen. */
+function sceneBox(x0: number, y0: number, x1: number, y1: number): Box {
+  const r = canvas.getBoundingClientRect();
+  const sx = r.width / SCENE_W;
+  const sy = r.height / SCENE_H;
+  return { left: r.left + x0 * sx, top: r.top + y0 * sy, width: (x1 - x0) * sx, height: (y1 - y0) * sy };
+}
+const elBox = (selector: string): Box | null => {
+  const el = document.querySelector(selector);
+  const r = el?.getBoundingClientRect();
+  return r && r.width > 0 ? { left: r.left, top: r.top, width: r.width, height: r.height } : null;
+};
+const firstDay = () => save.day === 1 && save.prestige.runs === 0;
+
+const tutorial = new Tutorial(
+  save.tips,
+  [
+    // Day 1: crafting, selling and the register.
+    { id: 'welcome', place: 'day', when: firstDay, text: t('いらっしゃいませ！ここはあなたのクラフト工房。わたしマインちゃんが、お店の回し方を案内するね！', "Welcome! This is your crafting workshop. I'm Mine-chan, and I'll show you how to run the shop!") },
+    {
+      id: 'pot',
+      place: 'day',
+      when: firstDay,
+      text: t('魔法の壺をタップしてみて！タップするほどエクステンションが早くできあがるよ。', 'Tap the magic pot! The more you tap, the faster extensions get crafted.'),
+      target: () => sceneBox(POT.hit.x0, POT.hit.y0, POT.hit.x1, POT.hit.y1),
+      done: () => potClicks >= 6,
+    },
+    {
+      id: 'shelf',
+      place: 'day',
+      when: firstDay,
+      text: t('できた品は下のお店の棚に並ぶよ。来店したヒーローが気に入った品を買ってくれるんだ。', 'Finished items go onto the shelves in the shop below. Visiting heroes buy the ones they like.'),
+      target: () => {
+        const last = slotPos(Math.max(0, (shop?.shelfSlots ?? 3) - 1));
+        return sceneBox(SHELF_X0 - 16, SHELF_TOP - 12, last.x + 40, FLOOR_Y + 12);
+      },
+    },
+    {
+      id: 'register',
+      place: 'day',
+      when: () => firstDay() && (shop?.queue.length ?? 0) > 0,
+      text: t('お会計はカウンターのクリスくん。カウンターをタップすると会計を手伝えるよ！', 'Chris-kun rings customers up at the counter. Tap the counter to help check out!'),
+      target: () => sceneBox(COUNTER.x0, COUNTER.top - HERO_PX - 20, COUNTER.x1, COUNTER.bottom),
+      done: () => registerClicks >= 3 || (shop?.queue.length ?? 0) === 0,
+    },
+    {
+      id: 'hold',
+      place: 'day',
+      when: () => firstDay() && (shop?.elapsed ?? 0) > 25,
+      text: t('壺を長押しすると高速でクラフトできるよ。ゲージが赤くなる前に離さないと止まっちゃうから気をつけて！', "Hold the pot to craft at high speed. Let go before the gauge turns red, or it overheats and stops!"),
+      target: () => sceneBox(POT.hit.x0, POT.hit.y0, POT.hit.x1, POT.hit.y1),
+    },
+    {
+      id: 'hud',
+      place: 'day',
+      when: () => firstDay() && (shop?.elapsed ?? 0) > 30,
+      text: t('右上が今日の売上と残り時間。閉店まで売り続けよう！', "Top right: today's sales and the time left. Keep selling until closing!"),
+      target: () => elBox('.hud'),
+    },
+    // After day 1: results and the skill tree.
+    {
+      id: 'results',
+      place: 'results',
+      when: () => save.day === 2 && save.prestige.runs === 0,
+      text: t('1日目おつかれさま！稼いだ GUM でスキルを習得して、工房を強くしよう。', 'Good work on day 1! Spend the GUM you earned on skills to grow the workshop.'),
+      target: () => elBox('.results-modal .btn-primary'),
+      done: () => place !== 'results',
+    },
+    {
+      id: 'firstSkill',
+      place: 'tree',
+      when: () => save.day === 2 && save.prestige.runs === 0,
+      text: t('まずは「壺の火力」。ノードを選んで、習得ボタン（またはもう一度タップ）で習得できるよ。', 'Start with "Pot Heat". Select the node, then press the learn button (or tap it again).'),
+      start: () => tree.focusNode('craftSpeed'),
+      target: () => elBox('[data-node="craftSpeed"]'),
+      done: () => level(save.levels, 'craftSpeed') > 0 || save.gum < skillById.get('craftSpeed')!.baseCost,
+    },
+    {
+      id: 'buyList',
+      place: 'tree',
+      when: () => save.day === 2 && save.prestige.runs === 0,
+      text: t('今習得できるスキルはここに並ぶよ。「安い順にまとめて習得」で一気に習得もできる！', 'Skills you can afford are listed here. "Learn all, cheapest first" buys them in one go!'),
+      target: () => elBox('.buy-list'),
+    },
+    {
+      id: 'openDay',
+      place: 'tree',
+      when: () => save.day === 2 && save.prestige.runs === 0,
+      text: t('準備ができたら 2 日目を開店しよう！', "When you're ready, open for day 2!"),
+      target: () => elBox('.start-day'),
+      done: () => place === 'day',
+    },
+    // Day 2 and 3: thieves and workshop enemies, when the first one shows up.
+    {
+      id: 'thief',
+      place: 'day',
+      when: () => !!liveThief(),
+      text: t('泥棒だ！赤く光っているヒーローは泥棒。品を持って逃げる前にタップで捕まえて！', 'A thief! Heroes glowing red are thieves. Tap them before they run off with an item!'),
+      target: () => {
+        const a = liveThief();
+        return a ? sceneBox(a.x - 44, a.y - HERO_PX - 16, a.x + 44, a.y + 12) : null;
+      },
+      done: () => !liveThief(),
+    },
+    {
+      id: 'pest',
+      place: 'day',
+      when: () => (shop?.pestList.length ?? 0) > 0,
+      text: t('工房にエネミーが入り込んだ！いる間はクラフトが遅くなるよ。タップで追い払おう！', 'An enemy got into the workshop! It slows crafting while it stays. Tap it to chase it off!'),
+      target: () => {
+        const p = shop?.pestList[0];
+        return p ? sceneBox(p.x - 40, p.y - 70, p.x + 40, p.y + 10) : null;
+      },
+      done: () => (shop?.pestList.length ?? 0) === 0,
+    },
+  ],
+  staffFrames.mine[0].image,
+  () => writeSave(save),
+);
+
+function liveThief() {
+  return shop?.actors.find((a) => a.kind === 'thief' && a.state !== 'caught' && !a.gone && !(a.style?.disguise && (a.state === 'enter' || a.state === 'toShelf')));
+}
+
 const modalRoot = h('div.modal-root');
 const app = document.getElementById('app')!;
 app.append(topbar, stage, tree.root, modalRoot);
@@ -146,6 +275,9 @@ let paused = true;
 let potClicks = 0;
 let lastQueueTip = -99;
 let modalOpen = 0;
+let registerClicks = 0;
+/** Which screen is up, for the tutorial. */
+let place: Place | null = null;
 
 function updateTopbar(): void {
   gumText.textContent = fmt(save.gum);
@@ -194,7 +326,8 @@ function say(text: string): void {
 
 /** Shows a Mine-chan tip once per save. */
 function tip(key: string, text: string): boolean {
-  if (save.tips.includes(key)) return false;
+  // One voice at a time: a tip waits (and comes back later) while the tutorial is talking.
+  if (save.tips.includes(key) || tutorial.showing) return false;
   save.tips.push(key);
   say(text);
   return true;
@@ -632,12 +765,14 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
       ? h('div.new-entries', {}, h('div', {}, t(`図鑑に新しく登録 (${report.newEntries.length})`, `New in the collection (${report.newEntries.length})`)), h('div.new-icons', {}, ...report.newEntries.map((id) => icon(getExtension(id).image, 'px'))))
       : null,
   );
+  place = 'results';
   openModal(t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`), body, [{ label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => showTree() }], 'results-modal');
 }
 
 // ------------------------------------------------------------------ flow
 
 function showTree(): void {
+  place = 'tree';
   shop = null;
   paused = true;
   stage.hidden = true;
@@ -688,6 +823,8 @@ function showEnding(): void {
 }
 
 function startDay(): void {
+  place = 'day';
+  registerClicks = 0;
   tree.hide();
   document.body.classList.add('in-day');
   stage.hidden = false;
@@ -699,7 +836,9 @@ function startDay(): void {
   paused = false;
   sound.playBgm('bgmShop');
   updateTopbar();
-  if (save.day === 1) {
+  if (save.day <= 3 && tutorial.pending('day')) {
+    // The tutorial introduces the first days.
+  } else if (save.day === 1) {
     tip('welcome', t('いらっしゃいませ！ここはあなたのクラフト工房。魔法の壺をクリックするとクラフトが早くなるよ！', 'Welcome! This is your crafting workshop. Click the magic pot to craft faster!'));
   } else if (save.day === 2) {
     tip('thiefWarn', t('今日から泥棒が出るみたい…赤く光っているヒーローを見つけたらクリックで捕まえて！', 'Thieves may show up from today... If you see a hero glowing red, click to catch them!'));
@@ -1015,7 +1154,10 @@ canvas.addEventListener('pointerdown', (ev) => {
         tip('overclock', t('長押しすると高速でクラフトできるよ！でも熱くなりすぎると失敗しちゃうから、ゲージが赤くなる前に離してね', 'Hold to craft at high speed! But if it gets too hot it fails, so let go before the gauge turns red'));
       }, HOLD_DELAY),
     };
-  } else if (target === 'register') shop.clickRegister();
+  } else if (target === 'register') {
+    shop.clickRegister();
+    registerClicks++;
+  }
 });
 for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
   canvas.addEventListener(type, (ev) => {
@@ -1056,7 +1198,7 @@ let uiTimer = 0;
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  const running = shop && !paused && modalOpen === 0 && !document.hidden;
+  const running = shop && !paused && modalOpen === 0 && !document.hidden && !tutorial.blocking;
   if (shop && running) {
     shop.update(dt);
     if (shop.queue.length >= 3 && tip('queue', t('レジに行列ができてる！カウンターをクリックすると会計を手伝えるよ', 'There\'s a line at the register! Click the counter to help check out'))) lastQueueTip = shop.elapsed;
@@ -1074,6 +1216,7 @@ function frame(now: number): void {
       updateHud(shop);
     }
   }
+  tutorial.update(modalOpen > 0 && place === 'day' ? null : place);
   requestAnimationFrame(frame);
 }
 
