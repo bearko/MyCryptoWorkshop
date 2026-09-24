@@ -64,15 +64,15 @@ export const SKILLS: SkillNode[] = [
   { id: 'root', branch: 'root', name: '工房開業', desc: 'あなたのクラフト工房。ここから五勢力の技術が広がる', icon: ws.workshop_base, x: 0, y: 0, max: 1, baseCost: 0, growth: 1, requires: [], effects: [] },
 
   // 朱雀: crafting (up)
-  { id: 'craftSpeed', branch: 'suzaku', name: '壺の火力', desc: 'クラフト時間 -8%', icon: icons.gems.ifrit, x: 0, y: -1, max: 10, baseCost: 15, growth: 1.5, requires: ['root'], effects: [pow('craftTime', 0.92)] },
-  { id: 'craftClick', branch: 'suzaku', name: '職人の手際', desc: '壺クリックの効果 +40%', icon: ext(0, 1), x: -1, y: -2, max: 5, baseCost: 30, growth: 1.7, requires: ['craftSpeed'], effects: [mul('craftClick', 0.4)] },
+  { id: 'craftSpeed', branch: 'suzaku', name: '壺の火力', desc: 'クラフト時間 -8%', icon: icons.gems.ifrit, x: 0, y: -1, max: 10, baseCost: 15, growth: 1.5, requires: ['root'], effects: [pow('pot.craftTime', 0.92)] },
+  { id: 'craftClick', branch: 'suzaku', name: '職人の手際', desc: '壺クリックの効果 +40%', icon: ext(0, 1), x: -1, y: -2, max: 5, baseCost: 30, growth: 1.7, requires: ['craftSpeed'], effects: [mul('pot.craftClick', 0.4)] },
   { id: 'uncommon', branch: 'suzaku', name: 'エリート製法', desc: 'Uncommon のエクステンションをクラフトできる', icon: ext(0, 1), x: 0, y: -2, max: 1, baseCost: 60, growth: 1, requires: ['craftSpeed'], effects: [atLeast('maxRarity', 1)] },
-  { id: 'double', branch: 'suzaku', name: '同時クラフト', desc: '5%の確率で2個同時に完成', icon: icons.bufPhy, x: 1, y: -2, max: 8, baseCost: 150, growth: 1.6, requires: ['craftSpeed'], effects: [add('doubleChance', 0.05)] },
-  { id: 'forge', branch: 'suzaku', name: '鍛冶ハンマー', desc: '炉のハンマーが動き出す。クラフト時間 -15%', icon: ws.ambient_overlay_200, x: -1, y: -3, max: 1, baseCost: 250, growth: 1, requires: ['craftClick'], effects: [pow('craftTime', 0.85), overlay('ambient_overlay_200')] },
-  { id: 'mine', branch: 'suzaku', name: 'マインちゃん雇用', desc: 'マインちゃんが一定間隔で壺をかき混ぜる（自動クリック・間隔短縮）', icon: catalog.staff.mine[0].image, x: -2, y: -3, max: 5, baseCost: 400, growth: 2, requires: ['craftClick'], effects: [add('mineInterval', -0.35, 2.75)] },
+  { id: 'double', branch: 'suzaku', name: '同時クラフト', desc: '5%の確率で2個同時に完成', icon: icons.bufPhy, x: 1, y: -2, max: 8, baseCost: 150, growth: 1.6, requires: ['craftSpeed'], effects: [add('pot.doubleChance', 0.05)] },
+  { id: 'forge', branch: 'suzaku', name: '鍛冶炉を稼働', desc: '2号機「鍛冶炉」が動き出す。武具を専門に作り、エディション付きが出やすい', icon: ws.ambient_overlay_200, x: -1, y: -3, max: 1, baseCost: 250, growth: 1, requires: ['craftClick'], effects: [add('forge.unlocked', 1), overlay('ambient_overlay_200')] },
+  { id: 'mine', branch: 'suzaku', name: 'マインちゃん雇用', desc: 'マインちゃんが一定間隔で壺をかき混ぜる（自動クリック・間隔短縮）', icon: catalog.staff.mine[0].image, x: -2, y: -3, max: 5, baseCost: 400, growth: 2, requires: ['craftClick'], effects: [add('pot.helperInterval', -0.35, 2.75)] },
   { id: 'rare', branch: 'suzaku', name: 'ブレイブ製法', desc: '具現化カプセルを導入。Rare をクラフトできる', icon: ext(0, 2), x: 0, y: -3, max: 1, baseCost: 500, growth: 1, requires: ['uncommon'], effects: [atLeast('maxRarity', 2), overlay('capsule')] },
   { id: 'luck', branch: 'suzaku', name: '鑑定眼', desc: '最高レアリティの出現率 +25%', icon: icons.gems.leviathan, x: 1, y: -3, max: 8, baseCost: 300, growth: 1.7, requires: ['uncommon'], effects: [add('luck', 0.25), overlay('ambient_overlay_401'), overlay('ambient_overlay_402', 3), overlay('ambient_overlay_325', 5)] },
-  { id: 'craftSpeed2', branch: 'suzaku', name: '錬金の極意', desc: 'クラフト時間 -6%', icon: icons.gems.tiamat, x: 1, y: -4, max: 10, baseCost: 3000, growth: 1.5, requires: ['rare'], effects: [pow('craftTime', 0.94)] },
+  { id: 'craftSpeed2', branch: 'suzaku', name: '錬金の極意', desc: 'クラフト時間 -6%', icon: icons.gems.tiamat, x: 1, y: -4, max: 10, baseCost: 3000, growth: 1.5, requires: ['rare'], effects: [pow('pot.craftTime', 0.94)] },
   { id: 'epic', branch: 'suzaku', name: 'インペリアル製法', desc: 'Epic をクラフトできる', icon: ext(0, 3), x: 0, y: -4, max: 1, baseCost: 5000, growth: 1, requires: ['rare'], effects: [atLeast('maxRarity', 3)] },
   { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 150000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
 

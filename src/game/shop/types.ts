@@ -1,4 +1,5 @@
 import type { Hero } from '../catalog';
+import type { LineId } from '../lines';
 import type { ThiefStyle } from '../thieves';
 
 export type Rng = () => number;
@@ -116,7 +117,8 @@ export interface DayReport {
 }
 
 export type ShopEvent =
-  | { type: 'craft'; item: number; isNew: boolean }
+  | { type: 'craft'; item: number; isNew: boolean; line: LineId }
+  | { type: 'overheat'; line: LineId }
   | { type: 'sale'; price: number; item: number; hero: Hero; tip: boolean }
   | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' }
   | { type: 'thief'; hero: Hero; style: ThiefStyle }

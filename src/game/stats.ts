@@ -1,4 +1,5 @@
-import type { NumStat } from './effects';
+import type { LineStat, NumStat } from './effects';
+import { LINE_IDS, type LineId } from './lines';
 import { itemExt, itemValue, type ItemCode } from './items';
 export { RARITY_PRICE } from './items';
 import { series } from './catalog';
@@ -7,15 +8,18 @@ import { level, SKILLS, type Levels } from './skills';
 /** Payment multiplier per customer tier (Common → Legendary heroes). */
 export const TIER_PAY = [1, 1.25, 1.5, 1.8, 2.2];
 
+/** Per-line defaults. */
+const LINE_BASE: Record<LineId, Record<LineStat, number>> = {
+  pot: { unlocked: 1, craftTime: 2.6, craftClick: 0.12, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1 },
+  forge: { unlocked: 0, craftTime: 3.2, craftClick: 0.12, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.35, coolRate: 0.45, editionLuck: 1.5 },
+  capsule: { unlocked: 0, craftTime: 4.0, craftClick: 0.1, doubleChance: 0, luck: 1, helperInterval: 0, overclock: 3, heatRate: 0.4, coolRate: 0.45, editionLuck: 1 },
+};
+
 /** Stat values with no skills owned. Skills change them through their `effects`. */
-export const BASE_STATS: Record<NumStat, number> = {
+export const BASE_STATS = {
   dayLength: 40,
-  craftTime: 2.6,
-  craftClick: 0.12,
-  doubleChance: 0,
   maxRarity: 0,
   luck: 1,
-  mineInterval: 0,
   storageCap: 0,
   shelfSlots: 3,
   spawnRate: 1,
@@ -36,7 +40,29 @@ export const BASE_STATS: Record<NumStat, number> = {
   guardChance: 0,
   pestInterval: 1,
   pestBountyMult: 1,
-};
+  editionTier: 0,
+  editionLuck: 1,
+  shinChance: 0,
+  /** Highest rarity the dismantler breaks down (-1 = no dismantler). */
+  dismantleRarity: -1,
+  dustMult: 1,
+  gemChance: 0.3,
+  /** 1 once 魔石 can be infused into lines. */
+  infusion: 0,
+  infusionPower: 1,
+  /** 1 once the packer restocks the most valuable items first. */
+  packer: 0,
+  ...(Object.fromEntries(
+    LINE_IDS.flatMap((line) => Object.entries(LINE_BASE[line]).map(([k, v]) => [`${line}.${k}`, v])),
+  ) as Record<`${LineId}.${LineStat}`, number>),
+} satisfies Record<NumStat, number>;
+
+export type LineStats = Record<LineStat, number>;
+
+/** The stats of one production line. */
+export function lineStats(stats: Stats, line: LineId): LineStats {
+  return Object.fromEntries(Object.keys(LINE_BASE[line]).map((k) => [k, stats[`${line}.${k as LineStat}`]])) as LineStats;
+}
 
 /** Seconds between customers at spawnRate 1. */
 const BASE_SPAWN_INTERVAL = 2.7;

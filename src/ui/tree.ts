@@ -413,7 +413,7 @@ export class TreeView {
     const s = computeStats(levels);
     const rows: [string, string][] = [
       ['営業時間', `${s.dayLength}秒`],
-      ['クラフト時間', secs(s.craftTime)],
+      ['クラフト時間', secs(s['pot.craftTime'])],
       ['陳列スペース', `${s.shelfSlots}枠${s.storageCap ? ` + 倉庫${s.storageCap}` : ''}`],
       ['来客間隔', secs(s.spawnInterval)],
       ['会計時間', `${secs(s.cashierTime)} × ${s.registers}台`],

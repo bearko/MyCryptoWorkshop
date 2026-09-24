@@ -1,20 +1,33 @@
 import { RARITIES, RARITY_JA, series } from './catalog';
-import type { NumStat } from './effects';
+import type { LineStat, NumStat } from './effects';
+import { EDITIONS } from './items';
+import { LINE_IDS, LINES } from './lines';
 import { secs } from './format';
 import type { Stats } from './stats';
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
 const times = (v: number) => `×${v.toFixed(2)}`;
 
-/** Player-facing label and formatter per stat. Stats without an entry are not shown. */
-export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', { label: string; format: (v: number) => string }>> = {
-  dayLength: { label: '営業時間', format: (v) => `${Math.round(v)}秒` },
+type Info = { label: string; format: (v: number) => string };
+
+const LINE_STAT_INFO: Partial<Record<LineStat, Info>> = {
+  unlocked: { label: '稼働', format: (v) => (v > 0 ? '稼働中' : '停止') },
   craftTime: { label: 'クラフト時間', format: secs },
-  craftClick: { label: '壺タップ1回の進み', format: pct },
+  craftClick: { label: 'タップ1回の進み', format: pct },
   doubleChance: { label: '同時クラフト率', format: pct },
-  maxRarity: { label: '最高レアリティ', format: (v) => RARITY_JA[RARITIES[v]] },
   luck: { label: '最高レアの出やすさ', format: times },
-  mineInterval: { label: 'マインちゃんのかき混ぜ間隔', format: (v) => (v > 0 ? secs(v) : 'なし') },
+  helperInterval: { label: 'マインちゃんのかき混ぜ間隔', format: (v) => (v > 0 ? secs(v) : 'なし') },
+  overclock: { label: '長押し中の速さ', format: times },
+  heatRate: { label: '長押しの過熱ペース', format: (v) => `${v.toFixed(2)}/秒` },
+  coolRate: { label: '冷却ペース', format: (v) => `${v.toFixed(2)}/秒` },
+  editionLuck: { label: 'エディションの出やすさ', format: times },
+};
+
+/** Player-facing label and formatter per stat. Stats without an entry are not shown. */
+export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
+  dayLength: { label: '営業時間', format: (v) => `${Math.round(v)}秒` },
+  maxRarity: { label: '最高レアリティ', format: (v) => RARITY_JA[RARITIES[v]] },
+  luck: { label: '最高レアの出やすさ（全ライン）', format: times },
   storageCap: { label: '倉庫の容量', format: (v) => `${v}個` },
   shelfSlots: { label: '陳列スペース', format: (v) => `${v}枠` },
   spawnInterval: { label: '来客間隔', format: secs },
@@ -35,6 +48,20 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', { label: strin
   guardChance: { label: '警備の捕獲率', format: pct },
   pestInterval: { label: 'エネミーの出現間隔', format: times },
   pestBountyMult: { label: '退治報酬', format: times },
+  editionTier: { label: '出るエディション', format: (v) => (v > 0 ? `${EDITIONS[v].name}まで` : 'なし') },
+  editionLuck: { label: 'エディションの出やすさ（全ライン）', format: times },
+  shinChance: { label: '「真」の出る確率（Legendary）', format: pct },
+  dismantleRarity: { label: '分解炉で分解するレアリティ', format: (v) => (v >= 0 ? `${RARITY_JA[RARITIES[v]]}以下` : 'なし') },
+  dustMult: { label: 'ゴールドダストの量', format: times },
+  gemChance: { label: '魔石が出る確率', format: pct },
+  infusion: { label: '魔石の投入', format: (v) => (v > 0 ? '可能' : '不可') },
+  infusionPower: { label: '魔石の効果', format: times },
+  packer: { label: '梱包機', format: (v) => (v > 0 ? '高い品から補充' : 'なし') },
+  ...Object.fromEntries(
+    LINE_IDS.flatMap((line) =>
+      Object.entries(LINE_STAT_INFO).map(([k, info]) => [`${line}.${k}`, { label: `${LINES[line].name}: ${info!.label}`, format: info!.format }]),
+    ),
+  ),
 };
 
 export interface StatChange {

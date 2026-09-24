@@ -509,6 +509,12 @@ body.in-day {
   font-weight: bold;
 }
 
+.tag.edition {
+  margin: 0;
+  background: linear-gradient(90deg, #ffe066, #c77dff);
+  color: #2b1600;
+}
+
 .tag.new {
   margin: 0;
   background: #ff5d8f;

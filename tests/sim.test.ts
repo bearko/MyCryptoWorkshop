@@ -39,7 +39,7 @@ describe('stats', () => {
   it('upgrades move stats in the right direction', () => {
     const base = computeStats({ root: 1 });
     const up = computeStats({ root: 1, craftSpeed: 3, shelf: 2, ad: 2, price: 1, conveyor: 1 });
-    expect(up.craftTime).toBeLessThan(base.craftTime);
+    expect(up['pot.craftTime']).toBeLessThan(base['pot.craftTime']);
     expect(up.shelfSlots).toBe(base.shelfSlots + 2);
     expect(up.spawnInterval).toBeLessThan(base.spawnInterval);
     expect(up.priceMult).toBeGreaterThan(base.priceMult);
