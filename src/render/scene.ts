@@ -37,6 +37,7 @@ import type { Actor, Shop, StaffMember } from '../game/shop';
 import { ROLES } from '../game/staff';
 import type { Line } from '../game/shop/production';
 import { drawRef, fileOf, img, ready } from './images';
+import { t } from '../i18n';
 
 /** Staff sprites are drawn at this scale so they match the ~64px heroes. */
 const STAFF_SCALE = 0.55;
@@ -118,7 +119,7 @@ const homeLand = (shop: Shop) => lands.find((l) => l.key === shop.save.prestige.
 
 /** Vehicle icons by stats.vehicle (1 carriage, 2 airship, 3 land gate). */
 const VEHICLE_ICONS = ['', seriesIcon('Horse', 3), seriesIcon('Spaceship', 2), seriesIcon('Ferris wheel', 3)];
-const VEHICLE_NAMES = ['', '乗合馬車', '飛空艇', 'ランドゲート'];
+const VEHICLE_NAMES = ['', t('乗合馬車', 'Stagecoach'), t('飛空艇', 'Airship'), t('ランドゲート', 'Land Gate')];
 
 /** Staff who work at a desk, and what lies on it. */
 const DESKS: Partial<Record<string, string>> = { accountant: DECOR.coin, researcher: DECOR.book, appraiser: DECOR.monocle };
@@ -286,7 +287,7 @@ function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
         ctx.font = `16px ${FONT}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('＋', p.x, p.y + 1);
+        ctx.fillText('+', p.x, p.y + 1);
       }
     }
   }
@@ -327,7 +328,7 @@ function paintShowcase(ctx: CanvasRenderingContext2D, slots: number): void {
     ctx.font = `15px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('＋', p.x, p.y + 1);
+    ctx.fillText('+', p.x, p.y + 1);
   }
 }
 
@@ -396,7 +397,7 @@ function paintTrialArea(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = '#ffe9c2';
   ctx.font = `bold 13px ${FONT}`;
   ctx.textAlign = 'center';
-  ctx.fillText('試し斬り', dummy.x - 30, dummy.y + 2);
+  ctx.fillText(t('試し斬り', 'Try it'), dummy.x - 30, dummy.y + 2);
 }
 
 export class SceneRenderer {
@@ -603,7 +604,7 @@ export class SceneRenderer {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = v.kind === 'legend' ? '#ffd966' : '#bfefff';
-      ctx.fillText(v.kind === 'legend' ? `伝説 ${v.name}` : v.name, v.x, v.y + 14);
+      ctx.fillText(v.kind === 'legend' ? t(`伝説 ${v.name}`, `Legend ${v.name}`) : v.name, v.x, v.y + 14);
       ctx.globalAlpha = 1;
     }
 
@@ -622,7 +623,7 @@ export class SceneRenderer {
       ctx.font = `bold 15px ${FONT}`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${VEHICLE_NAMES[arrival.kind]} 到着！`, bx - 52, by);
+      ctx.fillText(t(`${VEHICLE_NAMES[arrival.kind]} 到着！`, `${VEHICLE_NAMES[arrival.kind]}!`), bx - 52, by);
       ctx.globalAlpha = 1;
     }
   }
@@ -876,9 +877,9 @@ export class SceneRenderer {
     const by = m.y - HERO_PX - hop - 22;
     const chasing = m.role === 'guard' && shop.actors.some((a) => a.kind === 'thief' && a.state !== 'caught');
     let text = '';
-    if (m.role === 'promoter' && m.pulse > 0) text = 'いらっしゃい！';
-    else if (m.role === 'host' && m.pulse > 0.3) text = 'ようこそ';
-    else if (chasing) text = '待てっ！';
+    if (m.role === 'promoter' && m.pulse > 0) text = t('いらっしゃい！', 'Welcome!');
+    else if (m.role === 'host' && m.pulse > 0.3) text = t('ようこそ', 'Hello!');
+    else if (chasing) text = t('待てっ！', 'Stop!');
     if (text) {
       ctx.font = `bold 15px ${FONT}`;
       const tw = ctx.measureText(text).width + 14;
@@ -931,7 +932,7 @@ export class SceneRenderer {
         bubble(60, 36, '#3b0d0d');
         ctx.fillStyle = '#ff6b6b';
         ctx.font = `bold 24px ${FONT}`;
-        ctx.fillText('ｷﾗｰﾝ', bx, by + 1);
+        ctx.fillText(t('ｷﾗｰﾝ', 'Gotcha'), bx, by + 1);
       }
       return;
     }
@@ -960,7 +961,7 @@ export class SceneRenderer {
       drawImg(ctx, series[a.order.series].items[a.order.minRarity].image, bx - 26, by - 20, 38, 38);
       ctx.fillStyle = '#b8860b';
       ctx.font = `bold 18px ${FONT}`;
-      ctx.fillText('注', bx + 20, by);
+      ctx.fillText(t('注', '!'), bx + 20, by);
       return;
     }
     if (a.special === 'collector' && a.item === null && a.wants !== undefined && a.state !== 'leave') {
@@ -986,7 +987,7 @@ export class SceneRenderer {
       bubble(56, 36);
       ctx.fillStyle = '#5b4636';
       ctx.font = `bold 22px ${FONT}`;
-      ctx.fillText('…？', bx, by);
+      ctx.fillText('…?', bx, by);
       const left = 1 - a.timer / shop.stats.patience;
       ctx.fillStyle = left < 0.3 ? '#ff5d5d' : '#7CFFB2';
       ctx.fillRect(bx - 24, by + 13, 48 * Math.max(0, left), 4);
@@ -1031,7 +1032,7 @@ export class SceneRenderer {
       ctx.font = `20px ${FONT}`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`倉庫 ${shop.storage.length}/${shop.stats.storageCap}`, x - 70, y - 14);
+      ctx.fillText(t(`倉庫 ${shop.storage.length}/${shop.stats.storageCap}`, `Storage ${shop.storage.length}/${shop.stats.storageCap}`), x - 70, y - 14);
       shop.storage.slice(0, 4).forEach((id, i) => drawImg(ctx, itemExt(id).image, x - 72 + i * 36, y + 2, 32, 32));
     }
 
@@ -1120,14 +1121,14 @@ export class SceneRenderer {
     ctx.font = `bold 18px ${FONT}`;
     if (line.jam > 0) {
       ctx.fillStyle = '#ff8a8a';
-      ctx.fillText('過熱', cx, cy - 8);
+      ctx.fillText(t('過熱', 'HOT'), cx, cy - 8);
       ctx.fillText(`${line.jam.toFixed(1)}`, cx, cy + 12);
     } else if (line.idle) {
-      ctx.fillText('ﾚｼﾋﾟ', cx, cy - 8);
-      ctx.fillText('なし', cx, cy + 12);
+      ctx.fillText(t('ﾚｼﾋﾟ', 'Recipe'), cx, cy - 8);
+      ctx.fillText(t('なし', 'needed'), cx, cy + 12);
     } else if (line.blocked) {
       ctx.font = `bold 20px ${FONT}`;
-      ctx.fillText('満杯', cx, cy);
+      ctx.fillText(t('満杯', 'FULL'), cx, cy);
     } else {
       drawImg(ctx, LINE_ICON[line.id], cx - 20, cy - 20, 40, 40);
     }
@@ -1141,7 +1142,7 @@ export class SceneRenderer {
       ctx.stroke();
       ctx.fillStyle = `rgba(255,240,180,${0.6 + 0.4 * a})`;
       ctx.font = `bold 26px ${FONT}`;
-      ctx.fillText('タップ！', cx, cy - r - 24);
+      ctx.fillText(t('タップ！', 'Tap!'), cx, cy - r - 24);
     }
   }
 

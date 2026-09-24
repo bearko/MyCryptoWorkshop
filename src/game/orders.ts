@@ -1,6 +1,7 @@
 import content from './content.json';
 import { customers, customersByTier, RARITY_JA, RARITIES, series, type Hero } from './catalog';
 import type { Stats } from './stats';
+import { t } from '../i18n';
 
 /**
  * Orders (注文): a hero asks for their ゆかりの品 — a series tied to one of their attributes
@@ -33,7 +34,8 @@ export const orderHero = (o: Order): Hero => customers.find((c) => c.id === o.he
 
 /** "Rare 以上のカタナ" */
 export function orderLabel(o: Order): string {
-  return `${RARITY_JA[RARITIES[o.minRarity]]}${o.minRarity < 4 ? ' 以上' : ''}の${series[o.series].name}`;
+  const rarity = RARITY_JA[RARITIES[o.minRarity]];
+  return t(`${rarity}${o.minRarity < 4 ? ' 以上' : ''}の${series[o.series].name}`, `${rarity}${o.minRarity < 4 ? '+' : ''} ${series[o.series].name}`);
 }
 
 export function orderMatches(o: Order, ext: { seriesIndex: number; rarityIndex: number }): boolean {

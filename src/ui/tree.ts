@@ -12,6 +12,7 @@ import { GEM_COST } from '../game/shop/production';
 import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
+import { t } from '../i18n';
 
 const UNIT = 104;
 const MINIMAP_W = 150;
@@ -50,7 +51,7 @@ export class TreeView {
   private readonly detail: HTMLElement;
   private readonly statsBox: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
-  private readonly moveBtn = h('button.btn.relocate-btn', {}, '🧭 ランド移転（2周目へ）') as HTMLButtonElement;
+  private readonly moveBtn = h('button.btn.relocate-btn', {}, t('🧭 ランド移転（2周目へ）', '🧭 Relocate (start run 2)')) as HTMLButtonElement;
   private readonly forecast = h('div.forecast');
   private readonly ordersBox = h('div.orders');
   private readonly dailyBox = h('div.dailies');
@@ -105,7 +106,7 @@ export class TreeView {
     this.moveBtn.addEventListener('click', () => this.cb.onRelocate());
 
     // Minimap: tap to jump there.
-    this.minimap = h('canvas.tree-minimap', { width: MINIMAP_W * 2, height: MINIMAP_H * 2, 'aria-label': 'スキルツリー全体図' }) as HTMLCanvasElement;
+    this.minimap = h('canvas.tree-minimap', { width: MINIMAP_W * 2, height: MINIMAP_H * 2, 'aria-label': t('スキルツリー全体図', 'Skill tree overview') }) as HTMLCanvasElement;
     const jump = (ev: PointerEvent) => {
       const r = this.minimap.getBoundingClientRect();
       const gx = BOUNDS.x0 - 1 + ((ev.clientX - r.left) / r.width) * (BOUNDS.x1 - BOUNDS.x0 + 2);
@@ -143,9 +144,9 @@ export class TreeView {
     const zoomButtons = h(
       'div.tree-zoom',
       {},
-      h('button.btn.small', { onclick: () => this.setZoom(this.zoom * 1.2), 'aria-label': 'ズームイン' }, '＋'),
-      h('button.btn.small', { onclick: () => this.setZoom(this.zoom / 1.2), 'aria-label': 'ズームアウト' }, '－'),
-      h('button.btn.small', { onclick: () => this.center(), 'aria-label': '中央へ' }, '◎'),
+      h('button.btn.small', { onclick: () => this.setZoom(this.zoom * 1.2), 'aria-label': t('ズームイン', 'Zoom in') }, '+'),
+      h('button.btn.small', { onclick: () => this.setZoom(this.zoom / 1.2), 'aria-label': t('ズームアウト', 'Zoom out') }, '−'),
+      h('button.btn.small', { onclick: () => this.center(), 'aria-label': t('中央へ', 'Center') }, '◎'),
     );
 
     this.root = h(
@@ -160,11 +161,11 @@ export class TreeView {
         this.dailyBox,
         this.startBtn,
         this.moveBtn,
-        h('p.tree-help', {}, 'ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。'),
+        h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan, scroll to zoom.')),
         this.detail,
         this.infusionBox,
         this.buyList,
-        h('button.btn', { onclick: () => this.cb.onCollection() }, '📖 図鑑を見る'),
+        h('button.btn', { onclick: () => this.cb.onCollection() }, t('📖 図鑑を見る', '📖 Collection')),
         this.statsBox,
       ),
     );
@@ -288,8 +289,8 @@ export class TreeView {
     if (stats.infusion <= 0) return;
     const gems = this.save.resources.gems;
     this.infusionBox.append(
-      h('h3', {}, '魔石の投入（次の営業日）'),
-      h('p.infusion-help', {}, `ラインごとに1種類。1日あたり魔石${GEM_COST}個を使います。`),
+      h('h3', {}, t('魔石の投入（次の営業日）', 'Stone infusion (next business day)')),
+      h('p.infusion-help', {}, t(`ラインごとに1種類。1日あたり魔石${GEM_COST}個を使います。`, `One kind per line. Uses ${GEM_COST} stones per day.`)),
       h('div.gem-stock', {}, ...GEM_IDS.map((g) => h('span', { title: GEMS[g].name }, icon(icons.gems[g], 'px'), `×${gems[g]}`))),
     );
     for (const line of LINE_IDS) {
@@ -305,7 +306,7 @@ export class TreeView {
           'div.infusion-row',
           {},
           h('span.infusion-line', {}, LINES[line].name),
-          h('button.gem-choice', { class: `gem-choice ${current === null ? 'on' : ''}`, onclick: () => choose(null), title: '投入しない' }, 'なし'),
+          h('button.gem-choice', { class: `gem-choice ${current === null ? 'on' : ''}`, onclick: () => choose(null), title: t('投入しない', 'No stone') }, t('なし', 'None')),
           ...GEM_IDS.map((g) =>
             h(
               'button.gem-choice',
@@ -319,7 +320,7 @@ export class TreeView {
           ),
         ),
       );
-      if (current) this.infusionBox.append(h('p.infusion-effect', {}, `${GEMS[current].effect}${gems[current] < GEM_COST ? '（魔石が足りません）' : ''}`));
+      if (current) this.infusionBox.append(h('p.infusion-effect', {}, t(`${GEMS[current].effect}${gems[current] < GEM_COST ? '（魔石が足りません）' : ''}`, `${GEMS[current].effect}${gems[current] < GEM_COST ? ' (not enough stones)' : ''}`)));
     }
   }
 
@@ -381,7 +382,7 @@ export class TreeView {
       el.classList.toggle('affordable', affordable);
       el.classList.toggle('selected', this.selected === node.id);
       el.querySelector('.node-level')!.textContent = node.max > 1 ? `${lv}/${node.max}` : maxed ? '✓' : '';
-      el.title = available ? node.name : '？？？';
+      el.title = available ? node.name : t('？？？', '???');
     }
     // Lines
     const parts: string[] = [];
@@ -400,28 +401,28 @@ export class TreeView {
     this.lines.innerHTML = parts.join('');
 
     // Start button
-    this.startBtn.textContent = `▶ Day ${this.save.day} 開店する`;
+    this.startBtn.textContent = t(`▶ Day ${this.save.day} 開店する`, `▶ Open for Day ${this.save.day}`);
     this.moveBtn.hidden = computeStats(levels).cleared <= 0;
-    this.moveBtn.textContent = `🧭 ランド移転（${this.save.prestige.runs + 2}周目へ）`;
+    this.moveBtn.textContent = t(`🧭 ランド移転（${this.save.prestige.runs + 2}周目へ）`, `🧭 Relocate (start run ${this.save.prestige.runs + 2})`);
     const c = this.save.forecast;
-    this.forecast.replaceChildren(h('b', {}, `次の営業日: ${conditionLabel(c)}`), h('span', {}, CONDITIONS[c.kind].desc));
+    this.forecast.replaceChildren(h('b', {}, t(`次の営業日: ${conditionLabel(c)}`, `Next business day: ${conditionLabel(c)}`)), h('span', {}, CONDITIONS[c.kind].desc));
     this.dailyBox.replaceChildren(
       ...(this.save.dailies.length
-        ? [h('h3', {}, `デイリー依頼（達成でエンブレム）`), ...this.save.dailies.map((d) => h('div.daily-row', {}, h('span', {}, dailyLabel(d)), h('b', {}, '+1')))]
+        ? [h('h3', {}, t(`デイリー依頼（達成でエンブレム）`, `Daily requests (earn emblems)`)), ...this.save.dailies.map((d) => h('div.daily-row', {}, h('span', {}, dailyLabel(d)), h('b', {}, '+1')))]
         : []),
     );
     const orders = this.save.orders;
     this.ordersBox.replaceChildren(
-      ...(orders.length ? [h('h3', {}, `注文（${orders.length}件）`)] : []),
+      ...(orders.length ? [h('h3', {}, t(`注文（${orders.length}件）`, `Orders (${orders.length})`))] : []),
       ...orders.map((o) => {
         const hero = orderHero(o);
         return h(
           'div.order-row',
           {},
           icon(hero.image, 'px'),
-          h('div', {}, h('b', {}, hero.name), h('span', {}, `${orderLabel(o)} を ×${computeStats(this.save.levels).orderPay} で買いに来る`)),
+          h('div', {}, h('b', {}, hero.name), h('span', {}, t(`${orderLabel(o)} を ×${computeStats(this.save.levels).orderPay} で買いに来る`, `Wants: ${orderLabel(o)} (pays ×${computeStats(this.save.levels).orderPay})`))),
           icon(series[o.series].items[o.minRarity].image, 'px'),
-          h('small', {}, o.days > 1 ? `あと${o.days}日` : '明日まで'),
+          h('small', {}, o.days > 1 ? t(`あと${o.days}日`, `${o.days} days left`) : t('明日まで', 'Due tomorrow')),
         );
       }),
     );
@@ -440,10 +441,10 @@ export class TreeView {
           'div.detail-head',
           {},
           icon(node.icon, 'px detail-icon'),
-          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, `${b.name}・${b.role}`), h('div.detail-name', {}, available ? node.name : '？？？')),
+          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`)), h('div.detail-name', {}, available ? node.name : t('？？？', '???'))),
         ),
-        h('p.detail-desc', {}, available ? node.desc : '前のスキルを習得すると解放されます'),
-        h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? '習得済み' : '未習得'),
+        h('p.detail-desc', {}, available ? node.desc : t('前のスキルを習得すると解放されます', 'Unlocks when you learn the skill before it')),
+        h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? t('習得済み', 'Learned') : t('未習得', 'Not learned')),
       );
       if (available && !maxed) {
         // Exact effect of the next level, from the node's effect data.
@@ -459,7 +460,7 @@ export class TreeView {
             'button.btn.btn-buy',
             { disabled: !can, onclick: () => this.tryBuy(node) },
             icon(CURRENCIES[node.currency ?? 'gum'].icon, 'px gum-icon'),
-            ` ${fmt(cost)} で${lv > 0 ? '強化' : '習得'}`,
+            t(` ${fmt(cost)} で${lv > 0 ? '強化' : '習得'}`, ` ${lv > 0 ? 'Upgrade' : 'Learn'} for ${fmt(cost)}`),
           ),
         );
         // How many more levels the current GUM covers.
@@ -476,7 +477,7 @@ export class TreeView {
                   this.refresh();
                 },
               },
-              `まとめて Lv+${n}（${fmt(total)} ${CURRENCIES[node.currency ?? 'gum'].name}）`,
+              t(`まとめて Lv+${n}（${fmt(total)} ${CURRENCIES[node.currency ?? 'gum'].name}）`, `Buy Lv+${n} (${fmt(total)} ${CURRENCIES[node.currency ?? 'gum'].name})`),
             ),
           );
         }
@@ -488,7 +489,7 @@ export class TreeView {
     this.buyList.replaceChildren();
     if (options.length) {
       this.buyList.append(
-        h('h3', {}, `今習得できるスキル（${options.length}）`),
+        h('h3', {}, t(`今習得できるスキル（${options.length}）`, `Skills you can learn now (${options.length})`)),
         ...options.slice(0, 8).map(({ node: n, cost: c }) =>
           h(
             'button.buy-item',
@@ -498,7 +499,7 @@ export class TreeView {
             h('span.buy-cost', { class: `buy-cost ${n.currency ?? ''}` }, fmt(c)),
           ),
         ),
-        h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, '安い順にまとめて習得'),
+        h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, t('安い順にまとめて習得', 'Learn all, cheapest first')),
       );
     }
     this.renderInfusion();
@@ -507,18 +508,18 @@ export class TreeView {
     // Stats summary
     const s = computeStats(levels);
     const rows: [string, string][] = [
-      ['営業時間', `${s.dayLength}秒`],
-      ['クラフト時間', secs(s['pot.craftTime'])],
-      ['陳列スペース', `${s.shelfSlots}枠${s.storageCap ? ` + 倉庫${s.storageCap}` : ''}`],
-      ['来客間隔', secs(s.spawnInterval)],
-      ['会計時間', `${secs(s.cashierTime)} × ${s.registers}台`],
-      ['価格倍率', `×${s.priceMult.toFixed(2)}`],
-      ['図鑑ボーナス', `+${(s.collectionBonus * this.save.collection.length * 100).toFixed(0)}%`],
-      ['シリーズ', `${s.seriesUnlocked.length}種`],
+      [t('営業時間', 'Business hours'), t(`${s.dayLength}秒`, `${s.dayLength}s`)],
+      [t('クラフト時間', 'Craft time'), secs(s['pot.craftTime'])],
+      [t('陳列スペース', 'Display'), t(`${s.shelfSlots}枠${s.storageCap ? ` + 倉庫${s.storageCap}` : ''}`, `${s.shelfSlots} slots${s.storageCap ? ` + ${s.storageCap} storage` : ''}`)],
+      [t('来客間隔', 'Customer interval'), secs(s.spawnInterval)],
+      [t('会計時間', 'Checkout'), t(`${secs(s.cashierTime)} × ${s.registers}台`, `${secs(s.cashierTime)} × ${s.registers}`)],
+      [t('価格倍率', 'Price multiplier'), `×${s.priceMult.toFixed(2)}`],
+      [t('図鑑ボーナス', 'Collection bonus'), `+${(s.collectionBonus * this.save.collection.length * 100).toFixed(0)}%`],
+      [t('シリーズ', 'Series'), `${s.seriesUnlocked.length}`],
     ];
     const staff = STAFF_ROLES.filter((r) => s[`staff_${r}`] > 0).length;
-    if (staff > 0) rows.push(['スタッフ', `${staff}人`]);
-    if (s.researchRate > 0) rows.push(['研究ポイント', `${s.researchRate.toFixed(1)}/分`]);
-    this.statsBox.replaceChildren(h('h3', {}, '工房のステータス'), ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))));
+    if (staff > 0) rows.push([t('スタッフ', 'Staff'), `${staff}`]);
+    if (s.researchRate > 0) rows.push([t('研究ポイント', 'Research'), t(`${s.researchRate.toFixed(1)}/分`, `${s.researchRate.toFixed(1)}/min`)]);
+    this.statsBox.replaceChildren(h('h3', {}, t('工房のステータス', 'Workshop stats')), ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))));
   }
 }

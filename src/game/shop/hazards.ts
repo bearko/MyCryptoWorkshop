@@ -4,6 +4,7 @@ import { FLOOR_Y, HERO_PX, QUEUE_LANE_Y, SCENE_W, SHOP_LANE_Y } from '../layout'
 import { GEM_IDS } from '../lines';
 import type { Shop } from './index';
 import type { Actor, Chest, Coin, Mess, StorePest } from './types';
+import { t } from '../../i18n';
 
 /** Store enemies start showing up from this day; treasure chests from CHEST_DAY. */
 export const STORE_PEST_DAY = 6;
@@ -203,13 +204,13 @@ export class Hazards {
       const amount = Math.round((5 + 4 * stats.maxRarity) * stats.chestMult);
       shop.save.resources.dust += amount;
       shop.report.dust += amount;
-      shop.popups.push({ text: `+${amount} ダスト`, x: c.x, y: c.y - 40, t: 0, color: '#ffd98a' });
+      shop.popups.push({ text: t(`+${amount} ダスト`, `+${amount} dust`), x: c.x, y: c.y - 40, t: 0, color: '#ffd98a' });
       shop.emit({ type: 'chest', reward: 'dust', amount });
     } else {
       const gem = rand.pick(GEM_IDS);
       shop.save.resources.gems[gem] += 2;
       shop.report.gems[gem] = (shop.report.gems[gem] ?? 0) + 2;
-      shop.popups.push({ text: '+2 魔石', x: c.x, y: c.y - 40, t: 0, color: '#c9a8ff' });
+      shop.popups.push({ text: t('+2 魔石', '+2 stones'), x: c.x, y: c.y - 40, t: 0, color: '#c9a8ff' });
       shop.emit({ type: 'chest', reward: 'gem', amount: 2 });
     }
     // The empty chest and packing litter end up on the floor.

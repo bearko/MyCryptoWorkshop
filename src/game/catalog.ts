@@ -1,16 +1,15 @@
+// i18n-check: skip — Japanese rarity names switch by language; the rest are data keys.
 import raw from '../generated/catalog.json';
 import content from './content.json';
+import { isEn } from '../i18n';
 
 export const RARITIES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'] as const;
 export type Rarity = (typeof RARITIES)[number];
 
-export const RARITY_JA: Record<Rarity, string> = {
-  Common: 'コモン',
-  Uncommon: 'アンコモン',
-  Rare: 'レア',
-  Epic: 'エピック',
-  Legendary: 'レジェンド',
-};
+/** Rarity names for display (Japanese katakana, or the English names). */
+export const RARITY_JA: Record<Rarity, string> = isEn
+  ? { Common: 'Common', Uncommon: 'Uncommon', Rare: 'Rare', Epic: 'Epic', Legendary: 'Legendary' }
+  : { Common: 'コモン', Uncommon: 'アンコモン', Rare: 'レア', Epic: 'エピック', Legendary: 'レジェンド' };
 
 export const RARITY_COLOR: Record<Rarity, string> = {
   Common: '#b9b9b9',
@@ -21,7 +20,9 @@ export const RARITY_COLOR: Record<Rarity, string> = {
 };
 
 export type Family = keyof typeof content.families;
-export const FAMILIES = content.families as Record<Family, { name: string; priceMult: number }>;
+export const FAMILIES = Object.fromEntries(
+  Object.entries(content.families).map(([k, f]) => [k, { name: isEn ? f.nameEn : f.name, priceMult: f.priceMult }]),
+) as Record<Family, { name: string; priceMult: number }>;
 
 export interface Extension {
   id: number;
@@ -70,14 +71,14 @@ export const series = content.activeSeries.map(({ key, family }, seriesIndex) =>
   if (!s) throw new Error(`series not in catalog: ${key}`);
   const toExt = (e: (typeof s.items)[number]): Extension => ({
     id: e.id,
-    name: e.name,
+    name: isEn ? e.nameEn : e.name,
     rarity: e.rarity as Rarity,
     rarityIndex: RARITIES.indexOf(e.rarity as Rarity),
     seriesIndex,
-    seriesName: s.name,
+    seriesName: isEn ? s.nameEn : s.name,
     family: family as Family,
     shin: e.shin,
-    skill: e.skill,
+    skill: isEn ? e.skillEn : e.skill,
     image: e.image,
   });
   // One item per rarity, Common → Legendary (series with variants use the first of each rarity).
@@ -87,7 +88,7 @@ export const series = content.activeSeries.map(({ key, family }, seriesIndex) =>
     return toExt(e);
   });
   const shinRaw = s.items.find((i) => i.shin);
-  return { key: s.key, name: s.name, family: family as Family, items, shin: shinRaw ? toExt(shinRaw) : null };
+  return { key: s.key, name: isEn ? s.nameEn : s.name, family: family as Family, items, shin: shinRaw ? toExt(shinRaw) : null };
 });
 
 export const extensionById = new Map<number, Extension>(
@@ -102,11 +103,11 @@ export function getExtension(id: number): Extension {
 
 const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   id: h.id,
-  name: h.name,
+  name: isEn ? h.nameEn : h.name,
   rarity: h.rarity as Rarity,
   rarityIndex: RARITIES.indexOf(h.rarity as Rarity),
   faction: h.faction,
-  passive: h.passive,
+  passive: isEn ? h.passiveEn : h.passive,
   attributes: h.attributes,
   image: h.image,
 });
@@ -141,7 +142,7 @@ export const customers: Hero[] = raw.heroes
   .filter((h) => !content.thiefIds.includes(h.id) && !staffIds.has(h.id))
   .map(toHero);
 export const customersByTier: Hero[][] = RARITIES.map((r) => customers.filter((c) => c.rarity === r));
-const enemyById = new Map(raw.enemies.map((e) => [e.id, e]));
+const enemyById = new Map(raw.enemies.map((e) => [e.id, isEn ? { ...e, name: e.nameEn } : e]));
 /** Enemies that get into the workshop (see content.json). */
 export const pests = content.pestIds.map((id) => byId(enemyById, id, 'pest enemy'));
 /** Enemies that wander into the shop and scare customers (see content.json). */
@@ -156,6 +157,10 @@ export const staffFrames = raw.staff as {
   maycri: Frame[];
 };
 export const icons = raw.icons;
+
+/** Display names of hero attributes and factions (the game keys them by their Japanese names). */
+export const attributeName = (ja: string): string => (isEn ? ((raw.heroLabels.attributes as Record<string, string>)[ja] ?? ja) : ja);
+export const factionName = (ja: string): string => (isEn ? ((raw.heroLabels.factions as Record<string, string>)[ja] ?? ja) : ja);
 
 const allSeriesByKey = new Map(raw.series.map((s) => [s.key, s]));
 /** Icon of any series in the asset database (not only the active ones), for decoration. */

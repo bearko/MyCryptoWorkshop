@@ -1,3 +1,4 @@
+// i18n-check: skip — developer tooling (balance report).
 // Pacing targets from docs/ROADMAP.md §5, checked by `npm run balance`.
 import { TREE_NODES } from '../skills';
 import type { DayRow } from './autoplay';

@@ -3,6 +3,7 @@ import { HERO_PX, WINDOW } from '../layout';
 import { thiefStyle } from '../thieves';
 import type { Shop } from './index';
 import type { Actor, RaidResult } from './types';
+import { t } from '../../i18n';
 
 /** Seconds of warning before the pirates come in, and between two pirates. */
 export const RAID_WARNING = 4;
@@ -86,7 +87,7 @@ export class Raid {
       this.toSpawn--;
       const hero = pirates[(this.pirates - this.toSpawn - 1) % pirates.length];
       const base = thiefStyle(hero.id);
-      const a = shop.thieves.spawn(hero, { ...base, entry: this.toSpawn % 2 ? 'window' : base.entry, hp: Math.max(2, base.hp), trait: '黒髭海賊団' });
+      const a = shop.thieves.spawn(hero, { ...base, entry: this.toSpawn % 2 ? 'window' : base.entry, hp: Math.max(2, base.hp), trait: t('黒髭海賊団', 'Blackbeard\'s Pirates') });
       a.raider = true;
       this.raiders.push(a);
     }

@@ -4,13 +4,14 @@ import { DOOR, FLOOR_Y } from '../layout';
 import type { Shop } from './index';
 import type { Order } from '../orders';
 import type { Visit } from './types';
+import { t } from '../../i18n';
 
 /** Vehicles that bring a guild of customers at once. Index = stats.vehicle. */
 export const VEHICLES = [
   null,
-  { name: '乗合馬車', size: 4, interval: 40 },
-  { name: '飛空艇', size: 7, interval: 55 },
-  { name: 'ランドゲート', size: 10, interval: 70 },
+  { name: t('乗合馬車', 'Stagecoach'), size: 4, interval: 40 },
+  { name: t('飛空艇', 'Airship'), size: 7, interval: 55 },
+  { name: t('ランドゲート', 'Land Gate'), size: 10, interval: 70 },
 ];
 
 const GUEST_GAP = 0.35;
@@ -102,7 +103,7 @@ export class Visitors {
     if (this.cryptidAt >= 0 && shop.elapsed >= this.cryptidAt) {
       this.cryptidAt = -1;
       const land = landOf(shop.condition);
-      if (land) this.arrive({ kind: 'cryptid', name: `${land.name}のクリプタイド`, image: land.cryptid, skill: 'ランドの守護', x: DOOR.x - 120, y: FLOOR_Y + 40, t: 0, dur: VISIT_TIME });
+      if (land) this.arrive({ kind: 'cryptid', name: t(`${land.name}のクリプタイド`, `${land.name} Cryptid`), image: land.cryptid, skill: t('ランドの守護', 'Land Guardian'), x: DOOR.x - 120, y: FLOOR_Y + 40, t: 0, dur: VISIT_TIME });
       shop.hazards.sweep();
     }
     // A legendary hero drops in: sales ×2 while they are here.

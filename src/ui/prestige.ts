@@ -4,9 +4,10 @@ import type { SaveData } from '../game/save';
 import { level } from '../game/skills';
 import { computeStats } from '../game/stats';
 import { fileImg, fmt, h, icon } from './dom';
+import { t } from '../i18n';
 
-const hm = (seconds: number) => `${Math.floor(seconds / 3600)}時間${Math.floor((seconds % 3600) / 60)}分`;
-const landName = (key: string | null) => lands.find((l) => l.key === key)?.name ?? '始まりの地';
+const hm = (seconds: number) => t(`${Math.floor(seconds / 3600)}時間${Math.floor((seconds % 3600) / 60)}分`, `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`);
+const landName = (key: string | null) => lands.find((l) => l.key === key)?.name ?? t('始まりの地', 'The first land');
 
 /**
  * ランド移転: pick the land to move to (its cryptid's blessing stacks), see the Cp it pays,
@@ -16,7 +17,7 @@ export function relocateView(save: SaveData, onMove: (land: string) => void): HT
   const stats = computeStats(save.levels);
   const cp = cpForRun(save);
   let chosen: string | null = null;
-  const confirm = h('button.btn.btn-primary.relocate-go', {}, '移転先を選んでください') as HTMLButtonElement;
+  const confirm = h('button.btn.btn-primary.relocate-go', {}, t('移転先を選んでください', 'Choose where to move')) as HTMLButtonElement;
   confirm.disabled = true;
   const cards = lands.map((land) => {
     const b = BLESSINGS[land.key];
@@ -29,7 +30,7 @@ export function relocateView(save: SaveData, onMove: (land: string) => void): HT
           for (const c of cards) c.classList.toggle('on', c === card);
           delete confirm.dataset.armed;
           confirm.disabled = false;
-          confirm.textContent = `${land.name} へ移転する`;
+          confirm.textContent = t(`${land.name} へ移転する`, `Move to ${land.name}`);
         },
       },
       h('div.land-card-view', {}, fileImg(land.view, 'land-card-bg'), icon(land.cryptid, 'px land-card-cryptid')),
@@ -44,7 +45,7 @@ export function relocateView(save: SaveData, onMove: (land: string) => void): HT
     if (!chosen) return;
     if (confirm.dataset.armed !== '1') {
       confirm.dataset.armed = '1';
-      confirm.textContent = 'もう一度押すと移転します（やり直せません）';
+      confirm.textContent = t('もう一度押すと移転します（やり直せません）', 'Press again to move (this can\'t be undone)');
       return;
     }
     onMove(chosen);
@@ -56,22 +57,22 @@ export function relocateView(save: SaveData, onMove: (land: string) => void): HT
     h(
       'p',
       {},
-      '工房を新しいランドへ移し、1日目からやり直します。移転先のクリプタイドが工房を守り、その加護（重ねがけ可）がずっと続きます。',
+      t('工房を新しいランドへ移し、1日目からやり直します。移転先のクリプタイドが工房を守り、その加護（重ねがけ可）がずっと続きます。', 'Move the workshop to a new land and start again from Day 1. The land\'s cryptid guards the workshop, and its blessing (which stacks) lasts forever.'),
     ),
     h(
       'div.stat-grid',
       {},
       ...(
         [
-          ['この周回の売上', `${fmt(runRevenue(save))} GUM`],
-          ['名声', `${fmt(save.prestige.fame)}（Cp ×${fameBonus(save.prestige.fame).toFixed(2)}）`],
-          ['もらえる Cp', `+${fmt(cp)}`],
-          ['次の周回の所持金', `${fmt(nextGum)} GUM`],
+          [t('この周回の売上', 'Sales this run'), `${fmt(runRevenue(save))} GUM`],
+          [t('名声', 'Fame'), t(`${fmt(save.prestige.fame)}（Cp ×${fameBonus(save.prestige.fame).toFixed(2)}）`, `${fmt(save.prestige.fame)} (Cp ×${fameBonus(save.prestige.fame).toFixed(2)})`)],
+          [t('もらえる Cp', 'Cp you get'), `+${fmt(cp)}`],
+          [t('次の周回の所持金', 'GUM next run'), `${fmt(nextGum)} GUM`],
         ] as [string, string][]
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
     ),
-    h('p.muted', {}, '引き継ぐもの: 図鑑・ヒーロー図鑑とコンプリート報酬・実績・エンブレムと名誉・加護・移転スキル・常連客・累計成績'),
-    h('p.muted', {}, 'リセットされるもの: GUM・日数・その他のスキル・在庫・ダスト・魔石・研究pt・注文・依頼'),
+    h('p.muted', {}, t('引き継ぐもの: 図鑑・ヒーロー図鑑とコンプリート報酬・実績・エンブレムと名誉・加護・移転スキル・常連客・累計成績', 'Kept: collection, hero book and set rewards, achievements, emblems and honor, blessings, relocation skills, regulars, lifetime stats')),
+    h('p.muted', {}, t('リセットされるもの: GUM・日数・その他のスキル・在庫・ダスト・魔石・研究pt・注文・依頼', 'Reset: GUM, days, other skills, stock, dust, stones, research points, orders, requests')),
     h('div.land-cards', {}, ...cards),
     confirm,
   );
@@ -87,9 +88,9 @@ export function statsView(save: SaveData): HTMLElement {
     h(
       'tr',
       {},
-      h('td', {}, `${r.run}周目`),
+      h('td', {}, t(`${r.run}周目`, `Run ${r.run}`)),
       h('td', {}, landName(r.land)),
-      h('td', {}, `${r.days}日`),
+      h('td', {}, t(`${r.days}日`, `${r.days}`)),
       h('td', {}, r.clearSeconds !== null ? hm(r.clearSeconds) : '—'),
       h('td', {}, fmt(r.revenue)),
       h('td', {}, `+${fmt(r.cp)}`),
@@ -99,16 +100,16 @@ export function statsView(save: SaveData): HTMLElement {
   return h(
     'div.stats-view',
     {},
-    h('h3', {}, `${p.runs + 1}周目（${landName(p.home)}）`),
+    h('h3', {}, t(`${p.runs + 1}周目（${landName(p.home)}）`, `Run ${p.runs + 1} (${landName(p.home)})`)),
     h(
       'div.stat-grid',
       {},
-      row('営業日数', `${save.day - 1}日`),
-      row('プレイ時間', hm(now)),
-      row('売上', `${fmt(runRevenue(save))} GUM`),
-      row('名声', fmt(p.fame)),
-      row('クリア', p.clearSeconds !== null ? hm(p.clearSeconds) : 'まだ'),
-      row('所持 Cp', fmt(p.cp)),
+      row(t('営業日数', 'Days open'), t(`${save.day - 1}日`, `${save.day - 1}`)),
+      row(t('プレイ時間', 'Play time'), hm(now)),
+      row(t('売上', 'Sales'), `${fmt(runRevenue(save))} GUM`),
+      row(t('名声', 'Fame'), fmt(p.fame)),
+      row(t('クリア', 'Clear'), p.clearSeconds !== null ? hm(p.clearSeconds) : t('まだ', 'Not yet')),
+      row(t('所持 Cp', 'Cp held'), fmt(p.cp)),
     ),
     p.history.length
       ? h(
@@ -117,17 +118,17 @@ export function statsView(save: SaveData): HTMLElement {
           h(
             'table.run-table',
             {},
-            h('thead', {}, h('tr', {}, ...['周回', 'ランド', '日数', 'クリア', '売上', 'Cp'].map((t) => h('th', {}, t)))),
+            h('thead', {}, h('tr', {}, ...[t('周回', 'Run'), t('ランド', 'Land'), t('日数', 'Days'), t('クリア', 'Clear'), t('売上', 'Sales'), 'Cp'].map((label) => h('th', {}, label)))),
             h('tbody', {}, ...history),
           ),
         )
-      : h('p.muted', {}, 'クリア後にランド移転すると、周回の記録がここに並びます。'),
-    best.length ? h('p.muted', {}, `最速クリア: ${hm(Math.min(...best))}`) : null,
+      : h('p.muted', {}, t('クリア後にランド移転すると、周回の記録がここに並びます。', 'After the clear, relocate to a new land and your runs will be listed here.')),
+    best.length ? h('p.muted', {}, t(`最速クリア: ${hm(Math.min(...best))}`, `Fastest clear: ${hm(Math.min(...best))}`)) : null,
     blessings.length
       ? h(
           'div.bless-list',
           {},
-          h('h3', {}, 'クリプタイドの加護'),
+          h('h3', {}, t('クリプタイドの加護', 'Cryptid blessings')),
           ...blessings.map((l) =>
             h('div.bless-row', {}, icon(l.cryptid, 'px'), h('b', {}, `${BLESSINGS[l.key].name} Lv${level(save.levels, `bless_${l.key}`)}`), h('span', {}, BLESSINGS[l.key].desc)),
           ),
@@ -136,10 +137,10 @@ export function statsView(save: SaveData): HTMLElement {
     h(
       'div.stat-grid',
       {},
-      row('全周回の売上', `${fmt(save.totals.revenue)} GUM`),
-      row('最高日商', `${fmt(Math.max(p.bestDay, save.bestDayRevenue))} GUM`),
-      row('総プレイ時間', hm(save.meta.playSeconds)),
-      row('移転回数', `${p.runs}回`),
+      row(t('全周回の売上', 'Sales, all runs'), `${fmt(save.totals.revenue)} GUM`),
+      row(t('最高日商', 'Best day'), `${fmt(Math.max(p.bestDay, save.bestDayRevenue))} GUM`),
+      row(t('総プレイ時間', 'Total play time'), hm(save.meta.playSeconds)),
+      row(t('移転回数', 'Relocations'), t(`${p.runs}回`, `${p.runs}`)),
     ),
   );
 }

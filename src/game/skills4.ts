@@ -1,3 +1,4 @@
+// i18n-check: skip — node text is replaced from skillsEn.ts in English (tests/i18n.test.ts checks it).
 // Phase 4 skill nodes: counters for the day's events (白虎, lower left), and new kinds of
 // customers and vehicles (青龍, upper right). Positions are grid units with the root at 0,0;
 // `node scripts/tree-grid.mjs` prints the layout.
@@ -6,6 +7,7 @@ import { add, atLeast, mul, pow } from './effects';
 import { FACTION_KEYS, FACTION_NAME } from './factions';
 import type { SkillNode } from './skills';
 import { staffNodes } from './skills3';
+import { t } from '../i18n';
 
 const node = (n: SkillNode): SkillNode => n;
 
@@ -13,10 +15,10 @@ export const PHASE4_NODES: SkillNode[] = [
   // ---- Cleaner (staff), a row left of 足止め罠
   ...staffNodes({
     role: 'cleaner', x: -3, row: { y: 2, requires: 'trap' }, hireCost: 4000,
-    hire: [], hireDesc: '雨の日の泥や宝箱の散らかりを片付け、霧の日のコインを拾う',
-    up1: { name: 'モップがけ', desc: '清掃係の足の速さ +15%', icon: icons.bufAgi, max: 5, effects: [mul('cleanerSpeed', 0.15)] },
-    up2: { name: '玄関マット', desc: '雨の日に泥が持ち込まれる確率 -10%', icon: seriesIcon('Mantle', 1), max: 5, effects: [pow('mudChance', 0.9)] },
-    aceDesc: '足の速さ +40%、コインの価値 +50%', ace: [mul('cleanerSpeed', 0.4), mul('coinValue', 0.5)],
+    hire: [], hireDesc: t('雨の日の泥や宝箱の散らかりを片付け、霧の日のコインを拾う', 'Cleans up mud on rainy days and litter from chests, and picks up coins on foggy days'),
+    up1: { name: t('モップがけ', 'Mopping'), desc: t('清掃係の足の速さ +15%', 'Cleaner speed +15%'), icon: icons.bufAgi, max: 5, effects: [mul('cleanerSpeed', 0.15)] },
+    up2: { name: t('玄関マット', 'Doormat'), desc: t('雨の日に泥が持ち込まれる確率 -10%', 'Chance of mud on rainy days -10%'), icon: seriesIcon('Mantle', 1), max: 5, effects: [pow('mudChance', 0.9)] },
+    aceDesc: t('足の速さ +40%、コインの価値 +50%', 'Speed +40%, coin value +50%'), ace: [mul('cleanerSpeed', 0.4), mul('coinValue', 0.5)],
   }),
 
   // ---- 白虎: weather, shop enemies, chests, decisions
@@ -35,7 +37,7 @@ export const PHASE4_NODES: SkillNode[] = [
   // ---- 青龍: faction regulars (row -1), vehicles (row -2), special customers (row -3)
   ...FACTION_KEYS.map((f, i) =>
     node({
-      id: `fav_${f}`, branch: 'seiryu', name: `${FACTION_NAME[f]}の常連`, desc: `${FACTION_NAME[f]}のヒーローの支払い +8%`,
+      id: `fav_${f}`, branch: 'seiryu', name: t(`${FACTION_NAME[f]}の常連`, `${FACTION_NAME[f]} Regulars`), desc: t(`${FACTION_NAME[f]}のヒーローの支払い +8%`, `${FACTION_NAME[f]} heroes pay +8%`),
       icon: seriesIcon('Oriflamme', i % 5), x: 5 + i, y: -1, max: 5, baseCost: Math.round(5000 * Math.pow(1.5, i)), growth: 1.6,
       requires: [i === 0 ? 'wordOfMouth' : `fav_${FACTION_KEYS[i - 1]}`], effects: [add(`fav_${f}`, 0.08)],
     }),

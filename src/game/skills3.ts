@@ -1,3 +1,4 @@
+// i18n-check: skip — node text is replaced from skillsEn.ts in English (tests/i18n.test.ts checks it).
 // Phase 3 skill nodes: shop staff, facilities, sales automation and research.
 // Positions (grid units, root at 0,0): staff hang below the 黄竜 column (hires on row 7, their
 // upgrades below), facilities run right from 団体客 on row 1, research sits bottom-right.
@@ -6,6 +7,7 @@ import { add, atLeast, mul, pow, type Effect } from './effects';
 import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 import { ROLES, staffHero, type StaffRole } from './staff';
+import { t } from '../i18n';
 
 export interface StaffPlan {
   role: StaffRole;
@@ -26,80 +28,80 @@ export interface StaffPlan {
 const STAFF: StaffPlan[] = [
   {
     role: 'stocker', x: 0, hireCost: 10000,
-    hire: [pow('restockTime', 0.5)], hireDesc: '棚への補充間隔 -50%',
-    up1: { name: '品出しの手際', desc: '棚への補充間隔 -15%', icon: icons.bufAgi, max: 5, effects: [pow('restockTime', 0.85)] },
-    up2: { name: '台車', desc: '倉庫の容量 +2', icon: seriesIcon('Chair'), max: 5, effects: [add('storageCap', 2)] },
-    aceDesc: '補充間隔 -40%、倉庫の容量 +5', ace: [pow('restockTime', 0.6), add('storageCap', 5)],
+    hire: [pow('restockTime', 0.5)], hireDesc: t('棚への補充間隔 -50%', 'Shelf restock interval -50%'),
+    up1: { name: t('品出しの手際', 'Quick Restocking'), desc: t('棚への補充間隔 -15%', 'Shelf restock interval -15%'), icon: icons.bufAgi, max: 5, effects: [pow('restockTime', 0.85)] },
+    up2: { name: t('台車', 'Hand Cart'), desc: t('倉庫の容量 +2', 'Storage capacity +2'), icon: seriesIcon('Chair'), max: 5, effects: [add('storageCap', 2)] },
+    aceDesc: t('補充間隔 -40%、倉庫の容量 +5', 'Restock interval -40%, storage capacity +5'), ace: [pow('restockTime', 0.6), add('storageCap', 5)],
   },
   {
     role: 'host', x: 1, hireCost: 30000,
-    hire: [pow('browseTime', 0.7), add('patience', 1.5)], hireDesc: '客が品を選ぶ時間 -30%、棚の前で待つ時間 +1.5秒',
-    up1: { name: 'おもてなしの心', desc: '棚とレジで待つ時間 +1秒', icon: icons.hp, max: 5, effects: [add('patience', 1), add('queuePatience', 1)] },
-    up2: { name: '道案内', desc: '客の移動速度 +6%', icon: seriesIcon('Compass'), max: 5, effects: [mul('walkSpeed', 0.06)] },
-    aceDesc: '品を選ぶ時間 -40%、来客ペース +5%', ace: [pow('browseTime', 0.6), mul('spawnRate', 0.05)],
+    hire: [pow('browseTime', 0.7), add('patience', 1.5)], hireDesc: t('客が品を選ぶ時間 -30%、棚の前で待つ時間 +1.5秒', 'Customers choose 30% faster and wait 1.5s longer at the shelf'),
+    up1: { name: t('おもてなしの心', 'Hospitality'), desc: t('棚とレジで待つ時間 +1秒', 'Customers wait 1s longer at shelves and registers'), icon: icons.hp, max: 5, effects: [add('patience', 1), add('queuePatience', 1)] },
+    up2: { name: t('道案内', 'Directions'), desc: t('客の移動速度 +6%', 'Customer walking speed +6%'), icon: seriesIcon('Compass'), max: 5, effects: [mul('walkSpeed', 0.06)] },
+    aceDesc: t('品を選ぶ時間 -40%、来客ペース +5%', 'Choosing time -40%, customer rate +5%'), ace: [pow('browseTime', 0.6), mul('spawnRate', 0.05)],
   },
   {
     role: 'promoter', x: -1, hireCost: 50000,
-    hire: [mul('spawnRate', 0.15)], hireDesc: '来客ペース +15%',
-    up1: { name: 'チラシ配り', desc: '来客ペース +3%', icon: seriesIcon('Scrolls'), max: 10, effects: [mul('spawnRate', 0.03)] },
-    up2: { name: '名調子', desc: '団体客の確率 +4%', icon: seriesIcon('Horn'), max: 5, effects: [add('groupChance', 0.04)] },
-    aceDesc: '来客ペース +20%', ace: [mul('spawnRate', 0.2)],
+    hire: [mul('spawnRate', 0.15)], hireDesc: t('来客ペース +15%', 'Customer rate +15%'),
+    up1: { name: t('チラシ配り', 'Flyers'), desc: t('来客ペース +3%', 'Customer rate +3%'), icon: seriesIcon('Scrolls'), max: 10, effects: [mul('spawnRate', 0.03)] },
+    up2: { name: t('名調子', 'Silver Tongue'), desc: t('団体客の確率 +4%', 'Group customer chance +4%'), icon: seriesIcon('Horn'), max: 5, effects: [add('groupChance', 0.04)] },
+    aceDesc: t('来客ペース +20%', 'Customer rate +20%'), ace: [mul('spawnRate', 0.2)],
   },
   {
     role: 'consultant', x: 2, hireCost: 90000,
-    hire: [add('upsell', 0.25), mul('priceMult', 0.05)], hireDesc: '高い品を勧める確率 +25%、販売価格 +5%',
-    up1: { name: '話術', desc: '高い品を勧める確率 +5%', icon: icons.bufInt, max: 5, effects: [add('upsell', 0.05)] },
-    up2: { name: '心づけ', desc: 'チップの確率 +4%', icon: seriesIcon('Wallet'), max: 5, effects: [add('tipChance', 0.04)] },
-    aceDesc: '販売価格 +10%', ace: [mul('priceMult', 0.1)],
+    hire: [add('upsell', 0.25), mul('priceMult', 0.05)], hireDesc: t('高い品を勧める確率 +25%、販売価格 +5%', 'Chance to recommend pricier items +25%, sale price +5%'),
+    up1: { name: t('話術', 'Sales Talk'), desc: t('高い品を勧める確率 +5%', 'Chance to recommend pricier items +5%'), icon: icons.bufInt, max: 5, effects: [add('upsell', 0.05)] },
+    up2: { name: t('心づけ', 'Gratuity'), desc: t('チップの確率 +4%', 'Tip chance +4%'), icon: seriesIcon('Wallet'), max: 5, effects: [add('tipChance', 0.04)] },
+    aceDesc: t('販売価格 +10%', 'Sale price +10%'), ace: [mul('priceMult', 0.1)],
   },
   {
     role: 'guard', x: -2, hireCost: 70000,
-    hire: [], hireDesc: '泥棒を追いかけて捕まえる',
-    up1: { name: '健脚', desc: '警備係の足の速さ +10%', icon: icons.bufAgi, max: 5, effects: [mul('guardSpeed', 0.1)] },
-    up2: { name: '捕り物の手柄', desc: '懸賞金 +30%', icon: seriesIcon('Whip'), max: 5, effects: [add('bountyMult', 0.3)] },
-    aceDesc: '足の速さ +30%、泥棒の逃げ足 -15%', ace: [mul('guardSpeed', 0.3), pow('thiefSpeed', 0.85)],
+    hire: [], hireDesc: t('泥棒を追いかけて捕まえる', 'Chases and catches thieves'),
+    up1: { name: t('健脚', 'Strong Legs'), desc: t('警備係の足の速さ +10%', 'Guard speed +10%'), icon: icons.bufAgi, max: 5, effects: [mul('guardSpeed', 0.1)] },
+    up2: { name: t('捕り物の手柄', 'Arrest Record'), desc: t('懸賞金 +30%', 'Bounty +30%'), icon: seriesIcon('Whip'), max: 5, effects: [add('bountyMult', 0.3)] },
+    aceDesc: t('足の速さ +30%、泥棒の逃げ足 -15%', 'Speed +30%, thief speed -15%'), ace: [mul('guardSpeed', 0.3), pow('thiefSpeed', 0.85)],
   },
   {
     role: 'accountant', x: 3, hireCost: 250000,
-    hire: [add('closingBonus', 0.03)], hireDesc: '閉店時に売上の3%をボーナスとして上乗せ',
-    up1: { name: '複式簿記', desc: '閉店時の売上ボーナス +1%', icon: seriesIcon('Book'), max: 5, effects: [add('closingBonus', 0.01)] },
-    up2: { name: 'そろばん', desc: '会計時間 -5%', icon: seriesIcon('Pocket Watch'), max: 5, effects: [pow('cashierTime', 0.95)] },
-    aceDesc: '閉店時の売上ボーナス +5%', ace: [add('closingBonus', 0.05)],
+    hire: [add('closingBonus', 0.03)], hireDesc: t('閉店時に売上の3%をボーナスとして上乗せ', 'Adds 3% of the day\'s sales as a bonus at closing'),
+    up1: { name: t('複式簿記', 'Double-Entry Bookkeeping'), desc: t('閉店時の売上ボーナス +1%', 'Closing sales bonus +1%'), icon: seriesIcon('Book'), max: 5, effects: [add('closingBonus', 0.01)] },
+    up2: { name: t('そろばん', 'Abacus'), desc: t('会計時間 -5%', 'Checkout time -5%'), icon: seriesIcon('Pocket Watch'), max: 5, effects: [pow('cashierTime', 0.95)] },
+    aceDesc: t('閉店時の売上ボーナス +5%', 'Closing sales bonus +5%'), ace: [add('closingBonus', 0.05)],
   },
   {
     role: 'exterminator', x: -3, hireCost: 150000,
-    hire: [], hireDesc: '工房のエネミーを追い払う',
-    up1: { name: '虫取り網', desc: '退治係の足の速さ +15%', icon: icons.bufAgi, max: 5, effects: [mul('hunterSpeed', 0.15)] },
-    up2: { name: '標本づくり', desc: '退治報酬 +50%', icon: seriesIcon('Wet Specimen'), max: 5, effects: [add('pestBountyMult', 0.5)] },
-    aceDesc: '足の速さ +30%、エネミーの出現間隔 +30%', ace: [mul('hunterSpeed', 0.3), add('pestInterval', 0.3)],
+    hire: [], hireDesc: t('工房のエネミーを追い払う', 'Chases enemies out of the workshop'),
+    up1: { name: t('虫取り網', 'Bug Net'), desc: t('退治係の足の速さ +15%', 'Exterminator speed +15%'), icon: icons.bufAgi, max: 5, effects: [mul('hunterSpeed', 0.15)] },
+    up2: { name: t('標本づくり', 'Specimen Making'), desc: t('退治報酬 +50%', 'Extermination reward +50%'), icon: seriesIcon('Wet Specimen'), max: 5, effects: [add('pestBountyMult', 0.5)] },
+    aceDesc: t('足の速さ +30%、エネミーの出現間隔 +30%', 'Speed +30%, enemy spawn interval +30%'), ace: [mul('hunterSpeed', 0.3), add('pestInterval', 0.3)],
   },
   {
     role: 'appraiser', x: 4, hireCost: 800000,
-    hire: [mul('editionLuck', 0.2, 'appraisal')], hireDesc: 'エディションの出やすさ +20%',
-    up1: { name: 'ルーペ', desc: 'エディションの出やすさ +5%', icon: seriesIcon('Monocle'), max: 5, effects: [mul('editionLuck', 0.05, 'appraisal')] },
-    up2: { name: '審美眼', desc: '最高レアの出やすさ +10%（全ライン）', icon: seriesIcon('Glasses'), max: 5, effects: [add('luck', 0.1)] },
-    aceDesc: 'エディションの出やすさ +30%、「真」の確率 +2%', ace: [mul('editionLuck', 0.3, 'appraisal'), add('shinChance', 0.02)],
+    hire: [mul('editionLuck', 0.2, 'appraisal')], hireDesc: t('エディションの出やすさ +20%', 'Edition chance +20%'),
+    up1: { name: t('ルーペ', 'Loupe'), desc: t('エディションの出やすさ +5%', 'Edition chance +5%'), icon: seriesIcon('Monocle'), max: 5, effects: [mul('editionLuck', 0.05, 'appraisal')] },
+    up2: { name: t('審美眼', 'Discerning Eye'), desc: t('最高レアの出やすさ +10%（全ライン）', 'Top-rarity chance +10% (all lines)'), icon: seriesIcon('Glasses'), max: 5, effects: [add('luck', 0.1)] },
+    aceDesc: t('エディションの出やすさ +30%、「真」の確率 +2%', 'Edition chance +30%, Shin chance +2%'), ace: [mul('editionLuck', 0.3, 'appraisal'), add('shinChance', 0.02)],
   },
   {
     role: 'delivery', x: -4, hireCost: 400000,
-    hire: [pow('marketInterval', 0.7), add('marketRate', 0.05)], hireDesc: 'マーケット出品の間隔 -30%、買取価格 +5%',
-    up1: { name: '早馬', desc: '出品の間隔 -10%', icon: seriesIcon('Horse', 2), max: 5, effects: [pow('marketInterval', 0.9)] },
-    up2: { name: '丁寧な梱包', desc: 'マーケットの買取価格 +2%', icon: seriesIcon('Ribbon'), max: 5, effects: [add('marketRate', 0.02)] },
-    aceDesc: 'マーケットの買取価格 +10%', ace: [add('marketRate', 0.1)],
+    hire: [pow('marketInterval', 0.7), add('marketRate', 0.05)], hireDesc: t('マーケット出品の間隔 -30%、買取価格 +5%', 'Market listing interval -30%, market price +5%'),
+    up1: { name: t('早馬', 'Swift Horse'), desc: t('出品の間隔 -10%', 'Listing interval -10%'), icon: seriesIcon('Horse', 2), max: 5, effects: [pow('marketInterval', 0.9)] },
+    up2: { name: t('丁寧な梱包', 'Careful Packing'), desc: t('マーケットの買取価格 +2%', 'Market price +2%'), icon: seriesIcon('Ribbon'), max: 5, effects: [add('marketRate', 0.02)] },
+    aceDesc: t('マーケットの買取価格 +10%', 'Market price +10%'), ace: [add('marketRate', 0.1)],
   },
   {
     role: 'researcher', x: 5, hireCost: 2000000,
-    hire: [add('researchRate', 1)], hireDesc: '研究ポイントを 1分に1pt 生み出す',
-    up1: { name: '研究費', desc: '研究ポイント +0.5/分', icon: seriesIcon('Astronomical Model'), max: 10, effects: [add('researchRate', 0.5)] },
-    up2: { name: '学会発表', desc: '研究ポイント +10%', icon: seriesIcon('Scrolls', 3), max: 5, effects: [mul('researchRate', 0.1)] },
-    aceDesc: '研究ポイント +50%', ace: [mul('researchRate', 0.5)],
+    hire: [add('researchRate', 1)], hireDesc: t('研究ポイントを 1分に1pt 生み出す', 'Produces 1 research point per minute'),
+    up1: { name: t('研究費', 'Research Funding'), desc: t('研究ポイント +0.5/分', 'Research points +0.5/min'), icon: seriesIcon('Astronomical Model'), max: 10, effects: [add('researchRate', 0.5)] },
+    up2: { name: t('学会発表', 'Conference Talk'), desc: t('研究ポイント +10%', 'Research points +10%'), icon: seriesIcon('Scrolls', 3), max: 5, effects: [mul('researchRate', 0.1)] },
+    aceDesc: t('研究ポイント +50%', 'Research points +50%'), ace: [mul('researchRate', 0.5)],
   },
   {
     role: 'peddler', x: -5, hireCost: 1200000,
-    hire: [], hireDesc: '倉庫の品を持って町へ売りに行く（売値 80%）',
-    up1: { name: '大きな背負子', desc: '行商で持ち出す数 +1', icon: seriesIcon('Mantle'), max: 4, effects: [add('peddlerLoad', 1)] },
-    up2: { name: '近道', desc: '行商の往復時間 -10%', icon: seriesIcon('Boots'), max: 5, effects: [pow('peddlerTrip', 0.9)] },
-    aceDesc: '行商の売値 +30%', ace: [add('peddlerRate', 0.3)],
+    hire: [], hireDesc: t('倉庫の品を持って町へ売りに行く（売値 80%）', 'Takes items from storage to sell in town (at 80% of the price)'),
+    up1: { name: t('大きな背負子', 'Big Pack Frame'), desc: t('行商で持ち出す数 +1', 'Items carried per trip +1'), icon: seriesIcon('Mantle'), max: 4, effects: [add('peddlerLoad', 1)] },
+    up2: { name: t('近道', 'Shortcut'), desc: t('行商の往復時間 -10%', 'Peddling round trip -10%'), icon: seriesIcon('Boots'), max: 5, effects: [pow('peddlerTrip', 0.9)] },
+    aceDesc: t('行商の売値 +30%', 'Peddling price +30%'), ace: [add('peddlerRate', 0.3)],
   },
 ];
 
@@ -117,8 +119,8 @@ export function staffNodes(plan: StaffPlan): SkillNode[] {
   const cost = plan.hireCost;
   return [
     {
-      id: `hire_${role}`, branch: 'store', name: `${job}：${first.name}`,
-      desc: `${first.name}を${job}として雇う。${work}。${plan.hireDesc}`,
+      id: `hire_${role}`, branch: 'store', name: t(`${job}：${first.name}`, `${job}: ${first.name}`),
+      desc: t(`${first.name}を${job}として雇う。${work}。${plan.hireDesc}`, `Hire ${first.name} as ${job}. ${work}. ${plan.hireDesc}`),
       icon: first.image, ...at(0), max: 1, baseCost: cost, growth: 1, requires: [neighbour], requiresAll: row?.requiresAll,
       effects: [atLeast(`staff_${role}`, 1), ...plan.hire],
     },
@@ -131,8 +133,8 @@ export function staffNodes(plan: StaffPlan): SkillNode[] {
       ...at(2), max: plan.up2.max, baseCost: Math.round(cost * 0.6), growth: 1.9, requires: [`${role}_1`], effects: plan.up2.effects,
     },
     {
-      id: `ace_${role}`, branch: 'store', name: `ヒーロー雇用：${ace.name}`,
-      desc: `${job}を${ace.name}に任せる。パッシブ「${ace.passive}」: ${plan.aceDesc}`,
+      id: `ace_${role}`, branch: 'store', name: t(`ヒーロー雇用：${ace.name}`, `Hero hire: ${ace.name}`),
+      desc: t(`${job}を${ace.name}に任せる。パッシブ「${ace.passive}」: ${plan.aceDesc}`, `${ace.name} takes over as ${job}. Passive "${ace.passive}": ${plan.aceDesc}`),
       icon: ace.image, ...at(3), max: 1, baseCost: cost * 25, growth: 1, requires: [`${role}_2`],
       effects: [atLeast(`staff_${role}`, 2), ...plan.ace],
     },
@@ -142,7 +144,7 @@ export function staffNodes(plan: StaffPlan): SkillNode[] {
 export const PHASE3_NODES: SkillNode[] = [
   // ---- Staff (below 黄竜)
   {
-    id: 'storeHub', branch: 'store', name: '店舗経営', desc: 'スタッフを雇えるようになる。店の格が上がり販売価格 +5%',
+    id: 'storeHub', branch: 'store', name: t('店舗経営', 'Store Management'), desc: t('スタッフを雇えるようになる。店の格が上がり販売価格 +5%', 'Lets you hire staff. The shop gains prestige: sale price +5%'),
     icon: seriesIcon('Crown'), x: 0, y: 6, max: 1, baseCost: 8000, growth: 1, requires: ['brand'], effects: [mul('priceMult', 0.05)],
   },
   ...STAFF.flatMap(staffNodes),
@@ -151,7 +153,7 @@ export const PHASE3_NODES: SkillNode[] = [
   { id: 'autoRegister', branch: 'kouryu', name: '自動レジ', desc: 'セルフレジを1台置く（会計はクリスくんの1.6倍かかる）', icon: seriesIcon('Music Box'), x: 1, y: 5, max: 2, baseCost: 8000, growth: 5, requires: ['register'], effects: [add('autoRegisters', 1)] },
   { id: 'batch', branch: 'kouryu', name: 'まとめ会計', desc: '8%の確率で、会計のついでに次の客も会計する', icon: seriesIcon('Wallet', 2), x: 2, y: 5, max: 5, baseCost: 10000, growth: 1.7, requires: ['autoRegister'], effects: [add('batchChance', 0.08)] },
   { id: 'market', branch: 'kouryu', name: 'マーケット出品', desc: '棚が埋まっている間、倉庫の余りを1個ずつ通販で売る（買取は店頭価格の40%）', icon: seriesIcon('Ship'), x: -1, y: 5, max: 1, baseCost: 6000, growth: 1, requires: ['register'], effects: [atLeast('market', 1)] },
-  { id: 'marketSpeed', branch: 'kouryu', name: '出品の段取り', desc: '出品の間隔 -10%', icon: icons.bufAgi, x: -2, y: 5, max: 5, baseCost: 5000, growth: 1.6, requires: ['market'], effects: [pow('marketInterval', 0.9)] },
+  { id: 'marketSpeed', branch: 'kouryu', name: '出品の段取り', desc: t('出品の間隔 -10%', 'Listing interval -10%'), icon: icons.bufAgi, x: -2, y: 5, max: 5, baseCost: 5000, growth: 1.6, requires: ['market'], effects: [pow('marketInterval', 0.9)] },
   { id: 'marketRate', branch: 'kouryu', name: '相場の読み', desc: 'マーケットの買取価格 +3%', icon: seriesIcon('Compass', 2), x: -3, y: 5, max: 5, baseCost: 8000, growth: 1.7, requires: ['marketSpeed'], effects: [add('marketRate', 0.03)] },
 
   // ---- Facilities (right of 団体客)

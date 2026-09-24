@@ -2,6 +2,7 @@ import { itemEdition, itemExt, itemValue, type ItemCode } from '../items';
 import { DISMANTLER, STORAGE_POS } from '../layout';
 import { FAMILY_GEM } from '../lines';
 import type { Shop } from './index';
+import { t } from '../../i18n';
 
 /** Gold dust per dismantled item, by rarity (Common → Legendary). */
 export const DUST_BY_RARITY = [1, 2, 5, 12, 30];
@@ -80,7 +81,7 @@ export class Dismantler {
       shop.report.gems[gem] = (shop.report.gems[gem] ?? 0) + 1;
     }
     shop.stock.flyers.push({ item: code, fromX: from.x, fromY: from.y, toX: DISMANTLER.x, toY: DISMANTLER.y, t: 0, dur: 0.5, dest: { kind: 'dismantle' } });
-    shop.popups.push({ text: `+${dust} ダスト${gem ? '・魔石' : ''}`, x: DISMANTLER.x, y: DISMANTLER.y - 70, t: 0, color: '#ffd98a' });
+    shop.popups.push({ text: t(`+${dust} ダスト${gem ? '・魔石' : ''}`, `+${dust} dust${gem ? ' + stone' : ''}`), x: DISMANTLER.x, y: DISMANTLER.y - 70, t: 0, color: '#ffd98a' });
     shop.emit({ type: 'dismantle', item: code, dust, gem });
   }
 }
