@@ -233,7 +233,6 @@ const audio = {
   helper: use('Audio/SE/Jingles/knight.mp3'),
   clean: use('Audio/SE/Battle/3_heal_resurrection.mp3'),
   zap: use('Audio/SE/Battle/2_area_damage.mp3'),
-  bgmRaid: use('Audio/BGM/raid.mp3'),
 };
 
 const atlases = writeAtlases();
