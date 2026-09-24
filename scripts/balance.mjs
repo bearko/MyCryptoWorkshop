@@ -4,6 +4,7 @@
 //
 //   npm run balance              # 60 days, seed 42
 //   npm run balance -- 80 7      # days, seed
+//   BALANCE_PLAYERS=active npm run balance -- 300 42   # only some player models
 //
 // Writes reports/balance-<player>.csv (one row per business day).
 
@@ -18,7 +19,9 @@ const [days = 60, seed = 42, runs = 0] = process.argv.slice(2).map(Number);
 // Load the TypeScript game modules through Vite (same resolution as the game itself).
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
 try {
-  const { simulate, simulateRuns, toCsv, PLAYERS } = await server.ssrLoadModule('/src/game/balance/autoplay.ts');
+  const { simulate, simulateRuns, toCsv, PLAYERS: ALL_PLAYERS } = await server.ssrLoadModule('/src/game/balance/autoplay.ts');
+  const only = process.env.BALANCE_PLAYERS?.split(',');
+  const PLAYERS = only ? ALL_PLAYERS.filter((p) => only.includes(p.name)) : ALL_PLAYERS;
   if (runs > 0) {
     // npm run balance -- <maxDays per run> <seed> <runs>: time to clear in each run (ランド移転).
     const table = [];

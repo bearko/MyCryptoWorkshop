@@ -27,7 +27,7 @@ export interface StaffPlan {
 // Hires run outward from the centre in the order they are expected to be bought.
 const STAFF: StaffPlan[] = [
   {
-    role: 'stocker', x: 0, hireCost: 10000,
+    role: 'stocker', x: 0, hireCost: 20000,
     hire: [pow('restockTime', 0.5)], hireDesc: t('棚への補充間隔 -50%', 'Shelf restock interval -50%'),
     up1: { name: t('品出しの手際', 'Quick Restocking'), desc: t('棚への補充間隔 -15%', 'Shelf restock interval -15%'), icon: icons.bufAgi, max: 5, effects: [pow('restockTime', 0.85)] },
     up2: { name: t('台車', 'Hand Cart'), desc: t('倉庫の容量 +2', 'Storage capacity +2'), icon: seriesIcon('Chair'), max: 5, effects: [add('storageCap', 2)] },
@@ -145,7 +145,7 @@ export const PHASE3_NODES: SkillNode[] = [
   // ---- Staff (below 黄竜)
   {
     id: 'storeHub', branch: 'store', name: t('店舗経営', 'Store Management'), desc: t('スタッフを雇えるようになる。店の格が上がり販売価格 +5%', 'Lets you hire staff. The shop gains prestige: sale price +5%'),
-    icon: seriesIcon('Crown'), x: 0, y: 6, max: 1, baseCost: 8000, growth: 1, requires: ['brand'], effects: [mul('priceMult', 0.05)],
+    icon: seriesIcon('Crown'), x: 0, y: 6, max: 1, baseCost: 20000, growth: 1, requires: ['brand'], effects: [mul('priceMult', 0.05)],
   },
   ...STAFF.flatMap(staffNodes),
 

@@ -84,7 +84,7 @@ const PHASE2_NODES: SkillNode[] = [
   { id: 'shinForge', branch: 'suzaku', name: '真打ち', desc: 'Legendary が3%の確率で「真」版（×4）になる', icon: series[S.Blade].shin!.image, x: 0, y: -6, max: 5, baseCost: 500, growth: 1.6, requires: ['legendary'], effects: [add('shinChance', 0.03)], currency: 'dust' },
 
   // Capsule line (up-right)
-  { id: 'capsuleLine', branch: 'suzaku', name: '具現化カプセル起動', desc: '3号機「具現化カプセル」が動き出す。幻獣（価格×1.5）を専門に作る。ホースのレシピ付き', icon: ext(S.Dragon, 3), x: 2, y: -4, max: 1, baseCost: 3000, growth: 1, requires: ['rare'], effects: [add('capsule.unlocked', 1), overlay('capsule'), unlockSeries(S.Horse), mul('spawnRate', 0.06, 'variety')] },
+  { id: 'capsuleLine', branch: 'suzaku', name: '具現化カプセル起動', desc: '3号機「具現化カプセル」が動き出す。幻獣（価格×1.5）を専門に作る。ホースのレシピ付き', icon: ext(S.Dragon, 3), x: 2, y: -4, max: 1, baseCost: 12000, growth: 1, requires: ['rare'], effects: [add('capsule.unlocked', 1), overlay('capsule'), unlockSeries(S.Horse), mul('spawnRate', 0.06, 'variety')] },
   { id: 'capsuleSpeed', branch: 'suzaku', name: '培養液', desc: 'カプセルのクラフト時間 -8%', icon: ext(S.Horse, 1), x: 3, y: -4, max: 10, baseCost: 2500, growth: 1.5, requires: ['capsuleLine'], effects: [pow('capsule.craftTime', 0.92)] },
   { id: 'capsuleClick', branch: 'suzaku', name: '起動スイッチ', desc: 'カプセルタップの効果 +40%', icon: ext(S.Parrot, 1), x: 4, y: -4, max: 5, baseCost: 3000, growth: 1.7, requires: ['capsuleSpeed'], effects: [mul('capsule.craftClick', 0.4)] },
   { id: 'capsuleDouble', branch: 'suzaku', name: '双子の卵', desc: 'カプセルで5%の確率で2体同時に完成', icon: ext(S.Fairy, 2), x: 5, y: -4, max: 8, baseCost: 5000, growth: 1.6, requires: ['capsuleClick'], effects: [add('capsule.doubleChance', 0.05)] },
@@ -111,15 +111,15 @@ export const SKILLS: SkillNode[] = [
   // 朱雀: crafting (up)
   { id: 'craftSpeed', branch: 'suzaku', name: '壺の火力', desc: 'クラフト時間 -8%', icon: icons.gems.ifrit, x: 0, y: -1, max: 10, baseCost: 15, growth: 1.5, requires: ['root'], effects: [pow('pot.craftTime', 0.92)] },
   { id: 'craftClick', branch: 'suzaku', name: '職人の手際', desc: '壺タップの効果 +40%', icon: ext(0, 1), x: -1, y: -2, max: 5, baseCost: 30, growth: 1.7, requires: ['craftSpeed'], effects: [mul('pot.craftClick', 0.4)] },
-  { id: 'uncommon', branch: 'suzaku', name: 'エリート製法', desc: 'Uncommon のエクステンションをクラフトできる', icon: ext(0, 1), x: 0, y: -2, max: 1, baseCost: 60, growth: 1, requires: ['craftSpeed'], effects: [atLeast('maxRarity', 1)] },
+  { id: 'uncommon', branch: 'suzaku', name: 'エリート製法', desc: 'Uncommon のエクステンションをクラフトできる', icon: ext(0, 1), x: 0, y: -2, max: 1, baseCost: 150, growth: 1, requires: ['craftSpeed'], effects: [atLeast('maxRarity', 1)] },
   { id: 'double', branch: 'suzaku', name: '同時クラフト', desc: '5%の確率で2個同時に完成', icon: icons.bufPhy, x: 1, y: -2, max: 8, baseCost: 150, growth: 1.6, requires: ['craftSpeed'], effects: [add('pot.doubleChance', 0.05)] },
-  { id: 'forge', branch: 'suzaku', name: '鍛冶炉を稼働', desc: '2号機「鍛冶炉」が動き出す。武具を専門に作り、エディション付きが出やすい', icon: ws.ambient_overlay_200, x: -1, y: -3, max: 1, baseCost: 1500, growth: 1, requires: ['craftClick'], effects: [add('forge.unlocked', 1), overlay('ambient_overlay_200')] },
+  { id: 'forge', branch: 'suzaku', name: '鍛冶炉を稼働', desc: '2号機「鍛冶炉」が動き出す。武具を専門に作り、エディション付きが出やすい', icon: ws.ambient_overlay_200, x: -1, y: -3, max: 1, baseCost: 4000, growth: 1, requires: ['craftClick'], effects: [add('forge.unlocked', 1), overlay('ambient_overlay_200')] },
   { id: 'mine', branch: 'suzaku', name: 'マインちゃん雇用', desc: 'マインちゃんが一定間隔で壺をかき混ぜる（自動クリック・間隔短縮）', icon: catalog.staff.mine[0].image, x: -2, y: -3, max: 5, baseCost: 400, growth: 2, requires: ['craftClick'], effects: [add('pot.helperInterval', -0.35, 2.75)] },
   { id: 'rare', branch: 'suzaku', name: 'ブレイブ製法', desc: 'Rare をクラフトできる', icon: ext(0, 2), x: 0, y: -3, max: 1, baseCost: 1500, growth: 1, requires: ['uncommon'], effects: [atLeast('maxRarity', 2)] },
   { id: 'luck', branch: 'suzaku', name: '鑑定眼', desc: '最高レアリティの出現率 +25%（全ライン）', icon: icons.gems.leviathan, x: 1, y: -3, max: 8, baseCost: 300, growth: 1.7, requires: ['uncommon'], effects: [add('luck', 0.25), overlay('ambient_overlay_401'), overlay('ambient_overlay_402', 3), overlay('ambient_overlay_325', 5)] },
   { id: 'craftSpeed2', branch: 'suzaku', name: '錬金の極意', desc: 'クラフト時間 -6%', icon: icons.gems.tiamat, x: 1, y: -4, max: 10, baseCost: 3000, growth: 1.5, requires: ['rare'], effects: [pow('pot.craftTime', 0.94)] },
-  { id: 'epic', branch: 'suzaku', name: 'インペリアル製法', desc: 'Epic をクラフトできる', icon: ext(0, 3), x: 0, y: -4, max: 1, baseCost: 120000, growth: 1, requires: ['rare'], effects: [atLeast('maxRarity', 3)] },
-  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 100000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
+  { id: 'epic', branch: 'suzaku', name: 'インペリアル製法', desc: 'Epic をクラフトできる', icon: ext(0, 3), x: 0, y: -4, max: 1, baseCost: 300000, growth: 1, requires: ['rare'], effects: [atLeast('maxRarity', 3)] },
+  { id: 'legendary', branch: 'suzaku', name: 'MCH製法', desc: 'Legendary をクラフトできる', icon: ext(0, 4), x: 0, y: -5, max: 1, baseCost: 200000000, growth: 1, requires: ['epic'], effects: [atLeast('maxRarity', 4)] },
 
   // 青龍: customers (right)
   { id: 'ad', branch: 'seiryu', name: '呼び込み', desc: '来客ペース +15%', icon: icons.bufAgi, x: 1, y: 0, max: 10, baseCost: 12, growth: 1.5, requires: ['root'], effects: [mul('spawnRate', 0.15)] },
