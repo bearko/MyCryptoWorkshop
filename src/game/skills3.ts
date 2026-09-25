@@ -182,5 +182,5 @@ export const PHASE3_NODES: SkillNode[] = [
   { id: 'rsBiology', branch: 'research', name: '生物学', desc: 'カプセルの最高レアの出やすさ +20%', icon: seriesIcon('Ammonite', 3), x: 10, y: 6, max: 5, baseCost: 15, growth: 1.6, requires: ['rsAstronomy'], effects: [add('capsule.luck', 0.2)], currency: 'research' },
   { id: 'rsArchaeology', branch: 'research', name: '考古学', desc: '図鑑1種あたりの価格ボーナス +0.02%', icon: seriesIcon('Moai'), x: 10, y: 7, max: 5, baseCost: 15, growth: 1.6, requires: ['rsEconomics'], effects: [add('collectionBonus', 0.0002)], currency: 'research' },
   { id: 'rsAutomation', branch: 'research', name: '自動化理論', desc: '自動レジ +1台', icon: seriesIcon('Combined Robots'), x: 10, y: 8, max: 1, baseCost: 60, growth: 1, requires: ['rsSecurity'], effects: [add('autoRegisters', 1)], currency: 'research' },
-  { id: 'rsGrandTheory', branch: 'research', name: '大統一理論', desc: '販売価格 +25%', icon: seriesIcon('Orb', 4), x: 11, y: 7, max: 1, baseCost: 400, growth: 1, requires: ['rsArchaeology'], effects: [mul('priceMult', 0.25)], currency: 'research' },
+  { id: 'rsGrandTheory', branch: 'research', name: '大統一理論', desc: '販売価格 +25%', icon: seriesIcon('Orb', 4), x: 11, y: 8, max: 1, baseCost: 400, growth: 1, requires: ['rsArchaeology'], effects: [mul('priceMult', 0.25)], currency: 'research' },
 ];

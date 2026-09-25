@@ -38,10 +38,14 @@ function branchCenter(branch: string, levels: Levels): { x: number; y: number } 
 
 export interface TreeCallbacks {
   onBuy(node: SkillNode): void;
-  onStartDay(): void;
+  /** The "back to the shop" button (bottom right). */
+  onShop(): void;
   onCollection(): void;
   onRelocate(): void;
 }
+
+/** Zoom limits of the tree view. */
+const clampZoom = (z: number) => Math.min(1.6, Math.max(0.35, z));
 
 /** Pannable skill-tree screen shown between business days. */
 export class TreeView {
@@ -50,7 +54,11 @@ export class TreeView {
   private readonly lines: SVGSVGElement;
   private readonly detail: HTMLElement;
   private readonly statsBox: HTMLElement;
-  private readonly startBtn: HTMLButtonElement;
+  /** Back to the shop, bottom right (like the shop's button to the tree, in the same spot). */
+  private readonly shopBtn: HTMLButtonElement;
+  /** A business day is open (the tree was opened mid-day; the day waits). */
+  private dayOpen = false;
+  private shownOnce = false;
   private readonly moveBtn = h('button.btn.relocate-btn', {}, t('🧭 ランド移転（2周目へ）', '🧭 Relocate (start run 2)')) as HTMLButtonElement;
   private readonly forecast = h('div.forecast');
   private readonly ordersBox = h('div.orders');
@@ -74,7 +82,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 9.2], series: [-26, -32], honor: [16, -8.6], prestige: [9, 13.1] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 5.3], series: [-16, -32], honor: [13, -8.6], prestige: [9, 12.1] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -103,7 +111,7 @@ export class TreeView {
     this.statsBox = h('div.tree-stats');
     this.buyList = h('div.buy-list');
     this.infusionBox = h('div.infusion');
-    this.startBtn = h('button.btn.btn-primary.start-day', { onclick: () => this.cb.onStartDay() }) as HTMLButtonElement;
+    this.shopBtn = h('button.btn.nav-btn.to-shop', { onclick: () => this.cb.onShop() }, t('🏪 ショップへ', '🏪 To the shop')) as HTMLButtonElement;
     this.moveBtn.addEventListener('click', () => this.cb.onRelocate());
 
     // Minimap: tap to jump there.
@@ -115,6 +123,8 @@ export class TreeView {
       this.panTo(gx, gy);
     };
     this.minimap.addEventListener('pointerdown', (ev) => {
+      // Only a first finger navigates by the minimap; a second one belongs to a pinch.
+      if (!ev.isPrimary) return;
       ev.stopPropagation();
       jump(ev);
       this.minimap.setPointerCapture(ev.pointerId);
@@ -160,7 +170,6 @@ export class TreeView {
         this.forecast,
         this.ordersBox,
         this.dailyBox,
-        this.startBtn,
         this.moveBtn,
         h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan, scroll to zoom.')),
         this.detail,
@@ -169,12 +178,20 @@ export class TreeView {
         h('button.btn', { onclick: () => this.cb.onCollection() }, t('📖 図鑑を見る', '📖 Collection')),
         this.statsBox,
       ),
+      this.shopBtn,
     );
+  }
+
+  /** Whether a business day is open while the tree is shown (it changes the forecast label). */
+  setDayOpen(open: boolean): void {
+    this.dayOpen = open;
   }
 
   show(): void {
     this.root.hidden = false;
-    this.center();
+    // Keep the view where the player left it when coming back from the shop.
+    if (!this.shownOnce) this.center();
+    this.shownOnce = true;
     this.select(this.selected ?? this.suggest());
   }
 
@@ -196,14 +213,14 @@ export class TreeView {
     this.applyTransform();
   }
 
+  /** Zoom buttons: around the middle of the view. */
   private setZoom(z: number): void {
-    this.zoom = Math.min(1.6, Math.max(0.45, z));
-    this.applyTransform();
+    const r = this.viewport.getBoundingClientRect();
+    this.zoomAt(z, r.width / 2, r.height / 2);
   }
 
   private applyTransform(): void {
     this.world.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`;
-    this.renderInfusion();
     this.drawMinimap();
   }
 
@@ -252,28 +269,105 @@ export class TreeView {
     ctx.strokeRect(mx(gx0), my(gy0), mx(gx1) - mx(gx0), my(gy1) - my(gy0));
   }
 
+  /**
+   * Drag to pan; two fingers pinch to zoom (around the point between them); the wheel zooms around
+   * the cursor. A tap that ends a drag or pinch does not select a node.
+   */
   private attachPan(vp: HTMLElement): void {
-    let drag: { x: number; y: number; px: number; py: number; moved: boolean } | null = null;
-    vp.addEventListener('pointerdown', (e) => {
-      drag = { x: e.clientX, y: e.clientY, px: this.pan.x, py: this.pan.y, moved: false };
-    });
+    const pointers = new Map<number, { x: number; y: number }>();
+    let drag: { x: number; y: number; px: number; py: number } | null = null;
+    let pinch: { dist: number; zoom: number; wx: number; wy: number } | null = null;
+    let moved = false;
+    const local = (x: number, y: number) => {
+      const r = vp.getBoundingClientRect();
+      return { x: x - r.left, y: y - r.top };
+    };
+    const startPinch = () => {
+      const [a, b] = [...pointers.values()];
+      const mid = local((a.x + b.x) / 2, (a.y + b.y) / 2);
+      // The world point under the fingers' midpoint stays under it while zooming.
+      pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, wx: (mid.x - this.pan.x) / this.zoom, wy: (mid.y - this.pan.y) / this.zoom };
+      drag = null;
+    };
+    const down = (e: PointerEvent) => {
+      if (pointers.has(e.pointerId)) return;
+      // The first finger of a new gesture: forget any touch whose end we missed.
+      if (e.isPrimary) pointers.clear();
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        moved = false;
+        pinch = null;
+        drag = { x: e.clientX, y: e.clientY, px: this.pan.x, py: this.pan.y };
+      } else {
+        moved = true;
+        startPinch();
+      }
+    };
+    vp.addEventListener('pointerdown', down);
+    // A second finger joins the pinch wherever it lands (on the minimap or zoom buttons, too).
+    window.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (pointers.size > 0 && e.pointerType === 'touch' && !e.isPrimary) down(e);
+      },
+      true,
+    );
     window.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-      this.pan = { x: drag.px + dx, y: drag.py + dy };
-      this.applyTransform();
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const mid = local((a.x + b.x) / 2, (a.y + b.y) / 2);
+        this.zoom = clampZoom((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist);
+        this.pan = { x: mid.x - pinch.wx * this.zoom, y: mid.y - pinch.wy * this.zoom };
+        this.applyTransform();
+      } else if (drag) {
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+        this.pan = { x: drag.px + dx, y: drag.py + dy };
+        this.applyTransform();
+      }
     });
-    window.addEventListener('pointerup', () => (drag = null));
+    const end = (e: PointerEvent) => {
+      if (!pointers.delete(e.pointerId)) return;
+      pinch = null;
+      // One finger left after a pinch: keep panning from where it is.
+      const rest = [...pointers.values()][0];
+      drag = rest ? { x: rest.x, y: rest.y, px: this.pan.x, py: this.pan.y } : null;
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    // Swallow the click that ends a drag or pinch (it is not a tap on a node).
+    vp.addEventListener(
+      'click',
+      (e) => {
+        if (!moved) return;
+        e.stopPropagation();
+        e.preventDefault();
+        moved = false;
+      },
+      true,
+    );
     vp.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
-        this.setZoom(this.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+        const p = local(e.clientX, e.clientY);
+        this.zoomAt(this.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), p.x, p.y);
       },
       { passive: false },
     );
+  }
+
+  /** Zooms keeping the viewport point (px, py) fixed. */
+  private zoomAt(z: number, px: number, py: number): void {
+    const next = clampZoom(z);
+    const wx = (px - this.pan.x) / this.zoom;
+    const wy = (py - this.pan.y) / this.zoom;
+    this.zoom = next;
+    this.pan = { x: px - wx * next, y: py - wy * next };
+    this.applyTransform();
   }
 
   /** Selects a node and pans to it (the tutorial points at it). */
@@ -407,11 +501,13 @@ export class TreeView {
     this.lines.innerHTML = parts.join('');
 
     // Start button
-    this.startBtn.textContent = t(`▶ Day ${this.save.day} 開店する`, `▶ Open for Day ${this.save.day}`);
     this.moveBtn.hidden = computeStats(levels).cleared <= 0;
     this.moveBtn.textContent = t(`🧭 ランド移転（${this.save.prestige.runs + 2}周目へ）`, `🧭 Relocate (start run ${this.save.prestige.runs + 2})`);
     const c = this.save.forecast;
-    this.forecast.replaceChildren(h('b', {}, t(`次の営業日: ${conditionLabel(c)}`, `Next business day: ${conditionLabel(c)}`)), h('span', {}, CONDITIONS[c.kind].desc));
+    this.forecast.replaceChildren(
+      h('b', {}, this.dayOpen ? t(`営業中（Day ${this.save.day}）: ${conditionLabel(c)}`, `Open (Day ${this.save.day}): ${conditionLabel(c)}`) : t(`次の営業日: ${conditionLabel(c)}`, `Next business day: ${conditionLabel(c)}`)),
+      h('span', {}, this.dayOpen ? t('ショップに戻ると営業の続きから。ここで習得したスキルはすぐに反映されます', 'Back in the shop the day picks up where it left off, with the skills you learn here') : CONDITIONS[c.kind].desc),
+    );
     this.dailyBox.replaceChildren(
       ...(this.save.dailies.length
         ? [h('h3', {}, t(`デイリー依頼（達成でエンブレム）`, `Daily requests (earn emblems)`)), ...this.save.dailies.map((d) => h('div.daily-row', {}, h('span', {}, dailyLabel(d)), h('b', {}, '+1')))]

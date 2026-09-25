@@ -25,7 +25,7 @@ export class Stock {
 
   constructor(
     save: SaveData,
-    private readonly stats: Stats,
+    private stats: Stats,
   ) {
     const shelf = Array.from({ length: stats.shelfSlots }, (_, i): Slot => ({
       item: save.shelf[i] ?? null,
@@ -46,6 +46,15 @@ export class Stock {
     // Items that no longer fit go to storage.
     const overflow = [...save.shelf.slice(stats.shelfSlots), ...save.showcase.slice(showcaseCount)].filter((x): x is number => x !== null);
     this.storage = [...save.storage, ...overflow];
+  }
+
+  /** New shelf / showcase slots bought during the day are added at the end (indexes stay valid). */
+  applyStats(stats: Stats): void {
+    this.stats = stats;
+    const shelf = this.slots.filter((s) => !s.showcase).length;
+    const show = this.slots.filter((s) => s.showcase).length;
+    for (let i = shelf; i < stats.shelfSlots; i++) this.slots.push({ item: null, ...slotPos(i), showcase: false, incoming: false, claimedBy: null });
+    for (let i = show; i < Math.min(MAX_SHOWCASE, stats.showcaseSlots); i++) this.slots.push({ item: null, ...showcasePos(i), showcase: true, incoming: false, claimedBy: null });
   }
 
   /** A free slot for this item: the showcase first if it deserves it, else the shelf. */

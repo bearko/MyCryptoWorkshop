@@ -12,9 +12,9 @@ export const JAM_SECONDS = 3;
 
 /** One production line (magic pot, forge or capsule). */
 export class Line {
-  readonly stats: LineStats;
+  stats: LineStats;
   /** 魔石 infused for today, if any. */
-  readonly gem: GemId | null;
+  gem: GemId | null;
   progress = 0;
   /** Finished but nowhere to put it. */
   blocked = false;
@@ -34,10 +34,16 @@ export class Line {
     readonly id: LineId,
     gem: GemId | null,
   ) {
-    const base = lineStats(shop.stats, id);
-    const power = shop.stats.infusionPower;
     this.gem = gem;
-    this.stats = {
+    this.stats = this.computeStats();
+  }
+
+  /** Line stats from the shop's stats and today's 魔石. */
+  computeStats(): Line['stats'] {
+    const base = lineStats(this.shop.stats, this.id);
+    const power = this.shop.stats.infusionPower;
+    const gem = this.gem;
+    return {
       ...base,
       craftTime: gem === 'ifrit' ? base.craftTime / (1 + 0.3 * power) : base.craftTime,
       doubleChance: gem === 'leviathan' ? base.doubleChance + 0.15 * power : base.doubleChance,
@@ -163,14 +169,30 @@ export class Production {
   readonly lines: Line[];
 
   constructor(private readonly shop: Shop) {
-    const { stats, save } = shop;
-    this.lines = LINE_IDS.filter((id) => stats[`${id}.unlocked`] > 0).map((id) => {
-      // Infuse today's 魔石 if the player has enough of it.
-      const gem = stats.infusion > 0 ? (save.infusion[id] ?? null) : null;
-      const paid = gem !== null && save.resources.gems[gem] >= GEM_COST;
-      if (paid) save.resources.gems[gem] -= GEM_COST;
-      return new Line(shop, id, paid ? gem : null);
-    });
+    const { stats } = shop;
+    this.lines = LINE_IDS.filter((id) => stats[`${id}.unlocked`] > 0).map((id) => new Line(shop, id, null));
+  }
+
+  /** At opening: infuse today's 魔石 into each line, if the player has enough of it. */
+  infuse(): void {
+    const { stats, save } = this.shop;
+    for (const line of this.lines) {
+      const gem = stats.infusion > 0 ? (save.infusion[line.id] ?? null) : null;
+      if (gem === null || save.resources.gems[gem] < GEM_COST) continue;
+      save.resources.gems[gem] -= GEM_COST;
+      line.gem = gem;
+      line.stats = line.computeStats();
+    }
+  }
+
+  /** Skills bought during the day: refreshed line stats, and newly unlocked lines start up. */
+  applyStats(): void {
+    const stats = this.shop.stats;
+    for (const line of this.lines) line.stats = line.computeStats();
+    for (const id of LINE_IDS) {
+      if (stats[`${id}.unlocked`] > 0 && !this.lines.some((l) => l.id === id)) this.lines.push(new Line(this.shop, id, null));
+    }
+    this.lines.sort((a, b) => LINE_IDS.indexOf(a.id) - LINE_IDS.indexOf(b.id));
   }
 
   /** Crafts an item for every empty shelf slot (MAI's blessing). Returns how many. */

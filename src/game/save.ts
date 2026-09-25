@@ -187,6 +187,8 @@ export function sanitize(data: SaveData): number {
   // Shelf and storage hold item codes (edition × 100000 + id), the collection plain ids.
   const known = (code: number) => extensionById.has(itemId(code));
   data.collection = data.collection.filter((id) => extensionById.has(id));
+  // 幻獣の書 (added later) opens the beast rows: saves that already run the capsule get it free.
+  if ((data.levels.capsuleLine ?? 0) > 0 && !data.levels.beastBook) data.levels.beastBook = 1;
   data.shelf = data.shelf.map((code) => (code !== null && known(code) ? code : null));
   data.storage = data.storage.filter(known);
   data.showcase = (data.showcase ?? []).map((code) => (code !== null && known(code) ? code : null));

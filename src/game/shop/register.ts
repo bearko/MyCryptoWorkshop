@@ -12,12 +12,19 @@ export class Register {
   progress: number[];
   pulse = 0;
   /** Lanes that are self-checkout machines (no taps, slower). */
-  readonly autoFrom: number;
+  autoFrom: number;
 
   constructor(private readonly shop: Shop) {
     const { registers, autoRegisters } = shop.stats;
     this.autoFrom = registers;
     this.progress = Array.from({ length: registers + autoRegisters }, () => 0);
+  }
+
+  /** Registers bought during the day open at once. */
+  applyStats(): void {
+    const { registers, autoRegisters } = this.shop.stats;
+    this.autoFrom = registers;
+    while (this.progress.length < registers + autoRegisters) this.progress.push(0);
   }
 
   decay(dt: number): void {

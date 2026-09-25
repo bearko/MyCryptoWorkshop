@@ -1,23 +1,38 @@
 // i18n-check: skip — node text is replaced from skillsEn.ts in English (tests/i18n.test.ts checks it).
-// Phase 5: every series in one grid, top-left of the tree. Each series is a row of up to five
-// nodes — レシピ (unlock), 評判 (price), 量産 (how often it is crafted), 名品 (edition chance)
-// and 真打ち (真 chance, paid in research points, series with a 真 only). Rows run in bands of 30:
-// the first band goes up from the レシピ帳 hub, the next comes back down, and so on.
+// Phase 5: every series in a grid. Each series is a row of up to five nodes — レシピ (unlock),
+// 評判 (price), 量産 (how often it is crafted), 名品 (edition chance) and 真打ち (真 chance, paid in
+// research points, series with a 真 only). Plain series sit top-left next to the レシピ帳 hub,
+// beasts above the 具現化カプセル (see seriesCell).
 import { icons, series, seriesIcon } from './catalog';
 import { add, atLeast, mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
 import { LINE_IDS } from './lines';
 import type { SkillNode } from './skills';
 import { t } from '../i18n';
 
-const BAND = 30;
-const BAND_X0 = -10;
-const BAND_W = 6;
+/**
+ * Grid position of series `i`: its row, the column of its レシピ node, and which way the row
+ * runs (dx). Plain series fill bands of 30 rows going left from next to the 朱雀 (crafting)
+ * columns; beasts, made by the capsule, fill bands of 20 rows going right just above it.
+ */
+const PLAIN = { band: 30, x0: -5, step: -5, top: -1 };
+const BEAST = { band: 20, x0: 2, step: 5, top: -6 };
 
-/** Grid position of series `i`: its row, and the column of its レシピ node. */
-export function seriesCell(i: number): { x: number; y: number } {
-  const band = Math.floor(i / BAND);
-  const r = i % BAND;
-  return { x: BAND_X0 - BAND_W * band, y: band % 2 === 0 ? -1 - r : -BAND + r };
+const groupIndex: number[] = [];
+{
+  let plain = 0;
+  let beast = 0;
+  for (const s of series) groupIndex.push(s.family === 'beast' ? beast++ : plain++);
+}
+
+export function seriesCell(i: number): { x: number; y: number; dx: number } {
+  const beast = series[i].family === 'beast';
+  const g = beast ? BEAST : PLAIN;
+  const band = Math.floor(groupIndex[i] / g.band);
+  const r = groupIndex[i] % g.band;
+  // Even bands run up from the bottom row, odd ones come back down (one row higher for beasts,
+  // clear of the 名誉 block below them).
+  const y = band % 2 === 0 ? g.top - r : g.top - g.band + (beast ? 0 : 1) + r - (beast ? 1 : 0);
+  return { x: g.x0 + g.step * band, y, dx: beast ? 1 : -1 };
 }
 
 /** Costs of the first recipes (unchanged from before the grid). */
@@ -47,7 +62,7 @@ const recipeCost: number[] = [];
 /** The node that opens series i's row (its recipe, or the hub / capsule line for the free ones). */
 function rowKey(i: number): string {
   if (i === 0) return 'recipeBook';
-  if (i === HORSE) return 'capsuleLine';
+  if (i === HORSE) return 'beastBook';
   return recipeId(i);
 }
 
@@ -56,14 +71,14 @@ function previousRecipe(i: number): string {
   const beast = series[i].family === 'beast';
   for (let j = i - 1; j > 0; j--) {
     if ((series[j].family === 'beast') !== beast) continue;
-    return j === HORSE ? 'capsuleLine' : recipeId(j);
+    return j === HORSE ? 'beastBook' : recipeId(j);
   }
-  return beast ? 'capsuleLine' : 'recipeBook';
+  return beast ? 'beastBook' : 'recipeBook';
 }
 
 function seriesNodes(i: number): SkillNode[] {
   const s = series[i];
-  const { x, y } = seriesCell(i);
+  const { x, y, dx } = seriesCell(i);
   const icon = s.items[Math.min(4, 1 + Math.floor(i / 40))].image;
   const cost = recipeCost[i];
   const beast = s.family === 'beast';
@@ -85,24 +100,24 @@ function seriesNodes(i: number): SkillNode[] {
   nodes.push(
     {
       id: `rep_${s.key}`, branch: 'series', name: t(`評判：${s.name}`, `Reputation: ${s.name}`), desc: t(`${s.name}シリーズの販売価格 +10%`, `${s.name} series sale price +10%`),
-      icon, x: x - 1, y, max: 5, baseCost: Math.max(800, Math.round(cost * 0.6)), growth: 1.7,
+      icon, x: x + dx * 1, y, max: 5, baseCost: Math.max(800, Math.round(cost * 0.6)), growth: 1.7,
       requires: opens, requiresAll: ['reputation'], effects: [seriesPrice(i, 0.1)],
     },
     {
       id: `mass_${s.key}`, branch: 'series', name: t(`量産：${s.name}`, `Mass Production: ${s.name}`), desc: t(`${s.name}シリーズがクラフトされやすくなる（+100%）`, `The ${s.name} series is crafted more often (+100%)`),
-      icon: s.items[0].image, x: x - 2, y, max: 5, baseCost: Math.max(500, Math.round(cost * 0.3)), growth: 1.6,
+      icon: s.items[0].image, x: x + dx * 2, y, max: 5, baseCost: Math.max(500, Math.round(cost * 0.3)), growth: 1.6,
       requires: opens, requiresAll: ['planning'], effects: [seriesWeight(i, 1)],
     },
     {
       id: `master_${s.key}`, branch: 'series', name: t(`名品：${s.name}`, `Masterpiece: ${s.name}`), desc: t(`${s.name}シリーズのエディションの出やすさ +20%`, `${s.name} series edition chance +20%`),
-      icon: s.items[3].image, x: x - 3, y, max: 5, baseCost: Math.max(1000, Math.round(cost * 0.4)), growth: 1.7,
+      icon: s.items[3].image, x: x + dx * 3, y, max: 5, baseCost: Math.max(1000, Math.round(cost * 0.4)), growth: 1.7,
       requires: opens, requiresAll: ['masterwork'], effects: [seriesEdition(i, 0.2)],
     },
   );
   if (s.shin) {
     nodes.push({
       id: `shin_${s.key}`, branch: 'series', name: t(`真打ち：${s.name}`, `Shin Craft: ${s.name}`), desc: t(`${s.name}シリーズの Legendary が「真」になる確率 +5%`, `Chance that a ${s.name} Legendary is Shin +5%`),
-      icon: s.shin.image, x: x - 4, y, max: 3, baseCost: 5 + Math.round(i / 10), growth: 1.5,
+      icon: s.shin.image, x: x + dx * 4, y, max: 3, baseCost: 5 + Math.round(i / 10), growth: 1.5,
       requires: opens, requiresAll: ['shinForge'], effects: [seriesShin(i, 0.05)], currency: 'research',
     });
   }
@@ -131,13 +146,24 @@ const HONOR_RANKS = ['I', 'II', 'III', 'IV', 'V'];
 /** Emblems per rank (× 1–3 by row: the lower perks cost more). */
 const HONOR_COSTS = [2, 5, 10, 20, 40];
 
+/** Column of the honor ranks I–V (the hall sits just left of rank I, next to the store). */
+const HONOR_X = 11;
+/** Row of perk `row`: the first perk in the middle (y 0, beside the hall), then alternately above and below. */
+const honorY = (row: number) => (row % 2 === 1 ? -(row + 1) / 2 : row / 2);
+/** Rank I of each perk hangs off its neighbour toward the middle, so the column reads as one chain. */
+function honorParent(row: number): string {
+  if (row === 0) return 'honorHub';
+  const inner = row <= 2 ? 0 : row - 2;
+  return `honor_${HONOR[inner].key}_1`;
+}
+
 const honorNodes: SkillNode[] = [
-  { id: 'honorHub', branch: 'honor', name: '名誉の殿堂', desc: '実績とデイリー依頼で得たエンブレムで、永続の特典を習得できる', icon: icons.emblem, x: 13, y: 0, max: 1, baseCost: 1, growth: 1, requires: [], effects: [mul('priceMult', 0.02, 'honor')], currency: 'emblem' },
+  { id: 'honorHub', branch: 'honor', name: '名誉の殿堂', desc: '実績とデイリー依頼で得たエンブレムで、永続の特典を習得できる', icon: icons.emblem, x: HONOR_X - 1, y: 0, max: 1, baseCost: 1, growth: 1, requires: [], effects: [mul('priceMult', 0.02, 'honor')], currency: 'emblem' },
   ...HONOR.flatMap((perk, row) =>
     HONOR_RANKS.map((rank, r): SkillNode => ({
       id: `honor_${perk.key}_${r + 1}`, branch: 'honor', name: `${perk.name} ${rank}`, desc: perk.desc, icon: perk.icon,
-      x: 14 + r, y: row - 7, max: 1, baseCost: HONOR_COSTS[r] * (1 + Math.floor(row / 5)), growth: 1,
-      requires: [r === 0 ? 'honorHub' : `honor_${perk.key}_${r}`], effects: perk.effects, currency: 'emblem',
+      x: HONOR_X + r, y: honorY(row), max: 1, baseCost: HONOR_COSTS[r] * (1 + Math.floor(row / 5)), growth: 1,
+      requires: [r === 0 ? honorParent(row) : `honor_${perk.key}_${r}`], effects: perk.effects, currency: 'emblem',
     })),
   ),
 ];
@@ -153,8 +179,13 @@ export const PHASE5_SERIES_NODES: SkillNode[] = [
   },
   // Hubs next to 陳列棚増設
   { id: 'recipeBook', branch: 'series', name: 'レシピ帳', desc: 'シリーズのレシピを集め始める。品揃えを意識して来客ペース +5%', icon: icons.gems.leviathan, x: -2, y: -1, max: 1, baseCost: 20, growth: 1, requires: ['shelf'], effects: [mul('spawnRate', 0.05)] },
-  { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -2, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },
-  { id: 'masterwork', branch: 'series', name: '名品鑑定', desc: 'シリーズごとの「名品」を習得できるようになる。エディションの出やすさ +5%', icon: icons.gems.garuda, x: -2, y: -2, max: 1, baseCost: 20000, growth: 1, requires: ['recipeBook'], requiresAll: ['appraisal'], effects: [mul('editionLuck', 0.05)] },
+  { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -1, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },
+  { id: 'masterwork', branch: 'series', name: '名品鑑定', desc: 'シリーズごとの「名品」を習得できるようになる。エディションの出やすさ +5%', icon: icons.gems.garuda, x: -4, y: -1, max: 1, baseCost: 20000, growth: 1, requires: ['recipeBook'], requiresAll: ['appraisal'], effects: [mul('editionLuck', 0.05)] },
+  // 幻獣の書: opens the beast rows (Horse and the beast recipes), between the capsule and its grid.
+  {
+    id: 'beastBook', branch: 'series', name: '幻獣の書', desc: '幻獣シリーズの表を開く（ホースの評判・量産・名品と、幻獣のレシピ）。品揃えが増えて来客ペース +3%',
+    icon: series[HORSE].items[2].image, x: BEAST.x0, y: BEAST.top + 1, max: 1, baseCost: 1000, growth: 1, requires: ['capsuleLine'], effects: [mul('spawnRate', 0.03, 'variety')],
+  },
   ...series.flatMap((_, i) => seriesNodes(i)),
 
   // 青龍: orders and affinity (above the collectors)

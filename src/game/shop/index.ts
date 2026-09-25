@@ -32,7 +32,8 @@ export type * from './types';
  *   pests · staff · market · hazards (mud, coins, shop enemies, chests) · visitors · decisions
  */
 export class Shop {
-  readonly stats: Stats;
+  /** Current stats (re-computed by applyLevels when skills are bought during the day). */
+  stats: Stats;
   readonly rand: Random;
   readonly report: DayReport;
   actors: Actor[] = [];
@@ -41,6 +42,8 @@ export class Shop {
   timeLeft: number;
   elapsed = 0;
   over = false;
+  /** The doors are open (a shop made with waitToOpen shows the storefront until start()). */
+  started = false;
 
   readonly stock: Stock;
   readonly dismantler: Dismantler;
@@ -66,6 +69,7 @@ export class Shop {
   constructor(
     readonly save: SaveData,
     rng: Rng = Math.random,
+    options: { waitToOpen?: boolean } = {},
   ) {
     this.rand = new Random(rng);
     this.stats = computeStats(save.levels);
@@ -116,6 +120,28 @@ export class Shop {
     this.visitors = new Visitors(this);
     this.decisions = new Decisions(this);
     this.raid = new Raid(this);
+    if (!options.waitToOpen) this.start();
+  }
+
+  /** Opens the doors: today's 魔石 are paid and infused, and the day begins. */
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    this.production.infuse();
+  }
+
+  /**
+   * Skills bought during the day (from the skill tree) take effect at once: new stats, extra
+   * shelf and showcase slots, newly unlocked lines, registers and staff, a longer day.
+   */
+  applyLevels(): void {
+    const before = this.stats;
+    this.stats = computeStats(this.save.levels);
+    this.timeLeft += Math.max(0, this.stats.dayLength - before.dayLength);
+    this.stock.applyStats(this.stats);
+    this.production.applyStats();
+    this.register.applyStats();
+    this.staff.applyStats();
   }
 
   /** A choice is waiting for the player; the day is paused. */
@@ -158,7 +184,7 @@ export class Shop {
   // ---------------------------------------------------------------- update
 
   update(dt: number): void {
-    if (this.over || this.decisions.pending) return;
+    if (this.over || !this.started || this.decisions.pending) return;
     this.elapsed += dt;
     this.timeLeft -= dt;
     this.register.decay(dt);
