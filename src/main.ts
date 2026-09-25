@@ -1258,7 +1258,8 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'decision':
       // The visitor waits in the shop with a speech bubble; tapping them opens the choice.
-      sound.play(e.decision.kind === 'merchant' ? 'debuff' : 'helper');
+      // The same flash-of-inspiration sound as a treasure chest.
+      sound.play('rare');
       log(h('span', {}, h('b', {}, e.decision.title), t('（タップで話を聞く）', ' (tap to talk)')), 'rare');
       tip('decisionTap', t('吹き出しを出している人がいるよ！タップすると話を聞けるよ。しばらく放っておくと、いつもの返事をして帰っちゃう', 'Someone with a speech bubble wants to talk! Tap them to hear them out. Leave them for a while and they take the usual answer and go'));
       break;
@@ -1268,8 +1269,9 @@ function onShopEvent(e: ShopEvent): void {
       log(h('span', {}, e.result), 'good');
       break;
     case 'visit':
-      // A cryptid's or legendary hero's skill, with its cut-in.
-      sound.play('buff');
+      // They appear (the treasure-chest sound), then their skill takes effect with the cut-in.
+      sound.play('rare');
+      window.setTimeout(() => sound.play('buff'), 700);
       if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally');
       log(
         h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れて店を清めた！', ' appeared and purified the shop!') : t(' が来店！しばらく売上 2 倍！', ' is here! Sales ×2 for a while!')),
