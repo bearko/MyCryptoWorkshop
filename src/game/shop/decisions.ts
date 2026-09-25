@@ -2,7 +2,7 @@ import { icons, merchants } from '../catalog';
 import { FIRST_EVENT_DAY } from '../conditions';
 import { fmt } from '../format';
 import { COUNTER, HERO_PX } from '../layout';
-import { salePrice } from '../stats';
+import { averageTierPay, salePrice } from '../stats';
 import type { Shop } from './index';
 import type { Actor, Decision } from './types';
 import { t } from '../../i18n';
@@ -59,15 +59,21 @@ export class Decisions {
 
   // ---------------------------------------------------------------- shady merchant
 
-  /** Everything on the (plain) shelf and in storage, at shop price. */
+  /** Everything on the (plain) shelf and in storage (not the showcase, not items in customers' hands). */
   private sellable(): { slots: number[]; storage: number } {
     const slots = this.shop.stock.slots.flatMap((s, i) => (!s.showcase && s.item !== null && s.claimedBy === null ? [i] : []));
     return { slots, storage: this.shop.stock.storage.length };
   }
 
+  /**
+   * What the stock would sell for to today's customers: the list price with the skill-tree
+   * multipliers, times what the average customer of the current clientele pays (Uncommon ×1.25 …
+   * Legendary ×2.2). The merchant offers a share of this.
+   */
   private stockValue(): number {
     const shop = this.shop;
-    const price = (code: number) => salePrice(code, shop.stats, shop.save.collection.length, 0, false);
+    const tierPay = averageTierPay(shop.stats.maxTier);
+    const price = (code: number) => salePrice(code, shop.stats, shop.save.collection.length, 0, false) * tierPay;
     const { slots } = this.sellable();
     return slots.reduce((n, i) => n + price(shop.stock.slots[i].item!), 0) + shop.stock.storage.reduce((n, code) => n + price(code), 0);
   }
@@ -77,12 +83,16 @@ export class Decisions {
     const hero = shop.rand.pick(merchants);
     const { slots, storage } = this.sellable();
     const count = slots.length + storage;
-    const offer = Math.max(1, Math.round(this.stockValue() * shop.stats.merchantRate));
+    const value = this.stockValue();
+    const offer = Math.max(1, Math.round(value * shop.stats.merchantRate));
     const pct = Math.round(shop.stats.merchantRate * 100);
     this.open({
       kind: 'merchant',
       title: t(`悪徳商人 ${hero.name}`, `Shady Merchant ${hero.name}`),
-      text: t(`「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。店頭価格の ${pct}% だが、今すぐ現金だぞ？」`, `"I'll take all ${count} items on your shelves and in storage for ${fmt(offer)} GUM. That's ${pct}% of your price, but it's cash right now!"`),
+      text: t(
+        `「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。いつもの客に売る値段（合計 ${fmt(value)} GUM）の ${pct}% だが、今すぐ現金だぞ？」`,
+        `"I'll take all ${count} items on your shelves and in storage for ${fmt(offer)} GUM. That's ${pct}% of what your customers would pay (${fmt(value)} GUM in all), but it's cash right now!"`,
+      ),
       image: hero.image,
       options: [
         { label: t(`売る（+${fmt(offer)} GUM）`, `Sell (+${fmt(offer)} GUM)`), detail: t('ショーケース以外の品がなくなる', 'Everything but the showcase is gone') },

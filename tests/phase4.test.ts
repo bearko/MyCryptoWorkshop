@@ -5,6 +5,8 @@ import { CONDITIONS, FIRST_EVENT_DAY, rollCondition, type DayCondition } from '.
 import { migrate, newSave, parseSave, SAVE_VERSION, type SaveData } from '../src/game/save';
 import { Shop, type Decision, type ShopEvent } from '../src/game/shop';
 import { makeActor } from '../src/game/shop/actors';
+import { averageTierPay, salePrice } from '../src/game/stats';
+import { fmt } from '../src/game/format';
 
 const blade = series.find((s) => s.key === 'Blade')!;
 const common = blade.items[0].id;
@@ -104,6 +106,29 @@ describe('decision events', () => {
       return;
     }
     throw new Error('no merchant came in 40 days');
+  });
+
+  it("the merchant's offer is its rate of what today's customers would pay, and that is what it pays", () => {
+    for (let seed = 1; seed < 60; seed++) {
+      // Epic customers come (they pay up to ×1.8): the offer counts that, not the Common price.
+      const save = saveWith({ conveyor: 1, tier1: 1, tier2: 1, tier3: 1, negotiation: 2 }, { day: 6, shelf: Array.from({ length: 12 }, () => rare), storage: [rare, rare] });
+      const shop = new Shop(save, seeded(seed));
+      let expected = 0;
+      run(shop, 30, (d) => {
+        if (d.kind !== 'merchant') return d.fallback;
+        const codes = [...shop.stock.slots.filter((s) => !s.showcase && s.item !== null && s.claimedBy === null).map((s) => s.item!), ...shop.stock.storage];
+        const list = codes.reduce((n, code) => n + salePrice(code, shop.stats, save.collection.length, 0, false), 0);
+        expected = Math.round(list * averageTierPay(shop.stats.maxTier) * shop.stats.merchantRate);
+        expect(averageTierPay(shop.stats.maxTier)).toBeGreaterThan(1.3);
+        expect(d.text).toContain(fmt(expected));
+        expect(d.text).toContain(`${Math.round(shop.stats.merchantRate * 100)}%`);
+        return 0;
+      });
+      if (!expected) continue;
+      expect(shop.report.extras.merchant).toBe(expected);
+      return;
+    }
+    throw new Error('no merchant came in 60 days');
   });
 
   it("MAI can fill every empty shelf slot", () => {

@@ -99,7 +99,7 @@ export const NODE_EN: Record<string, [name: string, desc: string]> = {
   storePestBounty: ['Chase-off Reward', 'Reward for chasing enemies out of the shop +50%'],
   chestHunter: ['Chest Sense', 'Treasure chests fly in 12% more often'],
   chestValue: ['Chest Contents', 'Treasure chest contents +25%'],
-  negotiation: ['Haggling', "Shady merchant's offer +4% (of the shop price)"],
+  negotiation: ['Haggling', "Shady merchant's offer +4% (of what customers would pay)"],
   reform: ['Persuasion', 'Chance a caught thief asks to reform +10%'],
   regularPay: ['Bond with Regulars', 'Regulars (reformed thieves) pay +10%'],
   blessing: ["MAI's Cheer", "MAI's help (sales boost) lasts 25% longer"],
