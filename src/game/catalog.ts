@@ -60,6 +60,8 @@ export interface Hero {
   image: string;
   /** The sprite faces right (most hero sprites face left); walking flips it to match. */
   facesRight?: boolean;
+  /** Where the body is across the 64px sprite (the hero stands, and turns around, on it). */
+  cx: number;
 }
 
 export interface Frame {
@@ -124,6 +126,7 @@ const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   passive: isEn ? h.passiveEn : h.passive,
   attributes: h.attributes,
   image: h.image,
+  cx: h.cx,
   ...(facesRight.has(h.id) ? { facesRight: true } : {}),
 });
 
