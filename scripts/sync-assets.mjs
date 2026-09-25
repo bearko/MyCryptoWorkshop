@@ -136,6 +136,26 @@ for (const e of extensions) {
 const series = [...seriesMap.values()].sort((a, b) => a.items[0].id - b.items[0].id);
 for (const s of series) s.items.sort((a, b) => a.id - b.id);
 
+/**
+ * Horizontal centre of a sprite's body (mean x of its opaque pixels, 0–64). Sprites are not
+ * centred in their 64px cell; the game stands and mirrors heroes on this line so turning
+ * around does not make them jump sideways.
+ */
+function bodyCenterX(relPath) {
+  const png = PNG.sync.read(readFileSync(join(src, relPath)));
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      if (png.data[(y * png.width + x) * 4 + 3] > 0) {
+        sum += x + 0.5;
+        n++;
+      }
+    }
+  }
+  return n ? Math.round((sum / n / png.width) * CELL * 10) / 10 : CELL / 2;
+}
+
 // ---------------------------------------------------------------- heroes (all usable)
 // Original, novice and replica heroes. Customers and thieves are chosen in src/game/catalog.ts.
 const heroes = readJson('Data/Heroes/heroes.json')
@@ -152,6 +172,7 @@ const heroes = readJson('Data/Heroes/heroes.json')
     passiveEn: en(h.passive?.name?.en),
     attributes: (h.attributes ?? []).map((a) => a.name.ja),
     image: sprite('hero', h.image_file_path),
+    cx: bodyCenterX(h.image_file_path),
   }));
 
 // English labels for hero attributes and factions (the game keys them by their Japanese names).

@@ -98,3 +98,15 @@ describe('hero sprite direction', () => {
     for (const h of all) expect(!!h.facesRight).toBe(content.facesRightIds.includes(h.id));
   });
 });
+
+describe('hero sprite anchor', () => {
+  it('every hero knows where its body is across the sprite (so turning does not jump)', async () => {
+    const { customers, heroById } = await import('../src/game/catalog');
+    for (const h of customers) {
+      expect(h.cx, h.name).toBeGreaterThan(8);
+      expect(h.cx, h.name).toBeLessThan(56);
+    }
+    // ゲーテ's body is well right of the sprite's centre.
+    expect(heroById.get(2033)!.cx).toBeGreaterThan(36);
+  });
+});

@@ -61,6 +61,16 @@ function frameAt(frames: Frame[], now: number): string {
  */
 const flipHero = (hero: Hero, facing: number) => (hero.facesRight ? facing < 0 : facing > 0);
 
+/**
+ * Draws a hero standing at x: the body (hero.cx across the 64px sprite, which is rarely its
+ * centre) is kept on x whichever way they face, so turning around does not jump sideways.
+ */
+function drawHero(ctx: CanvasRenderingContext2D, hero: Hero, x: number, y: number, facing: number): void {
+  const flip = flipHero(hero, facing);
+  const s = HERO_PX / 64;
+  drawImg(ctx, hero.image, x - (flip ? 64 - hero.cx : hero.cx) * s, y, HERO_PX, HERO_PX, flip);
+}
+
 function drawImg(ctx: CanvasRenderingContext2D, ref: string, x: number, y: number, w: number, h: number, flip = false): void {
   if (flip) {
     ctx.save();
@@ -855,7 +865,6 @@ export class SceneRenderer {
       const walking = Math.abs(a.tx - a.x) + Math.abs(a.ty - a.y) > 3;
       const hop = walking && !a.rope ? Math.abs(Math.sin(a.bob)) * 4 : 0;
       const shake = a.hitFlash > 0 ? Math.sin(now / 20) * 5 * a.hitFlash : 0;
-      const x = a.x - HERO_PX / 2 + shake;
       const y = a.y - HERO_PX - hop;
       if (a.rope) {
         ctx.strokeStyle = '#d8c39a';
@@ -880,7 +889,7 @@ export class SceneRenderer {
         // Raid pirates glow orange.
         ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : a.raider ? 'rgba(255,150,20,1)' : 'rgba(255,40,40,0.95)';
         ctx.shadowBlur = this.glow(14);
-        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, flipHero(a.hero, a.facing));
+        drawHero(ctx, a.hero, a.x + shake, y, a.facing);
         ctx.restore();
         // A mark above villains, so they are not told apart by color alone (☠ for raid pirates).
         // (Beside the head: speech bubbles use the space above it.)
@@ -906,7 +915,7 @@ export class SceneRenderer {
         }
       } else {
         ctx.globalAlpha = a.state === 'caught' ? Math.max(0, 1 - a.timer / 0.8) : 1;
-        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, flipHero(a.hero, a.facing));
+        drawHero(ctx, a.hero, a.x + shake, y, a.facing);
         ctx.globalAlpha = 1;
       }
       this.drawBubble(shop, a, now);
@@ -928,7 +937,7 @@ export class SceneRenderer {
       ctx.shadowColor = 'rgba(255,215,90,0.9)';
       ctx.shadowBlur = this.glow(12);
     }
-    drawImg(ctx, m.hero.image, m.x - HERO_PX / 2, m.y - HERO_PX - hop, HERO_PX, HERO_PX, flipHero(m.hero, m.facing));
+    drawHero(ctx, m.hero, m.x, m.y - HERO_PX - hop, m.facing);
     if (m.ace) ctx.restore();
 
     const desk = DESKS[m.role];

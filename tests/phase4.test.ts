@@ -264,7 +264,7 @@ describe('customers and visitors', () => {
 
   it('collectors pay double for the series they want, and faction regulars pay more', () => {
     const shop = new Shop(saveWith({ collectors: 1, fav_suzaku: 2 }), seeded(1));
-    const a = makeActor(shop, 'customer', { id: 1, name: 'x', rarity: 'Common', rarityIndex: 0, faction: '朱雀', passive: '', image: '' }, 0);
+    const a = makeActor(shop, 'customer', { id: 1, name: 'x', rarity: 'Common', rarityIndex: 0, faction: '朱雀', passive: '', image: '', cx: 32 }, 0);
     a.special = 'collector';
     a.wants = blade.items[0].seriesIndex;
     expect(shop.customers.payMult(a, common)).toBeCloseTo(2 * 1.16);
