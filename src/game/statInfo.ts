@@ -98,7 +98,7 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   collectorPay: { label: t('コレクター客の支払い', 'Collector payment'), format: times },
   ownerChance: { label: t('ランドオーナーが来る確率', 'Land owner chance'), format: pct },
   ownerPay: { label: t('ランドオーナーの支払い', 'Land owner payment'), format: times },
-  merchantRate: { label: t('悪徳商人の買取価格', "Shady merchant's offer"), format: pct },
+  merchantRate: { label: t('商人の買取価格', "Merchant's offer"), format: pct },
   reformChance: { label: t('泥棒が改心を申し出る確率', 'Thief reform chance'), format: pct },
   regularPay: { label: t('常連客の支払い', 'Regulars\' payment'), format: times },
   blessingPower: { label: t('MAI のお手伝いの時間', "MAI's help duration"), format: times },

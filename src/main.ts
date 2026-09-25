@@ -927,7 +927,7 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
     ['bonus', t('会計係のボーナス', 'Accountant\'s bonus')],
     ['chest', t('宝箱', 'Treasure chests')],
     ['coin', t('拾ったコイン', 'Coins picked up')],
-    ['merchant', t('悪徳商人への売却', 'Sold to the shady merchant')],
+    ['merchant', t('商人への売却', 'Sold to the merchant')],
     ['raid', t('海賊の懸賞金', 'Pirate bounties')],
   ];
   for (const [key, label] of extras) if (report.extras[key] > 0) rows.push([label, `+${fmt(report.extras[key])}`]);
@@ -1263,10 +1263,13 @@ function onShopEvent(e: ShopEvent): void {
       tip('decisionTap', t('吹き出しを出している人がいるよ！タップすると話を聞けるよ。しばらく放っておくと、いつもの返事をして帰っちゃう', 'Someone with a speech bubble wants to talk! Tap them to hear them out. Leave them for a while and they take the usual answer and go'));
       break;
     case 'decided':
+      // MAI's help takes effect.
+      if (e.kind === 'mai') sound.play('buff');
       log(h('span', {}, e.result), 'good');
       break;
     case 'visit':
-      sound.play('helper');
+      // A cryptid's or legendary hero's skill, with its cut-in.
+      sound.play('buff');
       if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally');
       log(
         h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れて店を清めた！', ' appeared and purified the shop!') : t(' が来店！しばらく売上 2 倍！', ' is here! Sales ×2 for a while!')),

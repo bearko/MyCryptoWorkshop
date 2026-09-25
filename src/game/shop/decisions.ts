@@ -22,7 +22,7 @@ type Pending = Decision & {
 
 /**
  * Events that ask the player to choose. From FIRST_EVENT_DAY on, every business day has at
- * least one: the shady merchant or MAI arrives at a random time, and a caught thief may ask
+ * least one: the merchant or MAI arrives at a random time, and a caught thief may ask
  * to be forgiven. The visitor waits in the shop with a speech bubble while the day goes on;
  * tapping them opens the choice and pauses the day (view). Left alone for DECISION_WAIT
  * seconds, they take the fallback and go.
@@ -58,15 +58,16 @@ export class Decisions {
   }
 
   private open(d: Omit<Pending, 'wait' | 'waitLeft' | 'viewing'>): void {
-    const pending: Pending = { ...d, wait: DECISION_WAIT, waitLeft: DECISION_WAIT, viewing: false };
+    // The same object (not a copy): refresh() rebuilds its text and options in place.
+    const pending: Pending = Object.assign(d, { wait: DECISION_WAIT, waitLeft: DECISION_WAIT, viewing: false });
     this.pending = pending;
     this.shop.emit({ type: 'decision', decision: pending });
   }
 
-  /** The visitor waiting at (x, y), if any (the tap target includes the speech bubble). */
+  /** The visitor waiting at (x, y), if any (the tap target includes the speech bubble and their name). */
   at(x: number, y: number): boolean {
     const d = this.pending;
-    return !!d && !d.viewing && Math.abs(x - d.x) < 56 && y < d.y + 16 && y > d.y - HERO_PX - 96;
+    return !!d && !d.viewing && Math.abs(x - d.x) < 60 && y < d.y + 56 && y > d.y - HERO_PX - 96;
   }
 
   /** The player tapped the visitor: the up-to-date choice, and the day pauses until it is answered. */
@@ -102,7 +103,7 @@ export class Decisions {
     this.shop.emit({ type: 'decided', kind: d.kind, choice, result });
   }
 
-  // ---------------------------------------------------------------- shady merchant
+  // ---------------------------------------------------------------- merchant
 
   /** Everything on the (plain) shelf and in storage (not the showcase, not items in customers' hands). */
   private sellable(): { slots: number[]; storage: number } {
@@ -128,13 +129,15 @@ export class Decisions {
     const hero = shop.rand.pick(merchants);
     const d = {
       kind: 'merchant' as const,
-      title: t(`悪徳商人 ${hero.name}`, `Shady Merchant ${hero.name}`),
+      title: t(`商人 ${hero.name}`, `Merchant ${hero.name}`),
+      name: t(`商人 ${hero.name}`, `Merchant ${hero.name}`),
       text: '',
       image: hero.image,
       facesRight: hero.facesRight,
       call: t('在庫、まとめて買うぞ？', "I'll buy your stock!"),
-      x: DOOR.x - 90,
-      y: FLOOR_Y + 70,
+      // Away from the door, where the cryptid and legendary heroes appear.
+      x: DOOR.x - 230,
+      y: FLOOR_Y + 150,
       options: [] as Decision['options'],
       fallback: 1,
       apply: (_choice: number) => '',
@@ -143,7 +146,15 @@ export class Decisions {
         const { slots, storage } = this.sellable();
         const count = slots.length + storage;
         const value = this.stockValue();
-        if (count === 0 || value <= 0) return false;
+        if (count === 0 || value <= 0) {
+          // Everything sold (or in customers' hands) since they came in: they say so and go.
+          d.text = t('「おや、棚にも倉庫にも売れる品がないじゃないか。また今度来るとしよう」', '"Well now, nothing to buy on your shelves or in storage. I\'ll come back another time."');
+          d.options = [{ label: t('見送る', 'See them off'), detail: t('今日はもう来ない', 'They won\'t be back today') }];
+          d.fallback = 0;
+          d.apply = () => t(`${hero.name}は何も買わずに帰っていった`, `${hero.name} left without buying anything`);
+          return true;
+        }
+        d.fallback = 1;
         const offer = Math.max(1, Math.round(value * shop.stats.merchantRate));
         const pct = Math.round(shop.stats.merchantRate * 100);
         d.text = t(
@@ -177,6 +188,7 @@ export class Decisions {
     this.open({
       kind: 'mai',
       title: t('MAI が遊びに来た！', 'MAI dropped by!'),
+      name: 'MAI',
       call: t('お手伝いするよ！', 'Need a hand?'),
       x: 560,
       y: FLOOR_Y + 220,
@@ -220,6 +232,7 @@ export class Decisions {
     this.open({
       kind: 'reform',
       title: t(`${thief.hero.name}が改心したいと言っている`, `${thief.hero.name} wants to turn over a new leaf`),
+      name: thief.hero.name,
       call: t('話を聞いてくれ…', 'Hear me out...'),
       facesRight: thief.hero.facesRight,
       x: Math.max(120, Math.min(860, thief.x)),

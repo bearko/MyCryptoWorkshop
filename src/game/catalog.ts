@@ -147,7 +147,7 @@ export const staffHeroes: Record<string, { hero: Hero; ace: Hero }> = Object.fro
 );
 /** 黒髭海賊団: the pirates who come in a raid. */
 export const pirates: Hero[] = content.pirateIds.map((id) => toHero(byId(heroById, id, 'pirate hero')));
-/** Shady merchants who offer to buy up the stock (a decision event). */
+/** Merchants who offer to buy up the stock (a decision event). */
 export const merchants: Hero[] = content.merchantIds.map((id) => toHero(byId(heroById, id, 'merchant hero')));
 const staffIds = new Set([...Object.values(staffHeroes).flatMap((s) => [s.hero.id, s.ace.id]), ...content.merchantIds]);
 

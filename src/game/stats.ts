@@ -121,7 +121,7 @@ export const BASE_STATS = {
   /** Chance per customer of a land owner (land days always bring one). */
   ownerChance: 0,
   ownerPay: 3,
-  /** Share of the stock's value the shady merchant offers. */
+  /** Share of the stock's value the merchant offers. */
   merchantRate: 0.32,
   /** Chance a thief caught by a tap asks to reform. */
   reformChance: 0.3,
