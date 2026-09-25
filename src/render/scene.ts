@@ -1033,15 +1033,19 @@ export class SceneRenderer {
     ctx.arc(rx, 0, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, d.waitLeft / d.wait));
     ctx.stroke();
     ctx.restore();
-    // "Tap" under the feet.
-    ctx.font = `bold 20px ${FONT}`;
+    // Who it is, and "tap", under the feet.
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.lineWidth = 4;
     ctx.strokeStyle = '#000a';
-    ctx.strokeText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 6);
+    ctx.font = `bold 22px ${FONT}`;
+    ctx.strokeText(d.name, d.x, d.y + 6);
+    ctx.fillStyle = color;
+    ctx.fillText(d.name, d.x, d.y + 6);
+    ctx.font = `bold 18px ${FONT}`;
+    ctx.strokeText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 32);
     ctx.fillStyle = '#fff';
-    ctx.fillText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 6);
+    ctx.fillText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 32);
   }
 
   private drawBubble(shop: Shop, a: Actor, now: number): void {

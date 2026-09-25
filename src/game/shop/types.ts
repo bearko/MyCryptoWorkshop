@@ -199,6 +199,8 @@ export interface Decision {
   y: number;
   /** What the speech bubble says. */
   call: string;
+  /** Who it is, shown under their feet (e.g. 商人 + the hero's name). */
+  name: string;
   /** The visitor's sprite faces right (see Hero.facesRight). */
   facesRight?: boolean;
   /** Business seconds the visitor waits (and how many are left) before the fallback is taken. */

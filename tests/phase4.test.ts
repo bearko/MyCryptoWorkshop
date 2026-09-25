@@ -156,6 +156,26 @@ describe('decision events', () => {
     throw new Error('no merchant came in 60 days');
   });
 
+  it('a merchant listened to after the stock sold out says so in the popup (not silently gone)', () => {
+    for (let seed = 1; seed < 60; seed++) {
+      const shop = new Shop(saveWith({ conveyor: 1 }, { day: 6, shelf: FULL_SHELF, storage: [common] }), seeded(seed));
+      for (let i = 0; i < 30 * 200 && !shop.pendingDecision && !shop.over; i++) shop.update(1 / 30);
+      const d = shop.pendingDecision;
+      if (!d || d.kind !== 'merchant') continue;
+      expect(d.name).toContain(d.title.replace(/^.* /, ''));
+      for (const slot of shop.stock.slots) slot.item = null;
+      shop.stock.storage = [];
+      const shown = shop.viewDecision();
+      expect(shown).not.toBeNull();
+      expect(shown!.options).toHaveLength(1);
+      shop.decide(0);
+      expect(shop.pendingDecision).toBeNull();
+      expect(shop.report.extras.merchant).toBe(0);
+      return;
+    }
+    throw new Error('no merchant came');
+  });
+
   it("MAI can fill every empty shelf slot", () => {
     for (let seed = 1; seed < 40; seed++) {
       const shop = new Shop(saveWith({ shelf: 5 }, { day: 6 }), seeded(seed));
