@@ -45,6 +45,8 @@ export interface SkillNode {
   requires: string[];
   /** …and all of these (e.g. a series' 評判 also needs 評判の広がり). */
   requiresAll?: string[];
+  /** …and these at their max level (e.g. 陳列台 once the wall shelves are full). */
+  requiresMax?: string[];
   /** What each level does (see effects.ts). */
   effects: Effect[];
   /** Not shown in the tree: granted by the game (hero set rewards). */
@@ -154,6 +156,9 @@ export const SKILLS: SkillNode[] = [
   // 玄武: shelves, storage and recipes (left)
   { id: 'shelf', branch: 'genbu', name: '陳列棚増設', desc: '陳列スペース +1', icon: ext(9, 0), x: -1, y: 0, max: 9, baseCost: 25, growth: 1.65, requires: ['root'], effects: [add('shelfSlots', 1)] },
   { id: 'conveyor', branch: 'genbu', name: '搬送レーン', desc: '搬送レーンを導入。棚が満杯でも倉庫に4個までストック', icon: ws.conveyor, x: -2, y: 0, max: 1, baseCost: 200, growth: 1, requires: ['shelf'], effects: [add('storageCap', 0, 4), overlay('conveyor')] },
+  { id: 'displayTable', branch: 'genbu', name: '陳列台', desc: '店の通路の手前に陳列台を置く（陳列スペース +4）。陳列棚増設を最大まで上げると習得できる', icon: ext(7, 1), x: -1, y: -1, max: 1, baseCost: 150000, growth: 1, requires: ['shelf'], requiresMax: ['shelf'], effects: [add('shelfSlots', 4)] },
+  { id: 'tableMore', branch: 'genbu', name: '陳列台増設', desc: '陳列台の陳列スペース +1（陳列台は 4 台まで）', icon: ext(9, 1), x: -2, y: -2, max: 12, baseCost: 60000, growth: 1.55, requires: ['displayTable'], effects: [add('shelfSlots', 1)] },
+  { id: 'collectorFetch', branch: 'genbu', name: '取り寄せ', desc: 'コレクター客が探しているシリーズが倉庫にあれば、優先して棚に出す（棚が満杯なら、誰も狙っていない品と入れ替える）', icon: ext(3, 2), x: -3, y: -3, max: 1, baseCost: 40000, growth: 1, requires: ['tableMore'], requiresAll: ['collectors'], effects: [add('collectorFetch', 1)] },
   { id: 'storage', branch: 'genbu', name: '倉庫拡張', desc: '倉庫の容量 +3', icon: ext(3, 1), x: -3, y: 0, max: 8, baseCost: 500, growth: 1.6, requires: ['conveyor'], effects: [add('storageCap', 3)] },
   ...PHASE2_NODES,
   ...PHASE3_NODES,
@@ -188,6 +193,7 @@ export function costOf(node: SkillNode, currentLevel: number): number {
 export function isAvailable(node: SkillNode, levels: Levels): boolean {
   if (node.hidden) return false;
   if (node.requiresAll?.some((r) => level(levels, r) <= 0)) return false;
+  if (node.requiresMax?.some((r) => level(levels, r) < (skillById.get(r)?.max ?? 1))) return false;
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
 }
 

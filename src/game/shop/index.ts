@@ -108,6 +108,7 @@ export class Shop {
     this.stock = new Stock(save, this.stats);
     this.dismantler = new Dismantler(this);
     this.stock.freeUp = () => this.dismantler.freeOne();
+    this.stock.wantedSeries = () => this.collectorSeries(true);
     this.production = new Production(this);
     this.customers = new Customers(this);
     this.register = new Register(this);
@@ -142,6 +143,13 @@ export class Shop {
     this.production.applyStats();
     this.register.applyStats();
     this.staff.applyStats();
+  }
+
+  /** Series wanted by the collectors in the shop (only those still looking, if `waiting`). */
+  collectorSeries(waiting = false): number[] {
+    return this.actors.flatMap((a) =>
+      a.kind === 'customer' && a.special === 'collector' && a.wants !== undefined && !a.gone && a.item === null && (!waiting || a.state === 'waitShelf') ? [a.wants] : [],
+    );
   }
 
   /** A visitor with a choice (merchant, MAI, a reformed thief) is waiting in the shop. */

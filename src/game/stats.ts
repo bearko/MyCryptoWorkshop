@@ -118,6 +118,10 @@ export const BASE_STATS = {
   vehicleInterval: 1,
   collectorChance: 0,
   collectorPay: 2,
+  /** Extra craft weight of the series wanted by collectors in the shop. */
+  collectorFocus: 0,
+  /** 1: collectors' series are fetched from storage first (取り寄せ). */
+  collectorFetch: 0,
   /** Chance per customer of a land owner (land days always bring one). */
   ownerChance: 0,
   ownerPay: 3,

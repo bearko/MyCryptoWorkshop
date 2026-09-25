@@ -127,9 +127,12 @@ export class Line {
     const { stats, rand } = this.shop;
     const rarity = rand.weighted(rarityWeights(stats.maxRarity, stats.luck * this.stats.luck));
     const recipes = this.recipes();
-    // 量産 skills and today's orders make some series come up more often.
+    // 量産 skills, today's orders and (コレクター優先) collectors in the shop make some series come up more often.
     const ordered = this.shop.visitors.orderedSeries;
-    const index = recipes[rand.weighted(recipes.map((i) => stats.seriesWeight[i] + (ordered.includes(i) ? stats.orderFocus : 0)))];
+    const collected = stats.collectorFocus > 0 ? this.shop.collectorSeries() : [];
+    const index = recipes[
+      rand.weighted(recipes.map((i) => stats.seriesWeight[i] + (ordered.includes(i) ? stats.orderFocus : 0) + (collected.includes(i) ? stats.collectorFocus : 0)))
+    ];
     const s = series[index];
     let id = s.items[rarity].id;
     const shin = stats.shinChance + stats.seriesShin[index];

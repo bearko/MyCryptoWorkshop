@@ -28,6 +28,10 @@ import {
   SHELF_X0,
   SLOTS_PER_UNIT,
   slotPos,
+  TABLE_H,
+  TABLE_TOP,
+  TABLE_UNITS,
+  WALL_SLOTS,
   STORAGE_POS,
   WINDOW,
   WORKSHOP_H,
@@ -274,7 +278,7 @@ function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
   if (ready(sign)) ctx.drawImage(sign, DOOR.x - 12, DOOR.top - 34, 24, 24);
 
   // Shelves: two boards of two items each, a little taller than a hero
-  const units = Math.ceil(Math.max(slotCount, 1) / SLOTS_PER_UNIT);
+  const units = Math.ceil(Math.max(Math.min(slotCount, WALL_SLOTS), 1) / SLOTS_PER_UNIT);
   for (let u = 0; u < units; u++) {
     const x0 = SHELF_X0 + u * (SHELF_UNIT_W + SHELF_UNIT_GAP);
     const bottom = FLOOR_Y + 4;
@@ -308,10 +312,52 @@ function paintStorefront(ctx: CanvasRenderingContext2D, f: Furnishing): void {
     }
   }
 
+  if (slotCount > WALL_SLOTS) paintTables(ctx, slotCount);
   if (f.showcase > 0) paintShowcase(ctx, f.showcase);
   if (f.potionStand) paintPotionStand(ctx);
   if (f.bar) paintPotionBar(ctx);
   if (f.trial) paintTrialArea(ctx);
+}
+
+/** 陳列台: display tables in front of the shop lane (slots after the wall shelves). */
+function paintTables(ctx: CanvasRenderingContext2D, slotCount: number): void {
+  const units = Math.min(TABLE_UNITS, Math.ceil((slotCount - WALL_SLOTS) / SLOTS_PER_UNIT));
+  for (let u = 0; u < units; u++) {
+    const x0 = SHELF_X0 + u * (SHELF_UNIT_W + SHELF_UNIT_GAP) - 4;
+    const w = SHELF_UNIT_W + 8;
+    const top = TABLE_TOP;
+    // Shadow, legs, the front apron and the table top (seen slightly from above).
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(x0 + w / 2, top + TABLE_H + 2, w / 2 + 4, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#3a2314';
+    ctx.fillRect(x0 + 4, top + 30, 7, TABLE_H - 28);
+    ctx.fillRect(x0 + w - 11, top + 30, 7, TABLE_H - 28);
+    ctx.fillStyle = '#5a3620';
+    ctx.fillRect(x0, top + 22, w, 22);
+    ctx.fillStyle = '#7a4a28';
+    ctx.fillRect(x0, top + 22, w, 3);
+    ctx.fillStyle = '#b07a45';
+    ctx.fillRect(x0 - 3, top - 4, w + 6, 28);
+    ctx.fillStyle = '#d19a60';
+    ctx.fillRect(x0 - 3, top - 4, w + 6, 3);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(x0 - 3, top + 22, w + 6, 2);
+    for (let k = 0; k < SLOTS_PER_UNIT; k++) {
+      const index = WALL_SLOTS + u * SLOTS_PER_UNIT + k;
+      if (index < slotCount) continue;
+      const p = slotPos(index);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      roundRect(ctx, p.x - 12, p.y - 10, 24, 20, 5);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.font = `14px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('+', p.x, p.y + 1);
+    }
+  }
 }
 
 /** Glass cabinet for valuable items, with lights; locked slots show a plus. */
