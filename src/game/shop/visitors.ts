@@ -110,7 +110,7 @@ export class Visitors {
     if (this.legendAt >= 0 && shop.elapsed >= this.legendAt) {
       this.legendAt = -1;
       const hero = shop.rand.pick(customersByTier[4]);
-      this.arrive({ kind: 'legend', name: hero.name, image: hero.image, skill: hero.passive ?? '', x: DOOR.x - 60, y: FLOOR_Y + 70, t: 0, dur: VISIT_TIME });
+      this.arrive({ kind: 'legend', name: hero.name, image: hero.image, skill: hero.passive ?? '', facesRight: hero.facesRight, x: DOOR.x - 60, y: FLOOR_Y + 70, t: 0, dur: VISIT_TIME });
       this.boost(2, VISIT_TIME);
     }
   }

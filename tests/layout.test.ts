@@ -85,3 +85,16 @@ describe('feature nodes', () => {
     }
   });
 });
+
+describe('hero sprite direction', () => {
+  it('the right-facing list names real heroes, and customers carry the flag', async () => {
+    const { customers, heroById, thieves } = await import('../src/game/catalog');
+    const content = (await import('../src/game/content.json')).default as { facesRightIds: number[] };
+    for (const id of content.facesRightIds) expect(heroById.has(id), String(id)).toBe(true);
+    const all = [...customers, ...thieves];
+    expect(all.filter((h) => h.facesRight).length).toBeGreaterThan(10);
+    // Most hero sprites face left.
+    expect(all.filter((h) => h.facesRight).length).toBeLessThan(all.length / 4);
+    for (const h of all) expect(!!h.facesRight).toBe(content.facesRightIds.includes(h.id));
+  });
+});

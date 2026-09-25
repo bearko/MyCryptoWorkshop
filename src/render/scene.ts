@@ -1,4 +1,4 @@
-import { catalog, icons, lands, merchants, RARITY_COLOR, series, seriesIcon, staffFrames, staffHeroes, storePests, type Frame } from '../game/catalog';
+import { catalog, icons, lands, merchants, RARITY_COLOR, series, seriesIcon, staffFrames, staffHeroes, storePests, type Frame, type Hero } from '../game/catalog';
 import { landOf } from '../game/conditions';
 import { EDITIONS, itemEdition, itemExt } from '../game/items';
 import {
@@ -54,6 +54,12 @@ function frameAt(frames: Frame[], now: number): string {
   }
   return frames[0].image;
 }
+
+/**
+ * Whether to mirror a hero walking in `facing` (1 = right, -1 = left). Hero sprites face left
+ * unless marked facesRight (content.json).
+ */
+const flipHero = (hero: Hero, facing: number) => (hero.facesRight ? facing < 0 : facing > 0);
 
 function drawImg(ctx: CanvasRenderingContext2D, ref: string, x: number, y: number, w: number, h: number, flip = false): void {
   if (flip) {
@@ -534,7 +540,8 @@ export class SceneRenderer {
       ctx.save();
       ctx.shadowColor = 'rgba(255,60,200,0.9)';
       ctx.shadowBlur = this.glow(16);
-      drawImg(ctx, p.image, p.x - 32 + shake, p.y - 64 - bob, 64, 64, p.tx < p.x);
+      // Enemy sprites face left: mirrored when heading right.
+      drawImg(ctx, p.image, p.x - 32 + shake, p.y - 64 - bob, 64, 64, p.tx > p.x);
       ctx.restore();
       for (let i = 0; i < 2; i++) {
         ctx.fillStyle = i < p.hp ? '#ff4dd2' : 'rgba(0,0,0,0.5)';
@@ -605,7 +612,8 @@ export class SceneRenderer {
       ctx.shadowColor = v.kind === 'legend' ? 'rgba(255,215,90,1)' : 'rgba(140,220,255,1)';
       ctx.shadowBlur = this.glow(24);
       if (v.kind === 'cryptid') drawImg(ctx, v.image, v.x - 48, v.y - 110 + float, 96, 96);
-      else drawImg(ctx, v.image, v.x - HERO_PX / 2, v.y - HERO_PX, HERO_PX, HERO_PX, true);
+      // Stands by the door, facing into the shop (left).
+      else drawImg(ctx, v.image, v.x - HERO_PX / 2, v.y - HERO_PX, HERO_PX, HERO_PX, !!v.facesRight);
       ctx.restore();
       ctx.font = `bold 14px ${FONT}`;
       ctx.textAlign = 'center';
@@ -819,7 +827,7 @@ export class SceneRenderer {
         // Raid pirates glow orange.
         ctx.shadowColor = a.hitFlash > 0 ? 'rgba(255,255,255,1)' : a.raider ? 'rgba(255,150,20,1)' : 'rgba(255,40,40,0.95)';
         ctx.shadowBlur = this.glow(14);
-        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
+        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, flipHero(a.hero, a.facing));
         ctx.restore();
         // A mark above villains, so they are not told apart by color alone (☠ for raid pirates).
         // (Beside the head: speech bubbles use the space above it.)
@@ -845,7 +853,7 @@ export class SceneRenderer {
         }
       } else {
         ctx.globalAlpha = a.state === 'caught' ? Math.max(0, 1 - a.timer / 0.8) : 1;
-        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, a.facing < 0);
+        drawImg(ctx, a.hero.image, x, y, HERO_PX, HERO_PX, flipHero(a.hero, a.facing));
         ctx.globalAlpha = 1;
       }
       this.drawBubble(shop, a, now);
@@ -867,7 +875,7 @@ export class SceneRenderer {
       ctx.shadowColor = 'rgba(255,215,90,0.9)';
       ctx.shadowBlur = this.glow(12);
     }
-    drawImg(ctx, m.hero.image, m.x - HERO_PX / 2, m.y - HERO_PX - hop, HERO_PX, HERO_PX, m.facing < 0);
+    drawImg(ctx, m.hero.image, m.x - HERO_PX / 2, m.y - HERO_PX - hop, HERO_PX, HERO_PX, flipHero(m.hero, m.facing));
     if (m.ace) ctx.restore();
 
     const desk = DESKS[m.role];
@@ -1070,7 +1078,8 @@ export class SceneRenderer {
       ctx.save();
       ctx.shadowColor = 'rgba(255,60,200,0.9)';
       ctx.shadowBlur = this.glow(16);
-      drawImg(ctx, p.image, p.x - PEST_PX / 2 + wob, p.y - PEST_PX - lift, PEST_PX, PEST_PX, p.toX < p.fromX);
+      // Enemy sprites face left: mirrored when hopping right.
+      drawImg(ctx, p.image, p.x - PEST_PX / 2 + wob, p.y - PEST_PX - lift, PEST_PX, PEST_PX, p.toX > p.fromX);
       ctx.restore();
       drawImg(ctx, icons.sleep, p.x + 18, p.y - PEST_PX - lift - 14, 24, 24);
     }
