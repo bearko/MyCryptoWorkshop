@@ -1272,9 +1272,9 @@ function onShopEvent(e: ShopEvent): void {
       // They appear (the treasure-chest sound), then their skill takes effect with the cut-in.
       sound.play('rare');
       window.setTimeout(() => sound.play('buff'), 700);
-      if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally');
+      if (shop) cutin(scene, e.visit.image, e.visit.name, e.visit.skill, 'ally', e.visit.effect);
       log(
-        h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れて店を清めた！', ' appeared and purified the shop!') : t(' が来店！しばらく売上 2 倍！', ' is here! Sales ×2 for a while!')),
+        h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れた！', ' appeared! ') : t(' が来店！', ' is here! '), e.visit.effect),
         'rare',
       );
       break;

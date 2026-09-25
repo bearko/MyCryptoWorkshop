@@ -29,6 +29,8 @@ export class Hazards {
   pests: StorePest[] = [];
   chests: Chest[] = [];
   private pestTimer = 0;
+  /** No more enemies in the shop today (MAI chased them off). */
+  pestsSuppressed = false;
   private pestNext: number;
   private chestTimer = 0;
   private chestNext: number;
@@ -57,7 +59,7 @@ export class Hazards {
     this.coins = this.coins.filter((c) => c.t < COIN_LIFE);
 
     // Enemies wandering the shop
-    if (shop.save.day >= STORE_PEST_DAY) {
+    if (shop.save.day >= STORE_PEST_DAY && !this.pestsSuppressed) {
       this.pestTimer += dt;
       if (this.pestTimer >= this.pestNext && this.pests.length < MAX_STORE_PESTS) {
         this.pestTimer = 0;
@@ -164,10 +166,13 @@ export class Hazards {
   }
 
   /** Every mess and coin at once (a cryptid's visit). */
-  sweep(): void {
+  /** Clears the whole floor (the cryptid's visit); returns what it cleared. */
+  sweep(): { messes: number; coins: number; pests: number } {
+    const done = { messes: this.messes.length, coins: this.coins.length, pests: this.pests.length };
     for (const m of [...this.messes]) this.clean(m, true);
     for (const c of [...this.coins]) this.pickUp(c);
     for (const p of [...this.pests]) this.defeat(p, 'cryptid');
+    return done;
   }
 
   private pestReward(): number {

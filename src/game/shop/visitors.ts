@@ -103,14 +103,22 @@ export class Visitors {
     if (this.cryptidAt >= 0 && shop.elapsed >= this.cryptidAt) {
       this.cryptidAt = -1;
       const land = landOf(shop.condition);
-      if (land) this.arrive({ kind: 'cryptid', name: t(`${land.name}のクリプタイド`, `${land.name} Cryptid`), image: land.cryptid, skill: t('ランドの守護', 'Land Guardian'), x: DOOR.x - 120, y: FLOOR_Y + 40, t: 0, dur: VISIT_TIME });
-      shop.hazards.sweep();
+      const done = shop.hazards.sweep();
+      if (land) {
+        const parts = [
+          done.messes ? t(`汚れ ${done.messes} か所を掃除`, `cleaned ${done.messes} messes`) : '',
+          done.coins ? t(`コイン ${done.coins} 枚を回収`, `picked up ${done.coins} coins`) : '',
+          done.pests ? t(`エネミー ${done.pests} 体を退治`, `defeated ${done.pests} enemies`) : '',
+        ].filter(Boolean);
+        const effect = parts.length ? parts.join(t('・', ', ')) : t('店の床を清めた（汚れなし）', 'purified the floor (it was already clean)');
+        this.arrive({ kind: 'cryptid', name: t(`${land.name}のクリプタイド`, `${land.name} Cryptid`), image: land.cryptid, skill: t('ランドの守護', 'Land Guardian'), effect, x: DOOR.x - 120, y: FLOOR_Y + 40, t: 0, dur: VISIT_TIME });
+      }
     }
     // A legendary hero drops in: sales ×2 while they are here.
     if (this.legendAt >= 0 && shop.elapsed >= this.legendAt) {
       this.legendAt = -1;
       const hero = shop.rand.pick(customersByTier[4]);
-      this.arrive({ kind: 'legend', name: hero.name, image: hero.image, skill: hero.passive ?? '', facesRight: hero.facesRight, x: DOOR.x - 60, y: FLOOR_Y + 70, t: 0, dur: VISIT_TIME });
+      this.arrive({ kind: 'legend', name: hero.name, image: hero.image, skill: hero.passive ?? '', effect: t(`いる間 ${VISIT_TIME} 秒、売上 2 倍`, `Sales ×2 for ${VISIT_TIME}s while here`), facesRight: hero.facesRight, x: DOOR.x - 60, y: FLOOR_Y + 70, t: 0, dur: VISIT_TIME });
       this.boost(2, VISIT_TIME);
     }
   }

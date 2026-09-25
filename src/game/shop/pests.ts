@@ -7,6 +7,8 @@ import type { Pest } from './types';
 /** Enemies that get into the workshop from day 3, hop around and slow crafting. */
 export class Pests {
   list: Pest[] = [];
+  /** No more enemies today (MAI chased them off). */
+  suppressed = false;
   private timer = 0;
   private next: number;
 
@@ -39,7 +41,7 @@ export class Pests {
     }
     this.list = this.list.filter((p) => p.t < p.life);
 
-    if (shop.save.day < 3) return;
+    if (shop.save.day < 3 || this.suppressed) return;
     const maxPests = Math.min(3, 1 + Math.floor((shop.save.day - 3) / 4));
     this.timer += dt;
     if (this.timer >= this.next && this.list.length < maxPests) {

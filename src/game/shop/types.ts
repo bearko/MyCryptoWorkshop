@@ -177,6 +177,8 @@ export interface Visit {
   image: string;
   /** The hero's passive skill, shown in the cut-in. */
   skill: string;
+  /** What the visit does, in a few words (shown in the cut-in). */
+  effect: string;
   /** The hero's sprite faces right (see Hero.facesRight). */
   facesRight?: boolean;
   x: number;
