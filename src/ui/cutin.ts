@@ -9,7 +9,7 @@ const SLIDE_MS = 250;
  * hero's sprite and the skill name. Styles are in style.css (.mch-passive-cutin*), adapted
  * from vendor/mycryptoheroes/Style/Cutins/passive_skill_cutin.css.
  */
-export function cutin(parent: HTMLElement, image: string, name: string, skill: string, side: 'ally' | 'opponent' = 'ally'): void {
+export function cutin(parent: HTMLElement, image: string, name: string, skill: string, side: 'ally' | 'opponent' = 'ally', effect = ''): void {
   const band = h(
     'div.mch-passive-cutin',
     { class: `mch-passive-cutin mch-passive-cutin--${side} mch-passive-cutin-enter`, 'aria-live': 'polite' },
@@ -18,7 +18,7 @@ export function cutin(parent: HTMLElement, image: string, name: string, skill: s
       'div.mch-passive-cutin-unit',
       {},
       h('div.mch-passive-cutin-unit__image', {}, icon(image, 'px')),
-      h('div.cutin-text', {}, h('div.cutin-name', {}, name), h('p.mch-passive-cutin-unit__skill-name', {}, skill)),
+      h('div.cutin-text', {}, h('div.cutin-name', {}, name), h('p.mch-passive-cutin-unit__skill-name', {}, skill), effect ? h('p.cutin-effect', {}, effect) : null),
     ),
   );
   parent.append(band);

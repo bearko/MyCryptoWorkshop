@@ -197,7 +197,7 @@ export class Decisions {
       options: [
         { label: t(`売上 ${BLESSING_MULT} 倍（${secs}秒）`, `Sales ×${BLESSING_MULT} (${secs}s)`), detail: t(`この間に売れた品は ${BLESSING_MULT} 倍の値段になる`, `Items sold meanwhile go for ${BLESSING_MULT}× the price`) },
         { label: t('棚を全部埋める', 'Fill every shelf'), detail: t('空いている棚に、今作れる品を並べる', 'Stock every empty slot with items you can make now') },
-        { label: t('泥棒とエネミーを追い払う', 'Chase off thieves and enemies'), detail: t('今いる泥棒とエネミーを退治。今日はもう泥棒が来ない', 'Clears out current thieves and enemies. No more thieves today') },
+        { label: t('泥棒とエネミーを追い払う', 'Chase off thieves and enemies'), detail: t('今いる泥棒とエネミーを退治。今日はもう泥棒もエネミーも来ない', 'Clears out current thieves and enemies. No more thieves or enemies today') },
       ],
       fallback: 0,
       apply: (choice) => {
@@ -210,9 +210,13 @@ export class Decisions {
           return t(`MAI が棚に ${n} 個並べてくれた！`, `MAI stocked ${n} items on the shelves!`);
         }
         const caught = shop.thieves.clearAll();
+        const enemies = shop.hazards.pests.length + shop.pests.list.length;
         for (const p of [...shop.hazards.pests]) shop.hazards.defeat(p, 'cryptid');
         for (const p of [...shop.pests.list]) shop.pests.click(p);
-        return t(`MAI が泥棒 ${caught} 人を追い払った！`, `MAI chased off ${caught} thieves!`);
+        // Neither comes back today, in the shop or the workshop.
+        shop.hazards.pestsSuppressed = true;
+        shop.pests.suppressed = true;
+        return t(`MAI が泥棒 ${caught} 人とエネミー ${enemies} 体を追い払った！今日はもう来ない`, `MAI chased off ${caught} thieves and ${enemies} enemies! None will come back today`);
       },
     });
   }

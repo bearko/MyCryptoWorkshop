@@ -279,3 +279,22 @@ describe('customers and visitors', () => {
     expect(events.some((e) => e.type === 'visit' && e.visit.kind === 'cryptid')).toBe(true);
   });
 });
+
+describe('MAI chasing off thieves and enemies', () => {
+  it('keeps enemies away for the rest of the day, in the shop and the workshop', () => {
+    const shop = new Shop(saveWith({}, { day: 20, shelf: FULL_SHELF }), seeded(5));
+    shop.hazards.pestsSuppressed = true;
+    shop.pests.suppressed = true;
+    shop.thieves.clearAll();
+    const events: ShopEvent[] = [];
+    shop.on((e) => events.push(e));
+    for (let i = 0; i < 30 * 200 && !shop.over; i++) {
+      const d = shop.pendingDecision;
+      if (d) shop.decide(d.fallback);
+      shop.update(1 / 30);
+    }
+    expect(events.filter((e) => e.type === 'pest' || e.type === 'storePest')).toHaveLength(0);
+    expect(shop.pests.list).toHaveLength(0);
+    expect(shop.hazards.pests).toHaveLength(0);
+  });
+});

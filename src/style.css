@@ -1673,6 +1673,15 @@ body.in-day {
   text-shadow: 2px 2px 0 #333, -2px 2px 0 #333, -2px -2px 0 #333, 2px -2px 0 #333;
 }
 
+/* What the skill did, in a few words. */
+.cutin-effect {
+  margin: 4px 0 0;
+  color: #ffe08a;
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 1px 1px 0 #333, -1px 1px 0 #333, -1px -1px 0 #333, 1px -1px 0 #333;
+}
+
 .confetti-canvas {
   position: fixed;
   inset: 0;
