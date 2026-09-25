@@ -34,10 +34,14 @@ function pwa(): Plugin {
   };
 }
 
-/** Dev server only: serves /api/leaderboard from an in-memory store (Vercel runs the real one). */
+/**
+ * Dev server only: serves /api/leaderboard from an in-memory store (Vercel runs the real one).
+ * GOOGLE_CLIENT_ID in the environment turns on Google sign-in (add http://localhost:5173 to the
+ * client's authorized origins).
+ */
 function devLeaderboard(): Plugin {
   const store = memoryStore();
-  const handler = createHandler(() => store, { adminToken: 'dev' });
+  const handler = createHandler(() => store, { adminToken: 'dev', googleClientId: process.env.GOOGLE_CLIENT_ID });
   return {
     name: 'mcw-dev-leaderboard',
     apply: 'serve',

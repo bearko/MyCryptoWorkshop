@@ -1,5 +1,6 @@
 import type { SaveData } from '../game/save';
-import { BOARD_LIST, errorText, fetchBoard, submit, withdraw, type BoardInfo, type BoardResult } from '../net/leaderboard';
+import { renderGoogleButton } from '../net/google';
+import { BOARD_LIST, errorText, fetchBoard, signInWithGoogle, signOut, submit, withdraw, type AuthInfo, type BoardInfo, type BoardResult } from '../net/leaderboard';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
 
@@ -27,6 +28,8 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
   const tabs = h('div.rank-tabs', { role: 'tablist' });
   const desc = h('p.rank-desc');
   const list = h('div.rank-list');
+  /** The server's sign-in settings (known after the first board loads). */
+  let auth: AuthInfo | null = null;
   const say = (text: string, bad = false) => {
     status.textContent = text;
     status.classList.toggle('bad', bad);
@@ -57,14 +60,60 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
     }
   }
 
+  /** Sign in with Google: continues the account's records on this device. */
+  async function onGoogle(credential: string): Promise<void> {
+    say(t('ログイン中…', 'Signing in...'));
+    try {
+      const existing = await signInWithGoogle(save, credential);
+      persist();
+      // This device's records join the account's (the server keeps the better of each).
+      if (save.ranking.joined) await submit(save).catch(() => undefined);
+      say(existing ? t('Google アカウントの記録を引き継ぎました', 'Continuing the records of your Google account') : t('Google アカウントと連携しました', 'Linked to your Google account'));
+      renderAccount();
+      void load();
+    } catch (e) {
+      say(errorText(e), true);
+    }
+  }
+
+  /** The Google part of the account box (only when the server has sign-in set up). */
+  function googleBox(): HTMLElement | null {
+    const r = save.ranking;
+    if (!auth?.googleClientId) return null;
+    if (r.google) {
+      const out = h('button.btn.small', {}, t('この端末からログアウト', 'Sign out on this device')) as HTMLButtonElement;
+      out.addEventListener('click', async () => {
+        out.disabled = true;
+        await signOut(save);
+        persist();
+        say(t('ログアウトしました（記録は Google アカウントに残っています）', 'Signed out (your records stay with your Google account)'));
+        renderAccount();
+        void load();
+      });
+      return h('div.rank-google', {}, h('span.rank-google-on', {}, t('✓ Google でログイン中', '✓ Signed in with Google')), out);
+    }
+    const slot = h('div.rank-google-button');
+    renderGoogleButton(slot, auth.googleClientId, (c) => void onGoogle(c)).catch(() => slot.replaceChildren(h('small.muted', {}, t('Google ログインを読み込めませんでした', "Couldn't load Google sign-in"))));
+    return h(
+      'div.rank-google',
+      {},
+      slot,
+      h('small.muted', {}, t('ログインすると、別の端末でも同じ記録を続けられ、名前に ✓ が付きます（メールアドレスや本名は送られません）', 'Signing in keeps your records across devices and adds a ✓ to your name (your e-mail and real name are not sent)')),
+    );
+  }
+
   function renderAccount(): void {
     const r = save.ranking;
+    const needsGoogle = !!auth?.requireGoogle && !r.google;
     if (!r.joined) {
       const input = nameInput(r.name);
       const join = h('button.btn.btn-primary.small', {}, t('参加する', 'Join')) as HTMLButtonElement;
+      join.disabled = needsGoogle;
       join.addEventListener('click', () => void register(input, join));
       account.replaceChildren(
         h('div.rank-form', {}, input, join),
+        needsGoogle ? h('p.rank-status.bad', {}, t('先に Google でログインしてください', 'Sign in with Google first')) : '',
+        googleBox() ?? '',
         h('p.muted.small-print', {}, t('参加すると、ニックネームと成績（売上・クリア時間・日数など）がランキングサーバーに送られ、世界中に公開されます。いつでもやめられます。', 'Joining sends your nickname and records (sales, clear times, days and so on) to the leaderboard server, where everyone can see them. You can leave at any time.')),
       );
       return;
@@ -88,7 +137,6 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
       leave.disabled = true;
       try {
         await withdraw(save);
-        save.ranking.joined = false;
         persist();
         say(t('ランキングから記録を削除しました', 'Your records were removed from the leaderboards'));
         renderAccount();
@@ -98,7 +146,10 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
         say(errorText(e), true);
       }
     });
-    account.replaceChildren(h('div.rank-form', {}, h('span', {}, t('ニックネーム: ', 'Nickname: '), h('b', {}, r.name)), rename, leave));
+    account.replaceChildren(
+      h('div.rank-form', {}, h('span', {}, t('ニックネーム: ', 'Nickname: '), h('b', {}, r.name), r.google ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null), rename, leave),
+      googleBox() ?? '',
+    );
   }
 
   let token = 0;
@@ -116,6 +167,10 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
       return;
     }
     if (mine !== token) return;
+    if (result.auth && JSON.stringify(result.auth) !== JSON.stringify(auth)) {
+      auth = result.auth;
+      renderAccount();
+    }
     if (!result.entries.length) {
       list.replaceChildren(h('p.muted', {}, t('まだ記録がありません', 'No records yet')));
     } else {
@@ -124,7 +179,7 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
           'ol.rank-rows',
           {},
           ...result.entries.map((e) =>
-            h('li', { class: `rank-row ${e.me ? 'me' : ''} ${e.rank <= 3 ? `top top${e.rank}` : ''}` }, h('span.rank-no', {}, `${e.rank}`), h('span.rank-who', {}, e.name), h('b.rank-score', {}, scoreText(board, e.score))),
+            h('li', { class: `rank-row ${e.me ? 'me' : ''} ${e.rank <= 3 ? `top top${e.rank}` : ''}` }, h('span.rank-no', {}, `${e.rank}`), h('span.rank-who', {}, e.name, e.verified ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null), h('b.rank-score', {}, scoreText(board, e.score))),
           ),
         ),
       );
