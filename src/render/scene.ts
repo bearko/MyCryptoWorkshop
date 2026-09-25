@@ -413,6 +413,11 @@ export class SceneRenderer {
   private scale = 1;
   /** Low: 1× resolution and no glow (shadowBlur), for slow devices. */
   quality: 'high' | 'low' = 'high';
+  /**
+   * Wide screens: the workshop (left) and the storefront (right) side by side instead of one
+   * above the other. Only the drawing and the pointer mapping change; scene coordinates stay.
+   */
+  side = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -435,15 +440,34 @@ export class SceneRenderer {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    this.scale = w / SCENE_W;
+    this.scale = w / this.viewW;
+  }
+
+  /** Size of what is shown, in scene units (two panes side by side when wide). */
+  get viewW(): number {
+    return this.side ? SCENE_W * 2 : SCENE_W;
+  }
+
+  get viewH(): number {
+    return this.side ? Math.max(WORKSHOP_H, SCENE_H - WORKSHOP_H) : SCENE_H;
   }
 
   /** Converts a client (mouse) position to scene coordinates. */
   toScene(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * this.viewW;
+    const y = ((clientY - rect.top) / rect.height) * this.viewH;
+    // The right pane shows the storefront (scene y from WORKSHOP_H down).
+    return this.side && x >= SCENE_W ? { x: x - SCENE_W, y: y + WORKSHOP_H } : { x, y };
+  }
+
+  /** Converts a scene position to client coordinates (for the tutorial's spotlight). */
+  toClient(x: number, y: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const store = this.side && y >= WORKSHOP_H;
     return {
-      x: ((clientX - rect.left) / rect.width) * SCENE_W,
-      y: ((clientY - rect.top) / rect.height) * SCENE_H,
+      x: rect.left + ((store ? x + SCENE_W : x) / this.viewW) * rect.width,
+      y: rect.top + ((store ? y - WORKSHOP_H : y) / this.viewH) * rect.height,
     };
   }
 
@@ -452,8 +476,35 @@ export class SceneRenderer {
     this.resize();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
+    if (!this.side) {
+      ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
+      this.drawScene(shop, now, hints, 'all');
+      return;
+    }
+    // Side by side: the same scene, clipped to the workshop (left) and the storefront (right).
+    const s = this.scale;
+    for (const pane of ['workshop', 'store'] as const) {
+      const store = pane === 'store';
+      ctx.save();
+      ctx.setTransform(s, 0, 0, s, store ? SCENE_W * s : 0, store ? -WORKSHOP_H * s : 0);
+      ctx.beginPath();
+      ctx.rect(0, store ? WORKSHOP_H : 0, SCENE_W, store ? SCENE_H - WORKSHOP_H : WORKSHOP_H);
+      ctx.clip();
+      this.drawScene(shop, now, hints, pane);
+      ctx.restore();
+    }
+    // A thin frame between the panes.
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    ctx.fillStyle = '#1b120c';
+    ctx.fillRect(SCENE_W - 3, 0, 6, this.viewH);
+  }
+
+  /** Draws the scene (or, side by side, what one pane needs: the workshop or the storefront). */
+  private drawScene(shop: Shop, now: number, hints: { pot: boolean; register: boolean }, pane: 'all' | 'workshop' | 'store'): void {
+    const ctx = this.ctx;
+    const shopPart = pane !== 'workshop';
+    const workshopPart = pane !== 'store';
 
     const furnish = furnishingOf(shop);
     const loaded = ready(img(furnish.view)) && Object.values(DECOR).every((r) => ready(img(fileOf(r))));
@@ -466,21 +517,22 @@ export class SceneRenderer {
       paintStorefront(bctx, furnish);
       this.bgKey = key;
     }
-    ctx.drawImage(this.bg, 0, 0, SCENE_W, SCENE_H);
-
-    this.drawFloorHazards(shop, now);
-    this.drawShelfItems(shop, now);
-    this.drawCounter(shop, now, hints.register);
-    this.drawActors(shop, now);
-    this.drawShopEvents(shop, now);
-    if (shop.stats.guardChance > 0) {
-      drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 22, MAYCRI_POS.y - 44, 44, 44);
+    if (shopPart) {
+      ctx.drawImage(this.bg, 0, 0, SCENE_W, SCENE_H);
+      this.drawFloorHazards(shop, now);
+      this.drawShelfItems(shop, now);
+      this.drawCounter(shop, now, hints.register);
+      this.drawActors(shop, now);
+      this.drawShopEvents(shop, now);
+      if (shop.stats.guardChance > 0) {
+        drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 22, MAYCRI_POS.y - 44, 44, 44);
+      }
     }
-    this.drawWorkshop(shop, now, hints.pot);
+    if (workshopPart) this.drawWorkshop(shop, now, hints.pot);
     this.drawFlyers(shop);
     this.drawWeather(shop, now);
     this.drawEffects(shop);
-    this.drawDecision(shop, now);
+    if (shopPart) this.drawDecision(shop, now);
     this.drawPopups(shop);
   }
 

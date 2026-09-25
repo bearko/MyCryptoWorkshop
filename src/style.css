@@ -2716,3 +2716,20 @@ body.in-day {
 .reset .btn.danger {
   width: 100%;
 }
+
+/* ---------------------------------------------------------------- wide screens: side by side
+   The workshop is the left half of the scene and the storefront the right half (fitScene). */
+
+.scene.side .hud {
+  /* Top right of the workshop, clear of the storefront's door. */
+  right: calc(50% + 8px);
+}
+
+.scene.side .navi-toast {
+  max-width: min(calc(50% - 234px), 320px);
+}
+
+.scene.side .open-card {
+  left: 75%;
+  width: min(43%, 360px);
+}
