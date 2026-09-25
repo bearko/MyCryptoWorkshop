@@ -2,7 +2,7 @@ import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
 import { STAFF_ROLES } from '../game/staff';
-import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type Levels, type SkillNode } from '../game/skills';
+import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, unlockConditions, type Levels, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
 import { GEM_COST } from '../game/shop/production';
@@ -547,7 +547,14 @@ export class TreeView {
           icon(node.icon, 'px detail-icon'),
           h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available ? node.name : t('？？？', '???'))),
         ),
-        h('p.detail-desc', {}, available ? node.desc : t('前のスキルを習得すると解放されます', 'Unlocks when you learn the skill before it')),
+        available
+          ? h('p.detail-desc', {}, node.desc)
+          : h(
+              'div.detail-desc',
+              {},
+              h('p', {}, t('解放条件', 'To unlock')),
+              h('ul.detail-conditions', {}, ...unlockConditions(node, levels).map((c) => h('li', { class: c.met ? 'met' : '' }, c.met ? '✓ ' : '• ', c.text))),
+            ),
         h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? t('習得済み', 'Learned') : t('未習得', 'Not learned')),
       );
       if (available && !maxed) {
