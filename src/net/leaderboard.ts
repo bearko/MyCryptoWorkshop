@@ -1,5 +1,6 @@
 import { newRanking, type SaveData } from '../game/save';
 import { t } from '../i18n';
+import { titleCode } from '../game/titles';
 
 /**
  * The worldwide leaderboards (api/leaderboard.ts on Vercel, Upstash Redis behind it).
@@ -34,6 +35,8 @@ export interface BoardEntry {
   me?: boolean;
   /** Signed in with Google. */
   verified?: boolean;
+  /** Title code (称号), see titleCodeLabel. */
+  title?: string;
 }
 
 /** Sign-in settings of the server. */
@@ -71,6 +74,7 @@ export function submission(save: SaveData, lastDay: number) {
     run: p.runs + 1,
     day: save.day,
     playSeconds: save.meta.playSeconds,
+    title: titleCode(save.levels),
     ...(save.ranking.secret ? { secret: save.ranking.secret } : {}),
   };
 }

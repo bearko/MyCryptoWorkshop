@@ -2,7 +2,7 @@
 import { newSave, type SaveData } from '../save';
 import { Shop, type DayReport, type Decision, type Rng } from '../shop';
 import { GEM_IDS, LINE_IDS } from '../lines';
-import { buy, canBuy } from '../purchase';
+import { buy, canBuy, extrasCovered } from '../purchase';
 import { GEM_COST } from '../shop/production';
 import { costOf, isAvailable, level, SKILLS, TREE_NODES } from '../skills';
 import { STAFF_ROLES } from '../staff';
@@ -113,7 +113,7 @@ export function spend(save: SaveData, lastRevenue: number): void {
       buy(save, materialNode);
       continue;
     }
-    const options = SKILLS.filter((n) => !n.currency && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
+    const options = SKILLS.filter((n) => !n.currency && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max && extrasCovered(save, n))
       .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') || (n.id.startsWith('scout_') && level(save.levels, n.id) === 0) }))
       .sort((a, b) => a.cost - b.cost);
     const nextKey = options.find((o) => o.key);

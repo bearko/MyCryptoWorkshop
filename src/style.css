@@ -2993,3 +2993,19 @@ body.in-day {
   color: #ffb35c;
   font-weight: bold;
 }
+
+.detail-changes li.short b {
+  color: var(--bad);
+}
+
+.rank-title {
+  margin-left: 4px;
+  color: #e0c3ff;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.detail-desc p.detail-goal {
+  color: var(--text);
+  margin-bottom: 6px;
+}

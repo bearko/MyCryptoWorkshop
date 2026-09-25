@@ -5,6 +5,7 @@ import type { Shop } from './index';
 import type { Order } from '../orders';
 import type { Visit } from './types';
 import { t } from '../../i18n';
+import { CRYPTID_BOOST_SECONDS, cryptidVisitBoost } from '../titles';
 
 /** Vehicles that bring a guild of customers at once. Index = stats.vehicle. */
 export const VEHICLES = [
@@ -115,7 +116,13 @@ export class Visitors {
           done.coins ? t(`コイン ${done.coins} 枚を回収`, `picked up ${done.coins} coins`) : '',
           done.pests ? t(`エネミー ${done.pests} 体を退治`, `defeated ${done.pests} enemies`) : '',
         ].filter(Boolean);
-        const effect = parts.length ? parts.join(t('・', ', ')) : t('店の床を清めた（汚れなし）', 'purified the floor (it was already clean)');
+        let effect = parts.length ? parts.join(t('・', ', ')) : t('店の床を清めた（汚れなし）', 'purified the floor (it was already clean)');
+        // Titles of this land: the cryptid also boosts sales while it is here.
+        const boost = cryptidVisitBoost(shop.save.levels, land.key);
+        if (boost > 1) {
+          this.boost(boost, CRYPTID_BOOST_SECONDS);
+          effect += t(`・${CRYPTID_BOOST_SECONDS}秒間 売上 ×${boost}`, `, sales ×${boost} for ${CRYPTID_BOOST_SECONDS}s`);
+        }
         this.arrive({ kind: 'cryptid', name: t(`${land.name}のクリプタイド`, `${land.name} Cryptid`), image: land.cryptid, skill: t('ランドの守護', 'Land Guardian'), effect, x: DOOR.x - 120, y: FLOOR_Y + 40, t: 0, dur: VISIT_TIME });
       }
     }

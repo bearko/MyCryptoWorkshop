@@ -45,6 +45,8 @@ const MAX_REVENUE = 1e21;
 const MAX_LIMIT = 100;
 const NAMES = 'lb:names';
 const META = 'lb:meta';
+/** Each player's title (称号), shown next to the name. */
+const TITLES = 'lb:titles';
 const BANNED = 'lb:banned';
 
 type Cmd = (string | number)[];
@@ -115,6 +117,19 @@ export interface Submission {
   run: number;
   day: number;
   playSeconds: number;
+  /** Title code ("<land>:<rank>" or "verse"), or null for none. */
+  title: string | null;
+}
+
+const TITLE_LANDS = ['Ocean', 'Strawberry', 'Tangerine', 'Lime', 'Graphite', 'Grape', 'Sage', 'Blueberry', 'Ruby'];
+const TITLE_RANKS = ['commander', 'knightCommander', 'knight', 'g5', 'maestro', 'king'];
+
+/** A known title code, or null (anything else is dropped rather than refused). */
+export function cleanTitle(raw: unknown): string | null {
+  if (raw === 'verse') return 'verse';
+  if (typeof raw !== 'string') return null;
+  const [land, rank] = raw.split(':');
+  return TITLE_LANDS.includes(land) && TITLE_RANKS.includes(rank) && raw === `${land}:${rank}` ? raw : null;
 }
 
 const num = (v: unknown, max = MAX_REVENUE) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : NaN);
@@ -139,6 +154,7 @@ export function validate(body: unknown): Submission | string {
     run: num(b.run ?? 1, 1e6),
     day: num(b.day ?? 1, 1e7),
     playSeconds: num(b.playSeconds ?? 0, 1e10),
+    title: cleanTitle(b.title),
   };
   const values = [s.total, s.bestDay, s.lastDay, s.day30, s.clear1, s.clearBest, s.run, s.day, s.playSeconds];
   if (values.some((v) => Number.isNaN(v))) return 'bad_number';
@@ -405,12 +421,12 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
       ids.push(flat[i]);
       scores.push(Number(flat[i + 1]));
     }
-    const [names, verified] = ids.length ? ((await store.exec([['HMGET', NAMES, ...ids], ['HMGET', VERIFIED, ...ids]])) as (string | null)[][]) : [[], []];
+    const [names, verified, titles] = ids.length ? ((await store.exec([['HMGET', NAMES, ...ids], ['HMGET', VERIFIED, ...ids], ['HMGET', TITLES, ...ids]])) as (string | null)[][]) : [[], [], []];
     // Ties share a rank (1, 2, 2, 4).
     let rank = 0;
     const entries = ids.map((id, i) => {
       if (i === 0 || scores[i] !== scores[i - 1]) rank = i + 1;
-      return { rank, name: names[i] ?? '???', score: scores[i], ...(verified[i] ? { verified: true } : {}), ...(id === me ? { me: true } : {}), ...(admin ? { id } : {}) };
+      return { rank, name: names[i] ?? '???', score: scores[i], ...(titles?.[i] ? { title: titles[i] } : {}), ...(verified[i] ? { verified: true } : {}), ...(id === me ? { me: true } : {}), ...(admin ? { id } : {}) };
     });
     const mine = myRank !== null && myRank !== undefined && !(myRank instanceof Error) ? { rank: Number(myRank) + 1, score: Number(myScore) } : null;
     const period = board === 'today' ? dayKey(now()) : board === 'week' ? weekKey(now()) : null;
@@ -431,6 +447,7 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     const t = now();
     const cmds: Cmd[] = [
       ['HSET', NAMES, s.id, s.name],
+      s.title ? ['HSET', TITLES, s.id, s.title] : ['HDEL', TITLES, s.id],
       ['HSET', META, s.id, JSON.stringify({ run: s.run, day: s.day, playSeconds: s.playSeconds, at: t })],
       ['ZADD', boardKey('total', t), 'GT', s.total, s.id],
       ['ZADD', boardKey('bestDay', t), 'GT', s.bestDay, s.id],
@@ -457,7 +474,9 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
       cmds.push(['ZADD', boardKey(b, t), BOARDS[b] === 'asc' ? 'LT' : 'GT', Number(scores[i]), to], ['ZREM', boardKey(b, t), from]);
     });
     if (fromName && !toName) cmds.push(['HSET', NAMES, to, fromName]);
-    cmds.push(['HDEL', NAMES, from], ['HDEL', META, from]);
+    const [fromTitle, toTitle] = (await store.exec([['HMGET', TITLES, from, to]]))[0] as (string | null)[];
+    if (fromTitle && !toTitle) cmds.push(['HSET', TITLES, to, fromTitle]);
+    cmds.push(['HDEL', NAMES, from], ['HDEL', META, from], ['HDEL', TITLES, from]);
     await store.exec(cmds);
   }
 
@@ -507,7 +526,7 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     }
     const t = now();
     const cmds: Cmd[] = (Object.keys(BOARDS) as BoardKey[]).map((b) => ['ZREM', boardKey(b, t), id]);
-    cmds.push(['HDEL', NAMES, id], ['HDEL', META, id]);
+    cmds.push(['HDEL', NAMES, id], ['HDEL', META, id], ['HDEL', TITLES, id]);
     if (body?.ban === true && admin) {
       // The Google link stays, so signing in again finds the banned player.
       cmds.push(['SADD', BANNED, id]);
