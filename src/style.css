@@ -1672,6 +1672,7 @@ body.in-day {
 
 .decision-option {
   display: grid;
+  justify-items: start;
   gap: 2px;
   text-align: left;
   padding: 10px 14px;
@@ -1682,10 +1683,14 @@ body.in-day {
   font-size: 12px;
 }
 
-.decision-timer {
-  color: var(--muted);
-  font-size: 12px;
-  text-align: right;
+.decision-option:disabled {
+  /* Armed a moment after opening (a tap meant for the shop must not pick an option). */
+  opacity: 0.55;
+  cursor: default;
+}
+
+.decision-option {
+  transition: opacity 0.2s;
 }
 
 /* First Legendary / 真 / golden edition */

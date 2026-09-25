@@ -5,6 +5,7 @@ import { CONDITIONS, FIRST_EVENT_DAY, rollCondition, type DayCondition } from '.
 import { migrate, newSave, parseSave, SAVE_VERSION, type SaveData } from '../src/game/save';
 import { Shop, type Decision, type ShopEvent } from '../src/game/shop';
 import { makeActor } from '../src/game/shop/actors';
+import { DECISION_WAIT } from '../src/game/shop/decisions';
 import { averageTierPay, salePrice } from '../src/game/stats';
 import { fmt } from '../src/game/format';
 
@@ -79,16 +80,40 @@ describe('decision events', () => {
     }
   });
 
-  it('the day is paused while a decision waits', () => {
+  it('a visitor waits in the shop while the day goes on; opening the choice pauses it', () => {
     const shop = new Shop(saveWith({}, { day: 6, shelf: FULL_SHELF }), seeded(3));
     for (let i = 0; i < 30 * 60 && !shop.pendingDecision; i++) shop.update(1 / 30);
-    expect(shop.pendingDecision).not.toBeNull();
+    const d = shop.pendingDecision!;
+    expect(d).not.toBeNull();
+    expect(d.viewing).toBe(false);
+    // The day goes on while they wait, and they can be tapped where they stand.
     const at = shop.elapsed;
     for (let i = 0; i < 30; i++) shop.update(1 / 30);
-    expect(shop.elapsed).toBe(at);
-    shop.decide(shop.pendingDecision!.fallback);
-    shop.update(1 / 30);
     expect(shop.elapsed).toBeGreaterThan(at);
+    expect(shop.decisionAt(d.x, d.y - 40)).toBe(true);
+    expect(shop.decisionAt(d.x + 300, d.y)).toBe(false);
+    // Tapped: the choice is shown and the day stops.
+    expect(shop.viewDecision()).toBe(d);
+    const paused = shop.elapsed;
+    for (let i = 0; i < 30; i++) shop.update(1 / 30);
+    expect(shop.elapsed).toBe(paused);
+    // "Later": they wait again and the day resumes.
+    shop.deferDecision();
+    shop.update(1 / 30);
+    expect(shop.elapsed).toBeGreaterThan(paused);
+    shop.decide(d.fallback);
+    expect(shop.pendingDecision).toBeNull();
+  });
+
+  it('left alone, the visitor takes the fallback after a while', () => {
+    const shop = new Shop(saveWith({}, { day: 6, shelf: FULL_SHELF }), seeded(3));
+    const events: ShopEvent[] = [];
+    shop.on((e) => events.push(e));
+    for (let i = 0; i < 30 * 60 && !shop.pendingDecision; i++) shop.update(1 / 30);
+    const d = shop.pendingDecision!;
+    for (let i = 0; i < 30 * (DECISION_WAIT + 1) && shop.pendingDecision; i++) shop.update(1 / 30);
+    expect(shop.pendingDecision).toBeNull();
+    expect(events.find((e) => e.type === 'decided')).toMatchObject({ kind: d.kind, choice: d.fallback });
   });
 
   it('selling to the shady merchant empties shelf and storage for cash', () => {
