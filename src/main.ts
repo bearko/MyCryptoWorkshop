@@ -20,6 +20,7 @@ import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
 import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
+import { dailiesList, ordersList } from './ui/dayInfo';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
@@ -128,7 +129,9 @@ const logList = h('ul.log');
 // Before opening: the day's card with the open button, over the storefront.
 const openDayBtn = h('button.btn.btn-primary.open-day', { onclick: () => openDay() }) as HTMLButtonElement;
 const openInfo = h('p.open-info');
-const openCard = h('div.open-card', {}, openInfo, openDayBtn);
+// Today's orders and daily requests (shown here instead of the skill tree).
+const openExtras = h('div.open-extras');
+const openCard = h('div.open-card', {}, openInfo, openExtras, openDayBtn);
 // The switch to the skill tree, bottom right (the tree's "to the shop" button sits in the same spot).
 const toTreeBtn = h('button.btn.nav-btn.to-tree', { onclick: () => showTree() }, t('🌳 スキルツリー', '🌳 Skill tree'));
 const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast, openCard, toTreeBtn);
@@ -448,6 +451,7 @@ function openPauseMenu(): void {
       ).map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))),
     ),
     ...(save.dailies.length ? [h('h3', {}, t('今日のデイリー依頼', 'Today\'s daily requests')), dailyList(r)] : []),
+    ordersList(save),
     h('h3', {}, t('できごと', 'Events')),
     logCopy.children.length ? logCopy : h('p.muted', {}, t('まだ何も起きていません', 'Nothing has happened yet')),
   );
@@ -1000,6 +1004,9 @@ function updateOpenCard(): void {
   if (!waiting) return;
   const c = save.forecast;
   openInfo.replaceChildren(h('b', {}, `Day ${save.day}`), ' ', conditionLabel(c), h('br'), h('small', {}, CONDITIONS[c.kind].desc));
+  const extras = [ordersList(save), dailiesList(save)].filter((e): e is HTMLElement => !!e);
+  openExtras.replaceChildren(...extras);
+  openExtras.hidden = !extras.length;
   openDayBtn.textContent = t(`▶ Day ${save.day} 開店する`, `▶ Open for Day ${save.day}`);
 }
 

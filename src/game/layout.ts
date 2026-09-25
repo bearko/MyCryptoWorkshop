@@ -16,7 +16,10 @@ const wy = (y: number) => y - WORKSHOP_CROP;
 
 /** The magic pot in the illustration; `hit` covers the whole pot (handles and lid bubbles too). */
 export const POT = { x: 815, y: wy(780), mouthY: wy(715), hit: { x0: 680, y0: wy(660), x1: 960, y1: wy(935) } };
-/** Spots in the workshop where pests land and hop between (feet positions). */
+/**
+ * Spots in the workshop where pests land and hop between (feet positions). All in the middle and
+ * lower workshop: the top is left to the HUD and Mine-chan's tips, which would hide them.
+ */
 export const PEST_SPOTS = [
   { x: 470, y: wy(690) },
   { x: 600, y: wy(650) },
@@ -27,9 +30,9 @@ export const PEST_SPOTS = [
   { x: 640, y: wy(830) },
   { x: 905, y: wy(650) },
   { x: 710, y: wy(640) },
-  { x: 420, y: wy(310) },
-  { x: 560, y: wy(330) },
-  { x: 250, y: wy(320) },
+  { x: 330, y: wy(600) },
+  { x: 780, y: wy(590) },
+  { x: 200, y: wy(810) },
   { x: 90, y: wy(890) },
   { x: 800, y: wy(760) },
 ];

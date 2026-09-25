@@ -12,14 +12,14 @@ describe('skill tree layout', () => {
   });
 
   it('every block sits next to the rest of the tree (no islands)', () => {
-    // Nodes within two cells of each other (one empty cell between at most) are neighbours;
-    // the whole tree must be one connected cluster.
+    // Nodes in touching cells (sides or corners) are neighbours; the whole tree must be one
+    // connected cluster, with no block set apart by an empty row or column.
     const seen = new Set<string>([TREE_NODES[0].id]);
     const queue = [TREE_NODES[0]];
     while (queue.length) {
       const a = queue.pop()!;
       for (const b of TREE_NODES) {
-        if (seen.has(b.id) || Math.hypot(a.x - b.x, a.y - b.y) > 2) continue;
+        if (seen.has(b.id) || Math.abs(a.x - b.x) > 1 || Math.abs(a.y - b.y) > 1) continue;
         seen.add(b.id);
         queue.push(b);
       }
@@ -63,5 +63,25 @@ describe('buying skills during the day', () => {
     expect(shop.register.progress.length).toBe(2);
     expect(shop.staffMembers.map((m) => m.role)).toContain('stocker');
     expect(shop.timeLeft).toBeCloseTo(left + 8);
+  });
+});
+
+describe('workshop layout', () => {
+  it('pests stay out of the top of the workshop (HUD and tips)', async () => {
+    const { PEST_SPOTS, PEST_PX, WORKSHOP_H } = await import('../src/game/layout');
+    // Top of a pest's sprite, with the hop jitter.
+    for (const s of PEST_SPOTS) expect(s.y - 10 - PEST_PX).toBeGreaterThan(WORKSHOP_H * 0.4);
+  });
+});
+
+describe('feature nodes', () => {
+  it('staff, recipes and unlocks get the ornate frame; plain upgrades do not', async () => {
+    const { isFeature } = await import('../src/game/features');
+    const { skillById } = await import('../src/game/skills');
+    for (const id of ['hire_stocker', 'recipe_Katana', 'storeHub', 'epic', 'tier1', 'conveyor', 'market', 'autoBuyer', 'register', 'showcase']) expect(isFeature(id), id).toBe(true);
+    for (const id of ['craftSpeed', 'price', 'shelf', 'rsGrandTheory', 'stocker_1', 'honor_price_1', 'rep_Katana']) {
+      expect(skillById.has(id), id).toBe(true);
+      expect(isFeature(id), id).toBe(false);
+    }
   });
 });

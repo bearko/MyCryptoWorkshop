@@ -403,9 +403,10 @@ body.in-day {
 /* Mine-chan's tip, shown briefly under the gear icon; taps pass through to the game. */
 .navi-toast {
   position: absolute;
-  top: 58px;
+  top: 56px;
   left: 8px;
-  max-width: min(62%, 320px);
+  /* Left of the HUD (top right), below the menu button; pests stay out of this top band. */
+  max-width: min(calc(100% - min(44%, 210px) - 24px), 320px);
   display: flex;
   align-items: flex-end;
   gap: 6px;
@@ -708,8 +709,84 @@ body.in-day {
   }
 }
 
+/* Nodes that add something new to the game: a gold frame with a gem on top and corner studs. */
+.node.feature {
+  border-color: #c9953a;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--branch) 26%, #3a2614), #1a0f08 75%);
+  box-shadow:
+    0 4px 0 #0009,
+    inset 0 0 0 2px #2a1808,
+    inset 0 0 0 4px color-mix(in srgb, var(--branch) 55%, #6b4a1c);
+}
+
+.node.feature::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 13px;
+  height: 13px;
+  margin-left: -8px;
+  rotate: 45deg;
+  border: 2px solid #5a3a12;
+  background: linear-gradient(135deg, #fff6c8, #e8b64a 55%, #a8701f);
+  box-shadow: 0 0 6px #ffd96688;
+}
+
+.node.feature::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 14px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 5px 5px, #ffe08a 3px, #7a4f16 4px, transparent 5px),
+    radial-gradient(circle at calc(100% - 5px) 5px, #ffe08a 3px, #7a4f16 4px, transparent 5px),
+    radial-gradient(circle at 5px calc(100% - 5px), #ffe08a 3px, #7a4f16 4px, transparent 5px),
+    radial-gradient(circle at calc(100% - 5px) calc(100% - 5px), #ffe08a 3px, #7a4f16 4px, transparent 5px);
+}
+
+.node.feature.owned {
+  border-color: #ffd966;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--branch) 40%, #5a3a18), #2a1a0c 80%);
+}
+
+.node.feature.maxed {
+  box-shadow:
+    0 0 0 3px #0008,
+    0 0 20px #ffd96699,
+    inset 0 0 0 2px #2a1808,
+    inset 0 0 0 4px color-mix(in srgb, var(--branch) 55%, #6b4a1c);
+}
+
+.node.feature.locked {
+  border-color: #c9953a66;
+  background: #120b07;
+}
+
+.node.feature.locked::before {
+  filter: grayscale(1) brightness(0.5);
+  box-shadow: none;
+}
+
+.node.feature.locked::after {
+  opacity: 0.35;
+}
+
+.feature-tag {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: linear-gradient(#f6d47a, #c9953a);
+  color: #3a2410;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .node-level {
   position: absolute;
+  z-index: 1;
   right: -8px;
   bottom: -8px;
   min-width: 22px;
@@ -1402,8 +1479,47 @@ body.in-day {
 
   .tree-side {
     max-height: 46dvh;
+    gap: 8px;
+    padding: 10px 10px 76px;
     border-left: 0;
     border-top: 2px solid var(--line);
+  }
+
+  /* Compact detail card: name, effect and the buy button fit in the panel without scrolling. */
+  .tree-detail {
+    min-height: 0;
+    padding: 8px 10px;
+  }
+
+  .detail-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .detail-name {
+    font-size: 16px;
+  }
+
+  .detail-desc {
+    margin: 6px 0 4px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .detail-level {
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .detail-changes {
+    margin-bottom: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  .btn-buy {
+    padding: 8px;
+    font-size: 15px;
   }
 
   .tree-stats {
@@ -2250,6 +2366,15 @@ body.in-day {
   bottom: 14px;
 }
 
+.tree-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #0004;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .tree-side {
   /* Room for the "to the shop" button at the bottom right. */
   padding-bottom: 76px;
@@ -2259,8 +2384,12 @@ body.in-day {
 .open-card {
   position: absolute;
   left: 50%;
-  top: 72%;
-  translate: -50% -50%;
+  /* Above the skill tree button (bottom right), below the HUD. */
+  bottom: 64px;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 64px - 56px);
   z-index: 7;
   width: min(86%, 360px);
   padding: 14px 16px;
@@ -2280,7 +2409,20 @@ body.in-day {
   color: var(--muted);
 }
 
+.open-extras {
+  min-height: 0;
+  overflow: auto;
+  margin: 0 0 10px;
+  text-align: left;
+}
+
+.open-extras .order-row,
+.open-extras .daily-row {
+  margin-bottom: 4px;
+}
+
 .open-day {
+  flex: none;
   width: 100%;
   font-size: 18px;
   padding: 12px;
