@@ -1,14 +1,12 @@
-import { icons, series } from '../game/catalog';
+import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
 import { CURRENCIES } from '../game/currency';
-import { conditionLabel, CONDITIONS } from '../game/conditions';
-import { orderHero, orderLabel } from '../game/orders';
-import { dailyLabel } from '../game/achievements';
 import { STAFF_ROLES } from '../game/staff';
 import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, type Levels, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
 import { balanceFor } from '../game/purchase';
 import { GEM_COST } from '../game/shop/production';
+import { isFeature } from '../game/features';
 import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
@@ -44,8 +42,8 @@ export interface TreeCallbacks {
   onRelocate(): void;
 }
 
-/** Zoom limits of the tree view. */
-const clampZoom = (z: number) => Math.min(1.6, Math.max(0.35, z));
+/** Closest zoom of the tree view. */
+const MAX_ZOOM = 1.6;
 
 /** Pannable skill-tree screen shown between business days. */
 export class TreeView {
@@ -60,9 +58,9 @@ export class TreeView {
   private dayOpen = false;
   private shownOnce = false;
   private readonly moveBtn = h('button.btn.relocate-btn', {}, t('🧭 ランド移転（2周目へ）', '🧭 Relocate (start run 2)')) as HTMLButtonElement;
-  private readonly forecast = h('div.forecast');
-  private readonly ordersBox = h('div.orders');
-  private readonly dailyBox = h('div.dailies');
+  /** Shown while a business day waits in the shop. */
+  private readonly dayNote = h('p.tree-note');
+  private side!: HTMLElement;
   private readonly buyList: HTMLElement;
   private readonly infusionBox: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
@@ -98,6 +96,8 @@ export class TreeView {
         },
       });
       el.append(icon(node.icon, 'px node-icon'), h('span.node-level'));
+      // Nodes that add something new (staff, items, facilities…) get the ornate frame.
+      if (isFeature(node.id)) el.classList.add('feature');
       this.nodeEls.set(node.id, el);
       this.world.append(el);
     }
@@ -158,31 +158,31 @@ export class TreeView {
       h('button.btn.small', { onclick: () => this.setZoom(this.zoom * 1.2), 'aria-label': t('ズームイン', 'Zoom in') }, '+'),
       h('button.btn.small', { onclick: () => this.setZoom(this.zoom / 1.2), 'aria-label': t('ズームアウト', 'Zoom out') }, '−'),
       h('button.btn.small', { onclick: () => this.center(), 'aria-label': t('中央へ', 'Center') }, '◎'),
+      h('button.btn.small', { onclick: () => this.overview(), 'aria-label': t('全体を表示', 'Whole tree'), title: t('全体を表示', 'Whole tree') }, '⤢'),
     );
 
     this.root = h(
       'section.tree-view',
       {},
       h('div.tree-stage', {}, viewport, chips, this.minimap, zoomButtons),
-      h(
+      (this.side = h(
         'div.tree-side',
         {},
-        this.forecast,
-        this.ordersBox,
-        this.dailyBox,
-        this.moveBtn,
-        h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan, scroll to zoom.')),
+        // The selected node first, so its name and effect show without scrolling.
         this.detail,
-        this.infusionBox,
+        this.dayNote,
+        this.moveBtn,
         this.buyList,
+        this.infusionBox,
         h('button.btn', { onclick: () => this.cb.onCollection() }, t('📖 図鑑を見る', '📖 Collection')),
         this.statsBox,
-      ),
+        h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールまたはピンチで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan; scroll or pinch to zoom.')),
+      )),
       this.shopBtn,
     );
   }
 
-  /** Whether a business day is open while the tree is shown (it changes the forecast label). */
+  /** Whether a business day is open while the tree is shown (a note says it waits in the shop). */
   setDayOpen(open: boolean): void {
     this.dayOpen = open;
   }
@@ -203,7 +203,9 @@ export class TreeView {
   private suggest(): string {
     const buyable = TREE_NODES.filter((n) => isAvailable(n, this.save.levels) && level(this.save.levels, n.id) < n.max);
     buyable.sort((a, b) => costOf(a, level(this.save.levels, a.id)) - costOf(b, level(this.save.levels, b.id)));
-    return buyable[0]?.id ?? 'root';
+    // Something the player can afford now, else the cheapest.
+    const affordable = buyable.find((n) => balanceFor(this.save, n) >= costOf(n, level(this.save.levels, n.id)));
+    return (affordable ?? buyable[0])?.id ?? 'root';
   }
 
   private center(): void {
@@ -211,6 +213,21 @@ export class TreeView {
     const rect = vp.getBoundingClientRect();
     this.pan = { x: rect.width / 2 + 40, y: rect.height / 2 };
     this.applyTransform();
+  }
+
+  /** Zooms all the way out onto the middle of the whole tree. */
+  private overview(): void {
+    this.zoom = this.clampZoom(0);
+    this.panTo((BOUNDS.x0 + BOUNDS.x1) / 2, (BOUNDS.y0 + BOUNDS.y1) / 2);
+  }
+
+  /** Zoom limits: zoomed all the way out, the whole tree fits in the view (on a phone, too). */
+  private clampZoom(z: number): number {
+    const r = this.viewport.getBoundingClientRect();
+    const margin = 1.5;
+    const fit = Math.min(r.width / ((BOUNDS.x1 - BOUNDS.x0 + margin * 2) * UNIT), r.height / ((BOUNDS.y1 - BOUNDS.y0 + margin * 2) * UNIT));
+    const min = r.width > 0 ? Math.min(0.35, fit) : 0.35;
+    return Math.min(MAX_ZOOM, Math.max(min, z));
   }
 
   /** Zoom buttons: around the middle of the view. */
@@ -318,7 +335,7 @@ export class TreeView {
       if (pinch && pointers.size >= 2) {
         const [a, b] = [...pointers.values()];
         const mid = local((a.x + b.x) / 2, (a.y + b.y) / 2);
-        this.zoom = clampZoom((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist);
+        this.zoom = this.clampZoom((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist);
         this.pan = { x: mid.x - pinch.wx * this.zoom, y: mid.y - pinch.wy * this.zoom };
         this.applyTransform();
       } else if (drag) {
@@ -362,7 +379,7 @@ export class TreeView {
 
   /** Zooms keeping the viewport point (px, py) fixed. */
   private zoomAt(z: number, px: number, py: number): void {
-    const next = clampZoom(z);
+    const next = this.clampZoom(z);
     const wx = (px - this.pan.x) / this.zoom;
     const wy = (py - this.pan.y) / this.zoom;
     this.zoom = next;
@@ -380,6 +397,8 @@ export class TreeView {
     const node = skillById.get(id);
     if (pan && node) this.panTo(node.x, node.y);
     this.refresh();
+    // The detail card is at the top of the panel: show it whole.
+    this.side.scrollTop = 0;
   }
 
   /** 魔石 infusion picker for tomorrow's business day (one 魔石 type per line). */
@@ -503,31 +522,8 @@ export class TreeView {
     // Start button
     this.moveBtn.hidden = computeStats(levels).cleared <= 0;
     this.moveBtn.textContent = t(`🧭 ランド移転（${this.save.prestige.runs + 2}周目へ）`, `🧭 Relocate (start run ${this.save.prestige.runs + 2})`);
-    const c = this.save.forecast;
-    this.forecast.replaceChildren(
-      h('b', {}, this.dayOpen ? t(`営業中（Day ${this.save.day}）: ${conditionLabel(c)}`, `Open (Day ${this.save.day}): ${conditionLabel(c)}`) : t(`次の営業日: ${conditionLabel(c)}`, `Next business day: ${conditionLabel(c)}`)),
-      h('span', {}, this.dayOpen ? t('ショップに戻ると営業の続きから。ここで習得したスキルはすぐに反映されます', 'Back in the shop the day picks up where it left off, with the skills you learn here') : CONDITIONS[c.kind].desc),
-    );
-    this.dailyBox.replaceChildren(
-      ...(this.save.dailies.length
-        ? [h('h3', {}, t(`デイリー依頼（達成でエンブレム）`, `Daily requests (earn emblems)`)), ...this.save.dailies.map((d) => h('div.daily-row', {}, h('span', {}, dailyLabel(d)), h('b', {}, '+1')))]
-        : []),
-    );
-    const orders = this.save.orders;
-    this.ordersBox.replaceChildren(
-      ...(orders.length ? [h('h3', {}, t(`注文（${orders.length}件）`, `Orders (${orders.length})`))] : []),
-      ...orders.map((o) => {
-        const hero = orderHero(o);
-        return h(
-          'div.order-row',
-          {},
-          icon(hero.image, 'px'),
-          h('div', {}, h('b', {}, hero.name), h('span', {}, t(`${orderLabel(o)} を ×${computeStats(this.save.levels).orderPay} で買いに来る`, `Wants: ${orderLabel(o)} (pays ×${computeStats(this.save.levels).orderPay})`))),
-          icon(series[o.series].items[o.minRarity].image, 'px'),
-          h('small', {}, o.days > 1 ? t(`あと${o.days}日`, `${o.days} days left`) : t('明日まで', 'Due tomorrow')),
-        );
-      }),
-    );
+    this.dayNote.hidden = !this.dayOpen;
+    this.dayNote.textContent = t(`Day ${this.save.day} の営業中。ショップに戻ると続きから（ここで習得したスキルはすぐ反映）`, `Day ${this.save.day} is open. Back in the shop it picks up where it left off (with the skills you learn here)`);
 
     // Detail card
     const node = this.selected ? skillById.get(this.selected) : undefined;
@@ -543,7 +539,7 @@ export class TreeView {
           'div.detail-head',
           {},
           icon(node.icon, 'px detail-icon'),
-          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`)), h('div.detail-name', {}, available ? node.name : t('？？？', '???'))),
+          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available ? node.name : t('？？？', '???'))),
         ),
         h('p.detail-desc', {}, available ? node.desc : t('前のスキルを習得すると解放されます', 'Unlocks when you learn the skill before it')),
         h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? t('習得済み', 'Learned') : t('未習得', 'Not learned')),

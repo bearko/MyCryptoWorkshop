@@ -14,8 +14,8 @@ import { t } from '../i18n';
  * runs (dx). Plain series fill bands of 30 rows going left from next to the 朱雀 (crafting)
  * columns; beasts, made by the capsule, fill bands of 20 rows going right just above it.
  */
-const PLAIN = { band: 30, x0: -5, step: -5, top: -1 };
-const BEAST = { band: 20, x0: 2, step: 5, top: -6 };
+const PLAIN = { band: 30, x0: -4, step: -5, top: -1 };
+const BEAST = { band: 20, x0: 1, step: 5, top: -5 };
 
 const groupIndex: number[] = [];
 {
@@ -29,9 +29,8 @@ export function seriesCell(i: number): { x: number; y: number; dx: number } {
   const g = beast ? BEAST : PLAIN;
   const band = Math.floor(groupIndex[i] / g.band);
   const r = groupIndex[i] % g.band;
-  // Even bands run up from the bottom row, odd ones come back down (one row higher for beasts,
-  // clear of the 名誉 block below them).
-  const y = band % 2 === 0 ? g.top - r : g.top - g.band + (beast ? 0 : 1) + r - (beast ? 1 : 0);
+  // Even bands run up from the bottom row, odd ones come back down.
+  const y = band % 2 === 0 ? g.top - r : g.top - g.band + 1 + r;
   return { x: g.x0 + g.step * band, y, dx: beast ? 1 : -1 };
 }
 
@@ -78,7 +77,11 @@ function previousRecipe(i: number): string {
 
 function seriesNodes(i: number): SkillNode[] {
   const s = series[i];
-  const { x, y, dx } = seriesCell(i);
+  const cell = seriesCell(i);
+  const { y, dx } = cell;
+  // Blade is opened by the レシピ帳 hub and has no recipe node: its row closes up. (Horse's recipe
+  // cell holds the 幻獣の書 hub.)
+  const x = i === 0 ? cell.x - dx : cell.x;
   const icon = s.items[Math.min(4, 1 + Math.floor(i / 40))].image;
   const cost = recipeCost[i];
   const beast = s.family === 'beast';
@@ -114,11 +117,20 @@ function seriesNodes(i: number): SkillNode[] {
       requires: opens, requiresAll: ['masterwork'], effects: [seriesEdition(i, 0.2)],
     },
   );
+  let next = 4;
   if (s.shin) {
     nodes.push({
       id: `shin_${s.key}`, branch: 'series', name: t(`真打ち：${s.name}`, `Shin Craft: ${s.name}`), desc: t(`${s.name}シリーズの Legendary が「真」になる確率 +5%`, `Chance that a ${s.name} Legendary is Shin +5%`),
-      icon: s.shin.image, x: x + dx * 4, y, max: 3, baseCost: 5 + Math.round(i / 10), growth: 1.5,
+      icon: s.shin.image, x: x + dx * next++, y, max: 3, baseCost: 5 + Math.round(i / 10), growth: 1.5,
       requires: opens, requiresAll: ['shinForge'], effects: [seriesShin(i, 0.05)], currency: 'research',
+    });
+  }
+  // 極意 fills a row to five cells (rows without a 真, and the Blade row), so the table has no holes.
+  if (x + dx * next !== cell.x + dx * 5) {
+    nodes.push({
+      id: `mastery_${s.key}`, branch: 'series', name: t(`極意：${s.name}`, `Mastery: ${s.name}`), desc: t(`${s.name}シリーズの販売価格 +8%（研究の成果）`, `${s.name} series sale price +8% (from research)`),
+      icon: s.items[4].image, x: x + dx * next, y, max: 3, baseCost: 4 + Math.round(i / 12), growth: 1.6,
+      requires: opens, requiresAll: ['lab'], effects: [seriesPrice(i, 0.08)], currency: 'research',
     });
   }
   return nodes;
@@ -180,11 +192,11 @@ export const PHASE5_SERIES_NODES: SkillNode[] = [
   // Hubs next to 陳列棚増設
   { id: 'recipeBook', branch: 'series', name: 'レシピ帳', desc: 'シリーズのレシピを集め始める。品揃えを意識して来客ペース +5%', icon: icons.gems.leviathan, x: -2, y: -1, max: 1, baseCost: 20, growth: 1, requires: ['shelf'], effects: [mul('spawnRate', 0.05)] },
   { id: 'planning', branch: 'series', name: '生産計画', desc: 'シリーズごとの「量産」を習得できるようになる。全ラインのクラフト時間 -3%', icon: icons.bufPhy, x: -3, y: -1, max: 1, baseCost: 5000, growth: 1, requires: ['recipeBook'], effects: LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 0.97)) },
-  { id: 'masterwork', branch: 'series', name: '名品鑑定', desc: 'シリーズごとの「名品」を習得できるようになる。エディションの出やすさ +5%', icon: icons.gems.garuda, x: -4, y: -1, max: 1, baseCost: 20000, growth: 1, requires: ['recipeBook'], requiresAll: ['appraisal'], effects: [mul('editionLuck', 0.05)] },
+  { id: 'masterwork', branch: 'series', name: '名品鑑定', desc: 'シリーズごとの「名品」を習得できるようになる。エディションの出やすさ +5%', icon: icons.gems.garuda, x: -3, y: -2, max: 1, baseCost: 20000, growth: 1, requires: ['recipeBook'], requiresAll: ['appraisal'], effects: [mul('editionLuck', 0.05)] },
   // 幻獣の書: opens the beast rows (Horse and the beast recipes), between the capsule and its grid.
   {
     id: 'beastBook', branch: 'series', name: '幻獣の書', desc: '幻獣シリーズの表を開く（ホースの評判・量産・名品と、幻獣のレシピ）。品揃えが増えて来客ペース +3%',
-    icon: series[HORSE].items[2].image, x: BEAST.x0, y: BEAST.top + 1, max: 1, baseCost: 1000, growth: 1, requires: ['capsuleLine'], effects: [mul('spawnRate', 0.03, 'variety')],
+    icon: series[HORSE].items[2].image, x: seriesCell(HORSE).x, y: seriesCell(HORSE).y, max: 1, baseCost: 1000, growth: 1, requires: ['capsuleLine'], effects: [mul('spawnRate', 0.03, 'variety')],
   },
   ...series.flatMap((_, i) => seriesNodes(i)),
 

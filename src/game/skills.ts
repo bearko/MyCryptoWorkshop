@@ -69,10 +69,10 @@ const PHASE2_NODES: SkillNode[] = [
   // Forge line (up-left)
   { id: 'forgeSpeed', branch: 'suzaku', name: 'ふいご', desc: '鍛冶炉のクラフト時間 -8%', icon: ext(S.Blade, 1), x: -2, y: -4, max: 10, baseCost: 400, growth: 1.5, requires: ['forge'], effects: [pow('forge.craftTime', 0.92)] },
   { id: 'forgeClick', branch: 'suzaku', name: '槌さばき', desc: '鍛冶炉タップの効果 +40%', icon: ext(S.Katana, 1), x: -3, y: -4, max: 5, baseCost: 500, growth: 1.7, requires: ['forgeSpeed'], effects: [mul('forge.craftClick', 0.4)] },
-  { id: 'forgeDouble', branch: 'suzaku', name: '二丁掛け', desc: '鍛冶炉で5%の確率で2個同時に完成', icon: ext(S.Musket, 2), x: -4, y: -4, max: 8, baseCost: 900, growth: 1.6, requires: ['forgeClick'], effects: [add('forge.doubleChance', 0.05)] },
+  { id: 'forgeDouble', branch: 'suzaku', name: '二丁掛け', desc: '鍛冶炉で5%の確率で2個同時に完成', icon: ext(S.Musket, 2), x: -3, y: -6, max: 8, baseCost: 900, growth: 1.6, requires: ['forgeOverclock'], effects: [add('forge.doubleChance', 0.05)] },
   { id: 'forgeTemper', branch: 'suzaku', name: '焼き入れ', desc: '鍛冶炉のエディションの出やすさ +20%', icon: ext(S.Shield, 2), x: -2, y: -5, max: 8, baseCost: 1200, growth: 1.7, requires: ['forgeSpeed'], effects: [mul('forge.editionLuck', 0.2)] },
   { id: 'forgeOverclock', branch: 'suzaku', name: '大ふいご', desc: '鍛冶炉を長押ししたときの速さ +0.5倍', icon: icons.bufPhy, x: -3, y: -5, max: 5, baseCost: 800, growth: 1.8, requires: ['forgeClick'], effects: [add('forge.overclock', 0.5)] },
-  { id: 'forgeCooling', branch: 'suzaku', name: '水桶', desc: '鍛冶炉の過熱ペース -10%、冷却ペース +15%', icon: ext(S.Armor, 1), x: -4, y: -5, max: 5, baseCost: 700, growth: 1.8, requires: ['forgeDouble'], effects: [pow('forge.heatRate', 0.9), mul('forge.coolRate', 0.15)] },
+  { id: 'forgeCooling', branch: 'suzaku', name: '水桶', desc: '鍛冶炉の過熱ペース -10%、冷却ペース +15%', icon: ext(S.Armor, 1), x: -3, y: -7, max: 5, baseCost: 700, growth: 1.8, requires: ['forgeDouble'], effects: [pow('forge.heatRate', 0.9), mul('forge.coolRate', 0.15)] },
   { id: 'forgeSpeed2', branch: 'suzaku', name: '名匠の技', desc: '鍛冶炉のクラフト時間 -6%', icon: ext(S.Katana, 4), x: -2, y: -6, max: 10, baseCost: 8000, growth: 1.5, requires: ['forgeTemper'], effects: [pow('forge.craftTime', 0.94)] },
 
   // Editions (column above the forge)
@@ -88,9 +88,9 @@ const PHASE2_NODES: SkillNode[] = [
   { id: 'capsuleSpeed', branch: 'suzaku', name: '培養液', desc: 'カプセルのクラフト時間 -8%', icon: ext(S.Horse, 1), x: 3, y: -4, max: 10, baseCost: 2500, growth: 1.5, requires: ['capsuleLine'], effects: [pow('capsule.craftTime', 0.92)] },
   { id: 'capsuleClick', branch: 'suzaku', name: '起動スイッチ', desc: 'カプセルタップの効果 +40%', icon: ext(S.Parrot, 1), x: 4, y: -4, max: 5, baseCost: 3000, growth: 1.7, requires: ['capsuleSpeed'], effects: [mul('capsule.craftClick', 0.4)] },
   { id: 'capsuleDouble', branch: 'suzaku', name: '双子の卵', desc: 'カプセルで5%の確率で2体同時に完成', icon: ext(S.Fairy, 2), x: 5, y: -4, max: 8, baseCost: 5000, growth: 1.6, requires: ['capsuleClick'], effects: [add('capsule.doubleChance', 0.05)] },
-  { id: 'capsuleLuck', branch: 'suzaku', name: '幻獣召喚陣', desc: 'カプセルの最高レアの出やすさ +25%', icon: ext(S.Pegasus, 2), x: 3, y: -5, max: 8, baseCost: 4000, growth: 1.7, requires: ['capsuleSpeed'], effects: [add('capsule.luck', 0.25)] },
-  { id: 'capsuleOverclock', branch: 'suzaku', name: '過充電', desc: 'カプセルを長押ししたときの速さ +0.5倍', icon: icons.bufInt, x: 4, y: -5, max: 5, baseCost: 3500, growth: 1.8, requires: ['capsuleClick'], effects: [add('capsule.overclock', 0.5)] },
-  { id: 'capsuleCooling', branch: 'suzaku', name: '冷却液', desc: 'カプセルの過熱ペース -10%、冷却ペース +15%', icon: ext(S.Tiger, 1), x: 5, y: -5, max: 5, baseCost: 3000, growth: 1.8, requires: ['capsuleDouble'], effects: [pow('capsule.heatRate', 0.9), mul('capsule.coolRate', 0.15)] },
+  { id: 'capsuleLuck', branch: 'suzaku', name: '幻獣召喚陣', desc: 'カプセルの最高レアの出やすさ +25%', icon: ext(S.Pegasus, 2), x: 4, y: -3, max: 8, baseCost: 4000, growth: 1.7, requires: ['capsuleSpeed'], effects: [add('capsule.luck', 0.25)] },
+  { id: 'capsuleOverclock', branch: 'suzaku', name: '過充電', desc: 'カプセルを長押ししたときの速さ +0.5倍', icon: icons.bufInt, x: 3, y: -3, max: 5, baseCost: 3500, growth: 1.8, requires: ['capsuleClick'], effects: [add('capsule.overclock', 0.5)] },
+  { id: 'capsuleCooling', branch: 'suzaku', name: '冷却液', desc: 'カプセルの過熱ペース -10%、冷却ペース +15%', icon: ext(S.Tiger, 1), x: 3, y: -2, max: 5, baseCost: 3000, growth: 1.8, requires: ['capsuleOverclock'], effects: [pow('capsule.heatRate', 0.9), mul('capsule.coolRate', 0.15)] },
 
   // 玄武: dismantling, 魔石, packer (left)
   { id: 'packer', branch: 'genbu', name: '梱包機', desc: '倉庫から棚へ、高い品を優先して素早く補充する', icon: ext(S.Book, 0), x: -3, y: 1, max: 1, baseCost: 1200, growth: 1, requires: ['storage'], effects: [atLeast('packer', 1)] },
