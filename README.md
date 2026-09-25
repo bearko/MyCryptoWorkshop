@@ -152,6 +152,9 @@ docs/          ゲームデザインドキュメント
 - **GitHub Pages**: `main` ブランチへの push で `.github/workflows/deploy.yml` がデプロイします。
   リポジトリの Settings → Pages → Source を「GitHub Actions」にしてください。
 - **Vercel**: リポジトリをインポートするだけ（`vercel.json` にビルド設定とキャッシュヘッダー）。素材のサブモジュールも取得されます。
+  リンクを投稿したときのサムネイル（OGP・X のカード）は `public/og-image.jpg`（1200×630）。画像の URL は
+  Vercel の本番ドメインがビルド時に自動で入ります。独自ドメインや Vercel 以外で配信するときは、環境変数
+  `SITE_URL=https://<ドメイン>` を設定してビルドしてください。
 - **itch.io**: `npm run package` で `release/mycryptoworkshop-web-<version>.zip` を作り、「HTML」プロジェクトとして
   アップロードして「This file will be played in the browser」にチェック。推奨ビューポートは 1280×800（スマホは縦画面も可）。
   ランキングを使う場合は、Vercel 版の API を指定してビルドします:
