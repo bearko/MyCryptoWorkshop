@@ -96,7 +96,7 @@ export class TreeView {
           else this.select(node.id);
         },
       });
-      el.append(icon(node.icon, 'px node-icon'), h('span.node-level'));
+      el.append(icon(node.icon, 'px node-icon'), h('span.node-level'), h('span.node-bar'));
       // Nodes that add something new (staff, items, facilities…) get the ornate frame.
       if (isFeature(node.id)) el.classList.add('feature');
       this.nodeEls.set(node.id, el);
@@ -499,9 +499,14 @@ export class TreeView {
       el.classList.toggle('locked', !available);
       el.classList.toggle('owned', lv > 0);
       el.classList.toggle('maxed', maxed);
+      // Learned but with levels left to buy: a progress bar and a highlighted level badge.
+      el.classList.toggle('growing', lv > 0 && !maxed);
       el.classList.toggle('affordable', affordable);
       el.classList.toggle('selected', this.selected === node.id);
-      el.querySelector('.node-level')!.textContent = node.max > 1 ? `${lv}/${node.max}` : maxed ? '✓' : '';
+      el.style.setProperty('--progress', String(lv / node.max));
+      const badge = el.querySelector('.node-level')!;
+      badge.textContent = maxed ? (node.max > 1 ? 'MAX' : '✓') : node.max > 1 ? `${lv}/${node.max}` : '';
+      badge.classList.toggle('max', maxed);
       el.title = available ? node.name : t('？？？', '???');
     }
     // Lines
