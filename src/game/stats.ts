@@ -294,6 +294,15 @@ export function tierWeights(maxTier: number): number[] {
   return Array.from({ length: maxTier + 1 }, (_, t) => Math.pow(0.6, maxTier - t));
 }
 
+/**
+ * How much the average customer pays over the list price (TIER_PAY weighted by how often each
+ * tier comes): the "shop price" the merchant's offer is a share of.
+ */
+export function averageTierPay(maxTier: number): number {
+  const w = tierWeights(maxTier);
+  return w.reduce((n, x, t) => n + x * TIER_PAY[t], 0) / w.reduce((a, b) => a + b, 0);
+}
+
 /** What a customer of `tier` pays for an item. */
 export function salePrice(code: ItemCode, stats: Stats, uniqueCount: number, tier: number, tip: boolean): number {
   const series = stats.seriesPrice[itemExt(code).seriesIndex] ?? 1;
