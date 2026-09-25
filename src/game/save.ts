@@ -12,6 +12,7 @@ import { GEM_IDS, type GemId, type LineId } from './lines';
 import { MAX_PARTY, partyDef } from './party';
 import { costOf, skillById, type Levels } from './skills';
 import { grantTaught } from './skills7';
+import { setHomeLand } from './titles';
 import { t } from '../i18n';
 
 export interface Totals {
@@ -228,6 +229,8 @@ export function sanitize(data: SaveData): number {
   data.party = [...new Set(data.party ?? [])].filter((id) => !!partyDef(id)).slice(0, MAX_PARTY);
   // Scouted heroes' recipes are always learned.
   grantTaught(data.levels);
+  // The land the workshop is on (its titles can be earned this run).
+  setHomeLand(data.levels, data.prestige?.home ?? null);
   data.heroes = Object.fromEntries(Object.entries(data.heroes ?? {}).filter(([id, n]) => heroById.has(Number(id)) && n > 0));
   if (!data.forecast || !CONDITION_KINDS.includes(data.forecast.kind)) data.forecast = { kind: 'sunny' };
   data.bestEdition = Object.fromEntries(Object.entries(data.bestEdition ?? {}).filter(([id]) => extensionById.has(Number(id))));

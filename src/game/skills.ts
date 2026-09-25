@@ -8,12 +8,13 @@ import { HERO_SET_NODES } from './heroes';
 import { BLESSING_NODES } from './blessings';
 import { PHASE6_NODES } from './skills6';
 import { PARTY_NODES } from './skills7';
+import { LAND_MARKER_NODES, TITLE_NODES } from './titles';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 import { NODE_EN } from './skillsEn';
 import { isEn, t } from '../i18n';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige' | 'party';
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige' | 'party' | 'title';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: t('工房', 'Workshop'), role: t('開業', 'Start'), color: '#e8d6a8' },
@@ -28,6 +29,7 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   honor: { name: t('名誉', 'Honor'), role: t('エンブレム', 'Emblems'), color: '#ff9f6b' },
   prestige: { name: t('移転', 'Relocation'), role: t('Cp・周回', 'Cp & runs'), color: '#7fe3ff' },
   party: { name: t('英雄', 'Heroes'), role: t('スカウト・パーティ', 'Scouting & party'), color: '#ffb35c' },
+  title: { name: t('称号', 'Titles'), role: t('ランドの称号', 'Land titles'), color: '#e0c3ff' },
 };
 
 export interface SkillNode {
@@ -57,6 +59,12 @@ export interface SkillNode {
   currency?: Exclude<Currency, 'gum'>;
   /** Never bought: learned when this node is learned (recipes taught by a scouted hero). */
   grantedBy?: string;
+  /** …and at least `count` of these (e.g. the Verse Pass: G5 on three lands). */
+  requiresCount?: { ids: string[]; count: number; text: string };
+  /** Also shown (as a goal) once this node is learned, with no line to it. */
+  visibleWith?: string;
+  /** Paid on top of the node's price, in other currencies (the Verse Pass). */
+  extraCosts?: Partial<Record<Currency, number>>;
 }
 
 const ext = (seriesIndex: number, rarityIndex: number) => series[seriesIndex].items[rarityIndex].image;
@@ -172,6 +180,8 @@ export const SKILLS: SkillNode[] = [
   ...BLESSING_NODES,
   ...PHASE6_NODES,
   ...PARTY_NODES,
+  ...TITLE_NODES,
+  ...LAND_MARKER_NODES,
 ];
 
 // English text for the hand-written nodes.
@@ -200,6 +210,7 @@ export function isAvailable(node: SkillNode, levels: Levels): boolean {
   if (node.grantedBy) return level(levels, node.id) > 0;
   if (node.requiresAll?.some((r) => level(levels, r) <= 0)) return false;
   if (node.requiresMax?.some((r) => level(levels, r) < (skillById.get(r)?.max ?? 1))) return false;
+  if (node.requiresCount && node.requiresCount.ids.filter((r) => level(levels, r) > 0).length < node.requiresCount.count) return false;
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
 }
 
@@ -221,9 +232,19 @@ export function unlockConditions(node: SkillNode, levels: Levels): { text: strin
     out.push({ text: t(`${names}を習得`, `Learn ${names}`), met: node.requires.some((r) => level(levels, r) > 0) });
   }
   for (const r of node.requiresAll ?? []) {
+    // Hidden markers (the land the workshop is on) read as a sentence of their own.
+    const marker = skillById.get(r);
+    if (marker?.hidden) {
+      out.push({ text: marker.name, met: level(levels, r) > 0 });
+      continue;
+    }
     // Cp nodes only open up after the first clear and relocation.
     const cp = skillById.get(r)?.currency === 'cp' ? t(' ※ Cp はクリア後にランド移転すると手に入ります', ' (Cp is earned by relocating after the clear)') : '';
     out.push({ text: t(`${named(r)}を習得${cp}`, `Learn ${named(r)}${cp}`), met: level(levels, r) > 0 });
+  }
+  if (node.requiresCount) {
+    const have = node.requiresCount.ids.filter((r) => level(levels, r) > 0).length;
+    out.push({ text: `${node.requiresCount.text}（${have} / ${node.requiresCount.count}）`, met: have >= node.requiresCount.count });
   }
   for (const r of node.requiresMax ?? []) {
     const max = skillById.get(r)?.max ?? 1;
@@ -240,6 +261,7 @@ export function isVisible(node: SkillNode, levels: Levels): boolean {
     const teacher = skillById.get(node.grantedBy);
     return !!teacher && isVisible(teacher, levels);
   }
+  if (node.visibleWith && level(levels, node.visibleWith) > 0) return true;
   return node.requires.some((r) => {
     const parent = skillById.get(r);
     return parent ? isAvailable(parent, levels) : false;

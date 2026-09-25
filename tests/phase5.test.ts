@@ -54,7 +54,8 @@ describe('all series', () => {
   it('the tree has at least 1000 nodes; set rewards stay hidden', () => {
     expect(TREE_NODES.length).toBeGreaterThanOrEqual(1000);
     const hidden = SKILLS.filter((n) => n.hidden);
-    expect(hidden.length).toBe(HERO_SETS.length + lands.length);
+    // Set rewards, blessings and the land markers.
+    expect(hidden.length).toBe(HERO_SETS.length + lands.length * 2);
     for (const n of hidden) expect(isAvailable(n, { root: 1 })).toBe(false);
   });
 });

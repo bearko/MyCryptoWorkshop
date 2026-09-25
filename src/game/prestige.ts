@@ -3,6 +3,7 @@ import type { SaveData } from './save';
 import { skillById, type SkillNode } from './skills';
 export { BLESSINGS, BLESSING_NODES } from './blessings';
 import { computeStats } from './stats';
+import { setHomeLand } from './titles';
 
 /**
  * ランド移転 (prestige). After clearing, the workshop can move to one of the nine lands:
@@ -10,7 +11,7 @@ import { computeStats } from './stats';
  * revenue (plus fame from donations) turns into Cp for the 移転 branch.
  *
  * Kept: collection, hero book and set rewards, achievements, emblems and the 名誉 branch,
- * blessings, the 移転 branch, regulars, totals, play time, settings.
+ * blessings, the 移転 branch, titles (称号), regulars, totals, play time, settings.
  * Reset: GUM, day, every other skill, stock, materials, research, orders, requests.
  */
 export interface RunRecord {
@@ -63,7 +64,7 @@ export function cpForRun(save: SaveData): number {
 function kept(id: string): boolean {
   const node = skillById.get(id);
   if (!node) return false;
-  return node.hidden === true || node.branch === 'honor' || node.branch === 'prestige';
+  return node.hidden === true || node.branch === 'honor' || node.branch === 'prestige' || node.branch === 'title';
 }
 
 /** Moves the workshop to `land`: records the run, pays out Cp and starts over. */
@@ -93,6 +94,8 @@ export function relocate(save: SaveData, land: string): RunRecord {
   const levels: Record<string, number> = { root: 1 };
   for (const [id, lv] of Object.entries(save.levels)) if (kept(id)) levels[id] = lv;
   levels[`bless_${land}`] = (levels[`bless_${land}`] ?? 0) + 1;
+  // Titles of this land can be earned in this run.
+  setHomeLand(levels, land);
   // 引き継ぎのレシピ帳: the first recipes come along.
   const carry = 5 * stats.keepRecipes;
   if (carry > 0) {

@@ -2,7 +2,7 @@ import { TREE_NODES, type SkillNode } from './skills';
 import { computeStats } from './stats';
 
 /** Node ids that always add something: staff, hero aces, series recipes and scouted heroes. */
-const FEATURE_PREFIXES = ['hire_', 'ace_', 'recipe_', 'scout_'];
+const FEATURE_PREFIXES = ['hire_', 'ace_', 'recipe_', 'scout_', 'title_'];
 
 /**
  * Named by hand: gates that open a new branch or kind of skill (their own effect is a small bonus),
@@ -10,7 +10,7 @@ const FEATURE_PREFIXES = ['hire_', 'ace_', 'recipe_', 'scout_'];
  * bar, a new kind of visitor).
  */
 const NAMED = new Set([
-  ...['storeHub', 'decor', 'reputation', 'recipeBook', 'planning', 'masterwork', 'beastBook', 'honorHub', 'relocation', 'tavern', 'heroHall', 'legendHall'],
+  ...['storeHub', 'decor', 'reputation', 'recipeBook', 'planning', 'masterwork', 'beastBook', 'honorHub', 'relocation', 'tavern', 'heroHall', 'legendHall', 'titleHall', 'versePass'],
   ...['register', 'autoRegister', 'showcase', 'rug', 'potionBar', 'trial', 'collectors', 'owner', 'legend'],
 ]);
 

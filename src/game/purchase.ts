@@ -1,4 +1,4 @@
-import { addTo, balanceOf } from './currency';
+import { addTo, balanceOf, type Currency } from './currency';
 import { onBought } from './prestige';
 import type { SaveData } from './save';
 import { costOf, isAvailable, level, TREE_NODES, type SkillNode } from './skills';
@@ -17,16 +17,22 @@ export function nextCost(save: SaveData, node: SkillNode): number | null {
   return costOf(node, lv);
 }
 
+/** Whether the node's extra costs in other currencies (the Verse Pass) are covered. */
+export function extrasCovered(save: SaveData, node: SkillNode): boolean {
+  return Object.entries(node.extraCosts ?? {}).every(([c, n]) => balanceOf(save, c as Currency) >= (n ?? 0));
+}
+
 export function canBuy(save: SaveData, node: SkillNode): boolean {
   const cost = nextCost(save, node);
-  return cost !== null && balanceFor(save, node) >= cost;
+  return cost !== null && balanceFor(save, node) >= cost && extrasCovered(save, node);
 }
 
 /** Buys one level if affordable. Returns true on success. */
 export function buy(save: SaveData, node: SkillNode): boolean {
   const cost = nextCost(save, node);
-  if (cost === null || balanceFor(save, node) < cost) return false;
+  if (cost === null || balanceFor(save, node) < cost || !extrasCovered(save, node)) return false;
   addTo(save, node.currency ?? 'gum', -cost);
+  for (const [c, n] of Object.entries(node.extraCosts ?? {})) addTo(save, c as Currency, -(n ?? 0));
   save.levels[node.id] = level(save.levels, node.id) + 1;
   // A scouted hero teaches their recipes.
   if (node.branch === 'party') grantTaught(save.levels);
@@ -35,7 +41,7 @@ export function buy(save: SaveData, node: SkillNode): boolean {
 }
 
 /** Nodes the 番頭 never buys on its own: the clear is the player's moment. */
-const MANUAL_ONLY = new Set(['goldenExtension']);
+const MANUAL_ONLY = new Set(['goldenExtension', 'versePass']);
 
 /**
  * 番頭 (auto-buyer): buys GUM nodes, cheapest first, until nothing is affordable.

@@ -2,6 +2,7 @@ import type { SaveData } from '../game/save';
 import { renderGoogleButton } from '../net/google';
 import { BOARD_LIST, errorText, fetchBoard, signInWithGoogle, signOut, submit, withdraw, type AuthInfo, type BoardInfo, type BoardResult } from '../net/leaderboard';
 import { t } from '../i18n';
+import { titleCode, titleCodeLabel } from '../game/titles';
 import { fmt, h } from './dom';
 
 /** Clear times: 5時間12分03秒 / 5h 12m 03s. */
@@ -147,7 +148,7 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
       }
     });
     account.replaceChildren(
-      h('div.rank-form', {}, h('span', {}, t('ニックネーム: ', 'Nickname: '), h('b', {}, r.name), r.google ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null), rename, leave),
+      h('div.rank-form', {}, h('span', {}, t('ニックネーム: ', 'Nickname: '), h('b', {}, r.name), r.google ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null, titleCodeLabel(titleCode(save.levels)) ? h('span.rank-title', {}, `【${titleCodeLabel(titleCode(save.levels))}】`) : null), rename, leave),
       googleBox() ?? '',
     );
   }
@@ -179,7 +180,7 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
           'ol.rank-rows',
           {},
           ...result.entries.map((e) =>
-            h('li', { class: `rank-row ${e.me ? 'me' : ''} ${e.rank <= 3 ? `top top${e.rank}` : ''}` }, h('span.rank-no', {}, `${e.rank}`), h('span.rank-who', {}, e.name, e.verified ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null), h('b.rank-score', {}, scoreText(board, e.score))),
+            h('li', { class: `rank-row ${e.me ? 'me' : ''} ${e.rank <= 3 ? `top top${e.rank}` : ''}` }, h('span.rank-no', {}, `${e.rank}`), h('span.rank-who', {}, e.name, e.verified ? h('span.rank-verified', { title: t('Google 認証済み', 'Signed in with Google') }, ' ✓') : null, titleCodeLabel(e.title) ? h('span.rank-title', {}, `【${titleCodeLabel(e.title)}】`) : null), h('b.rank-score', {}, scoreText(board, e.score))),
           ),
         ),
       );

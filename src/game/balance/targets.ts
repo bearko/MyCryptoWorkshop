@@ -18,7 +18,7 @@ export const MILESTONES: Milestone[] = [
   { label: '3号機（カプセル）', targetMin: 60, reached: (r) => r.lines >= 3 },
   { label: 'Epic 解放', targetMin: 90, reached: (r) => r.maxRarity >= 3 },
   { label: 'Legendary 解放', targetMin: 210, reached: (r) => r.maxRarity >= 4 },
-  { label: 'クリア（黄金のエクステンション）', targetMin: 360, reached: (r) => r.cleared },
+  { label: 'クリア（黄金のエクステンション）', targetMin: 240, reached: (r) => r.cleared },
   { label: 'スキルツリー全習得', targetMin: 420, reached: (r) => r.nodesMaxed >= TREE_NODES.length },
 ];
 

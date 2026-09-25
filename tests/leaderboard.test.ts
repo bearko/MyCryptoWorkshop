@@ -84,6 +84,19 @@ describe('leaderboard: API', () => {
     expect(JSON.stringify(total.body)).not.toContain(id(3));
   });
 
+  it('shows each player\'s title (称号); unknown titles are dropped', async () => {
+    const { call, clock } = shared();
+    await call('POST', '', entry(1, { title: 'Ocean:king' }));
+    await call('POST', '', entry(2, { title: 'Moon:emperor' }));
+    await call('POST', '', entry(3, { title: 'verse' }));
+    const titles = ((await call('GET', '?board=total')).body.entries as { name: string; title?: string }[]).map((e) => [e.name, e.title ?? null]);
+    expect(titles).toEqual([['P3', 'verse'], ['P2', null], ['P1', 'Ocean:king']]);
+    // A later submission without a title clears it.
+    clock.now += 11_000;
+    await call('POST', '', entry(1));
+    expect(((await call('GET', '?board=total')).body.entries as { name: string; title?: string }[]).find((e) => e.name === 'P1')?.title).toBeUndefined();
+  });
+
   it('a worse later score does not replace the best one', async () => {
     const { call, clock } = shared();
     await call('POST', '', entry(1, { clear1: 4000, clearBest: 4000 }));

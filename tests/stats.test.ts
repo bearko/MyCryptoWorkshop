@@ -32,7 +32,8 @@ describe('data-driven skill effects', () => {
   });
 
   it('every node has at least one effect (except the root)', () => {
-    for (const n of SKILLS) if (n.id !== 'root') expect(n.effects.length, n.id).toBeGreaterThan(0);
+    // Land markers (at_<land>) only record where the workshop is.
+    for (const n of SKILLS) if (n.id !== 'root' && !n.id.startsWith('at_')) expect(n.effects.length, n.id).toBeGreaterThan(0);
   });
 });
 

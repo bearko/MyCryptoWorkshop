@@ -1,10 +1,10 @@
 import { icons } from '../game/catalog';
 import type { SaveData } from '../game/save';
-import { CURRENCIES } from '../game/currency';
+import { balanceOf, CURRENCIES, type Currency } from '../game/currency';
 import { STAFF_ROLES } from '../game/staff';
 import { BRANCHES, costOf, isAvailable, isVisible, level, skillById, TREE_NODES, unlockConditions, type Levels, type SkillNode } from '../game/skills';
 import { GEM_IDS, GEMS, LINE_IDS, LINES, type GemId } from '../game/lines';
-import { balanceFor } from '../game/purchase';
+import { balanceFor, extrasCovered } from '../game/purchase';
 import { GEM_COST } from '../game/shop/production';
 import { isFeature } from '../game/features';
 import { describeChanges } from '../game/statInfo';
@@ -82,7 +82,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-1.5, 11.3], research: [9, 5.3], series: [-16, -32], honor: [13, -8.6], prestige: [9, 12.1], party: [-14, 4.6] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-1.5, 11.3], research: [9, 5.3], series: [-16, -32], honor: [13, -8.6], prestige: [9, 12.1], party: [-14, 4.6], title: [-18.5, 12.6] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -206,7 +206,7 @@ export class TreeView {
     const buyable = TREE_NODES.filter((n) => isAvailable(n, this.save.levels) && level(this.save.levels, n.id) < n.max);
     buyable.sort((a, b) => costOf(a, level(this.save.levels, a.id)) - costOf(b, level(this.save.levels, b.id)));
     // Something the player can afford now, else the cheapest.
-    const affordable = buyable.find((n) => balanceFor(this.save, n) >= costOf(n, level(this.save.levels, n.id)));
+    const affordable = buyable.find((n) => balanceFor(this.save, n) >= costOf(n, level(this.save.levels, n.id)) && extrasCovered(this.save, n));
     return (affordable ?? buyable[0])?.id ?? 'root';
   }
 
@@ -462,7 +462,7 @@ export class TreeView {
     const levels = this.save.levels;
     return TREE_NODES.filter((n) => isAvailable(n, levels) && level(levels, n.id) < n.max)
       .map((node) => ({ node, cost: costOf(node, level(levels, node.id)) }))
-      .filter((o) => o.cost <= balanceFor(this.save, o.node))
+      .filter((o) => o.cost <= balanceFor(this.save, o.node) && extrasCovered(this.save, o.node))
       .sort((a, b) => a.cost - b.cost);
   }
 
@@ -477,7 +477,7 @@ export class TreeView {
     const lv = level(this.save.levels, node.id);
     if (!isAvailable(node, this.save.levels) || lv >= node.max) return;
     const cost = costOf(node, lv);
-    if (balanceFor(this.save, node) < cost) return;
+    if (balanceFor(this.save, node) < cost || !extrasCovered(this.save, node)) return;
     this.cb.onBuy(node);
     const el = this.nodeEls.get(node.id);
     el?.classList.remove('bought');
@@ -495,7 +495,7 @@ export class TreeView {
       const visible = isVisible(node, levels);
       const available = isAvailable(node, levels);
       const maxed = lv >= node.max;
-      const affordable = available && !maxed && balanceFor(this.save, node) >= costOf(node, lv);
+      const affordable = available && !maxed && balanceFor(this.save, node) >= costOf(node, lv) && extrasCovered(this.save, node);
       el.hidden = !visible;
       el.classList.toggle('locked', !available);
       el.classList.toggle('owned', lv > 0);
@@ -508,7 +508,7 @@ export class TreeView {
       const badge = el.querySelector('.node-level')!;
       badge.textContent = maxed ? (node.max > 1 ? 'MAX' : '✓') : node.max > 1 ? `${lv}/${node.max}` : '';
       badge.classList.toggle('max', maxed);
-      el.title = available || node.grantedBy ? node.name : t('？？？', '???');
+      el.title = available || node.grantedBy || node.visibleWith ? node.name : t('？？？', '???');
     }
     // Lines
     const parts: string[] = [];
@@ -546,13 +546,16 @@ export class TreeView {
           'div.detail-head',
           {},
           icon(node.icon, 'px detail-icon'),
-          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available || node.grantedBy ? node.name : t('？？？', '???'))),
+          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available || node.grantedBy || node.visibleWith ? node.name : t('？？？', '???'))),
         ),
         available
           ? h('p.detail-desc', {}, node.desc)
           : h(
               'div.detail-desc',
               {},
+              // A goal shown ahead of time (the Verse Pass) tells what it does and costs too.
+              node.visibleWith ? h('p.detail-goal', {}, node.desc) : null,
+              node.visibleWith && !maxed ? h('p.detail-goal', {}, t(`必要: ${fmt(cost)} ${CURRENCIES[node.currency ?? 'gum'].name}`, `Costs ${fmt(cost)} ${CURRENCIES[node.currency ?? 'gum'].name}`), ...Object.entries(node.extraCosts ?? {}).map(([c, n]) => ` / ${fmt(n ?? 0)} ${CURRENCIES[c as Currency].name}`)) : null,
               h('p', {}, t('解放条件', 'To unlock')),
               h('ul.detail-conditions', {}, ...unlockConditions(node, levels).map((c) => h('li', { class: c.met ? 'met' : '' }, c.met ? '✓ ' : '• ', c.text))),
             ),
@@ -567,7 +570,20 @@ export class TreeView {
             h('ul.detail-changes', {}, ...changes.map((c) => h('li', {}, h('span', {}, c.label), h('b', {}, `${c.from} → ${c.to}`)))),
           );
         }
-        const can = balanceFor(this.save, node) >= cost;
+        const can = balanceFor(this.save, node) >= cost && extrasCovered(this.save, node);
+        // Other currencies the node also takes (the Verse Pass), with what the player has.
+        if (node.extraCosts) {
+          this.detail.append(
+            h(
+              'ul.detail-changes',
+              {},
+              ...Object.entries(node.extraCosts).map(([c, n]) => {
+                const have = balanceOf(this.save, c as Currency);
+                return h('li', { class: have >= (n ?? 0) ? '' : 'short' }, h('span', {}, icon(CURRENCIES[c as Currency].icon, 'px gum-icon'), ` ${CURRENCIES[c as Currency].name}`), h('b', {}, `${fmt(have)} / ${fmt(n ?? 0)}`));
+              }),
+            ),
+          );
+        }
         this.detail.append(
           h(
             'button.btn.btn-buy',
