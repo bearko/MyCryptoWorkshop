@@ -39,6 +39,7 @@ export interface TreeCallbacks {
   /** The "back to the shop" button (bottom right). */
   onShop(): void;
   onCollection(): void;
+  onRanking(): void;
   onRelocate(): void;
 }
 
@@ -174,7 +175,7 @@ export class TreeView {
         this.moveBtn,
         this.buyList,
         this.infusionBox,
-        h('button.btn', { onclick: () => this.cb.onCollection() }, t('📖 図鑑を見る', '📖 Collection')),
+        h('div.tree-links', {}, h('button.btn', { onclick: () => this.cb.onCollection() }, t('📖 図鑑を見る', '📖 Collection')), h('button.btn', { onclick: () => this.cb.onRanking() }, t('🏆 ランキング', '🏆 Leaderboards'))),
         this.statsBox,
         h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールまたはピンチで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan; scroll or pinch to zoom.')),
       )),

@@ -85,6 +85,27 @@ export interface SaveData {
   bestEdition: Record<string, number>;
   /** 魔石 infused into each line for the next business day. */
   infusion: Partial<Record<LineId, GemId>>;
+  /** The worldwide leaderboards (opt-in). */
+  ranking: Ranking;
+}
+
+export interface Ranking {
+  /** Random player id (32 hex digits); never shown to other players. */
+  id: string;
+  /** Nickname on the leaderboards. */
+  name: string;
+  /** Records are sent only after the player joins. */
+  joined: boolean;
+  /** Sales of the first run by the end of Day 30 (the early-game board). */
+  day30: number | null;
+}
+
+const RANKING_ID = /^[0-9a-f]{32}$/;
+
+export function newRanking(): Ranking {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return { id: [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''), name: '', joined: false, day30: null };
 }
 
 export const emptyGems = (): Record<GemId, number> => Object.fromEntries(GEM_IDS.map((g) => [g, 0])) as Record<GemId, number>;
@@ -135,6 +156,7 @@ export function newSave(now = Date.now()): SaveData {
     prestige: newPrestige(),
     bestEdition: {},
     infusion: {},
+    ranking: newRanking(),
   };
 }
 
@@ -233,6 +255,8 @@ export function parseSave(json: string): SaveData {
   const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
   data.prestige = { ...newPrestige(), ...(migrated.prestige as object) };
   data.settings = { ...base.settings, ...(migrated.settings as object) };
+  data.ranking = { ...base.ranking, ...(migrated.ranking as object) };
+  if (!RANKING_ID.test(data.ranking.id)) data.ranking.id = base.ranking.id;
   data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0, emblem: res.emblem ?? 0 };
   sanitize(data);
   return data;
