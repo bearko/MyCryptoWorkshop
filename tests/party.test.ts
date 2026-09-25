@@ -51,6 +51,25 @@ describe('hero party: scouting', () => {
   });
 });
 
+describe('hero party: support effects', () => {
+  it('scouted heroes help the shop without being in the party, more with levels', () => {
+    const base = computeStats({ lab: 1 });
+    // 坂本龍馬 (集客): customer rate; ガリレオ (研究): research; both add to the sale price.
+    const one = computeStats({ lab: 1, [scoutId(5008)]: 1, [scoutId(GALILEO)]: 1 });
+    const five = computeStats({ lab: 1, [scoutId(5008)]: 5, [scoutId(GALILEO)]: 5 });
+    expect(one.spawnInterval).toBeLessThan(base.spawnInterval);
+    expect(five.spawnInterval).toBeLessThan(one.spawnInterval);
+    expect(five.researchRate).toBeGreaterThan(one.researchRate);
+    expect(one.priceMult).toBeGreaterThan(base.priceMult);
+    // Every kind of hero does something of their own.
+    for (const d of PARTY_ROSTER) {
+      const stats = computeStats({ lab: 1, [scoutId(d.id)]: 3 }) as unknown as Record<string, unknown>;
+      const changed = Object.keys(stats).filter((k) => k !== 'priceMult' && JSON.stringify(stats[k]) !== JSON.stringify((base as unknown as Record<string, unknown>)[k]));
+      if (d.kind !== 'sales') expect(changed.length, d.kind).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('hero party: formation', () => {
   it('only scouted heroes take the floor, up to the slots', () => {
     const levels = { [scoutId(NOBUNAGA)]: 1, [scoutId(GALILEO)]: 1 };

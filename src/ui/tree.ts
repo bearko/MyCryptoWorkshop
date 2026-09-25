@@ -11,7 +11,7 @@ import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
 import { t } from '../i18n';
-import { partyDef, partyHero, SKILL_KIND_NAME, skillCooldown, skillText, skillValue } from '../game/party';
+import { partyDef, partyHero, SKILL_KIND_NAME, skillCooldown, skillText, skillValue, supportText } from '../game/party';
 
 const UNIT = 104;
 const MINIMAP_W = 150;
@@ -644,5 +644,13 @@ function scoutPreview(node: SkillNode, lv: number): HTMLElement | null {
   const hero = partyHero(def.id);
   const at = (l: number) => skillText(def.kind, skillValue(def.kind, l, def.tier), hero.name);
   const rows = [lv > 0 ? h('li', {}, h('span', {}, `Lv${lv}`), at(lv)) : null, lv < node.max ? h('li', {}, h('span', {}, `Lv${lv + 1}`), at(lv + 1)) : null];
-  return h('ul.detail-skill', {}, h('li.detail-skill-name', {}, `「${hero.passive}」〈${SKILL_KIND_NAME[def.kind]}〉 ${t(`${Math.round(skillCooldown(Math.max(1, lv)))}秒ごと`, `every ${Math.round(skillCooldown(Math.max(1, lv)))}s`)}`), ...rows);
+  const support = lv < node.max ? supportText(def, lv + 1) : supportText(def, lv);
+  return h(
+    'ul.detail-skill',
+    {},
+    h('li.detail-skill-name', {}, `「${hero.passive}」〈${SKILL_KIND_NAME[def.kind]}〉 ${t(`パーティで ${Math.round(skillCooldown(Math.max(1, lv)))}秒ごと`, `in the party, every ${Math.round(skillCooldown(Math.max(1, lv)))}s`)}`),
+    ...rows,
+    h('li.detail-skill-name', {}, t('サポート効果（パーティ外でも常に）', 'Support (always, in the party or not)')),
+    h('li', {}, h('span', {}, `Lv${lv < node.max ? lv + 1 : lv}`), support),
+  );
 }

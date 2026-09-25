@@ -1,5 +1,7 @@
 import { attributeName, customers, heroById, series, type Hero } from './catalog';
+import { add, mul, pow, type Effect } from './effects';
 import { FACTION_BY_NAME, FACTION_NAME } from './factions';
+import { LINE_IDS } from './lines';
 import { t } from '../i18n';
 
 /**
@@ -265,4 +267,71 @@ export function suggestParty(levels: Record<string, number>, slots: number): num
     .sort((a, b) => score(b) - score(a))
     .slice(0, Math.max(0, slots))
     .map((d) => d.id);
+}
+
+/** How much each tier's support effects are worth (per hero level). */
+const SUPPORT_TIER: Record<PartyTier, number> = { 1: 1, 2: 1.5, 3: 2 };
+
+/**
+ * サポート効果: what a scouted hero does for the shop per level, in the party or not (their
+ * kind of skill, as a lasting bonus). Every hero level also adds 0.5% to the sale price.
+ */
+export function supportEffects(d: PartyHeroDef): Effect[] {
+  const k = SUPPORT_TIER[d.tier];
+  const base = [mul('priceMult', 0.005, 'heroes')];
+  switch (d.kind) {
+    case 'sales':
+      return [mul('priceMult', 0.005 + 0.01 * k, 'heroes')];
+    case 'crowd':
+      return [...base, mul('spawnRate', 0.01 * k, 'heroes')];
+    case 'craft':
+      return [...base, ...LINE_IDS.map((l): Effect => pow(`${l}.craftTime`, 1 - 0.01 * k))];
+    case 'luck':
+      return [...base, add('luck', 0.02 * k)];
+    case 'sweep':
+      return [...base, pow('thiefSpeed', 1 - 0.01 * k), add('bountyMult', 0.1 * k)];
+    case 'rush':
+      return [...base, pow('cashierTime', 1 - 0.015 * k)];
+    case 'wait':
+      return [...base, add('patience', 0.2 * k), add('queuePatience', 0.2 * k)];
+    case 'vip':
+      return [...base, add('ownerPay', 0.1 * k)];
+    case 'wish':
+      return [...base, add('collectorPay', 0.05 * k), add('orderPay', 0.1 * k)];
+    case 'restock':
+      return [...base, pow('restockTime', 1 - 0.015 * k)];
+    case 'study':
+      return [...base, mul('researchRate', 0.02 * k, 'heroes')];
+  }
+}
+
+/** The support effect in words, for `level` levels (0.5% sale price per level included). */
+export function supportText(d: PartyHeroDef, level: number): string {
+  const k = SUPPORT_TIER[d.tier] * level;
+  const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
+  const price = t(`販売価格 +${pct(0.005 * level)}`, `sale price +${pct(0.005 * level)}`);
+  switch (d.kind) {
+    case 'sales':
+      return t(`販売価格 +${pct((0.005 + 0.01 * SUPPORT_TIER[d.tier]) * level)}`, `Sale price +${pct((0.005 + 0.01 * SUPPORT_TIER[d.tier]) * level)}`);
+    case 'crowd':
+      return t(`来客ペース +${pct(0.01 * k)}、${price}`, `Customer rate +${pct(0.01 * k)}, ${price}`);
+    case 'craft':
+      return t(`クラフト時間 -${pct(1 - Math.pow(1 - 0.01 * SUPPORT_TIER[d.tier], level))}、${price}`, `Craft time -${pct(1 - Math.pow(1 - 0.01 * SUPPORT_TIER[d.tier], level))}, ${price}`);
+    case 'luck':
+      return t(`最高レアの出やすさ +${Math.round(2 * k)}%、${price}`, `Top-rarity chance +${Math.round(2 * k)}%, ${price}`);
+    case 'sweep':
+      return t(`泥棒の逃げ足 -${pct(1 - Math.pow(1 - 0.01 * SUPPORT_TIER[d.tier], level))}・懸賞金 +${pct(0.1 * k)}、${price}`, `Thief speed -${pct(1 - Math.pow(1 - 0.01 * SUPPORT_TIER[d.tier], level))}, bounty +${pct(0.1 * k)}, ${price}`);
+    case 'rush':
+      return t(`会計時間 -${pct(1 - Math.pow(1 - 0.015 * SUPPORT_TIER[d.tier], level))}、${price}`, `Checkout time -${pct(1 - Math.pow(1 - 0.015 * SUPPORT_TIER[d.tier], level))}, ${price}`);
+    case 'wait':
+      return t(`棚とレジで待つ時間 +${Math.round(2 * k) / 10}秒、${price}`, `Customers wait ${Math.round(2 * k) / 10}s longer, ${price}`);
+    case 'vip':
+      return t(`ランドオーナーの支払い +${(0.1 * k).toFixed(1)}倍、${price}`, `Land owners pay +${(0.1 * k).toFixed(1)}×, ${price}`);
+    case 'wish':
+      return t(`コレクター客の支払い +${(0.05 * k).toFixed(2)}倍・注文の品 +${(0.1 * k).toFixed(1)}倍、${price}`, `Collectors pay +${(0.05 * k).toFixed(2)}×, ordered items +${(0.1 * k).toFixed(1)}×, ${price}`);
+    case 'restock':
+      return t(`棚への補充間隔 -${pct(1 - Math.pow(1 - 0.015 * SUPPORT_TIER[d.tier], level))}、${price}`, `Restock interval -${pct(1 - Math.pow(1 - 0.015 * SUPPORT_TIER[d.tier], level))}, ${price}`);
+    case 'study':
+      return t(`研究ポイント +${pct(0.02 * k)}、${price}`, `Research points +${pct(0.02 * k)}, ${price}`);
+  }
 }

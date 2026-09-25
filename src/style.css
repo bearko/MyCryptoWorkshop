@@ -2954,6 +2954,11 @@ body.in-day {
   font-weight: bold;
 }
 
+.party-support {
+  display: block;
+  color: #9fe6b8;
+}
+
 .party-attrs {
   display: block;
   color: var(--muted);
