@@ -900,6 +900,22 @@ body.in-day {
   color: var(--text);
 }
 
+.detail-desc p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.detail-conditions {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.detail-conditions li.met {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .detail-level {
   font-family: var(--font-pixel);
   color: var(--muted);

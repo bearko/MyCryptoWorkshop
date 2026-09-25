@@ -6,7 +6,7 @@ import { autoBuy } from '../src/game/purchase';
 import { migrate, newSave, parseSave, SAVE_VERSION, type SaveData } from '../src/game/save';
 import { Shop, type ShopEvent } from '../src/game/shop';
 import { raidSize } from '../src/game/shop/raid';
-import { skillById, TREE_NODES } from '../src/game/skills';
+import { isAvailable, skillById, TREE_NODES, unlockConditions } from '../src/game/skills';
 import { computeStats } from '../src/game/stats';
 
 function saveWith(levels: Record<string, number>, patch: Partial<SaveData> = {}): SaveData {
@@ -192,5 +192,23 @@ describe('番頭 (auto-buyer)', () => {
     const save = saveWith({ autoBuyer: 1, legendary: 1 }, { gum: skillById.get('goldenExtension')!.baseCost * 10 });
     autoBuy(save, 50);
     expect(save.levels.goldenExtension).toBeUndefined();
+  });
+});
+
+describe('unlock conditions of a locked node', () => {
+  it('names the Cp perk the charity hire (Santa) waits for, besides the cleaner hire', () => {
+    const node = skillById.get('hire_charity')!;
+    const levels = { hire_cleaner: 1, cleaner_1: 1, cleaner_2: 1, ace_cleaner: 1 };
+    expect(isAvailable(node, levels)).toBe(false);
+    const conds = unlockConditions(node, levels);
+    expect(conds.map((c) => c.met)).toEqual([true, false]);
+    expect(conds[1].text).toContain(skillById.get('charityUnlock')!.name);
+    expect(conds[1].text).toContain('Cp');
+    expect(unlockConditions(node, { ...levels, charityUnlock: 1 }).every((c) => c.met)).toBe(true);
+  });
+
+  it('asks for the max level of a requiresMax node', () => {
+    const conds = unlockConditions(skillById.get('displayTable')!, { shelf: 5 });
+    expect(conds.find((c) => c.text.includes('Lv'))?.met).toBe(false);
   });
 });

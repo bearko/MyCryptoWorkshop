@@ -197,6 +197,34 @@ export function isAvailable(node: SkillNode, levels: Levels): boolean {
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
 }
 
+/**
+ * What a node waits for, one line per condition (met or not), for the locked card:
+ * one of `requires`, each of `requiresAll`, each of `requiresMax` at its max level.
+ */
+export function unlockConditions(node: SkillNode, levels: Levels): { text: string; met: boolean }[] {
+  const named = (id: string) => {
+    const r = skillById.get(id);
+    if (!r) return id;
+    // Say where to find a requirement that sits in another branch (e.g. the relocation perks).
+    return r.branch === node.branch ? `「${r.name}」` : t(`「${r.name}」（${BRANCHES[r.branch].name}）`, `"${r.name}" (${BRANCHES[r.branch].name})`);
+  };
+  const out: { text: string; met: boolean }[] = [];
+  if (node.requires.length) {
+    const names = node.requires.map(named).join(t(' または ', ' or '));
+    out.push({ text: t(`${names}を習得`, `Learn ${names}`), met: node.requires.some((r) => level(levels, r) > 0) });
+  }
+  for (const r of node.requiresAll ?? []) {
+    // Cp nodes only open up after the first clear and relocation.
+    const cp = skillById.get(r)?.currency === 'cp' ? t(' ※ Cp はクリア後にランド移転すると手に入ります', ' (Cp is earned by relocating after the clear)') : '';
+    out.push({ text: t(`${named(r)}を習得${cp}`, `Learn ${named(r)}${cp}`), met: level(levels, r) > 0 });
+  }
+  for (const r of node.requiresMax ?? []) {
+    const max = skillById.get(r)?.max ?? 1;
+    out.push({ text: t(`${named(r)}を最大レベル（Lv ${max}）まで強化`, `Raise ${named(r)} to its max level (Lv ${max})`), met: level(levels, r) >= max });
+  }
+  return out;
+}
+
 /** Visible = purchasable now, or adjacent to something purchasable (shown as a locked silhouette). */
 export function isVisible(node: SkillNode, levels: Levels): boolean {
   if (isAvailable(node, levels)) return true;
