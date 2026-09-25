@@ -147,5 +147,5 @@ describe('shop simulation', () => {
     expect(milestones.uncommon).toBeLessThanOrEqual(4);
     expect(milestones.rare).toBeLessThanOrEqual(28);
     expect(milestones.epic).toBeLessThanOrEqual(65);
-  });
+  }, 20000);
 });

@@ -94,7 +94,7 @@ export class Line {
       this.heat = Math.max(0, this.heat - s.coolRate * dt);
     }
 
-    this.progress += (dt / s.craftTime) * rate;
+    this.progress += (dt / s.craftTime) * rate * shop.party.craftMult;
     this.blocked = false;
     while (this.progress >= 1) {
       if (!shop.stock.makeRoom()) {
@@ -123,22 +123,27 @@ export class Line {
     this.pulse = 1;
   }
 
-  private rollItem(): ItemCode {
+  /** Rolls the next item; `want` fixes the series (and a lowest rarity), for a hero's お目当て skill. */
+  private rollItem(want?: { series: number; minRarity: number }): ItemCode {
     const { stats, rand } = this.shop;
-    const rarity = rand.weighted(rarityWeights(stats.maxRarity, stats.luck * this.stats.luck));
+    // Party skills: 目利き, and half as much while an inventor's 生産 skill runs.
+    const party = this.shop.party;
+    const boost = party.luckMult * (1 + (party.craftMult - 1) * 0.5);
+    const rolled = rand.weighted(rarityWeights(stats.maxRarity, stats.luck * this.stats.luck * boost));
+    const rarity = want ? Math.min(stats.maxRarity, Math.max(want.minRarity, rolled)) : rolled;
     const recipes = this.recipes();
     // 量産 skills, today's orders and (コレクター優先) collectors in the shop make some series come up more often.
     const ordered = this.shop.visitors.orderedSeries;
     const collected = stats.collectorFocus > 0 ? this.shop.collectorSeries() : [];
-    const index = recipes[
-      rand.weighted(recipes.map((i) => stats.seriesWeight[i] + (ordered.includes(i) ? stats.orderFocus : 0) + (collected.includes(i) ? stats.collectorFocus : 0)))
-    ];
+    const index = want
+      ? want.series
+      : recipes[rand.weighted(recipes.map((i) => stats.seriesWeight[i] + (ordered.includes(i) ? stats.orderFocus : 0) + (collected.includes(i) ? stats.collectorFocus : 0)))];
     const s = series[index];
     let id = s.items[rarity].id;
     const shin = stats.shinChance + stats.seriesShin[index];
     if (rarity === 4 && s.shin && shin > 0 && rand.next() < shin) id = s.shin.id;
     let edition = 0;
-    const luck = stats.editionLuck * this.stats.editionLuck * stats.seriesEdition[index];
+    const luck = stats.editionLuck * this.stats.editionLuck * stats.seriesEdition[index] * boost;
     for (let ed = Math.min(stats.editionTier, EDITION_BASE_CHANCE.length - 1); ed >= 1; ed--) {
       if (rand.next() < EDITION_BASE_CHANCE[ed] * luck) {
         edition = ed;
@@ -149,9 +154,9 @@ export class Line {
   }
 
   /** Crafts one item from this line's recipes and sends it to the shelf (or storage). */
-  craftOne(): void {
+  craftOne(want?: { series: number; minRarity: number }): void {
     const { save, report } = this.shop;
-    const code = this.rollItem();
+    const code = this.rollItem(want);
     const id = itemId(code);
     const edition = Math.floor(code / 100000);
     const isNew = !save.collection.includes(id);
@@ -205,6 +210,35 @@ export class Production {
     const free = this.shop.stock.slots.filter((s) => !s.showcase && s.item === null && !s.incoming).length;
     for (let i = 0; i < free; i++) lines[i % lines.length].craftOne();
     return free;
+  }
+
+  /** Crafts `count` more items, wherever there is room (a hero's 補充 skill). Returns how many. */
+  craftExtra(count: number): number {
+    const lines = this.lines.filter((l) => l.recipes().length > 0);
+    let made = 0;
+    for (let i = 0; i < count && lines.length && this.shop.stock.makeRoom(); i++, made++) lines[i % lines.length].craftOne();
+    return made;
+  }
+
+  /**
+   * お目当て: crafts items of the series that collectors in the shop and today's orders are after
+   * (an order's item at its rarity or better), up to `count`; any left over are crafted as usual.
+   */
+  craftWanted(count: number): number {
+    const shop = this.shop;
+    const wants = [
+      ...shop.save.orders.map((o) => ({ series: o.series, minRarity: o.minRarity })),
+      ...shop.collectorSeries(true).map((i) => ({ series: i, minRarity: 0 })),
+    ].filter((w, k, all) => all.findIndex((x) => x.series === w.series) === k);
+    let made = 0;
+    for (const w of wants) {
+      if (made >= count || !shop.stock.makeRoom()) break;
+      const line = this.lines.find((l) => l.recipes().includes(w.series));
+      if (!line) continue;
+      line.craftOne(w);
+      made++;
+    }
+    return made + this.craftExtra(count - made);
   }
 
   line(id: LineId): Line | undefined {

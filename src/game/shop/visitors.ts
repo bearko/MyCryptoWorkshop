@@ -50,6 +50,11 @@ export class Visitors {
     return this.shop.save.orders.map((o) => o.series);
   }
 
+  /** Customers arriving together (a party hero's 集客 skill), one after another. */
+  bringGuests(count: number): void {
+    this.guestsLeft += count;
+  }
+
   /** Doubles (or multiplies) sales for `seconds`. */
   boost(mult: number, seconds: number): void {
     this.salesMult = Math.max(this.salesMult, mult);

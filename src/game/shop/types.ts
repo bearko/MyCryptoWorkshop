@@ -1,3 +1,4 @@
+import type { SkillKind } from '../party';
 import type { Hero } from '../catalog';
 import type { GemId, LineId } from '../lines';
 import type { Order } from '../orders';
@@ -58,7 +59,9 @@ export interface Actor {
   /** Price multiplier for the item in hand (showcase items sell at a premium). */
   priceBonus: number;
   /** Special customers: collectors want one series, land owners buy the best, regulars are reformed thieves, guilds come by vehicle. */
-  special?: 'collector' | 'owner' | 'regular' | 'guild' | 'order';
+  special?: 'collector' | 'owner' | 'regular' | 'guild' | 'order' | 'vip';
+  /** A party hero shopping in person (来店) pays this much more. */
+  vipPay?: number;
   /** The order an ordering customer came for. */
   order?: Order;
   /** Series index a collector is looking for. */
@@ -312,6 +315,7 @@ export type ShopEvent =
   | { type: 'vehicle'; kind: number; count: number }
   | { type: 'special'; kind: NonNullable<Actor['special']>; hero: Hero }
   | { type: 'visit'; visit: Visit }
+  | { type: 'partySkill'; hero: Hero; kind: SkillKind; skill: string; text: string }
   | { type: 'decision'; decision: Decision }
   | { type: 'decided'; kind: Decision['kind']; choice: number; result: string }
   | { type: 'orderDone'; hero: Hero; item: number; price: number }

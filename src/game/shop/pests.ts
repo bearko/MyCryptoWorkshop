@@ -41,7 +41,7 @@ export class Pests {
     }
     this.list = this.list.filter((p) => p.t < p.life);
 
-    if (shop.save.day < 3 || this.suppressed) return;
+    if (shop.save.day < 3 || this.suppressed || shop.party.calm > 0) return;
     const maxPests = Math.min(3, 1 + Math.floor((shop.save.day - 3) / 4));
     this.timer += dt;
     if (this.timer >= this.next && this.list.length < maxPests) {
@@ -70,6 +70,13 @@ export class Pests {
       if (Math.abs(x - p.x) < 52 && y < p.y + 22 && y > p.y - PEST_PX - 30) return p;
     }
     return null;
+  }
+
+  /** Chases every enemy out of the workshop (a hero's 退治 skill), with the usual reward. */
+  clearAll(): number {
+    const n = this.list.length;
+    for (const p of [...this.list]) this.click(p);
+    return n;
   }
 
   click(p: Pest): boolean {

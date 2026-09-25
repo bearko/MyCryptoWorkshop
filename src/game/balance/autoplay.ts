@@ -8,6 +8,7 @@ import { costOf, isAvailable, level, SKILLS, TREE_NODES } from '../skills';
 import { STAFF_ROLES } from '../staff';
 import { computeStats } from '../stats';
 import { cpForRun, relocate } from '../prestige';
+import { suggestParty } from '../party';
 
 /** Deterministic PRNG (mulberry32). */
 export function seeded(seed: number): Rng {
@@ -69,6 +70,8 @@ export function policy(shop: Shop, d: Decision): number {
 /** Plays one business day with the given player model. */
 export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[0]): { report: DayReport; seconds: number } {
   if (player.usesGems) chooseGems(save);
+  // The party: the strongest heroes scouted so far.
+  save.party = suggestParty(save.levels, computeStats(save.levels).partySlots);
   const shop = new Shop(save, rng);
   const dt = 1 / 30;
   let clickBudget = 0;
@@ -99,7 +102,7 @@ export function playDay(save: SaveData, rng: Rng, player: PlayerModel = PLAYERS[
 }
 
 /** One-off unlock nodes a sensible player saves up for. */
-const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid', 'goldenExtension', 'orders', 'hire_charity']);
+const KEY_NODES = new Set(['uncommon', 'rare', 'epic', 'legendary', 'tier1', 'tier2', 'tier3', 'tier4', 'conveyor', 'mine', 'register', 'forge', 'capsuleLine', 'appraisal', 'dismantle', 'storeHub', 'hire_stocker', 'hire_host', 'hire_promoter', 'hire_guard', 'hire_researcher', 'market', 'decor', 'showcase', 'carriage', 'hire_cleaner', 'cryptid', 'goldenExtension', 'orders', 'hire_charity', 'tavern', 'heroHall', 'legendHall', 'partySlot']);
 
 /** Simple shopper: buys key unlocks first, saves up when one is close, otherwise buys the cheapest node. */
 export function spend(save: SaveData, lastRevenue: number): void {
@@ -111,7 +114,7 @@ export function spend(save: SaveData, lastRevenue: number): void {
       continue;
     }
     const options = SKILLS.filter((n) => !n.currency && isAvailable(n, save.levels) && level(save.levels, n.id) < n.max)
-      .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') }))
+      .map((n) => ({ n, cost: costOf(n, level(save.levels, n.id)), key: KEY_NODES.has(n.id) || n.id.startsWith('recipe_') || (n.id.startsWith('scout_') && level(save.levels, n.id) === 0) }))
       .sort((a, b) => a.cost - b.cost);
     const nextKey = options.find((o) => o.key);
     let pick = options.find((o) => o.key && o.cost <= save.gum);

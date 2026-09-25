@@ -58,6 +58,18 @@ export class Register {
     }
   }
 
+  /** Checks out up to `count` customers who are in line at once. Returns how many. */
+  rush(count: number): number {
+    let done = 0;
+    for (let k = 0; k < count; k++) {
+      const r = this.shop.customers.queue.findIndex((a) => a.state === 'queue');
+      if (r < 0) break;
+      this.checkout(r, true);
+      done++;
+    }
+    return done;
+  }
+
   isOnRegister(x: number, y: number): boolean {
     return x >= COUNTER.x0 - 10 && x <= COUNTER.x1 + 30 && y >= COUNTER.top - 90 && y <= COUNTER.bottom + 30;
   }

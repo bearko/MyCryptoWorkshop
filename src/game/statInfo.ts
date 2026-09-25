@@ -98,6 +98,7 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   collectorPay: { label: t('コレクター客の支払い', 'Collector payment'), format: times },
   collectorFocus: { label: t('コレクターのシリーズのクラフトされやすさ', "Collectors' series craft weight"), format: (v) => `+${Math.round(v * 100)}%` },
   collectorFetch: { label: t('取り寄せ', 'Fetch for collectors'), format: (v) => (v > 0 ? t('あり', 'On') : t('なし', 'Off')) },
+  partySlots: { label: t('パーティ枠', 'Party slots'), format: (v) => t(`${v}人`, `${v}`) },
   ownerChance: { label: t('ランドオーナーが来る確率', 'Land owner chance'), format: pct },
   ownerPay: { label: t('ランドオーナーの支払い', 'Land owner payment'), format: times },
   merchantRate: { label: t('商人の買取価格', "Merchant's offer"), format: pct },

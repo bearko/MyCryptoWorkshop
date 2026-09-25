@@ -11,6 +11,7 @@ import { describeChanges } from '../game/statInfo';
 import { computeStats } from '../game/stats';
 import { fmt, h, icon, secs } from './dom';
 import { t } from '../i18n';
+import { partyDef, partyHero, SKILL_KIND_NAME, skillCooldown, skillText, skillValue } from '../game/party';
 
 const UNIT = 104;
 const MINIMAP_W = 150;
@@ -81,7 +82,7 @@ export class TreeView {
     this.world.append(this.lines);
     for (const [key, b] of Object.entries(BRANCHES)) {
       if (key === 'root') continue;
-      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-6.8, 8.5], research: [9, 5.3], series: [-16, -32], honor: [13, -8.6], prestige: [9, 12.1] }[key]!;
+      const pos = { suzaku: [-4.4, -7], seiryu: [11.4, -2.2], kouryu: [9.8, 3], byakko: [-8.8, 3.5], genbu: [-9.4, 0.4], store: [-1.5, 11.3], research: [9, 5.3], series: [-16, -32], honor: [13, -8.6], prestige: [9, 12.1], party: [-14, 4.6] }[key]!;
       this.world.append(
         h('div.branch-label', { style: `left:${pos[0] * UNIT}px;top:${pos[1] * UNIT}px;color:${b.color}` }, h('b', {}, b.name), h('span', {}, b.role)),
       );
@@ -507,7 +508,7 @@ export class TreeView {
       const badge = el.querySelector('.node-level')!;
       badge.textContent = maxed ? (node.max > 1 ? 'MAX' : '✓') : node.max > 1 ? `${lv}/${node.max}` : '';
       badge.classList.toggle('max', maxed);
-      el.title = available ? node.name : t('？？？', '???');
+      el.title = available || node.grantedBy ? node.name : t('？？？', '???');
     }
     // Lines
     const parts: string[] = [];
@@ -545,7 +546,7 @@ export class TreeView {
           'div.detail-head',
           {},
           icon(node.icon, 'px detail-icon'),
-          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available ? node.name : t('？？？', '???'))),
+          h('div', {}, h('div.detail-branch', { style: `color:${b.color}` }, t(`${b.name}・${b.role}`, `${b.name} · ${b.role}`), isFeature(node.id) ? h('span.feature-tag', {}, t('✦ 新要素', '✦ New feature')) : null), h('div.detail-name', {}, available || node.grantedBy ? node.name : t('？？？', '???'))),
         ),
         available
           ? h('p.detail-desc', {}, node.desc)
@@ -556,6 +557,7 @@ export class TreeView {
               h('ul.detail-conditions', {}, ...unlockConditions(node, levels).map((c) => h('li', { class: c.met ? 'met' : '' }, c.met ? '✓ ' : '• ', c.text))),
             ),
         h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? t('習得済み', 'Learned') : t('未習得', 'Not learned')),
+        scoutPreview(node, lv) ?? '',
       );
       if (available && !maxed) {
         // Exact effect of the next level, from the node's effect data.
@@ -633,4 +635,14 @@ export class TreeView {
     if (s.researchRate > 0) rows.push([t('研究ポイント', 'Research'), t(`${s.researchRate.toFixed(1)}/分`, `${s.researchRate.toFixed(1)}/min`)]);
     this.statsBox.replaceChildren(h('h3', {}, t('工房のステータス', 'Workshop stats')), ...rows.map(([k, v]) => h('div.stat-row', {}, h('span', {}, k), h('b', {}, v))));
   }
+}
+
+/** A scout node's skill now and at the next level. */
+function scoutPreview(node: SkillNode, lv: number): HTMLElement | null {
+  const def = node.branch === 'party' && node.id.startsWith('scout_') ? partyDef(Number(node.id.slice(6))) : undefined;
+  if (!def) return null;
+  const hero = partyHero(def.id);
+  const at = (l: number) => skillText(def.kind, skillValue(def.kind, l, def.tier), hero.name);
+  const rows = [lv > 0 ? h('li', {}, h('span', {}, `Lv${lv}`), at(lv)) : null, lv < node.max ? h('li', {}, h('span', {}, `Lv${lv + 1}`), at(lv + 1)) : null];
+  return h('ul.detail-skill', {}, h('li.detail-skill-name', {}, `「${hero.passive}」〈${SKILL_KIND_NAME[def.kind]}〉 ${t(`${Math.round(skillCooldown(Math.max(1, lv)))}秒ごと`, `every ${Math.round(skillCooldown(Math.max(1, lv)))}s`)}`), ...rows);
 }

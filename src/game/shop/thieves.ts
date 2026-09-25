@@ -244,13 +244,19 @@ export class Thieves {
 
   /** Catches every thief in the shop and keeps new ones away for the day. Returns how many. */
   clearAll(): number {
+    const n = this.catchAll('MAI');
+    this.suppressed = true;
+    return n;
+  }
+
+  /** Catches every thief in the shop (MAI, or a hero of the party). Returns how many. */
+  catchAll(by: string): number {
     let n = 0;
     for (const a of this.shop.actors) {
       if (a.kind !== 'thief' || a.state === 'caught' || a.gone) continue;
-      this.catch(a, true, 'MAI');
+      this.catch(a, true, by);
       n++;
     }
-    this.suppressed = true;
     return n;
   }
 }
