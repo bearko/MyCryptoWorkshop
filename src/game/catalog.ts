@@ -58,6 +58,8 @@ export interface Hero {
   /** Tags such as 三国志 or 銃火器 (hero sets and order favourites). */
   attributes?: string[];
   image: string;
+  /** The sprite faces right (most hero sprites face left); walking flips it to match. */
+  facesRight?: boolean;
 }
 
 export interface Frame {
@@ -111,6 +113,8 @@ export function getExtension(id: number): Extension {
   return e;
 }
 
+const facesRight = new Set<number>(content.facesRightIds);
+
 const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   id: h.id,
   name: isEn ? h.nameEn : h.name,
@@ -120,6 +124,7 @@ const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   passive: isEn ? h.passiveEn : h.passive,
   attributes: h.attributes,
   image: h.image,
+  ...(facesRight.has(h.id) ? { facesRight: true } : {}),
 });
 
 export const heroById = new Map(raw.heroes.map((h) => [h.id, h]));
