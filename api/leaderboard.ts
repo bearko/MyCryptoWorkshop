@@ -1,15 +1,23 @@
 // Vercel Function: the worldwide sales leaderboards, stored in Upstash Redis (sorted sets).
 //
 //   GET    /api/leaderboard?board=total&me=<id>&limit=50   top entries (+ the caller's own rank)
-//   POST   /api/leaderboard   { id, name, total, bestDay, lastDay, day30, clear1, clearBest, … }
-//   DELETE /api/leaderboard   { id }                        a player withdraws (all records)
+//   POST   /api/leaderboard   { id, name, total, bestDay, lastDay, day30, clear1, clearBest, …, secret? }
+//   POST   /api/leaderboard?action=google   { id, credential }   Sign in with Google → { id, secret, name, existing }
+//   POST   /api/leaderboard?action=signout  { id, secret }       this device's secret stops working
+//   DELETE /api/leaderboard   { id, secret? }                   a player withdraws (all records)
 //
 // Admin (Authorization: Bearer $LEADERBOARD_ADMIN_TOKEN):
 //   GET    ?board=…&admin=1   entries with player ids
 //   DELETE { id, ban: true }  removes a player; a banned id is never recorded again
 //
 // Environment: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or the KV_REST_API_URL /
-// KV_REST_API_TOKEN pair that the Vercel Marketplace integration sets).
+// KV_REST_API_TOKEN pair that the Vercel Marketplace integration sets); optional
+// GOOGLE_CLIENT_ID (Sign in with Google), LEADERBOARD_REQUIRE_GOOGLE=1 (only signed-in players
+// submit) and LEADERBOARD_ADMIN_TOKEN.
+//
+// Sign-in is optional. A signed-in player's records follow the Google account to other devices,
+// show a verified mark, and only take writes from signed-in devices. Only Google's account number
+// ("sub") is stored: no e-mail address or real name.
 //
 // A browser game cannot prove its own numbers, so submissions are sanity-checked here (ranges,
 // consistency, rate limits) and the admin can remove and ban players. This file is self-contained
@@ -164,10 +172,11 @@ export function upstash(url: string, token: string): Store {
  * An in-memory stand-in for the few Redis commands used here (local dev server and tests).
  * Scores come back as strings, like the REST API.
  */
-export function memoryStore(): Store {
+export function memoryStore(now: () => number = Date.now): Store {
   const zsets = new Map<string, Map<string, number>>();
   const hashes = new Map<string, Map<string, string>>();
   const strings = new Map<string, string>();
+  const expiry = new Map<string, number>();
   const sets = new Map<string, Set<string>>();
   const zset = (k: string) => zsets.get(k) ?? zsets.set(k, new Map()).get(k)!;
   const hash = (k: string) => hashes.get(k) ?? hashes.set(k, new Map()).get(k)!;
@@ -175,6 +184,11 @@ export function memoryStore(): Store {
     [...zset(k)].sort((a, b) => (rev ? b[1] - a[1] || (b[0] < a[0] ? -1 : 1) : a[1] - b[1] || (a[0] < b[0] ? -1 : 1)));
   const run = (c: Cmd): unknown => {
     const [op, ...a] = c.map(String);
+    // Expired keys (only plain values use EX / EXPIRE here) are gone.
+    if ((expiry.get(a[0]) ?? Infinity) <= now()) {
+      strings.delete(a[0]);
+      expiry.delete(a[0]);
+    }
     switch (op.toUpperCase()) {
       case 'ZADD': {
         const flag = a.length === 4 ? a[1].toUpperCase() : '';
@@ -211,17 +225,28 @@ export function memoryStore(): Store {
         return a.slice(1).map((f) => hash(a[0]).get(f) ?? null);
       case 'HDEL':
         return hash(a[0]).delete(a[1]) ? 1 : 0;
-      case 'SET':
+      case 'SET': {
         if (a.some((x) => x.toUpperCase() === 'NX') && strings.has(a[0])) return null;
         strings.set(a[0], a[1]);
+        const ex = a.findIndex((x) => x.toUpperCase() === 'EX');
+        if (ex > 0) expiry.set(a[0], now() + Number(a[ex + 1]) * 1000);
+        else expiry.delete(a[0]);
         return 'OK';
+      }
       case 'INCR': {
         const v = Number(strings.get(a[0]) ?? 0) + 1;
         strings.set(a[0], String(v));
         return v;
       }
       case 'EXPIRE':
+        if (strings.has(a[0])) expiry.set(a[0], now() + Number(a[1]) * 1000);
         return 1;
+      case 'GET':
+        return strings.get(a[0]) ?? null;
+      case 'HGET':
+        return hash(a[0]).get(a[1]) ?? null;
+      case 'SREM':
+        return sets.get(a[0])?.delete(a[1]) ? 1 : 0;
       case 'SADD':
         (sets.get(a[0]) ?? sets.set(a[0], new Set()).get(a[0])!).add(a[1]);
         return 1;
@@ -235,6 +260,80 @@ export function memoryStore(): Store {
   };
   return { exec: async (commands) => commands.map(run) };
 }
+
+// ---------------------------------------------------------------- Google sign-in
+
+const GOOGLE_CERTS = 'https://www.googleapis.com/oauth2/v3/certs';
+const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
+
+/** Google's account number for a verified ID token ("sub"); nothing else is kept. */
+export type GoogleVerifier = (credential: string) => Promise<{ sub: string } | null>;
+export type Jwk = JsonWebKey & { kid?: string };
+
+const fromBase64Url = (s: string) =>
+  Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+const utf8 = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+/**
+ * Checks a Google ID token (from Sign in with Google): RS256 signature against Google's
+ * published keys, audience = our client id, issuer and expiry.
+ */
+export function googleVerifier(clientId: string, options: { now?: () => number; fetchKeys?: () => Promise<Jwk[]> } = {}): GoogleVerifier {
+  const now = options.now ?? Date.now;
+  const fetchKeys =
+    options.fetchKeys ??
+    (async () => {
+      const res = await fetch(GOOGLE_CERTS);
+      if (!res.ok) throw new Error(`google certs ${res.status}`);
+      return ((await res.json()) as { keys: Jwk[] }).keys;
+    });
+  let cache: { keys: Jwk[]; at: number } | null = null;
+  async function keyFor(kid: string): Promise<Jwk | undefined> {
+    const stale = !cache || now() - cache.at > 3600_000;
+    // Google rotates keys: refetch for an unknown kid, at most once a minute.
+    const unknown = cache && !cache.keys.some((k) => k.kid === kid) && now() - cache.at > 60_000;
+    if (stale || unknown) cache = { keys: await fetchKeys(), at: now() };
+    return cache!.keys.find((k) => k.kid === kid);
+  }
+  return async (credential) => {
+    const parts = credential.split('.');
+    if (parts.length !== 3) return null;
+    try {
+      const header = JSON.parse(utf8(fromBase64Url(parts[0]))) as { alg?: string; kid?: string };
+      const claims = JSON.parse(utf8(fromBase64Url(parts[1]))) as { aud?: string; iss?: string; exp?: number; sub?: string };
+      if (header.alg !== 'RS256' || typeof header.kid !== 'string') return null;
+      if (claims.aud !== clientId || !GOOGLE_ISSUERS.includes(claims.iss ?? '')) return null;
+      if (typeof claims.exp !== 'number' || claims.exp * 1000 < now() - 60_000) return null;
+      if (typeof claims.sub !== 'string' || !claims.sub) return null;
+      const jwk = await keyFor(header.kid);
+      if (!jwk) return null;
+      const key = await crypto.subtle.importKey('jwk', { kty: jwk.kty, n: jwk.n, e: jwk.e }, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+      const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, fromBase64Url(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+      return ok ? { sub: claims.sub } : null;
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** 32 random hex digits (player ids and device secrets). */
+export function randomHex(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Keys for signed-in players: Google account → player id, player id → account, and the hashed
+// secrets of the devices signed in to it (a linked record only takes writes with one of them).
+const googleKey = (sub: string) => `lb:google:${sub}`;
+const ownerKey = (id: string) => `lb:owner:${id}`;
+const secretsKey = (id: string) => `lb:secrets:${id}`;
+const VERIFIED = 'lb:verified';
 
 // ---------------------------------------------------------------- handler
 
@@ -250,18 +349,41 @@ const json = (status: number, body: unknown) =>
 export interface HandlerOptions {
   now?: () => number;
   adminToken?: string;
+  /** OAuth client id for Sign in with Google (sent to the game; off when missing). */
+  googleClientId?: string;
+  /** Token check (defaults to googleVerifier(googleClientId)). */
+  verifyGoogle?: GoogleVerifier;
+  /** Only signed-in players can submit. */
+  requireGoogle?: boolean;
 }
+
+type Body = Record<string, unknown> | null;
 
 export function createHandler(getStore: () => Store | null, options: HandlerOptions = {}): (req: Request) => Promise<Response> {
   const now = options.now ?? Date.now;
+  const clientId = options.googleClientId || null;
+  const verify = options.verifyGoogle ?? (clientId ? googleVerifier(clientId, { now }) : null);
+  const requireGoogle = !!options.requireGoogle && !!verify;
   const isAdmin = (req: Request) => !!options.adminToken && req.headers.get('authorization') === `Bearer ${options.adminToken}`;
   const clientIp = (req: Request) => (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown';
+  const idOf = (body: Body) => (typeof body?.id === 'string' && ID.test(body.id) ? body.id : null);
 
   /** Counts a request from the caller's address; true when over the limit. */
   async function limited(store: Store, req: Request): Promise<boolean> {
     const key = `lb:ip:${clientIp(req)}:${Math.floor(now() / 60000)}`;
     const [count] = await store.exec([['INCR', key], ['EXPIRE', key, 120]]);
     return Number(count) > IP_LIMIT;
+  }
+
+  /** A record linked to a Google account takes writes only with a signed-in device's secret. */
+  async function authorize(store: Store, id: string, secret: unknown): Promise<string | null> {
+    const [owner] = await store.exec([['GET', ownerKey(id)]]);
+    if (owner) {
+      if (typeof secret !== 'string' || !ID.test(secret)) return 'auth';
+      const [ok] = await store.exec([['SISMEMBER', secretsKey(id), await sha256(secret)]]);
+      return Number(ok) === 1 ? null : 'auth';
+    }
+    return requireGoogle ? 'login_required' : null;
   }
 
   async function get(store: Store, req: Request): Promise<Response> {
@@ -283,20 +405,20 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
       ids.push(flat[i]);
       scores.push(Number(flat[i + 1]));
     }
-    const names = ids.length ? ((await store.exec([['HMGET', NAMES, ...ids]]))[0] as (string | null)[]) : [];
+    const [names, verified] = ids.length ? ((await store.exec([['HMGET', NAMES, ...ids], ['HMGET', VERIFIED, ...ids]])) as (string | null)[][]) : [[], []];
     // Ties share a rank (1, 2, 2, 4).
     let rank = 0;
     const entries = ids.map((id, i) => {
       if (i === 0 || scores[i] !== scores[i - 1]) rank = i + 1;
-      return { rank, name: names[i] ?? '???', score: scores[i], ...(id === me ? { me: true } : {}), ...(admin ? { id } : {}) };
+      return { rank, name: names[i] ?? '???', score: scores[i], ...(verified[i] ? { verified: true } : {}), ...(id === me ? { me: true } : {}), ...(admin ? { id } : {}) };
     });
     const mine = myRank !== null && myRank !== undefined && !(myRank instanceof Error) ? { rank: Number(myRank) + 1, score: Number(myScore) } : null;
     const period = board === 'today' ? dayKey(now()) : board === 'week' ? weekKey(now()) : null;
-    return json(200, { board, period, count: Number(count) || 0, entries, me: mine });
+    return json(200, { board, period, count: Number(count) || 0, entries, me: mine, auth: { googleClientId: clientId, requireGoogle } });
   }
 
-  async function post(store: Store, req: Request): Promise<Response> {
-    const s = validate(await req.json().catch(() => null));
+  async function submit(store: Store, body: Body): Promise<Response> {
+    const s = validate(body);
     if (typeof s === 'string') return json(400, { error: s });
     const [banned, fresh] = await store.exec([
       ['SISMEMBER', BANNED, s.id],
@@ -304,6 +426,8 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     ]);
     if (Number(banned) === 1) return json(403, { error: 'banned' });
     if (fresh === null) return json(429, { error: 'too_soon' });
+    const denied = await authorize(store, s.id, body?.secret);
+    if (denied) return json(403, { error: denied });
     const t = now();
     const cmds: Cmd[] = [
       ['HSET', NAMES, s.id, s.name],
@@ -321,14 +445,76 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     return json(200, { ok: true });
   }
 
-  async function del(store: Store, req: Request): Promise<Response> {
-    const body = (await req.json().catch(() => null)) as { id?: unknown; ban?: unknown } | null;
-    const id = typeof body?.id === 'string' && ID.test(body.id) ? body.id : null;
+  /** Moves a device's records onto the player it signs in as (each board keeps the better one). */
+  async function merge(store: Store, from: string, to: string): Promise<void> {
+    const t = now();
+    const boards = Object.keys(BOARDS) as BoardKey[];
+    const scores = await store.exec(boards.map((b) => ['ZSCORE', boardKey(b, t), from]));
+    const [fromName, toName] = (await store.exec([['HMGET', NAMES, from, to]]))[0] as (string | null)[];
+    const cmds: Cmd[] = [];
+    boards.forEach((b, i) => {
+      if (scores[i] === null || scores[i] instanceof Error) return;
+      cmds.push(['ZADD', boardKey(b, t), BOARDS[b] === 'asc' ? 'LT' : 'GT', Number(scores[i]), to], ['ZREM', boardKey(b, t), from]);
+    });
+    if (fromName && !toName) cmds.push(['HSET', NAMES, to, fromName]);
+    cmds.push(['HDEL', NAMES, from], ['HDEL', META, from]);
+    await store.exec(cmds);
+  }
+
+  /**
+   * Sign in with Google: the account's player (created from this device's id the first time;
+   * this device's records are merged in otherwise) and a new secret for this device.
+   */
+  async function signIn(store: Store, body: Body): Promise<Response> {
+    if (!verify) return json(501, { error: 'google_off' });
+    const id = idOf(body);
     if (!id) return json(400, { error: 'bad_id' });
+    const claims = await verify(String(body?.credential ?? ''));
+    if (!claims) return json(401, { error: 'bad_token' });
+    const [linked, owner] = (await store.exec([['GET', googleKey(claims.sub)], ['GET', ownerKey(id)]])) as (string | null)[];
+    let target: string;
+    if (linked) {
+      target = linked;
+      // Only an unlinked device record is merged (never someone else's account).
+      if (linked !== id && !owner) await merge(store, id, linked);
+    } else {
+      // A device already linked to another account starts a new player for this one.
+      target = owner && owner !== claims.sub ? randomHex() : id;
+      await store.exec([['SET', googleKey(claims.sub), target], ['SET', ownerKey(target), claims.sub], ['HSET', VERIFIED, target, 1]]);
+    }
+    const [banned] = await store.exec([['SISMEMBER', BANNED, target]]);
+    if (Number(banned) === 1) return json(403, { error: 'banned' });
+    const secret = randomHex();
+    const [, name] = await store.exec([['SADD', secretsKey(target), await sha256(secret)], ['HGET', NAMES, target]]);
+    return json(200, { id: target, secret, name: typeof name === 'string' ? name : null, existing: !!linked });
+  }
+
+  /** Signs this device out (its secret stops working). */
+  async function signOut(store: Store, body: Body): Promise<Response> {
+    const id = idOf(body);
+    if (!id || typeof body?.secret !== 'string') return json(400, { error: 'bad_id' });
+    await store.exec([['SREM', secretsKey(id), await sha256(body.secret)]]);
+    return json(200, { ok: true });
+  }
+
+  async function del(store: Store, req: Request, body: Body): Promise<Response> {
+    const id = idOf(body);
+    if (!id) return json(400, { error: 'bad_id' });
+    const admin = isAdmin(req);
+    if (!admin) {
+      const denied = await authorize(store, id, body?.secret);
+      if (denied === 'auth') return json(403, { error: denied });
+    }
     const t = now();
     const cmds: Cmd[] = (Object.keys(BOARDS) as BoardKey[]).map((b) => ['ZREM', boardKey(b, t), id]);
     cmds.push(['HDEL', NAMES, id], ['HDEL', META, id]);
-    if (body?.ban === true && isAdmin(req)) cmds.push(['SADD', BANNED, id]);
+    if (body?.ban === true && admin) {
+      // The Google link stays, so signing in again finds the banned player.
+      cmds.push(['SADD', BANNED, id]);
+    } else {
+      const [owner] = await store.exec([['GET', ownerKey(id)]]);
+      if (typeof owner === 'string') cmds.push(['DEL', googleKey(owner)], ['DEL', ownerKey(id)], ['DEL', secretsKey(id)], ['HDEL', VERIFIED, id]);
+    }
     await store.exec(cmds);
     return json(200, { ok: true });
   }
@@ -340,8 +526,14 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     try {
       if (!isAdmin(req) && (await limited(store, req))) return json(429, { error: 'rate_limited' });
       if (req.method === 'GET') return await get(store, req);
-      if (req.method === 'POST') return await post(store, req);
-      if (req.method === 'DELETE') return await del(store, req);
+      const body = (await req.json().catch(() => null)) as Body;
+      if (req.method === 'POST') {
+        const action = new URL(req.url).searchParams.get('action');
+        if (action === 'google') return await signIn(store, body);
+        if (action === 'signout') return await signOut(store, body);
+        return await submit(store, body);
+      }
+      if (req.method === 'DELETE') return await del(store, req, body);
       return json(405, { error: 'method' });
     } catch (e) {
       console.error(e);
@@ -364,7 +556,11 @@ function envStore(): Store | null {
   return store;
 }
 
-const handler = createHandler(envStore, { adminToken: env.LEADERBOARD_ADMIN_TOKEN || undefined });
+const handler = createHandler(envStore, {
+  adminToken: env.LEADERBOARD_ADMIN_TOKEN || undefined,
+  googleClientId: env.GOOGLE_CLIENT_ID || undefined,
+  requireGoogle: env.LEADERBOARD_REQUIRE_GOOGLE === '1',
+});
 
 export const GET = handler;
 export const POST = handler;

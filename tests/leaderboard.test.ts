@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { BOARDS, cleanName, createHandler, dayKey, memoryStore, MIN_CLEAR_SECONDS, validate, weekKey } from '../api/leaderboard';
+import { BOARDS, cleanName, createHandler, dayKey, googleVerifier, memoryStore, MIN_CLEAR_SECONDS, validate, weekKey, type HandlerOptions, type Jwk } from '../api/leaderboard';
 
 const NOW = Date.UTC(2026, 8, 25, 12); // Friday 2026-09-25
 const id = (n: number) => n.toString(16).padStart(32, '0');
 
 /** One store shared by every request (createHandler asks for it per request). */
-function shared() {
-  const store = memoryStore();
+function shared(options: HandlerOptions = {}) {
   const clock = { now: NOW };
-  const handler = createHandler(() => store, { now: () => clock.now, adminToken: 'secret' });
+  const store = memoryStore(() => clock.now);
+  const handler = createHandler(() => store, { now: () => clock.now, adminToken: 'secret', ...options });
   let ip = 0;
   const call = async (method: string, query = '', body?: unknown, headers: Record<string, string> = {}) => {
     const res = await handler(
@@ -202,5 +202,190 @@ describe('leaderboard: game side', () => {
     expect(shop.over).toBe(true);
     expect(save.ranking.day30).toBe(save.totals.revenue);
     expect(save.ranking.day30).toBeGreaterThanOrEqual(12345);
+  });
+});
+
+// ---------------------------------------------------------------- Google sign-in
+
+const CLIENT = 'test-client.apps.googleusercontent.com';
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64json = (v: unknown) => b64url(new TextEncoder().encode(JSON.stringify(v)));
+
+/** A Google-like signer: an RSA key pair and ID tokens signed with it. */
+async function fakeGoogle() {
+  const pair = (await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+  const jwk = { ...(await crypto.subtle.exportKey('jwk', pair.publicKey)), kid: 'k1' } as Jwk;
+  let fetches = 0;
+  const fetchKeys = async () => {
+    fetches++;
+    return [jwk];
+  };
+  const token = async (claims: Record<string, unknown> = {}, kid = 'k1') => {
+    const head = b64json({ alg: 'RS256', kid, typ: 'JWT' });
+    const body = b64json({ iss: 'https://accounts.google.com', aud: CLIENT, sub: 'user-1', exp: NOW / 1000 + 3600, ...claims });
+    const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(`${head}.${body}`)));
+    return `${head}.${body}.${b64url(sig)}`;
+  };
+  return { fetchKeys, token, fetches: () => fetches };
+}
+
+describe('leaderboard: Google ID tokens', () => {
+  it('accepts a signed token for our client and refuses anything else', async () => {
+    const g = await fakeGoogle();
+    const verify = googleVerifier(CLIENT, { now: () => NOW, fetchKeys: g.fetchKeys });
+    expect(await verify(await g.token())).toEqual({ sub: 'user-1' });
+    expect(await verify(await g.token({ aud: 'someone-else' }))).toBeNull();
+    expect(await verify(await g.token({ iss: 'https://evil.example' }))).toBeNull();
+    expect(await verify(await g.token({ exp: NOW / 1000 - 3600 }))).toBeNull();
+    expect(await verify(await g.token({}, 'unknown-kid'))).toBeNull();
+    // A token whose claims were changed after signing.
+    const [h, , sig] = (await g.token()).split('.');
+    expect(await verify(`${h}.${b64json({ iss: 'accounts.google.com', aud: CLIENT, sub: 'admin', exp: NOW / 1000 + 60 })}.${sig}`)).toBeNull();
+    expect(await verify('not-a-token')).toBeNull();
+    // Keys are cached.
+    expect(g.fetches()).toBe(1);
+  });
+});
+
+describe('leaderboard: signed-in players', () => {
+  async function signedIn(options: HandlerOptions = {}) {
+    const g = await fakeGoogle();
+    const env = shared({ googleClientId: CLIENT, verifyGoogle: googleVerifier(CLIENT, { now: () => NOW, fetchKeys: g.fetchKeys }), ...options });
+    const signIn = async (deviceId: string, claims: Record<string, unknown> = {}) =>
+      env.call('POST', '?action=google', { id: deviceId, credential: await g.token(claims) });
+    return { ...env, signIn, g };
+  }
+
+  it('tells the game the client id, and marks signed-in players as verified', async () => {
+    const { call, signIn } = await signedIn();
+    expect((await call('GET', '?board=total')).body.auth).toEqual({ googleClientId: CLIENT, requireGoogle: false });
+    const res = await signIn(id(1));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: id(1), name: null });
+    expect(res.body.secret).toMatch(/^[0-9a-f]{32}$/);
+    await call('POST', '', { ...entry(1), secret: res.body.secret });
+    await call('POST', '', entry(2));
+    const entries = (await call('GET', '?board=total')).body.entries as { name: string; verified?: boolean }[];
+    expect(entries.find((e) => e.name === 'P1')?.verified).toBe(true);
+    expect(entries.find((e) => e.name === 'P2')?.verified).toBeUndefined();
+  });
+
+  it('a linked record takes writes only from signed-in devices', async () => {
+    const { call, signIn, clock } = await signedIn();
+    const { secret } = (await signIn(id(1))).body as { secret: string };
+    expect((await call('POST', '', entry(1))).body).toEqual({ error: 'auth' });
+    clock.now += 11_000;
+    expect((await call('POST', '', { ...entry(1), secret: 'f'.repeat(32) })).body).toEqual({ error: 'auth' });
+    clock.now += 11_000;
+    expect((await call('POST', '', { ...entry(1), secret })).status).toBe(200);
+    // Signing out this device: its secret stops working.
+    await call('POST', '?action=signout', { id: id(1), secret });
+    clock.now += 11_000;
+    expect((await call('POST', '', { ...entry(1), secret })).body).toEqual({ error: 'auth' });
+    // Nobody can delete it without a secret either.
+    expect((await call('DELETE', '', { id: id(1) })).status).toBe(403);
+  });
+
+  it('signing in on a second device continues the same player and merges that device\'s records', async () => {
+    const { call, signIn, clock } = await signedIn();
+    const first = (await signIn(id(1))).body as { id: string; secret: string };
+    await call('POST', '', { ...entry(1, { total: 5000, bestDay: 900, clear1: 9000, clearBest: 9000 }), secret: first.secret });
+    // Device 2 played on its own first (better clear, lower total).
+    await call('POST', '', entry(2, { total: 3000, bestDay: 1200, lastDay: 100, clear1: 7000, clearBest: 7000 }));
+    const second = (await signIn(id(2))).body as { id: string; secret: string; name: string };
+    expect(second.id).toBe(id(1));
+    expect(second.name).toBe('P1');
+    expect(second.secret).not.toBe(first.secret);
+    const top = async (board: string) => (await call('GET', `?board=${board}`)).body as { entries: { name: string; score: number }[]; count: number };
+    expect(await top('total')).toMatchObject({ count: 1, entries: [{ name: 'P1', score: 5000 }] });
+    expect((await top('bestDay')).entries[0].score).toBe(1200);
+    expect((await top('clear1')).entries[0].score).toBe(7000);
+    // Both devices can write.
+    clock.now += 11_000;
+    expect((await call('POST', '', { ...entry(1, { total: 6000, bestDay: 1200 }), id: second.id, secret: second.secret })).status).toBe(200);
+  });
+
+  it('a device linked to one account starts a new player for another account', async () => {
+    const { signIn } = await signedIn();
+    await signIn(id(1), { sub: 'alice' });
+    const bob = (await signIn(id(1), { sub: 'bob' })).body as { id: string };
+    expect(bob.id).not.toBe(id(1));
+    expect(bob.id).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('withdrawing removes the link; a ban keeps it so the account stays banned', async () => {
+    const { call, signIn, clock } = await signedIn();
+    const a = (await signIn(id(1), { sub: 'alice' })).body as { secret: string };
+    await call('POST', '', { ...entry(1), secret: a.secret });
+    expect((await call('DELETE', '', { id: id(1), secret: a.secret })).status).toBe(200);
+    // Signed in again: a fresh link, no records.
+    expect((await signIn(id(1), { sub: 'alice' })).body).toMatchObject({ id: id(1), name: null });
+
+    const b = (await signIn(id(2), { sub: 'bob' })).body as { secret: string };
+    await call('POST', '', { ...entry(2), secret: b.secret });
+    await call('DELETE', '', { id: id(2), ban: true }, { authorization: 'Bearer secret' });
+    clock.now += 11_000;
+    expect((await signIn(id(3), { sub: 'bob' })).status).toBe(403);
+  });
+
+  it('LEADERBOARD_REQUIRE_GOOGLE: only signed-in players submit', async () => {
+    const { call, signIn } = await signedIn({ requireGoogle: true });
+    expect((await call('GET', '?board=total')).body.auth).toMatchObject({ requireGoogle: true });
+    expect((await call('POST', '', entry(1))).body).toEqual({ error: 'login_required' });
+    const { secret } = (await signIn(id(2))).body as { secret: string };
+    expect((await call('POST', '', { ...entry(2), secret })).status).toBe(200);
+  });
+
+  it('sign-in is off without a client id; bad tokens are refused', async () => {
+    const off = shared();
+    expect((await off.call('POST', '?action=google', { id: id(1), credential: 'x' })).status).toBe(501);
+    expect(((await off.call('GET', '?board=total')).body.auth as { googleClientId: unknown }).googleClientId).toBeNull();
+    const { call } = await signedIn();
+    expect((await call('POST', '?action=google', { id: id(1), credential: 'x.y.z' })).status).toBe(401);
+  });
+});
+
+describe('leaderboard: game client against the handler', () => {
+  it('join, sign in with Google on two devices, sign out', async () => {
+    const g = await fakeGoogle();
+    const clock = { now: NOW };
+    const store = memoryStore(() => clock.now);
+    const handler = createHandler(() => store, { now: () => clock.now, googleClientId: CLIENT, verifyGoogle: googleVerifier(CLIENT, { now: () => NOW, fetchKeys: g.fetchKeys }) });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => handler(new Request(input, init))) as typeof fetch;
+    try {
+      const { newSave } = await import('../src/game/save');
+      const lb = await import('../src/net/leaderboard');
+      // Device A joins with a nickname, then signs in.
+      const a = newSave();
+      Object.assign(a.ranking, { name: 'マイン', joined: true });
+      a.totals.revenue = 1e6;
+      a.bestDayRevenue = 1e5;
+      await lb.submit(a);
+      expect(await lb.signInWithGoogle(a, await g.token())).toBe(false);
+      expect(a.ranking).toMatchObject({ google: true, joined: true });
+      clock.now += 11_000;
+      await lb.submit(a);
+      // Device B signs in with the same account: it becomes the same player, name included.
+      const b = newSave();
+      b.bestDayRevenue = 5e5;
+      b.totals.revenue = 6e5;
+      expect(await lb.signInWithGoogle(b, await g.token())).toBe(true);
+      expect(b.ranking).toMatchObject({ id: a.ranking.id, name: 'マイン', joined: true, google: true });
+      clock.now += 11_000;
+      await lb.submit(b);
+      const best = await lb.fetchBoard('bestDay', b.ranking.id);
+      expect(best.entries).toEqual([{ rank: 1, name: 'マイン', score: 5e5, verified: true, me: true }]);
+      expect(best.auth).toEqual({ googleClientId: CLIENT, requireGoogle: false });
+      // B signs out: a fresh unlinked id; its old secret no longer works.
+      const oldSecret = b.ranking.secret!;
+      await lb.signOut(b);
+      expect(b.ranking).toMatchObject({ google: false, secret: null, joined: false });
+      expect(b.ranking.id).not.toBe(a.ranking.id);
+      clock.now += 11_000;
+      await expect(lb.submit({ ...b, ranking: { ...b.ranking, id: a.ranking.id, secret: oldSecret, joined: true, name: 'x' } })).rejects.toMatchObject({ code: 'auth' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

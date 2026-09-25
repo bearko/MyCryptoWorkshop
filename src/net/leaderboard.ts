@@ -1,4 +1,4 @@
-import type { SaveData } from '../game/save';
+import { newRanking, type SaveData } from '../game/save';
 import { t } from '../i18n';
 
 /**
@@ -32,6 +32,14 @@ export interface BoardEntry {
   name: string;
   score: number;
   me?: boolean;
+  /** Signed in with Google. */
+  verified?: boolean;
+}
+
+/** Sign-in settings of the server. */
+export interface AuthInfo {
+  googleClientId: string | null;
+  requireGoogle: boolean;
 }
 
 export interface BoardResult {
@@ -40,6 +48,7 @@ export interface BoardResult {
   count: number;
   entries: BoardEntry[];
   me: { rank: number; score: number } | null;
+  auth?: AuthInfo;
 }
 
 /** Where the API lives: same site on Vercel; builds for other hosts set VITE_LEADERBOARD_URL. */
@@ -62,6 +71,7 @@ export function submission(save: SaveData, lastDay: number) {
     run: p.runs + 1,
     day: save.day,
     playSeconds: save.meta.playSeconds,
+    ...(save.ranking.secret ? { secret: save.ranking.secret } : {}),
   };
 }
 
@@ -99,9 +109,27 @@ export async function submit(save: SaveData, lastDay = 0): Promise<void> {
   await call('POST', '', submission(save, lastDay));
 }
 
-/** Removes this player's records from every board. */
+/** Removes this player's records from every board (and the Google link). */
 export async function withdraw(save: SaveData): Promise<void> {
-  await call('DELETE', '', { id: save.ranking.id });
+  await call('DELETE', '', { id: save.ranking.id, secret: save.ranking.secret ?? undefined });
+  Object.assign(save.ranking, { joined: false, google: false, secret: null });
+}
+
+/**
+ * Signs in with a Google ID token: this device continues the account's player (its own records
+ * are merged in by the server). Returns whether the account was already linked before.
+ */
+export async function signInWithGoogle(save: SaveData, credential: string): Promise<boolean> {
+  const res = (await call('POST', '?action=google', { id: save.ranking.id, credential })) as { id: string; secret: string; name: string | null; existing: boolean };
+  Object.assign(save.ranking, { id: res.id, secret: res.secret, google: true });
+  if (res.name) Object.assign(save.ranking, { name: res.name, joined: true });
+  return res.existing;
+}
+
+/** Signs this device out: it gets a fresh, unlinked id (the account keeps its records). */
+export async function signOut(save: SaveData): Promise<void> {
+  await call('POST', '?action=signout', { id: save.ranking.id, secret: save.ranking.secret }).catch(() => undefined);
+  Object.assign(save.ranking, { ...newRanking(), day30: save.ranking.day30 });
 }
 
 /** A message for the player for an error code from the server. */
@@ -115,6 +143,14 @@ export function errorText(e: unknown): string {
       return t('少し時間をおいてからもう一度どうぞ', 'Please wait a moment and try again');
     case 'banned':
       return t('この記録はランキングに登録できません', "These records can't be entered on the leaderboards");
+    case 'auth':
+      return t('この記録は Google アカウントで守られています。Google でログインしてください', 'This record is protected by a Google account. Please sign in with Google');
+    case 'login_required':
+      return t('ランキングへの参加には Google でのログインが必要です', 'Sign in with Google to join the leaderboards');
+    case 'bad_token':
+      return t('Google のログインを確認できませんでした。もう一度お試しください', "Couldn't verify the Google sign-in. Please try again");
+    case 'google_off':
+      return t('このサーバーでは Google ログインを使えません', "Google sign-in isn't available on this server");
     case 'not_configured':
       return t('ランキングサーバーはまだ準備中です', 'The leaderboard server is not set up yet');
     default:

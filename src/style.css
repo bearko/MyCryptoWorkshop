@@ -2591,3 +2591,33 @@ body.in-day {
 .rank-foot small {
   color: var(--muted);
 }
+
+.rank-google {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.rank-google small {
+  flex: 1 1 200px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rank-google-button {
+  min-height: 40px;
+}
+
+.rank-google-on {
+  color: var(--good);
+  font-size: 14px;
+}
+
+.rank-verified {
+  color: #7fd0ff;
+  font-weight: 700;
+}

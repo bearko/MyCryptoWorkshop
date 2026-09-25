@@ -98,6 +98,10 @@ export interface Ranking {
   joined: boolean;
   /** Sales of the first run by the end of Day 30 (the early-game board). */
   day30: number | null;
+  /** Signed in with Google: the record is linked to the account. */
+  google: boolean;
+  /** This device's key for a Google-linked record (issued by the server at sign-in). */
+  secret: string | null;
 }
 
 const RANKING_ID = /^[0-9a-f]{32}$/;
@@ -105,7 +109,7 @@ const RANKING_ID = /^[0-9a-f]{32}$/;
 export function newRanking(): Ranking {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return { id: [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''), name: '', joined: false, day30: null };
+  return { id: [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''), name: '', joined: false, day30: null, google: false, secret: null };
 }
 
 export const emptyGems = (): Record<GemId, number> => Object.fromEntries(GEM_IDS.map((g) => [g, 0])) as Record<GemId, number>;
