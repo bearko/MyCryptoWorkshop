@@ -118,6 +118,7 @@ export const NODE_EN: Record<string, [name: string, desc: string]> = {
   recipeBook: ['Recipe Book', 'Start collecting series recipes. A varied range: customer rate +5%'],
   planning: ['Production Planning', 'Unlocks Mass Production for each series. Craft time -3% (all lines)'],
   masterwork: ['Masterpiece Appraisal', 'Unlocks Masterpiece for each series. Edition chance +5%'],
+  beastBook: ['Book of Beasts', 'Opens the beast rows (Horse reputation, production and masterpiece, and beast recipes). A wider range: customer rate +3%'],
 
   // 店舗 Store: facilities
   decor: ['Interior Work', 'Lets you place fixtures on the shop floor. Customer rate +5%'],

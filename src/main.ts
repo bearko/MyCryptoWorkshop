@@ -125,14 +125,20 @@ const naviToast = h('div.navi-toast', {}, naviImg, naviText);
 naviToast.hidden = true;
 const logList = h('ul.log');
 
-const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast);
+// Before opening: the day's card with the open button, over the storefront.
+const openDayBtn = h('button.btn.btn-primary.open-day', { onclick: () => openDay() }) as HTMLButtonElement;
+const openInfo = h('p.open-info');
+const openCard = h('div.open-card', {}, openInfo, openDayBtn);
+// The switch to the skill tree, bottom right (the tree's "to the shop" button sits in the same spot).
+const toTreeBtn = h('button.btn.nav-btn.to-tree', { onclick: () => showTree() }, t('🌳 スキルツリー', '🌳 Skill tree'));
+const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast, openCard, toTreeBtn);
 const renderer = new SceneRenderer(canvas);
 
 const stage = h('main.stage', {}, scene);
 
 const tree = new TreeView(save, {
   onBuy: buyNode,
-  onStartDay: () => startDay(),
+  onShop: () => showShop(),
   onCollection: () => openCollection(),
   onRelocate: () => openRelocate(),
 });
@@ -199,6 +205,13 @@ const tutorial = new Tutorial(
       text: t('右上が今日の売上と残り時間。閉店まで売り続けよう！', "Top right: today's sales and the time left. Keep selling until closing!"),
       target: () => elBox('.hud'),
     },
+    {
+      id: 'treeBtn',
+      place: 'day',
+      when: () => firstDay() && (shop?.elapsed ?? 0) > 34,
+      text: t('右下のボタンで、いつでもスキルツリーに行けるよ。スキルツリーにいる間は営業の時間が止まるから安心してね。', 'The button at the bottom right takes you to the skill tree at any time. The day waits while you are there.'),
+      target: () => elBox('.to-tree'),
+    },
     // After day 1: results and the skill tree.
     {
       id: 'results',
@@ -228,9 +241,17 @@ const tutorial = new Tutorial(
       id: 'openDay',
       place: 'tree',
       when: () => save.day === 2 && save.prestige.runs === 0,
-      text: t('準備ができたら 2 日目を開店しよう！', "When you're ready, open for day 2!"),
-      target: () => elBox('.start-day'),
+      text: t('準備ができたら、右下の「ショップへ」でお店に戻ろう！', "When you're ready, go back with \"To the shop\" at the bottom right!"),
+      target: () => elBox('.to-shop'),
       done: () => place === 'day',
+    },
+    {
+      id: 'openShop',
+      place: 'day',
+      when: () => save.day === 2 && save.prestige.runs === 0 && !!shop && !shop.started,
+      text: t('「開店する」で 2 日目の営業を始めよう！', 'Press "Open" to start day 2!'),
+      target: () => elBox('.open-day'),
+      done: () => !!shop?.started,
     },
     // Day 2 and 3: thieves and workshop enemies, when the first one shows up.
     {
@@ -549,6 +570,8 @@ function openRelocate(): void {
     t('ランド移転', 'Relocation'),
     relocateView(save, (land) => {
       close();
+      // A day still open is left behind: the workshop moves.
+      shop = null;
       const record = relocate(save, land);
       writeSave(save);
       sound.play('helper');
@@ -798,7 +821,7 @@ function showTitle(): void {
         onClick: () => {
           window.clearInterval(anim);
           sound.unlock();
-          if (hasProgress) showTree();
+          if (hasProgress) showShop();
           else startDay();
         },
       },
@@ -868,18 +891,33 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
       : null,
   );
   place = 'results';
-  openModal(t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`), body, [{ label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => showTree() }], 'results-modal');
+  openModal(
+    t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`),
+    body,
+    [
+      { label: t('ショップへ', 'To the shop'), onClick: () => showShop() },
+      { label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => showTree() },
+    ],
+    'results-modal',
+  );
 }
 
 // ------------------------------------------------------------------ flow
 
+/**
+ * The skill tree. It can be opened at any time: an open business day waits (paused) and picks
+ * up where it left off with the new skills; a day not yet opened is set up again on return.
+ */
 function showTree(): void {
   place = 'tree';
-  shop = null;
+  if (shop && (!shop.started || shop.over)) shop = null;
+  const dayOpen = !!shop;
   paused = true;
+  endPress();
   stage.hidden = true;
   document.body.classList.remove('in-day');
   naviToast.hidden = true;
+  tree.setDayOpen(dayOpen);
   tree.show();
   sound.playBgm('bgmTree');
   updateTopbar();
@@ -924,20 +962,59 @@ function showEnding(): void {
   );
 }
 
-function startDay(): void {
+/**
+ * The shop screen: the open day (resumed, with skills bought meanwhile applied), or the
+ * storefront of the next day, waiting for the open button.
+ */
+function showShop(): void {
   place = 'day';
-  registerClicks = 0;
   tree.hide();
   document.body.classList.add('in-day');
   stage.hidden = false;
+  if (shop && shop.started && !shop.over) {
+    fitScene(false);
+    shop.applyLevels();
+    applyOverlays(shop.stats.overlays);
+    sound.playBgm(shop.raid.active ? 'bgmRaid' : 'bgmShop');
+  } else {
+    prepareDay();
+    sound.playBgm('bgmShop');
+  }
+  paused = false;
+  updateOpenCard();
+  updateTopbar();
+}
+
+/** Sets up the next business day, closed until the open button. */
+function prepareDay(): void {
   logList.replaceChildren();
   fitScene(true);
-  shop = new Shop(save);
+  shop = new Shop(save, Math.random, { waitToOpen: true });
   shop.on(onShopEvent);
   applyOverlays(shop.stats.overlays);
-  paused = false;
-  sound.playBgm('bgmShop');
-  updateTopbar();
+}
+
+function updateOpenCard(): void {
+  const waiting = !!shop && !shop.started;
+  openCard.hidden = !waiting;
+  if (!waiting) return;
+  const c = save.forecast;
+  openInfo.replaceChildren(h('b', {}, `Day ${save.day}`), ' ', conditionLabel(c), h('br'), h('small', {}, CONDITIONS[c.kind].desc));
+  openDayBtn.textContent = t(`▶ Day ${save.day} 開店する`, `▶ Open for Day ${save.day}`);
+}
+
+/** New game (title): straight into day 1. */
+function startDay(): void {
+  showShop();
+  openDay();
+}
+
+/** The open button: the day begins. */
+function openDay(): void {
+  if (!shop || shop.started) return;
+  shop.start();
+  registerClicks = 0;
+  updateOpenCard();
   if (save.day <= 3 && tutorial.pending('day')) {
     // The tutorial introduces the first days.
   } else if (save.day === 1) {
@@ -1243,7 +1320,7 @@ function endPress(): void {
 }
 
 canvas.addEventListener('pointerdown', (ev) => {
-  if (!shop || paused) return;
+  if (!shop || paused || !shop.started) return;
   sound.unlock();
   const { x, y } = renderer.toScene(ev.clientX, ev.clientY);
   const target = hitTest(x, y);
@@ -1283,7 +1360,7 @@ canvas.addEventListener('pointermove', (ev) => {
 let spaceHeld = false;
 window.addEventListener('keydown', (ev) => {
   const typing = ev.target instanceof HTMLTextAreaElement || ev.target instanceof HTMLInputElement;
-  if (typing || !shop || paused || modalOpen > 0) return;
+  if (typing || !shop || paused || !shop.started || modalOpen > 0) return;
   if (ev.code === 'Space') {
     ev.preventDefault();
     if (ev.repeat) {
@@ -1337,7 +1414,7 @@ let uiTimer = 0;
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  const running = shop && !paused && modalOpen === 0 && !document.hidden && !tutorial.blocking;
+  const running = shop && shop.started && !paused && modalOpen === 0 && !document.hidden && !tutorial.blocking;
   if (shop && running) {
     shop.update(dt);
     watchFrameRate(dt);
@@ -1345,7 +1422,7 @@ function frame(now: number): void {
     if (shop.lines.some((l) => l.blocked)) tip('full', t('棚がいっぱいでクラフトが止まっちゃった！「陳列棚増設」や「搬送レーン」で置き場所を増やそう', 'The shelves are full and crafting stopped! Make room with "More Shelves" or "Conveyor Lane"'));
     if (shop.pestList.length) tip('pest', t('エネミーが工房を荒らしてる！跳ね回るエネミーをタップで追い払って！', 'An enemy is wrecking the workshop! Tap the bouncing enemy to chase it off!'));
   }
-  if (shop) {
+  if (shop && !stage.hidden) {
     renderer.render(shop, now, {
       pot: save.day === 1 && potClicks < 5,
       register: shop.queue.length >= 3 && shop.elapsed - lastQueueTip < 6,
@@ -1364,7 +1441,7 @@ function updateHud(s: Shop): void {
   const left = Math.max(0, s.timeLeft);
   hudGum.textContent = fmt(save.gum);
   hudDay.textContent = `Day ${save.day}`;
-  hudTime.textContent = t(`残り${left.toFixed(0)}秒`, `${left.toFixed(0)}s left`);
+  hudTime.textContent = !s.started ? t('開店前', 'Not open yet') : t(`残り${left.toFixed(0)}秒`, `${left.toFixed(0)}s left`);
   hudTime.classList.toggle('hurry', left <= 5 && !s.over);
   hudBar.style.width = `${(left / s.stats.dayLength) * 100}%`;
   hudRevenue.textContent = `+${fmt(s.report.revenue)}`;

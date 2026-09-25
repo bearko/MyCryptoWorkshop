@@ -741,10 +741,6 @@ body.in-day {
   border-left: 2px solid var(--line);
 }
 
-.start-day {
-  font-size: 18px;
-  padding: 14px;
-}
 
 .tree-help {
   margin: 0;
@@ -2229,4 +2225,63 @@ body.in-day {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
+}
+
+/* ---------------------------------------------------------------- shop ⇄ skill tree */
+
+/* The switch between the shop and the skill tree: bottom right on both screens, away from
+   the buy buttons, so neither is pressed by mistake. */
+.nav-btn {
+  z-index: 8;
+  padding: 10px 14px;
+  font-size: 15px;
+  box-shadow: 0 4px 14px #000a;
+}
+
+.to-tree {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+
+.to-shop {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+}
+
+.tree-side {
+  /* Room for the "to the shop" button at the bottom right. */
+  padding-bottom: 76px;
+}
+
+/* Before opening: the day's card over the storefront. */
+.open-card {
+  position: absolute;
+  left: 50%;
+  top: 72%;
+  translate: -50% -50%;
+  z-index: 7;
+  width: min(86%, 360px);
+  padding: 14px 16px;
+  border: 2px solid var(--gold);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 24px #000a;
+  text-align: center;
+}
+
+.open-card .open-info {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.open-card .open-info small {
+  color: var(--muted);
+}
+
+.open-day {
+  width: 100%;
+  font-size: 18px;
+  padding: 12px;
 }

@@ -36,9 +36,24 @@ export class Staff {
   private promoterTimer = 0;
 
   constructor(private readonly shop: Shop) {
+    this.applyStats();
+    shop.on((e) => {
+      if (e.type === 'sale') this.cheer('accountant');
+      else if (e.type === 'craft' && e.item >= 100000) this.cheer('appraiser');
+    });
+  }
+
+  /** Puts every hired role at its post; a role upgraded to its hero ace changes hero (also mid-day). */
+  applyStats(): void {
     for (const role of STAFF_ROLES) {
-      const lv = shop.stats[`staff_${role}`];
+      const lv = this.shop.stats[`staff_${role}`];
       if (lv <= 0) continue;
+      const on = this.get(role);
+      if (on) {
+        on.hero = staffHero(role, lv);
+        on.ace = lv >= 2;
+        continue;
+      }
       const post = STAFF_POSTS[role];
       this.members.push({
         role,
@@ -57,10 +72,6 @@ export class Staff {
         bag: [],
       });
     }
-    shop.on((e) => {
-      if (e.type === 'sale') this.cheer('accountant');
-      else if (e.type === 'craft' && e.item >= 100000) this.cheer('appraiser');
-    });
   }
 
   get(role: StaffRole): StaffMember | undefined {
