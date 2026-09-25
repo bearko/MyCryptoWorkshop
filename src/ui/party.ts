@@ -1,6 +1,6 @@
 import { attributeName, series } from '../game/catalog';
 import { FACTION_BY_NAME, FACTION_NAME } from '../game/factions';
-import { activeParty, MAX_PARTY, memberTuning, PARTY_ROSTER, partyHero, partySynergies, scoutId, SKILL_KIND_NAME, skillText, skillValue, suggestParty, taughtSeries, type PartyHeroDef } from '../game/party';
+import { activeParty, MAX_PARTY, memberTuning, PARTY_ROSTER, partyHero, partySynergies, scoutId, SKILL_KIND_NAME, skillText, skillValue, suggestParty, supportText, taughtSeries, type PartyHeroDef } from '../game/party';
 import type { SaveData } from '../game/save';
 import { computeStats } from '../game/stats';
 import { t } from '../i18n';
@@ -59,6 +59,7 @@ export function partyView(save: SaveData, persist: () => void, onChange: () => v
           faction ? h('span.party-faction', {}, FACTION_NAME[faction]) : null,
         ),
         h('div.party-skill', {}, h('span.party-kind', {}, SKILL_KIND_NAME[d.kind]), `「${hero.passive}」 `, skill, h('small', {}, t(` （${Math.round(cooldown)}秒ごと）`, ` (every ${Math.round(cooldown)}s)`))),
+        h('small.party-support', {}, t('サポート（常時）: ', 'Support (always): '), supportText(d, level)),
         h('small.party-attrs', {}, (hero.attributes ?? []).map(attributeName).join(' / '), ' · ', t('レシピ: ', 'Recipes: '), taughtSeries(d).map((i) => series[i].name).join(t('・', ', '))),
       ),
       inParty ? h('span.party-check', {}, '✓') : null,

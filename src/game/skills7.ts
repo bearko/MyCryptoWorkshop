@@ -3,7 +3,7 @@
 // with its tier's scouts in a row going left, cheapest first.
 import { series, seriesIcon } from './catalog';
 import { add, mul } from './effects';
-import { PARTY_ROSTER, partyHero, scoutId, skillText, skillValue, SKILL_KIND_NAME, TIER_HALL, taughtSeries, type PartyHeroDef, type PartyTier } from './party';
+import { PARTY_ROSTER, partyHero, scoutId, skillText, skillValue, SKILL_KIND_NAME, supportEffects, supportText, TIER_HALL, taughtSeries, type PartyHeroDef, type PartyTier } from './party';
 import type { SkillNode } from './skills';
 import { recipeCost } from './skills5';
 import { t } from '../i18n';
@@ -31,8 +31,8 @@ function scoutNode(d: PartyHeroDef, x: number): SkillNode {
     branch: 'party',
     name: t(`スカウト：${hero.name}`, `Scout: ${hero.name}`),
     desc: t(
-      `${hero.name}を仲間にする。レシピ（${recipes}）を教えてくれる。スキル「${hero.passive}」〈${SKILL_KIND_NAME[d.kind]}〉: ${skill}。Lv が上がるほどスキルが強く、早く溜まる。仲間の Lv 1 ごとに販売価格 +0.5%`,
-      `${hero.name} joins you and teaches the recipes for ${recipes}. Skill "${hero.passive}" <${SKILL_KIND_NAME[d.kind]}>: ${skill}. Higher levels make the skill stronger and faster. Each hero level: sale price +0.5%`,
+      `${hero.name}を仲間にする。レシピ（${recipes}）を教えてくれる。スキル「${hero.passive}」〈${SKILL_KIND_NAME[d.kind]}〉: ${skill}（パーティで発動。Lv が上がるほど強く、早く溜まる）。サポート効果（パーティに入れなくても常に）: Lv 1 ごとに ${supportText(d, 1)}`,
+      `${hero.name} joins you and teaches the recipes for ${recipes}. Skill "${hero.passive}" <${SKILL_KIND_NAME[d.kind]}>: ${skill} (used in the party; stronger and faster with levels). Support (always, in the party or not), per level: ${supportText(d, 1)}`,
     ),
     icon: hero.image,
     x,
@@ -41,7 +41,7 @@ function scoutNode(d: PartyHeroDef, x: number): SkillNode {
     baseCost: scoutCost(d),
     growth: LEVEL_GROWTH[d.tier],
     requires: [TIER_HALL[d.tier]],
-    effects: [mul('priceMult', 0.005, 'heroes')],
+    effects: supportEffects(d),
   };
 }
 
