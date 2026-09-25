@@ -1,6 +1,6 @@
 import { storePests } from '../catalog';
 import { RARITY_PRICE } from '../items';
-import { FLOOR_Y, HERO_PX, QUEUE_LANE_Y, SCENE_W, SHOP_LANE_Y } from '../layout';
+import { FLOOR_Y, HERO_PX, QUEUE_LANE_Y, SCENE_W, SHOP_LANE_Y, WALL_SLOTS } from '../layout';
 import { GEM_IDS } from '../lines';
 import type { Shop } from './index';
 import type { Actor, Chest, Coin, Mess, StorePest } from './types';
@@ -44,10 +44,11 @@ export class Hazards {
     this.chestNext = rand.range(15, 30) * stats.chestInterval;
   }
 
-  /** A random spot on the customers' side of the floor. */
+  /** A random spot on the customers' side of the floor (the lane, when display tables stand below it). */
   private floorSpot(): { x: number; y: number } {
-    const { rand } = this.shop;
-    return { x: rand.range(300, 880), y: rand.range(SHOP_LANE_Y - 6, QUEUE_LANE_Y - 20) };
+    const { rand, stats } = this.shop;
+    const tables = stats.shelfSlots > WALL_SLOTS;
+    return { x: rand.range(300, 880), y: rand.range(SHOP_LANE_Y - 6, tables ? SHOP_LANE_Y + 16 : QUEUE_LANE_Y - 20) };
   }
 
   update(dt: number): void {
@@ -219,7 +220,7 @@ export class Hazards {
       shop.emit({ type: 'chest', reward: 'gem', amount: 2 });
     }
     // The empty chest and packing litter end up on the floor.
-    this.addMess('litter', { x: Math.min(900, Math.max(300, c.x)), y: shop.rand.range(SHOP_LANE_Y, QUEUE_LANE_Y - 20) });
+    this.addMess('litter', { x: Math.min(900, Math.max(300, c.x)), y: this.floorSpot().y });
   }
 
   /** What is under a tap, if anything the hazards own. Hit areas are generous for touch. */

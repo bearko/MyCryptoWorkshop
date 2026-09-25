@@ -108,7 +108,7 @@ export function setSceneHeight(h: number): void {
     consultant: { x: 726, y: FLOOR_Y + 40 },
     host: { x: 872, y: SHOP_LANE_Y + 34 },
     promoter: { x: 966, y: FLOOR_Y + 46 },
-    guard: { x: 600, y: SHOP_LANE_Y + 42 },
+    guard: { x: 228, y: SHOP_LANE_Y + 46 },
     peddler: { x: 760, y: QUEUE_LANE_Y + 64 },
     accountant: { x: 300, y: bottom },
     researcher: { x: 420, y: bottom },
@@ -140,15 +140,26 @@ export const SHELF_TOP = FLOOR_Y - 96;
 export const SHELF_ROW_Y = [FLOOR_Y - 66, FLOOR_Y - 28];
 export const SHELF_ITEM_PX = 32;
 export const SLOTS_PER_UNIT = 4;
-export const MAX_SLOTS = 12;
+/** Slots on the back wall's shelves (3 units). */
+export const WALL_SLOTS = 12;
+/** 陳列台: display tables in front of the shop lane (4 units), filled after the wall shelves. */
+export const TABLE_UNITS = 4;
+export const MAX_SLOTS = WALL_SLOTS + TABLE_UNITS * SLOTS_PER_UNIT;
+/** Top of the display tables, just below the shop lane (customers browse them from the lane). */
+export const TABLE_TOP = SHOP_LANE_Y + 38;
+/** Item centre y for the back and front rows standing on a table top. */
+export const TABLE_ROW_Y = [TABLE_TOP - 8, TABLE_TOP + 6];
+export const TABLE_H = 50;
 
 export function slotPos(index: number): { x: number; y: number } {
-  const unit = Math.floor(index / SLOTS_PER_UNIT);
-  const within = index % SLOTS_PER_UNIT;
+  const table = index >= WALL_SLOTS;
+  const i = table ? index - WALL_SLOTS : index;
+  const unit = Math.floor(i / SLOTS_PER_UNIT);
+  const within = i % SLOTS_PER_UNIT;
   const row = Math.floor(within / 2);
   const col = within % 2;
   const x0 = SHELF_X0 + unit * (SHELF_UNIT_W + SHELF_UNIT_GAP);
-  return { x: x0 + 24 + col * 40, y: SHELF_ROW_Y[row] };
+  return { x: x0 + 24 + col * 40, y: (table ? TABLE_ROW_Y : SHELF_ROW_Y)[row] };
 }
 
 export function queuePos(index: number): { x: number; y: number } {

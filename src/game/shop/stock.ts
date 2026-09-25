@@ -79,6 +79,9 @@ export class Stock {
     return this.slots.some((s) => s.item !== null);
   }
 
+  /** Series collectors are waiting for (取り寄せ fetches them from storage first). */
+  wantedSeries: () => number[] = () => [];
+
   /** Called when storage is full; returns true if it freed a place (the dismantler). */
   freeUp: () => boolean = () => false;
 
@@ -184,6 +187,7 @@ export class Stock {
       }
     }
     if (this.storage.length === 0) return;
+    if (this.stats.collectorFetch > 0 && this.fetchForCollectors(dur)) return;
     const slot = this.freeSlotIndex();
     if (slot < 0) return;
     // With the packer, the most valuable item in storage goes out first (and faster).
@@ -191,6 +195,29 @@ export class Stock {
     if (this.stats.packer > 0) this.storage.forEach((code, i) => itemValue(code) > itemValue(this.storage[pick]) && (pick = i));
     this.fly(this.storage.splice(pick, 1)[0], STORAGE_POS, slot, dur);
     this.afterRestock();
+  }
+
+  /**
+   * 取り寄せ: an item of a series a collector is waiting for goes from storage to the shelf, on a
+   * free slot or in place of an item nobody is after (which goes back to storage).
+   */
+  private fetchForCollectors(dur: number): boolean {
+    const wanted = this.wantedSeries();
+    if (!wanted.length) return false;
+    const onShelf = (i: number) => this.slots.some((s) => s.item !== null && s.claimedBy === null && itemExt(s.item).seriesIndex === i);
+    const pick = this.storage.findIndex((code) => wanted.includes(itemExt(code).seriesIndex) && !onShelf(itemExt(code).seriesIndex));
+    if (pick < 0) return false;
+    let slot = this.freeSlotIndex();
+    if (slot < 0) {
+      slot = this.slots.findIndex((s) => !s.showcase && !s.incoming && s.item !== null && s.claimedBy === null && !wanted.includes(itemExt(s.item).seriesIndex));
+      if (slot < 0) return false;
+      this.storage.push(this.slots[slot].item!);
+      this.slots[slot].item = null;
+    }
+    const [code] = this.storage.splice(pick, 1);
+    this.fly(code, STORAGE_POS, slot, dur);
+    this.afterRestock();
+    return true;
   }
 
   private afterRestock(): void {

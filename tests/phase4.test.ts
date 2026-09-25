@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { seeded } from '../src/game/balance/autoplay';
-import { lands, series } from '../src/game/catalog';
+import { customers, lands, series } from '../src/game/catalog';
 import { CONDITIONS, FIRST_EVENT_DAY, rollCondition, type DayCondition } from '../src/game/conditions';
 import { migrate, newSave, parseSave, SAVE_VERSION, type SaveData } from '../src/game/save';
 import { Shop, type Decision, type ShopEvent } from '../src/game/shop';
@@ -8,6 +8,7 @@ import { makeActor } from '../src/game/shop/actors';
 import { DECISION_WAIT } from '../src/game/shop/decisions';
 import { averageTierPay, salePrice } from '../src/game/stats';
 import { fmt } from '../src/game/format';
+import { itemExt } from '../src/game/items';
 
 const blade = series.find((s) => s.key === 'Blade')!;
 const common = blade.items[0].id;
@@ -296,5 +297,50 @@ describe('MAI chasing off thieves and enemies', () => {
     expect(events.filter((e) => e.type === 'pest' || e.type === 'storePest')).toHaveLength(0);
     expect(shop.pests.list).toHaveLength(0);
     expect(shop.hazards.pests).toHaveLength(0);
+  });
+});
+
+describe('display tables and helping collectors', () => {
+  it('陳列台 opens once the wall shelves are maxed, and its slots stand in front of the lane', async () => {
+    const { isAvailable, skillById } = await import('../src/game/skills');
+    const { slotPos, MAX_SLOTS, WALL_SLOTS, SHOP_LANE_Y } = await import('../src/game/layout');
+    const table = skillById.get('displayTable')!;
+    expect(isAvailable(table, { root: 1, shelf: 5 })).toBe(false);
+    expect(isAvailable(table, { root: 1, shelf: 9 })).toBe(true);
+    expect(MAX_SLOTS).toBe(28);
+    for (let i = 0; i < WALL_SLOTS; i++) expect(slotPos(i).y).toBeLessThan(SHOP_LANE_Y);
+    for (let i = WALL_SLOTS; i < MAX_SLOTS; i++) expect(slotPos(i).y).toBeGreaterThan(SHOP_LANE_Y);
+    // Table slots line up under the wall units, 4 per table.
+    expect(slotPos(WALL_SLOTS).x).toBe(slotPos(0).x);
+    const shop = new Shop(saveWith({ shelf: 9, displayTable: 1, tableMore: 12 }), seeded(1));
+    expect(shop.slots.filter((s) => !s.showcase)).toHaveLength(28);
+  });
+
+  it('取り寄せ swaps a collector’s series in from storage when the shelves are full', () => {
+    const katana = series.find((s) => s.key === 'Katana')!;
+    const want = katana.items[0].seriesIndex;
+    const run = (fetch: number) => {
+      // 8 slots (3 + 陳列台 4 + 1), all full of Blades; Katana is last in storage.
+      const save = saveWith(
+        { conveyor: 1, storage: 2, collectors: 1, displayTable: 1, tableMore: 1, collectorFetch: fetch, recipeBook: 1, recipe_Katana: 1 },
+        { day: 1, shelf: Array.from({ length: 8 }, () => common), storage: [common, common, katana.items[0].id] },
+      );
+      const shop = new Shop(save, seeded(2));
+      shop.start();
+      shop.stock.wantedSeries = () => [want];
+      for (let i = 0; i < 30 * 4; i++) shop.update(1 / 30);
+      return [...shop.slots.map((s) => s.item), ...shop.stock.flyers.map((f) => f.item)].some((c) => c !== null && itemExt(c).seriesIndex === want);
+    };
+    expect(run(1)).toBe(true);
+    expect(run(0)).toBe(false);
+  });
+
+  it('collectors in the shop are known by the series they want', () => {
+    const shop = new Shop(saveWith({ collectors: 5 }, { day: 6, shelf: FULL_SHELF }), seeded(4));
+    const a = makeActor(shop, 'customer', customers[0], 0);
+    a.special = 'collector';
+    a.wants = 3;
+    shop.actors.push(a);
+    expect(shop.collectorSeries()).toContain(3);
   });
 });

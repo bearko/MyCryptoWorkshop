@@ -1,7 +1,7 @@
 import { icons, merchants } from '../catalog';
 import { FIRST_EVENT_DAY } from '../conditions';
 import { fmt } from '../format';
-import { COUNTER, DOOR, FLOOR_Y, HERO_PX } from '../layout';
+import { COUNTER, DOOR, FLOOR_Y, HERO_PX, QUEUE_LANE_Y } from '../layout';
 import { averageTierPay, salePrice } from '../stats';
 import type { Shop } from './index';
 import type { Actor, Decision } from './types';
@@ -135,9 +135,9 @@ export class Decisions {
       image: hero.image,
       facesRight: hero.facesRight,
       call: t('在庫、まとめて買うぞ？', "I'll buy your stock!"),
-      // Away from the door, where the cryptid and legendary heroes appear.
-      x: DOOR.x - 230,
-      y: FLOOR_Y + 150,
+      // Away from the door (where the cryptid and legendary heroes appear) and the display tables.
+      x: DOOR.x - 75,
+      y: QUEUE_LANE_Y + 20,
       options: [] as Decision['options'],
       fallback: 1,
       apply: (_choice: number) => '',
@@ -191,7 +191,7 @@ export class Decisions {
       name: 'MAI',
       call: t('お手伝いするよ！', 'Need a hand?'),
       x: 560,
-      y: FLOOR_Y + 220,
+      y: QUEUE_LANE_Y + 90,
       text: t('「今日もおつかれさま！ひとつだけお手伝いしてあげる。どれにする？」', '"Good work today! I\'ll help you with one thing. Which will it be?"'),
       image: icons.mai,
       options: [

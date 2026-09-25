@@ -106,6 +106,10 @@ export const NODE_EN: Record<string, [name: string, desc: string]> = {
 
   // 玄武 Genbu: shelves, storage, dismantling
   shelf: ['More Shelves', 'Display slots +1'],
+  displayTable: ['Display Tables', 'Puts display tables in front of the shop lane (display slots +4). Available once More Shelves is maxed'],
+  tableMore: ['More Tables', 'Display table slots +1 (up to 4 tables)'],
+  collectorFetch: ['Fetch from Storage', "When a collector's series is in storage, it goes on the shelf first (swapped for an item nobody is after if the shelves are full)"],
+  collectorFocus: ['Collectors First', 'Series that collectors in the shop are looking for are crafted more often'],
   conveyor: ['Conveyor Lane', 'Adds a conveyor lane. Up to 4 items wait in storage when the shelves are full'],
   storage: ['Bigger Storage', 'Storage capacity +3'],
   packer: ['Packer', 'Restocks the shelves from storage quickly, pricier items first'],

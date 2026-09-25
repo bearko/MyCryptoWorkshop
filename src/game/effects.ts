@@ -86,6 +86,8 @@ export type GlobalStat =
   | 'vehicleInterval'
   | 'collectorChance'
   | 'collectorPay'
+  | 'collectorFocus'
+  | 'collectorFetch'
   | 'ownerChance'
   | 'ownerPay'
   | 'merchantRate'
