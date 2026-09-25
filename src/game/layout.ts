@@ -6,7 +6,8 @@
 
 export const SCENE_W = 1000;
 export const MIN_SCENE_H = 1440;
-export const MAX_SCENE_H = 1900;
+/** Tallest storefront: as tall as the workshop, for the side-by-side layout on wide screens. */
+export const MAX_SCENE_H = 1960;
 export let SCENE_H = MIN_SCENE_H;
 export const WORKSHOP_CROP = 20;
 export const WORKSHOP_H = 1000 - WORKSHOP_CROP;

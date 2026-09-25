@@ -6,7 +6,7 @@ import { confetti, confettiSettings } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
-import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, SCENE_W, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP } from './game/layout';
+import { COUNTER, FLOOR_Y, HERO_PX, POT, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP, WORKSHOP_H } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { exportCode, importCode, loadSave, newSave, SaveError, writeSave } from './game/save';
@@ -154,10 +154,9 @@ tree.hide();
 
 /** A rectangle in scene coordinates, on screen. */
 function sceneBox(x0: number, y0: number, x1: number, y1: number): Box {
-  const r = canvas.getBoundingClientRect();
-  const sx = r.width / SCENE_W;
-  const sy = r.height / SCENE_H;
-  return { left: r.left + x0 * sx, top: r.top + y0 * sy, width: (x1 - x0) * sx, height: (y1 - y0) * sy };
+  const a = renderer.toClient(x0, y0);
+  const b = renderer.toClient(x1, y1);
+  return { left: a.x, top: a.y, width: b.x - a.x, height: b.y - a.y };
 }
 const elBox = (selector: string): Box | null => {
   const el = document.querySelector(selector);
@@ -1552,15 +1551,25 @@ function updateHud(s: Shop): void {
  * Sizes the scene to fill the viewport. On tall screens the storefront grows (relayout=true,
  * only before a day starts); otherwise the scene keeps its aspect ratio and is letterboxed.
  */
+/** Screens at least this wide (width / height) show the workshop and the storefront side by side. */
+const SIDE_BY_SIDE = 1.3;
+
 function fitScene(relayout = false): void {
   const W = window.innerWidth;
   const H = window.innerHeight;
-  if (relayout) setSceneHeight((1000 * H) / W);
-  const width = Math.min(W, (H * SCENE_W) / SCENE_H);
+  const side = W / H >= SIDE_BY_SIDE;
+  renderer.side = side;
+  scene.classList.toggle('side', side);
+  // Side by side, the storefront is as tall as the workshop; stacked, it fills the phone's height.
+  if (relayout) setSceneHeight(side ? WORKSHOP_H * 2 : (1000 * H) / W);
+  const vw = renderer.viewW;
+  const vh = renderer.viewH;
+  const width = Math.min(W, (H * vw) / vh);
   scene.style.width = `${Math.floor(width)}px`;
-  scene.style.height = `${Math.floor((width * SCENE_H) / SCENE_W)}px`;
-  workshop.style.top = `${(-WORKSHOP_CROP / SCENE_H) * 100}%`;
-  workshop.style.height = `${(1000 / SCENE_H) * 100}%`;
+  scene.style.height = `${Math.floor((width * vh) / vw)}px`;
+  workshop.style.width = side ? '50%' : '';
+  workshop.style.top = `${(-WORKSHOP_CROP / vh) * 100}%`;
+  workshop.style.height = `${(1000 / vh) * 100}%`;
 }
 window.addEventListener('resize', () => {
   if (!stage.hidden) fitScene(false);
