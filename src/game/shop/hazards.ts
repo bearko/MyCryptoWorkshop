@@ -60,7 +60,7 @@ export class Hazards {
     this.coins = this.coins.filter((c) => c.t < COIN_LIFE);
 
     // Enemies wandering the shop
-    if (shop.save.day >= STORE_PEST_DAY && !this.pestsSuppressed) {
+    if (shop.save.day >= STORE_PEST_DAY && !this.pestsSuppressed && shop.party.calm <= 0) {
       this.pestTimer += dt;
       if (this.pestTimer >= this.pestNext && this.pests.length < MAX_STORE_PESTS) {
         this.pestTimer = 0;

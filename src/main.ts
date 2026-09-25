@@ -22,6 +22,7 @@ import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
 import { dailiesList, ordersList } from './ui/dayInfo';
 import { rankingView } from './ui/ranking';
+import { partyStrip, partyView } from './ui/party';
 import { submit as submitRanking } from './net/leaderboard';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
@@ -133,7 +134,9 @@ const openDayBtn = h('button.btn.btn-primary.open-day', { onclick: () => openDay
 const openInfo = h('p.open-info');
 // Today's orders and daily requests (shown here instead of the skill tree).
 const openExtras = h('div.open-extras');
-const openCard = h('div.open-card', {}, openInfo, openExtras, openDayBtn);
+// The party (英雄の酒場): who stands on the balcony today, and the button to change it.
+const openParty = h('div.open-party');
+const openCard = h('div.open-card', {}, openInfo, openExtras, openParty, openDayBtn);
 // The switch to the skill tree, bottom right (the tree's "to the shop" button sits in the same spot).
 const toTreeBtn = h('button.btn.nav-btn.to-tree', { onclick: () => showTree() }, t('🌳 スキルツリー', '🌳 Skill tree'));
 const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast, openCard, toTreeBtn);
@@ -1070,8 +1073,12 @@ function showShop(): void {
 }
 
 /** Sets up the next business day, closed until the open button. */
+/** Party heroes who have used their skill today (their first one gets the cut-in). */
+const partyIntroduced = new Set<number>();
+
 function prepareDay(): void {
   logList.replaceChildren();
+  partyIntroduced.clear();
   fitScene(true);
   shop = new Shop(save, Math.random, { waitToOpen: true });
   shop.on(onShopEvent);
@@ -1088,6 +1095,29 @@ function updateOpenCard(): void {
   openExtras.replaceChildren(...extras);
   openExtras.hidden = !extras.length;
   openDayBtn.textContent = t(`▶ Day ${save.day} 開店する`, `▶ Open for Day ${save.day}`);
+  const strip = partyStrip(save);
+  openParty.hidden = !strip;
+  if (strip) {
+    openParty.replaceChildren(strip, h('button.btn.small.party-edit', { onclick: () => openPartyEditor() }, t('⚔ パーティ編成', '⚔ Party')));
+    if (!save.party.length) tip('party', t('英雄の酒場ができたよ！スキルツリーの「英雄」でヒーローをスカウトして、開店前に「パーティ編成」でバルコニーに立ってもらおう', 'The tavern is open! Scout heroes in the Heroes branch of the skill tree, then put them on the balcony with "Party" before opening'));
+  }
+}
+
+/** パーティ編成 (before opening): changes show on the balcony at once. */
+function openPartyEditor(): void {
+  openModal(
+    t('パーティ編成', 'Party'),
+    partyView(
+      save,
+      () => writeSave(save),
+      () => {
+        if (shop && !shop.started) shop.party.build();
+        updateOpenCard();
+      },
+    ),
+    [{ label: t('決定', 'Done'), primary: true }],
+    'wide',
+  );
 }
 
 /** New game (title): straight into day 1. */
@@ -1277,6 +1307,15 @@ function onShopEvent(e: ShopEvent): void {
         h('span', {}, h('b', {}, e.visit.name), e.visit.kind === 'cryptid' ? t(' が現れた！', ' appeared! ') : t(' が来店！', ' is here! '), e.visit.effect),
         'rare',
       );
+      break;
+    case 'partySkill':
+      sound.play('buff');
+      // The first skill of each hero in a day gets the cut-in; after that, their bubble on the balcony.
+      if (shop && !partyIntroduced.has(e.hero.id)) {
+        partyIntroduced.add(e.hero.id);
+        cutin(scene, e.hero.image, e.hero.name, e.skill, 'ally', e.text);
+      }
+      log(h('span', {}, h('b', {}, e.hero.name), `「${e.skill}」 `, e.text), 'rare');
       break;
     case 'vehicle':
       sound.play('buff');

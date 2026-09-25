@@ -7,6 +7,7 @@ import { Decisions } from './decisions';
 import { Dismantler } from './dismantler';
 import { Hazards } from './hazards';
 import { Market } from './market';
+import { Party } from './party';
 import { Pests } from './pests';
 import { Raid } from './raid';
 import { Production } from './production';
@@ -58,6 +59,8 @@ export class Shop {
   readonly visitors: Visitors;
   readonly decisions: Decisions;
   readonly raid: Raid;
+  /** The heroes of the party on the balcony, and their running skills. */
+  readonly party: Party;
   /** Today's weather / festival / land day. */
   readonly condition: DayCondition;
   /** Multiplier on how often customers come today (weather, festival). */
@@ -121,6 +124,7 @@ export class Shop {
     this.visitors = new Visitors(this);
     this.decisions = new Decisions(this);
     this.raid = new Raid(this);
+    this.party = new Party(this);
     if (!options.waitToOpen) this.start();
   }
 
@@ -128,6 +132,8 @@ export class Shop {
   start(): void {
     if (this.started) return;
     this.started = true;
+    // The party may have changed on the day's card since the shop was set up.
+    this.party.build();
     this.production.infuse();
   }
 
@@ -218,7 +224,7 @@ export class Shop {
     // No new arrivals in the last two seconds of the day.
     if (this.timeLeft >= 2) {
       this.customers.updateSpawns(dt);
-      this.thieves.updateSpawns(dt);
+      if (this.party.calm <= 0) this.thieves.updateSpawns(dt);
     }
     for (const a of this.actors) {
       a.timer += dt;
@@ -235,6 +241,7 @@ export class Shop {
     this.visitors.update(dt);
     this.decisions.update(dt);
     this.raid.update(dt);
+    this.party.update(dt);
 
     for (const e of this.fx) e.t += dt;
     this.fx = this.fx.filter((e) => e.t < 0.7);

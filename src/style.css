@@ -2795,3 +2795,196 @@ body.in-day {
   left: 75%;
   width: min(43%, 360px);
 }
+
+/* ------------------------------------------------------------ party (英雄の酒場) */
+
+.open-party {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.party-strip {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.party-icon {
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+}
+
+.party-slot {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid #ffb35c;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.party-slot.empty {
+  border-style: dashed;
+  border-color: color-mix(in srgb, #ffb35c 45%, transparent);
+  cursor: default;
+}
+
+.party-strip .party-slot,
+.party-strip .party-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.party-edit {
+  flex: none;
+  white-space: nowrap;
+}
+
+.party-slots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.party-count {
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.party-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.party-synergies {
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 14px;
+}
+
+.party-synergies ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.party-kind {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: #ffb35c;
+  color: #2b1d14;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.party-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+
+.party-card {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.party-card.in {
+  border-color: #ffb35c;
+  background: color-mix(in srgb, #ffb35c 18%, var(--panel-2));
+}
+
+.party-card.full {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.party-card-img {
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
+
+.party-card-body {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.party-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 15px;
+}
+
+.party-lv,
+.party-tier,
+.party-faction {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.party-lv {
+  color: #ffd966;
+  font-weight: bold;
+}
+
+.party-attrs {
+  display: block;
+  color: var(--muted);
+}
+
+.party-check {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  color: #ffb35c;
+  font-weight: bold;
+}
+
+.detail-skill {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #ffb35c 14%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.detail-skill li span {
+  display: inline-block;
+  min-width: 34px;
+  color: #ffd966;
+  font-weight: bold;
+}
+
+.detail-skill-name {
+  color: #ffb35c;
+  font-weight: bold;
+}

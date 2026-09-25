@@ -2,6 +2,7 @@ import { addTo, balanceOf } from './currency';
 import { onBought } from './prestige';
 import type { SaveData } from './save';
 import { costOf, isAvailable, level, TREE_NODES, type SkillNode } from './skills';
+import { grantTaught } from './skills7';
 import { computeStats } from './stats';
 
 /** How much of the node's currency the player has. */
@@ -27,6 +28,8 @@ export function buy(save: SaveData, node: SkillNode): boolean {
   if (cost === null || balanceFor(save, node) < cost) return false;
   addTo(save, node.currency ?? 'gum', -cost);
   save.levels[node.id] = level(save.levels, node.id) + 1;
+  // A scouted hero teaches their recipes.
+  if (node.branch === 'party') grantTaught(save.levels);
   onBought(save, node);
   return true;
 }

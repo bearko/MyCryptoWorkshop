@@ -584,7 +584,10 @@ export class SceneRenderer {
         drawImg(ctx, frameAt(staffFrames.maycri, now), MAYCRI_POS.x - 22, MAYCRI_POS.y - 44, 44, 44);
       }
     }
-    if (workshopPart) this.drawWorkshop(shop, now, hints.pot);
+    if (workshopPart) {
+      this.drawWorkshop(shop, now, hints.pot);
+      this.drawParty(shop, now);
+    }
     this.drawFlyers(shop);
     this.drawWeather(shop, now);
     this.drawEffects(shop);
@@ -922,12 +925,12 @@ export class SceneRenderer {
       } else {
         // Land owners stand on a golden ring; regulars on a pink one.
         ctx.fillStyle =
-          a.special === 'owner' ? 'rgba(255,207,51,0.7)' : a.special === 'regular' ? 'rgba(255,140,190,0.6)' : a.special === 'order' ? 'rgba(255,170,60,0.7)' : 'rgba(0,0,0,0.3)';
+          a.special === 'owner' || a.special === 'vip' ? 'rgba(255,207,51,0.7)' : a.special === 'regular' ? 'rgba(255,140,190,0.6)' : a.special === 'order' ? 'rgba(255,170,60,0.7)' : 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.ellipse(a.x, a.y - 1, 18, 5, 0, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (a.special === 'owner') drawImg(ctx, DECOR.crownVip, a.x - 12, a.y - HERO_PX - hop - 18, 24, 24);
+      if (a.special === 'owner' || a.special === 'vip') drawImg(ctx, DECOR.crownVip, a.x - 12, a.y - HERO_PX - hop - 18, 24, 24);
       const disguised = a.style?.disguise && (a.state === 'enter' || a.state === 'toShelf');
       if (a.kind === 'thief' && a.state !== 'caught' && !disguised) {
         // Villains glow red so they are easy to spot and tap.
@@ -1028,6 +1031,65 @@ export class SceneRenderer {
       ctx.fillText(text, cx, by);
     }
     void now;
+  }
+
+  /**
+   * The party on the balcony: each hero with a charge gauge under their feet, and a speech
+   * bubble with their skill's name when it fires (alternately higher and lower, so neighbours'
+   * bubbles do not cover each other).
+   */
+  private drawParty(shop: Shop, now: number): void {
+    const ctx = this.ctx;
+    shop.party.members.forEach((m, i) => {
+      if (m.away) return;
+      const casting = m.castT >= 0 && m.castT < 0.5;
+      const hop = casting ? Math.sin((m.castT / 0.5) * Math.PI) * 14 : Math.abs(Math.sin(now / 900 + i)) * 2;
+      ctx.fillStyle = 'rgba(255,179,92,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(m.x, m.y - 1, 22, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const full = m.charge > 0.9;
+      if (full || casting) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,200,90,0.95)';
+        ctx.shadowBlur = this.glow(casting ? 22 : 10);
+      }
+      drawHero(ctx, m.hero, m.x, m.y - HERO_PX - hop, 1);
+      if (full || casting) ctx.restore();
+
+      // Charge gauge and level under the feet
+      const w = 56;
+      ctx.fillStyle = 'rgba(20,12,6,0.8)';
+      roundRect(ctx, m.x - w / 2, m.y + 4, w, 16, 6);
+      ctx.fill();
+      ctx.fillStyle = full ? '#ffd966' : '#ffb35c';
+      roundRect(ctx, m.x - w / 2 + 2, m.y + 6, (w - 4) * Math.min(1, m.charge), 12, 5);
+      ctx.fill();
+      ctx.font = `bold 11px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#2b1d14';
+      ctx.fillText(`Lv${m.level}`, m.x, m.y + 12);
+
+      if (m.castT >= 0 && m.castT < 2.4) {
+        const alpha = Math.min(1, (2.4 - m.castT) / 0.4);
+        const text = m.hero.passive ?? '';
+        ctx.font = `bold 15px ${FONT}`;
+        const tw = ctx.measureText(text).width + 16;
+        const by = m.y - HERO_PX - 24 - (i % 2) * 30;
+        const cx = Math.min(SCENE_W - tw / 2 - 4, Math.max(tw / 2 + 4, m.x));
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#fff4d6';
+        roundRect(ctx, cx - tw / 2, by - 13, tw, 26, 9);
+        ctx.fill();
+        ctx.strokeStyle = '#ffb35c';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#7a3f00';
+        ctx.fillText(text, cx, by);
+        ctx.globalAlpha = 1;
+      }
+    });
   }
 
   /**

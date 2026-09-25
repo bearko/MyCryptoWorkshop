@@ -7,12 +7,13 @@ import { PHASE5_SERIES_NODES } from './skills5';
 import { HERO_SET_NODES } from './heroes';
 import { BLESSING_NODES } from './blessings';
 import { PHASE6_NODES } from './skills6';
+import { PARTY_NODES } from './skills7';
 import { add, atLeast, mul, overlay, pow, unlockSeries, type Effect } from './effects';
 import { NODE_EN } from './skillsEn';
 import { isEn, t } from '../i18n';
 
 /** The five factions of My Crypto Heroes, plus the shop and research, are the branches of the skill tree. */
-export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige';
+export type Branch = 'root' | 'suzaku' | 'seiryu' | 'kouryu' | 'byakko' | 'genbu' | 'store' | 'research' | 'series' | 'honor' | 'prestige' | 'party';
 
 export const BRANCHES: Record<Branch, { name: string; role: string; color: string }> = {
   root: { name: t('工房', 'Workshop'), role: t('開業', 'Start'), color: '#e8d6a8' },
@@ -26,6 +27,7 @@ export const BRANCHES: Record<Branch, { name: string; role: string; color: strin
   series: { name: t('シリーズ', 'Series'), role: t('レシピ・評判・量産', 'Recipes, reputation, production'), color: '#e6b56b' },
   honor: { name: t('名誉', 'Honor'), role: t('エンブレム', 'Emblems'), color: '#ff9f6b' },
   prestige: { name: t('移転', 'Relocation'), role: t('Cp・周回', 'Cp & runs'), color: '#7fe3ff' },
+  party: { name: t('英雄', 'Heroes'), role: t('スカウト・パーティ', 'Scouting & party'), color: '#ffb35c' },
 };
 
 export interface SkillNode {
@@ -53,6 +55,8 @@ export interface SkillNode {
   hidden?: boolean;
   /** Paid in gold dust or research points instead of GUM. */
   currency?: Exclude<Currency, 'gum'>;
+  /** Never bought: learned when this node is learned (recipes taught by a scouted hero). */
+  grantedBy?: string;
 }
 
 const ext = (seriesIndex: number, rarityIndex: number) => series[seriesIndex].items[rarityIndex].image;
@@ -167,6 +171,7 @@ export const SKILLS: SkillNode[] = [
   ...HERO_SET_NODES,
   ...BLESSING_NODES,
   ...PHASE6_NODES,
+  ...PARTY_NODES,
 ];
 
 // English text for the hand-written nodes.
@@ -192,6 +197,7 @@ export function costOf(node: SkillNode, currentLevel: number): number {
 
 export function isAvailable(node: SkillNode, levels: Levels): boolean {
   if (node.hidden) return false;
+  if (node.grantedBy) return level(levels, node.id) > 0;
   if (node.requiresAll?.some((r) => level(levels, r) <= 0)) return false;
   if (node.requiresMax?.some((r) => level(levels, r) < (skillById.get(r)?.max ?? 1))) return false;
   return node.requires.length === 0 || node.requires.some((r) => level(levels, r) > 0);
@@ -209,6 +215,7 @@ export function unlockConditions(node: SkillNode, levels: Levels): { text: strin
     return r.branch === node.branch ? `「${r.name}」` : t(`「${r.name}」（${BRANCHES[r.branch].name}）`, `"${r.name}" (${BRANCHES[r.branch].name})`);
   };
   const out: { text: string; met: boolean }[] = [];
+  if (node.grantedBy) return [{ text: t(`${named(node.grantedBy)}で覚えられる`, `Taught by ${named(node.grantedBy)}`), met: false }];
   if (node.requires.length) {
     const names = node.requires.map(named).join(t(' または ', ' or '));
     out.push({ text: t(`${names}を習得`, `Learn ${names}`), met: node.requires.some((r) => level(levels, r) > 0) });
@@ -228,6 +235,11 @@ export function unlockConditions(node: SkillNode, levels: Levels): { text: strin
 /** Visible = purchasable now, or adjacent to something purchasable (shown as a locked silhouette). */
 export function isVisible(node: SkillNode, levels: Levels): boolean {
   if (isAvailable(node, levels)) return true;
+  // Taught recipes show (with who teaches them) once their teacher does.
+  if (node.grantedBy) {
+    const teacher = skillById.get(node.grantedBy);
+    return !!teacher && isVisible(teacher, levels);
+  }
   return node.requires.some((r) => {
     const parent = skillById.get(r);
     return parent ? isAvailable(parent, levels) : false;

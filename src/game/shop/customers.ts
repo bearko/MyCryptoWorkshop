@@ -87,6 +87,20 @@ export class Customers {
     this.chooseShelfTarget(a);
   }
 
+  /** A party hero comes in person (来店) and buys the priciest item at ×pay. */
+  spawnVip(hero: Hero, pay: number): boolean {
+    const shop = this.shop;
+    if (shop.actors.length >= MAX_ACTORS) return false;
+    const a = makeActor(shop, 'customer', hero, 4, 0);
+    a.special = 'vip';
+    a.vipPay = pay;
+    shop.actors.push(a);
+    shop.report.customers++;
+    shop.save.totals.customers++;
+    this.chooseShelfTarget(a);
+    return true;
+  }
+
   /** A guild member arriving by vehicle. Returns false if the shop is packed. */
   spawnGuest(): boolean {
     const ok = this.spawn(this.shop.rand.range(-30, 30), true);
@@ -104,7 +118,7 @@ export class Customers {
   payMult(a: Actor, code: number): number {
     const shop = this.shop;
     const { stats } = shop;
-    let m = a.priceBonus * shop.visitors.salesMult;
+    let m = a.priceBonus * shop.visitors.salesMult * shop.party.salesMult;
     // Affinity: heroes who keep coming back pay a little more.
     const rank = affinityRank(shop.save.heroes[a.hero.id] ?? 0);
     if (rank > 0) m *= 1 + AFFINITY[rank - 1].pay * stats.affinityPower;
@@ -112,6 +126,7 @@ export class Customers {
     if (fav) m *= 1 + stats[`fav_${fav}`];
     if (a.special === 'collector' && itemExt(code).seriesIndex === a.wants) m *= stats.collectorPay;
     else if (a.special === 'owner') m *= stats.ownerPay;
+    else if (a.special === 'vip') m *= a.vipPay ?? 1;
     else if (a.special === 'regular') m *= stats.regularPay;
     else if (a.special === 'guild') m *= GUILD_PAY;
     else if (a.special === 'order' && orderMatches(a.order!, itemExt(code))) m *= stats.orderPay;
@@ -138,7 +153,7 @@ export class Customers {
     let slot = rand.pick(options);
     const laneY = SHOP_LANE_Y + rand.range(-14, 14);
     // Richer customers (and the consultant's advice) go for the priciest item.
-    if (a.special === 'owner' || rand.next() < a.tier * 0.2 + this.shop.stats.upsell) {
+    if (a.special === 'owner' || a.special === 'vip' || rand.next() < a.tier * 0.2 + this.shop.stats.upsell) {
       const value = (i: number) => itemValue(slots[i].item!);
       slot = options.reduce((best, i) => (value(i) > value(best) ? i : best), options[0]);
     }
@@ -217,7 +232,7 @@ export class Customers {
       }
       case 'waitShelf': {
         moveToward(a, dt, a.speed * 0.5);
-        if (a.timer > shop.stats.patience * (a.special === 'order' ? 3 : 1)) {
+        if (a.timer > (shop.stats.patience + shop.party.patienceBonus) * (a.special === 'order' || a.special === 'vip' ? 3 : 1)) {
           this.lose(a, 'empty');
           break;
         }
@@ -236,7 +251,7 @@ export class Customers {
           a.state = 'queue';
           a.timer = 0;
         }
-        if (a.timer > shop.stats.queuePatience) {
+        if (a.timer > shop.stats.queuePatience + shop.party.patienceBonus) {
           this.lose(a, 'queue');
         }
         break;

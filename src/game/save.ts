@@ -9,7 +9,9 @@ import { addTo } from './currency';
 import type { DayCondition } from './conditions';
 import { itemId } from './items';
 import { GEM_IDS, type GemId, type LineId } from './lines';
+import { MAX_PARTY, partyDef } from './party';
 import { costOf, skillById, type Levels } from './skills';
+import { grantTaught } from './skills7';
 import { t } from '../i18n';
 
 export interface Totals {
@@ -75,6 +77,8 @@ export interface SaveData {
   heroes: Record<string, number>;
   /** Open orders (注文) for the coming business days. */
   orders: Order[];
+  /** Heroes in the party (英雄の酒場), in order; only scouted ones take the floor. */
+  party: number[];
   /** Achievement ids earned. */
   achievements: string[];
   /** Requests for the next business day. */
@@ -155,6 +159,7 @@ export function newSave(now = Date.now()): SaveData {
     regulars: [],
     heroes: {},
     orders: [],
+    party: [],
     achievements: [],
     dailies: [],
     prestige: newPrestige(),
@@ -220,6 +225,9 @@ export function sanitize(data: SaveData): number {
   data.showcase = (data.showcase ?? []).map((code) => (code !== null && known(code) ? code : null));
   data.regulars = [...new Set(data.regulars ?? [])].filter((id) => heroById.has(id));
   data.orders = (data.orders ?? []).filter((o) => o.series < series.length && customers.some((c) => c.id === o.heroId));
+  data.party = [...new Set(data.party ?? [])].filter((id) => !!partyDef(id)).slice(0, MAX_PARTY);
+  // Scouted heroes' recipes are always learned.
+  grantTaught(data.levels);
   data.heroes = Object.fromEntries(Object.entries(data.heroes ?? {}).filter(([id, n]) => heroById.has(Number(id)) && n > 0));
   if (!data.forecast || !CONDITION_KINDS.includes(data.forecast.kind)) data.forecast = { kind: 'sunny' };
   data.bestEdition = Object.fromEntries(Object.entries(data.bestEdition ?? {}).filter(([id]) => extensionById.has(Number(id))));

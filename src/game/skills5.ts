@@ -6,6 +6,7 @@
 import { icons, series, seriesIcon } from './catalog';
 import { add, atLeast, mul, pow, seriesEdition, seriesPrice, seriesShin, seriesWeight, unlockSeries, type Effect } from './effects';
 import { LINE_IDS } from './lines';
+import { scoutId, TEACHER } from './party';
 import type { SkillNode } from './skills';
 import { t } from '../i18n';
 
@@ -42,7 +43,7 @@ const recipeId = (i: number) => `recipe_${series[i].key}`;
 const HORSE = series.findIndex((s) => s.key === 'Horse');
 
 /** Price of each series' recipe, following the unlock order within its group (beasts / the rest). */
-const recipeCost: number[] = [];
+export const recipeCost: number[] = [];
 {
   let plain = 0;
   let beast = 0;
@@ -97,6 +98,8 @@ function seriesNodes(i: number): SkillNode[] {
       icon: s.items[0].image, x, y, max: 1, baseCost: cost, growth: 1,
       requires: [previousRecipe(i)], requiresAll: beast ? ['capsuleLine'] : undefined,
       effects: [unlockSeries(i), mul('spawnRate', variety, 'variety')],
+      // The later recipes are taught by heroes (scouted at 英雄の酒場) rather than bought.
+      grantedBy: TEACHER.has(i) ? scoutId(TEACHER.get(i)!) : undefined,
     });
   }
   const opens = [rowKey(i)];
@@ -181,7 +184,7 @@ const honorNodes: SkillNode[] = [
 ];
 
 /** GUM price of the clear goal (tuned with `npm run balance` for about 6 hours of play). */
-export const CLEAR_COST = 4e11;
+export const CLEAR_COST = 1.5e12;
 
 export const PHASE5_SERIES_NODES: SkillNode[] = [
   ...honorNodes,

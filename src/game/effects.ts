@@ -88,6 +88,7 @@ export type GlobalStat =
   | 'collectorPay'
   | 'collectorFocus'
   | 'collectorFetch'
+  | 'partySlots'
   | 'ownerChance'
   | 'ownerPay'
   | 'merchantRate'

@@ -122,6 +122,8 @@ export const BASE_STATS = {
   collectorFocus: 0,
   /** 1: collectors' series are fetched from storage first (取り寄せ). */
   collectorFetch: 0,
+  /** Heroes that can be in the party (英雄の酒場, パーティ枠). */
+  partySlots: 0,
   /** Chance per customer of a land owner (land days always bring one). */
   ownerChance: 0,
   ownerPay: 3,
