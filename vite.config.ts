@@ -62,9 +62,22 @@ function devLeaderboard(): Plugin {
   };
 }
 
+/**
+ * The site's address for link previews (og:image and og:url must be absolute): SITE_URL if set,
+ * else the production domain Vercel provides at build time, else relative paths.
+ */
+function siteUrl(): Plugin {
+  const domain = process.env.SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '');
+  const base = domain ? `${domain.replace(/\/+$/, '')}/` : './';
+  return {
+    name: 'mcw-site-url',
+    transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', base),
+  };
+}
+
 export default defineConfig({
   // Relative base so the build works from any sub-path (GitHub Pages, itch.io, static hosting).
   base: './',
   build: { assetsInlineLimit: 0 },
-  plugins: [pwa(), devLeaderboard()],
+  plugins: [pwa(), devLeaderboard(), siteUrl()],
 });

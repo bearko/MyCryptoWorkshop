@@ -830,7 +830,7 @@ function showHome(): void {
         'nav.home-menu',
         { 'aria-label': t('ホーム', 'Home') },
         button(t('▶ プレイする', '▶ Play'), playFromHome, '.btn-primary.home-play'),
-        h('p.home-save', {}, hasProgress ? t(`Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Day ${save.day} · ${fmt(save.gum)} GUM`) : t('はじめから', 'New game')),
+        hasProgress ? h('p.home-save', {}, t(`Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Day ${save.day} · ${fmt(save.gum)} GUM`)) : null,
         button(t('⚙ 設定', '⚙ Settings'), () => openMenu(true)),
         button(t('🏆 ランキング', '🏆 Leaderboards'), () => openRanking()),
         button(t('終了する', 'Quit'), quitGame),
