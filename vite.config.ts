@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
+import { createHandler, memoryStore } from './api/leaderboard';
 
 /** Files the service worker caches at install: the app shell. The rest is cached on first use. */
 const SHELL = [/^index\.html$/, /^assets\//, /^mch-atlas\//, /^icons\//, /^manifest\.webmanifest$/, /^mch\/Image\/(Icons|Characters|Cryptids|BattleIcons|Materials)\//, /^mch\/Image\/CraftBackgrounds\/Base\/100\./];
@@ -33,9 +34,33 @@ function pwa(): Plugin {
   };
 }
 
+/** Dev server only: serves /api/leaderboard from an in-memory store (Vercel runs the real one). */
+function devLeaderboard(): Plugin {
+  const store = memoryStore();
+  const handler = createHandler(() => store, { adminToken: 'dev' });
+  return {
+    name: 'mcw-dev-leaderboard',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/api/leaderboard', (req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', async () => {
+          const body = chunks.length && req.method !== 'GET' ? Buffer.concat(chunks) : undefined;
+          const headers = Object.entries(req.headers).flatMap(([k, v]) => (typeof v === 'string' ? [[k, v] as [string, string]] : []));
+          const response = await handler(new Request(`http://localhost/api/leaderboard${req.url ?? ''}`, { method: req.method, headers, body }));
+          res.statusCode = response.status;
+          response.headers.forEach((v, k) => res.setHeader(k, v));
+          res.end(Buffer.from(await response.arrayBuffer()));
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   // Relative base so the build works from any sub-path (GitHub Pages, itch.io, static hosting).
   base: './',
   build: { assetsInlineLimit: 0 },
-  plugins: [pwa()],
+  plugins: [pwa(), devLeaderboard()],
 });

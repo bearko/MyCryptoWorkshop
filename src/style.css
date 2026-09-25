@@ -2427,3 +2427,167 @@ body.in-day {
   font-size: 18px;
   padding: 12px;
 }
+
+/* ---------------------------------------------------------------- leaderboards */
+
+.tree-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rank-account {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0004;
+}
+
+.rank-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rank-name {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #120b07;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.rank-account .small-print {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.rank-status {
+  margin: 0;
+  min-height: 1em;
+  font-size: 13px;
+  color: var(--good);
+}
+
+.rank-status:empty {
+  display: none;
+}
+
+.rank-status.bad {
+  color: #ff9f8a;
+}
+
+.rank-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rank-tab {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #0004;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rank-tab[aria-selected='true'] {
+  border-color: var(--gold);
+  background: linear-gradient(#f6d47a, #c9953a);
+  color: #2a1a0c;
+  font-weight: 700;
+}
+
+.rank-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.rank-list {
+  min-height: 120px;
+}
+
+.rank-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 46dvh;
+  overflow-y: auto;
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #0004;
+  font-size: 14px;
+}
+
+.rank-no {
+  font-weight: 700;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-row.top1 .rank-no {
+  color: #ffd966;
+}
+
+.rank-row.top2 .rank-no {
+  color: #d9e2ec;
+}
+
+.rank-row.top3 .rank-no {
+  color: #e0a86b;
+}
+
+.rank-row.top {
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+}
+
+.rank-row.me {
+  background: color-mix(in srgb, var(--gold-2) 30%, #0004);
+  outline: 2px solid var(--gold);
+}
+
+.rank-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-score {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rank-foot {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.rank-foot small {
+  color: var(--muted);
+}

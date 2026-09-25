@@ -21,6 +21,8 @@ import { collectionView } from './ui/collection';
 import { fileImg, fmt, h, icon } from './ui/dom';
 import { TreeView } from './ui/tree';
 import { dailiesList, ordersList } from './ui/dayInfo';
+import { rankingView } from './ui/ranking';
+import { submit as submitRanking } from './net/leaderboard';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
@@ -143,6 +145,7 @@ const tree = new TreeView(save, {
   onBuy: buyNode,
   onShop: () => showShop(),
   onCollection: () => openCollection(),
+  onRanking: () => openRanking(),
   onRelocate: () => openRelocate(),
 });
 tree.hide();
@@ -457,6 +460,7 @@ function openPauseMenu(): void {
   );
   openModal(t('一時停止中', 'Paused'), body, [
     { label: t('📖 図鑑', '📖 Collection'), onClick: () => openCollection() },
+    { label: t('🏆 ランキング', '🏆 Leaderboards'), onClick: () => openRanking() },
     { label: t('データ', 'Data'), onClick: () => openMenu() },
     { label: t('▶ 営業に戻る', '▶ Back to work'), primary: true },
   ]);
@@ -601,6 +605,15 @@ function openRelocate(): void {
   );
 }
 
+function openRanking(): void {
+  openModal(t('🏆 ランキング', '🏆 Leaderboards'), rankingView(save, () => writeSave(save)), [{ label: t('閉じる', 'Close') }], 'wide');
+}
+
+/** Sends the records to the leaderboards (joined players only; failures are silent). */
+function sendRanking(lastDay = 0): void {
+  submitRanking(save, lastDay).catch(() => undefined);
+}
+
 function openCollection(): void {
   openModal(t('図鑑', 'Collection'), collectionView(save), [{ label: t('閉じる', 'Close') }], 'wide');
 }
@@ -624,7 +637,7 @@ function openMenu(): void {
     langSwitch(),
     displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
-    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null),
+    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')), h('button.btn.small', { onclick: () => openRanking() }, t('🏆 ランキング', '🏆 Leaderboards')), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null),
     h('p', {}, t('累計成績', 'Lifetime stats')),
     h(
       'div.stat-grid',
@@ -932,7 +945,11 @@ function buyNode(node: SkillNode): void {
   sound.play(FACILITY_NODES.has(node.id) ? 'build' : 'unlock');
   writeSave(save);
   updateTopbar();
-  if (node.id === 'goldenExtension') showEnding();
+  if (node.id === 'goldenExtension') {
+    // The clear time goes up right away.
+    sendRanking();
+    showEnding();
+  }
 }
 
 /** The clear screen: the golden extension, and how the run went. */
@@ -1296,6 +1313,7 @@ function onShopEvent(e: ShopEvent): void {
       {
         const auto = autoBuy(save);
         writeSave(save);
+        sendRanking(e.report.revenue);
         updateTopbar();
         window.setTimeout(() => showResults(e.report, auto), 500);
       }

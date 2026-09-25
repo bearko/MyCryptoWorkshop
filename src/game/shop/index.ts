@@ -232,6 +232,8 @@ export class Shop {
     this.save.showcase = this.stock.slots.filter((s) => s.showcase).map((s) => s.item);
     this.save.storage = [...this.stock.storage];
     this.save.bestDayRevenue = Math.max(this.save.bestDayRevenue, this.report.revenue);
+    // The early-game leaderboard: first-run sales by the end of Day 30.
+    if (this.save.day === 30 && this.save.prestige.runs === 0) this.save.ranking.day30 = this.save.totals.revenue - this.save.prestige.runStartRevenue;
     this.report.sets = grantSets(this.save).map((set) => set.name);
     this.report.dailyEmblems = settleDailies(this.save, this.report);
     // Orders not filled today wait one more day; new ones come in for tomorrow.
