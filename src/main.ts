@@ -9,7 +9,7 @@ import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, 
 import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, SCENE_W, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
-import { clearSave, exportCode, importCode, loadSave, SaveError, writeSave } from './game/save';
+import { exportCode, importCode, loadSave, newSave, SaveError, writeSave } from './game/save';
 import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent } from './game/shop';
 import { autoBuy, buy } from './game/purchase';
 import { relocate } from './game/prestige';
@@ -293,7 +293,10 @@ function liveThief() {
 
 const modalRoot = h('div.modal-root');
 const app = document.getElementById('app')!;
-app.append(topbar, stage, tree.root, modalRoot);
+// The home screen (full screen, under the dialogs).
+const homeRoot = h('div.home', { role: 'main' });
+homeRoot.hidden = true;
+app.append(topbar, stage, tree.root, homeRoot, modalRoot);
 
 // ------------------------------------------------------------------ state
 
@@ -459,6 +462,7 @@ function openPauseMenu(): void {
     logCopy.children.length ? logCopy : h('p.muted', {}, t('まだ何も起きていません', 'Nothing has happened yet')),
   );
   openModal(t('一時停止中', 'Paused'), body, [
+    { label: t('🏠 ホームへ', '🏠 Home'), onClick: () => showHome() },
     { label: t('📖 図鑑', '📖 Collection'), onClick: () => openCollection() },
     { label: t('🏆 ランキング', '🏆 Leaderboards'), onClick: () => openRanking() },
     { label: t('データ', 'Data'), onClick: () => openMenu() },
@@ -618,7 +622,8 @@ function openCollection(): void {
   openModal(t('図鑑', 'Collection'), collectionView(save), [{ label: t('閉じる', 'Close') }], 'wide');
 }
 
-function openMenu(): void {
+/** The menu (the home screen's 設定 opens it without the in-game actions). */
+function openMenu(fromHome = false): void {
   // Sound toggles live here too: the topbar hides them on narrow screens.
   const soundBtn = (key: 'bgm' | 'se', label: string) => {
     const btn = h('button.btn.small.toggle', {}, label) as HTMLButtonElement;
@@ -637,7 +642,14 @@ function openMenu(): void {
     langSwitch(),
     displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
-    h('div.menu-actions', {}, h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')), h('button.btn.small', { onclick: () => openRanking() }, t('🏆 ランキング', '🏆 Leaderboards')), computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null),
+    h(
+      'div.menu-actions',
+      {},
+      fromHome ? null : h('button.btn.small', { onclick: () => (closeMenu(), showHome()) }, t('🏠 ホームへ', '🏠 Home')),
+      h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')),
+      fromHome ? null : h('button.btn.small', { onclick: () => openRanking() }, t('🏆 ランキング', '🏆 Leaderboards')),
+      !fromHome && computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null,
+    ),
     h('p', {}, t('累計成績', 'Lifetime stats')),
     h(
       'div.stat-grid',
@@ -658,27 +670,9 @@ function openMenu(): void {
     h('p', {}, t(`実績（${save.achievements.length} / ${ACHIEVEMENTS.length}）`, `Achievements (${save.achievements.length} / ${ACHIEVEMENTS.length})`)),
     achievementList(),
     saveTransfer(),
-    h(
-      'button.btn.danger',
-      {
-        // Two-step confirmation in the page itself (window.confirm is unavailable in some embeds).
-        onclick: (ev: Event) => {
-          const btn = ev.currentTarget as HTMLButtonElement;
-          if (btn.dataset.armed !== '1') {
-            btn.dataset.armed = '1';
-            btn.textContent = t('もう一度押すと削除します', 'Press again to delete');
-            return;
-          }
-          resetting = true;
-          clearSave();
-          location.reload();
-        },
-      },
-      t('セーブデータを削除', 'Delete save data'),
-    ),
     credits(),
   );
-  openModal(t('メニュー', 'Menu'), body, [{ label: t('閉じる', 'Close') }]);
+  const closeMenu = openModal(fromHome ? t('設定', 'Settings') : t('メニュー', 'Menu'), body, [{ label: t('閉じる', 'Close') }]);
 }
 
 /** Today's (or the next day's) requests, with progress when a day report is given. */
@@ -805,45 +799,115 @@ function credits(): HTMLElement {
   );
 }
 
-function showTitle(): void {
-  const hasProgress = save.day > 1;
-  const mine = fileImg(staffFrames.mine[0].image, 'px title-mine');
-  let frame = 0;
-  const anim = window.setInterval(() => {
-    frame = (frame + 1) % staffFrames.mine.length;
-    mine.src = assetUrl(staffFrames.mine[frame].image);
+// ------------------------------------------------------------------ home
+
+let homeAnim = 0;
+/** Where the player was when they went home (Play goes back there). */
+let homeFrom: Place | null = null;
+
+/** The home screen: play, settings, leaderboards, quit, and reset (bottom left). */
+function showHome(): void {
+  if (place) homeFrom = place;
+  place = null;
+  paused = true;
+  const hasProgress = save.day > 1 || save.prestige.runs > 0;
+  const mine = fileImg(staffFrames.mine[0].image, 'px home-mine');
+  let f = 0;
+  window.clearInterval(homeAnim);
+  homeAnim = window.setInterval(() => {
+    f = (f + 1) % staffFrames.mine.length;
+    mine.src = assetUrl(staffFrames.mine[f].image);
   }, 300);
-  const body = h(
-    'div.title',
-    {},
-    h('div.title-art', {}, icon(workshopImages.workshop_base, 'title-bg'), mine),
+  const button = (label: string, onclick: () => void, cls = '') => h(`button.btn.home-btn${cls}`, { onclick }, label);
+  homeRoot.replaceChildren(
+    h('div.home-bg', {}, icon(workshopImages.workshop_base, 'home-bg-img')),
     h(
-      'p.title-lead',
+      'div.home-main',
       {},
-      t('エクステンションをクラフトして、来店するヒーローに売ろう。', 'Craft extensions and sell them to the heroes who visit.'),
-      h('br'),
-      t('稼いだ GUM で工房を強化して、伝説の工房を目指せ！', 'Spend your GUM to grow the workshop into a legend!'),
+      h('h1.home-logo', {}, 'My Crypto Workshop', h('small', {}, t('マイクリ クラフト工房', 'A crafting shop in the world of My Crypto Heroes'))),
+      mine,
+      h(
+        'nav.home-menu',
+        { 'aria-label': t('ホーム', 'Home') },
+        button(t('▶ プレイする', '▶ Play'), playFromHome, '.btn-primary.home-play'),
+        h('p.home-save', {}, hasProgress ? t(`Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Day ${save.day} · ${fmt(save.gum)} GUM`) : t('はじめから', 'New game')),
+        button(t('⚙ 設定', '⚙ Settings'), () => openMenu(true)),
+        button(t('🏆 ランキング', '🏆 Leaderboards'), () => openRanking()),
+        button(t('終了する', 'Quit'), quitGame),
+      ),
     ),
-    langSwitch(),
-    hasProgress ? h('p.title-save', {}, t(`セーブデータ: Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Save: Day ${save.day} · ${fmt(save.gum)} GUM`)) : null,
-    credits(),
+    h('button.btn.small.danger.home-reset', { onclick: () => openReset() }, t('リセット', 'Reset')),
+    h('p.home-credit', {}, t('非公式の二次創作です（素材 © MCH Co.,Ltd.）', 'An unofficial fan work (assets © MCH Co.,Ltd.)')),
   );
+  homeRoot.hidden = false;
+  document.body.classList.add('at-home');
+}
+
+function leaveHome(): void {
+  window.clearInterval(homeAnim);
+  homeRoot.hidden = true;
+  document.body.classList.remove('at-home');
+}
+
+function playFromHome(): void {
+  sound.unlock();
+  leaveHome();
+  const from = homeFrom;
+  homeFrom = null;
+  if (from === 'tree') showTree();
+  else if (shop || save.day > 1 || save.prestige.runs > 0) showShop();
+  else startDay();
+}
+
+/** Saves and closes the window; a browser tab can't be closed by the page, so it says goodbye instead. */
+function quitGame(): void {
+  writeSave(save);
+  window.clearInterval(homeAnim);
+  window.close();
+  window.setTimeout(() => {
+    if (window.closed) return;
+    homeRoot.replaceChildren(
+      h('div.home-bg', {}, icon(workshopImages.workshop_base, 'home-bg-img')),
+      h(
+        'div.home-main.home-end',
+        {},
+        fileImg(staffFrames.mine[0].image, 'px home-mine'),
+        h('h2', {}, t('おつかれさまでした！', 'Thanks for playing!')),
+        h('p', {}, t('セーブしました。このタブ（またはアプリ）を閉じると終了します。', 'Your game is saved. Close this tab (or app) to quit.')),
+        h('button.btn.home-btn', { onclick: () => showHome() }, t('ホームに戻る', 'Back to home')),
+      ),
+    );
+  }, 300);
+}
+
+/** リセット: erases the progress and starts over (settings and the leaderboard entry stay). */
+function openReset(): void {
+  const confirm = h('button.btn.danger', {}, t('リセットする', 'Reset')) as HTMLButtonElement;
+  confirm.addEventListener('click', () => {
+    // Two presses (window.confirm is unavailable in some embeds).
+    if (confirm.dataset.armed !== '1') {
+      confirm.dataset.armed = '1';
+      confirm.textContent = t('もう一度押すとセーブデータを消します', 'Press again to erase your save');
+      return;
+    }
+    resetting = true;
+    const fresh = newSave();
+    fresh.settings = save.settings;
+    // Same player on the leaderboards; the records there are kept (each board keeps the best).
+    fresh.ranking = { ...save.ranking, day30: null };
+    writeSave(fresh);
+    location.reload();
+  });
   openModal(
-    'My Crypto Workshop',
-    body,
-    [
-      {
-        label: hasProgress ? t('つづきから', 'Continue') : t('開店する', 'Open the shop'),
-        primary: true,
-        onClick: () => {
-          window.clearInterval(anim);
-          sound.unlock();
-          if (hasProgress) showShop();
-          else startDay();
-        },
-      },
-    ],
-    'title-modal',
+    t('リセット', 'Reset'),
+    h(
+      'div.reset',
+      {},
+      h('p', {}, t('セーブデータを消して、Day 1 から始めます。スキル・GUM・図鑑・実績・周回の記録はすべて消え、元に戻せません。', 'Erase your save and start again from Day 1. Skills, GUM, the collection, achievements and run history are all lost, and this cannot be undone.')),
+      h('p.muted', {}, t('残るもの: 設定（サウンド・言語・表示）、ランキングの参加情報と登録済みの記録', 'Kept: settings (sound, language, display) and your leaderboard entry and records')),
+      confirm,
+    ),
+    [{ label: t('キャンセル', 'Cancel') }],
   );
 }
 
@@ -1538,6 +1602,6 @@ void preload([
   ...SCENE_SPRITES,
 ]).then(() => {
   document.body.classList.add('loaded');
-  showTitle();
+  showHome();
   requestAnimationFrame(frame);
 });
