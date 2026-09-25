@@ -194,6 +194,18 @@ export interface Decision {
   options: { label: string; detail: string }[];
   /** Chosen automatically if the player does not answer in time (and by idle play). */
   fallback: number;
+  /** Where the visitor waits in the shop (feet), with a speech bubble, until tapped. */
+  x: number;
+  y: number;
+  /** What the speech bubble says. */
+  call: string;
+  /** The visitor's sprite faces right (see Hero.facesRight). */
+  facesRight?: boolean;
+  /** Business seconds the visitor waits (and how many are left) before the fallback is taken. */
+  wait: number;
+  waitLeft: number;
+  /** The player opened it: the day is paused until they answer or close it. */
+  viewing: boolean;
 }
 
 /** A staff member at work in the shop or the workshop. */

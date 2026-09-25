@@ -144,9 +144,24 @@ export class Shop {
     this.staff.applyStats();
   }
 
-  /** A choice is waiting for the player; the day is paused. */
+  /** A visitor with a choice (merchant, MAI, a reformed thief) is waiting in the shop. */
   get pendingDecision() {
     return this.decisions.pending;
+  }
+
+  /** The waiting visitor is at (x, y). */
+  decisionAt(x: number, y: number): boolean {
+    return this.decisions.at(x, y);
+  }
+
+  /** The player tapped the visitor: the choice to show (the day pauses), or null if they left. */
+  viewDecision() {
+    return this.decisions.view();
+  }
+
+  /** The choice was closed without answering: the visitor waits again. */
+  deferDecision(): void {
+    this.decisions.defer();
   }
 
   decide(choice: number): void {
@@ -184,7 +199,7 @@ export class Shop {
   // ---------------------------------------------------------------- update
 
   update(dt: number): void {
-    if (this.over || !this.started || this.decisions.pending) return;
+    if (this.over || !this.started || this.decisions.viewing) return;
     this.elapsed += dt;
     this.timeLeft -= dt;
     this.register.decay(dt);
@@ -210,7 +225,7 @@ export class Shop {
     this.market.update(dt);
     this.hazards.update(dt);
     this.visitors.update(dt);
-    this.decisions.update();
+    this.decisions.update(dt);
     this.raid.update(dt);
 
     for (const e of this.fx) e.t += dt;
@@ -222,6 +237,8 @@ export class Shop {
   }
 
   private closeDay(): void {
+    // A visitor still waiting takes the fallback (a caught thief's bounty is paid, and so on).
+    this.decisions.settle();
     this.over = true;
     this.timeLeft = 0;
     this.raid.finish();

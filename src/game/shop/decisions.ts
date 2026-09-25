@@ -1,7 +1,7 @@
 import { icons, merchants } from '../catalog';
 import { FIRST_EVENT_DAY } from '../conditions';
 import { fmt } from '../format';
-import { COUNTER, HERO_PX } from '../layout';
+import { COUNTER, DOOR, FLOOR_Y, HERO_PX } from '../layout';
 import { averageTierPay, salePrice } from '../stats';
 import type { Shop } from './index';
 import type { Actor, Decision } from './types';
@@ -11,12 +11,21 @@ import { t } from '../../i18n';
 export const BLESSING_MULT = 1.5;
 export const BLESSING_TIME = 15;
 
-type Pending = Decision & { apply: (choice: number) => string };
+/** Business seconds a visitor waits to be tapped before the fallback is taken. */
+export const DECISION_WAIT = 20;
+
+type Pending = Decision & {
+  apply: (choice: number) => string;
+  /** Rebuilds the offer from the shop as it is now (when opened); false if it no longer stands. */
+  refresh?: () => boolean;
+};
 
 /**
  * Events that ask the player to choose. From FIRST_EVENT_DAY on, every business day has at
  * least one: the shady merchant or MAI arrives at a random time, and a caught thief may ask
- * to be forgiven. The shop pauses until the choice is made (see Shop.decide).
+ * to be forgiven. The visitor waits in the shop with a speech bubble while the day goes on;
+ * tapping them opens the choice and pauses the day (view). Left alone for DECISION_WAIT
+ * seconds, they take the fallback and go.
  */
 export class Decisions {
   pending: Pending | null = null;
@@ -28,8 +37,15 @@ export class Decisions {
     if (shop.save.day >= FIRST_EVENT_DAY) this.scheduledAt = shop.stats.dayLength * shop.rand.range(0.25, 0.6);
   }
 
-  update(): void {
+  /** The player has the choice open: the day waits. */
+  get viewing(): boolean {
+    return !!this.pending?.viewing;
+  }
+
+  update(dt: number): void {
     const shop = this.shop;
+    const d = this.pending;
+    if (d && !d.viewing && (d.waitLeft -= dt) <= 0) this.decide(d.fallback);
     if (this.pending || this.scheduledAt < 0 || shop.elapsed < this.scheduledAt) return;
     this.scheduledAt = -1;
     // One arrival a day: the merchant (when there is stock to buy) or MAI.
@@ -41,9 +57,38 @@ export class Decisions {
     return this.made;
   }
 
-  private open(d: Pending): void {
-    this.pending = d;
-    this.shop.emit({ type: 'decision', decision: { kind: d.kind, title: d.title, text: d.text, image: d.image, options: d.options, fallback: d.fallback } });
+  private open(d: Omit<Pending, 'wait' | 'waitLeft' | 'viewing'>): void {
+    const pending: Pending = { ...d, wait: DECISION_WAIT, waitLeft: DECISION_WAIT, viewing: false };
+    this.pending = pending;
+    this.shop.emit({ type: 'decision', decision: pending });
+  }
+
+  /** The visitor waiting at (x, y), if any (the tap target includes the speech bubble). */
+  at(x: number, y: number): boolean {
+    const d = this.pending;
+    return !!d && !d.viewing && Math.abs(x - d.x) < 56 && y < d.y + 16 && y > d.y - HERO_PX - 96;
+  }
+
+  /** The player tapped the visitor: the up-to-date choice, and the day pauses until it is answered. */
+  view(): Decision | null {
+    const d = this.pending;
+    if (!d) return null;
+    if (d.refresh && !d.refresh()) {
+      this.decide(d.fallback);
+      return null;
+    }
+    d.viewing = true;
+    return d;
+  }
+
+  /** Closed without choosing: the visitor waits again (the day resumes). */
+  defer(): void {
+    if (this.pending) this.pending.viewing = false;
+  }
+
+  /** At closing, a visitor still waiting takes the fallback. */
+  settle(): void {
+    if (this.pending) this.decide(this.pending.fallback);
   }
 
   /** Applies the player's choice and resumes the shop. */
@@ -81,33 +126,47 @@ export class Decisions {
   private offerMerchant(): void {
     const shop = this.shop;
     const hero = shop.rand.pick(merchants);
-    const { slots, storage } = this.sellable();
-    const count = slots.length + storage;
-    const value = this.stockValue();
-    const offer = Math.max(1, Math.round(value * shop.stats.merchantRate));
-    const pct = Math.round(shop.stats.merchantRate * 100);
-    this.open({
-      kind: 'merchant',
+    const d = {
+      kind: 'merchant' as const,
       title: t(`悪徳商人 ${hero.name}`, `Shady Merchant ${hero.name}`),
-      text: t(
-        `「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。いつもの客に売る値段（合計 ${fmt(value)} GUM）の ${pct}% だが、今すぐ現金だぞ？」`,
-        `"I'll take all ${count} items on your shelves and in storage for ${fmt(offer)} GUM. That's ${pct}% of what your customers would pay (${fmt(value)} GUM in all), but it's cash right now!"`,
-      ),
+      text: '',
       image: hero.image,
-      options: [
-        { label: t(`売る（+${fmt(offer)} GUM）`, `Sell (+${fmt(offer)} GUM)`), detail: t('ショーケース以外の品がなくなる', 'Everything but the showcase is gone') },
-        { label: t('断る', 'Refuse'), detail: t('品はそのまま。いつも通り売る', 'Keep the stock and sell as usual') },
-      ],
+      facesRight: hero.facesRight,
+      call: t('在庫、まとめて買うぞ？', "I'll buy your stock!"),
+      x: DOOR.x - 90,
+      y: FLOOR_Y + 70,
+      options: [] as Decision['options'],
       fallback: 1,
-      apply: (choice) => {
-        if (choice !== 0) return t(`${hero.name}は舌打ちして帰っていった`, `${hero.name} clicked their tongue and left`);
-        const { slots: now } = this.sellable();
-        for (const i of now) shop.stock.slots[i].item = null;
-        shop.stock.storage = [];
-        shop.addExtra('merchant', offer, COUNTER.x1 + 60, COUNTER.top - 40);
-        return t(`${hero.name}に在庫を売り払った（+${fmt(offer)} GUM）`, `Sold the stock to ${hero.name} (+${fmt(offer)} GUM)`);
+      apply: (_choice: number) => '',
+      // The offer is made for the stock as it is when the player listens.
+      refresh: () => {
+        const { slots, storage } = this.sellable();
+        const count = slots.length + storage;
+        const value = this.stockValue();
+        if (count === 0 || value <= 0) return false;
+        const offer = Math.max(1, Math.round(value * shop.stats.merchantRate));
+        const pct = Math.round(shop.stats.merchantRate * 100);
+        d.text = t(
+          `「棚と倉庫の品 ${count} 個、まとめて ${fmt(offer)} GUM で買い取ってやろう。いつもの客に売る値段（合計 ${fmt(value)} GUM）の ${pct}% だが、今すぐ現金だぞ？」`,
+          `"I'll take all ${count} items on your shelves and in storage for ${fmt(offer)} GUM. That's ${pct}% of what your customers would pay (${fmt(value)} GUM in all), but it's cash right now!"`,
+        );
+        d.options = [
+          { label: t(`売る（+${fmt(offer)} GUM）`, `Sell (+${fmt(offer)} GUM)`), detail: t('ショーケース以外の品がなくなる', 'Everything but the showcase is gone') },
+          { label: t('断る', 'Refuse'), detail: t('品はそのまま。いつも通り売る', 'Keep the stock and sell as usual') },
+        ];
+        d.apply = (choice) => {
+          if (choice !== 0) return t(`${hero.name}は舌打ちして帰っていった`, `${hero.name} clicked their tongue and left`);
+          const { slots: now } = this.sellable();
+          for (const i of now) shop.stock.slots[i].item = null;
+          shop.stock.storage = [];
+          shop.addExtra('merchant', offer, COUNTER.x1 + 60, COUNTER.top - 40);
+          return t(`${hero.name}に在庫を売り払った（+${fmt(offer)} GUM）`, `Sold the stock to ${hero.name} (+${fmt(offer)} GUM)`);
+        };
+        return true;
       },
-    });
+    };
+    d.refresh();
+    this.open(d);
   }
 
   // ---------------------------------------------------------------- MAI's blessing
@@ -118,6 +177,9 @@ export class Decisions {
     this.open({
       kind: 'mai',
       title: t('MAI が遊びに来た！', 'MAI dropped by!'),
+      call: t('お手伝いするよ！', 'Need a hand?'),
+      x: 560,
+      y: FLOOR_Y + 220,
       text: t('「今日もおつかれさま！ひとつだけお手伝いしてあげる。どれにする？」', '"Good work today! I\'ll help you with one thing. Which will it be?"'),
       image: icons.mai,
       options: [
@@ -158,6 +220,10 @@ export class Decisions {
     this.open({
       kind: 'reform',
       title: t(`${thief.hero.name}が改心したいと言っている`, `${thief.hero.name} wants to turn over a new leaf`),
+      call: t('話を聞いてくれ…', 'Hear me out...'),
+      facesRight: thief.hero.facesRight,
+      x: Math.max(120, Math.min(860, thief.x)),
+      y: Math.max(FLOOR_Y + 40, thief.y),
       text: t('「出来心だったんだ…もう盗みはしない。これからは客としてこの店に通わせてくれないか？」', '"It was a moment of weakness... I\'ll never steal again. Will you let me come back as a customer?"'),
       image: thief.hero.image,
       options: [

@@ -1127,38 +1127,29 @@ const LOST_TEXT = {
   scared: t(' はエネミーに驚いて逃げ帰ってしまった…', ' was scared off by an enemy...'),
 };
 
-/** Seconds before a decision picks its fallback on its own (so an idle shop keeps going). */
-const DECISION_SECONDS = 12;
+/** Options can be chosen only after this long, so a tap meant for the shop does not pick one. */
+const DECISION_ARM_MS = 600;
 
+/**
+ * The choice of a visitor the player tapped (the day is paused meanwhile). "Later" closes it
+ * and the visitor waits again.
+ */
 function showDecision(d: Decision): void {
-  sound.play(d.kind === 'merchant' ? 'debuff' : 'helper');
-  let left = DECISION_SECONDS;
-  const timer = h('div.decision-timer');
   let done = false;
+  const buttons = d.options.map((o, i) => {
+    const b = h('button.btn.decision-option', { onclick: () => choose(i) }, h('b', {}, o.label), h('small', {}, o.detail)) as HTMLButtonElement;
+    b.disabled = true;
+    return b;
+  });
   const choose = (i: number) => {
     if (done) return;
     done = true;
-    window.clearInterval(tick);
     close();
     shop?.decide(i);
   };
-  const body = h(
-    'div.decision',
-    {},
-    h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)),
-    ...d.options.map((o, i) =>
-      h('button.btn.decision-option', { onclick: () => choose(i) }, h('b', {}, o.label), h('small', {}, o.detail)),
-    ),
-    timer,
-  );
-  const update = () => (timer.textContent = t(`${left} 秒後に「${d.options[d.fallback].label}」を選びます`, `Choosing "${d.options[d.fallback].label}" in ${left}s`));
-  update();
-  const tick = window.setInterval(() => {
-    left--;
-    update();
-    if (left <= 0) choose(d.fallback);
-  }, 1000);
-  const close = openModal(d.title, body, [], 'decision-modal');
+  window.setTimeout(() => buttons.forEach((b) => (b.disabled = false)), DECISION_ARM_MS);
+  const body = h('div.decision', {}, h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)), ...buttons);
+  const close = openModal(d.title, body, [{ label: t('あとで決める', 'Decide later'), onClick: () => ((done = true), shop?.deferDecision()) }], 'decision-modal');
 }
 
 /** The MCH gold-chest moment, for the first Epic / Legendary / 真 / golden edition. */
@@ -1267,7 +1258,10 @@ function onShopEvent(e: ShopEvent): void {
       log(h('span', {}, h('b', {}, e.hero.name), t(' が注文の ', ' picked up their order: '), extLabel(e.item), t(' を受け取った！ ', '! '), h('span.gum-text', {}, `+${fmt(e.price)}`)), 'rare');
       break;
     case 'decision':
-      showDecision(e.decision);
+      // The visitor waits in the shop with a speech bubble; tapping them opens the choice.
+      sound.play(e.decision.kind === 'merchant' ? 'debuff' : 'helper');
+      log(h('span', {}, h('b', {}, e.decision.title), t('（タップで話を聞く）', ' (tap to talk)')), 'rare');
+      tip('decisionTap', t('吹き出しを出している人がいるよ！タップすると話を聞けるよ。しばらく放っておくと、いつもの返事をして帰っちゃう', 'Someone with a speech bubble wants to talk! Tap them to hear them out. Leave them for a while and they take the usual answer and go'));
       break;
     case 'decided':
       log(h('span', {}, e.result), 'good');
@@ -1387,11 +1381,12 @@ function onShopEvent(e: ShopEvent): void {
 
 // ------------------------------------------------------------------ input
 
-function hitTest(x: number, y: number): 'hazard' | 'thief' | 'pest' | 'line' | 'register' | null {
+function hitTest(x: number, y: number): 'hazard' | 'thief' | 'pest' | 'decision' | 'line' | 'register' | null {
   if (!shop) return null;
   if (shop.hazardAt(x, y)) return 'hazard';
   if (shop.thiefAt(x, y)) return 'thief';
   if (shop.pestAt(x, y)) return 'pest';
+  if (shop.decisionAt(x, y)) return 'decision';
   if (shop.lineAt(x, y)) return 'line';
   if (shop.isOnRegister(x, y)) return 'register';
   return null;
@@ -1416,6 +1411,10 @@ canvas.addEventListener('pointerdown', (ev) => {
   if (target === 'hazard') shop.clickHazard(x, y);
   else if (target === 'thief') shop.clickThief(shop.thiefAt(x, y)!);
   else if (target === 'pest') shop.clickPest(shop.pestAt(x, y)!);
+  else if (target === 'decision') {
+    const d = shop.viewDecision();
+    if (d) showDecision(d);
+  }
   else if (target === 'line') {
     const line = shop.lineAt(x, y)!;
     shop.clickLine(line);

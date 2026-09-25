@@ -480,6 +480,7 @@ export class SceneRenderer {
     this.drawFlyers(shop);
     this.drawWeather(shop, now);
     this.drawEffects(shop);
+    this.drawDecision(shop, now);
     this.drawPopups(shop);
   }
 
@@ -920,6 +921,75 @@ export class SceneRenderer {
       ctx.fillText(text, cx, by);
     }
     void now;
+  }
+
+  /**
+   * A visitor with a choice (the merchant, MAI, a thief who wants to reform) waiting to be
+   * tapped: the sprite with a glow, a speech bubble, and a ring for the time they will wait.
+   */
+  private drawDecision(shop: Shop, now: number): void {
+    const d = shop.pendingDecision;
+    if (!d || d.viewing) return;
+    const ctx = this.ctx;
+    const size = d.kind === 'mai' ? 100 : HERO_PX;
+    const bob = Math.abs(Math.sin(now / 260)) * 6;
+    const color = d.kind === 'merchant' ? '#c58cff' : d.kind === 'mai' ? '#ffd966' : '#9fdc7c';
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(d.x, d.y - 1, 26, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = this.glow(20);
+    // Waiting visitors face into the shop (left).
+    drawImg(ctx, d.image, d.x - size / 2, d.y - size - bob, size, size, !!d.facesRight);
+    ctx.restore();
+
+    // Speech bubble, pulsing a little, with the time left as a ring.
+    const by = d.y - size - 46;
+    const pulse = 1 + Math.sin(now / 220) * 0.04;
+    ctx.save();
+    ctx.translate(d.x, by);
+    ctx.scale(pulse, pulse);
+    ctx.font = `bold 26px ${FONT}`;
+    const w = ctx.measureText(d.call).width + 70;
+    const h = 46;
+    const left = Math.max(-d.x + 8, Math.min(1000 - d.x - 8 - w, -w / 2));
+    ctx.fillStyle = '#fffaf0';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    roundRect(ctx, left, -h / 2, w, h, 14);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-8, h / 2 - 2);
+    ctx.lineTo(8, h / 2 - 2);
+    ctx.lineTo(0, h / 2 + 12);
+    ctx.fill();
+    ctx.fillStyle = '#3b2718';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(d.call, left + 14, 1);
+    const rx = left + w - 24;
+    ctx.strokeStyle = '#0002';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(rx, 0, 12, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.arc(rx, 0, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, d.waitLeft / d.wait));
+    ctx.stroke();
+    ctx.restore();
+    // "Tap" under the feet.
+    ctx.font = `bold 20px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#000a';
+    ctx.strokeText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 6);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(t('タップで話を聞く', 'Tap to talk'), d.x, d.y + 6);
   }
 
   private drawBubble(shop: Shop, a: Actor, now: number): void {
