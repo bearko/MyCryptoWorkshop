@@ -665,7 +665,44 @@ body.in-day {
 }
 
 .node.maxed {
-  box-shadow: 0 0 0 3px #0008, 0 0 18px color-mix(in srgb, var(--branch) 70%, transparent);
+  /* Done: calm (no glow) with a gold MAX badge, so nodes with levels left stand out. */
+  border-color: color-mix(in srgb, var(--branch) 40%, #b08a3a);
+  background: color-mix(in srgb, var(--branch) 10%, #1a110b);
+}
+
+.node.maxed .node-icon {
+  filter: saturate(0.75) brightness(0.9);
+}
+
+/* Learned with levels left: the level badge in the branch colour and a progress bar. */
+.node.growing .node-level {
+  background: color-mix(in srgb, var(--branch) 55%, #120b07);
+  border-color: var(--branch);
+  color: #fff;
+}
+
+.node-bar {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  left: 9px;
+  right: 9px;
+  bottom: 5px;
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid #000a;
+  background: linear-gradient(90deg, var(--branch) calc(var(--progress, 0) * 100%), #000b 0);
+}
+
+.node.growing .node-bar {
+  display: block;
+}
+
+.node-level.max {
+  background: linear-gradient(#ffe08a, #c9953a);
+  border-color: #7a4f16;
+  color: #3a2410;
+  font-weight: 700;
 }
 
 .node.affordable {
@@ -753,9 +790,9 @@ body.in-day {
 }
 
 .node.feature.maxed {
+  border-color: #c9953a;
   box-shadow:
-    0 0 0 3px #0008,
-    0 0 20px #ffd96699,
+    0 4px 0 #0009,
     inset 0 0 0 2px #2a1808,
     inset 0 0 0 4px color-mix(in srgb, var(--branch) 55%, #6b4a1c);
 }
