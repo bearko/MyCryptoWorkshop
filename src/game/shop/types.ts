@@ -296,7 +296,7 @@ export type ShopEvent =
   | { type: 'overheat'; line: LineId }
   | { type: 'dismantle'; item: number; dust: number; gem: GemId | null }
   | { type: 'sale'; price: number; item: number; hero: Hero; tip: boolean }
-  | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' | 'mess' | 'scared' }
+  | { type: 'lost'; hero: Hero; reason: 'empty' | 'queue' | 'mess' | 'scared'; special?: Actor['special'] }
   | { type: 'thief'; hero: Hero; style: ThiefStyle }
   | { type: 'thiefHit'; hero: Hero; hpLeft: number }
   | { type: 'stolen'; hero: Hero; item: number }
@@ -315,6 +315,8 @@ export type ShopEvent =
   | { type: 'vehicle'; kind: number; count: number }
   | { type: 'special'; kind: NonNullable<Actor['special']>; hero: Hero }
   | { type: 'visit'; visit: Visit }
+  | { type: 'settled'; hero: Hero }
+  | { type: 'bespoke'; hero: Hero; item: number }
   | { type: 'partySkill'; hero: Hero; kind: SkillKind; skill: string; text: string }
   | { type: 'decision'; decision: Decision }
   | { type: 'decided'; kind: Decision['kind']; choice: number; result: string }

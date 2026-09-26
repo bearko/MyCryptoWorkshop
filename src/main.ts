@@ -1308,6 +1308,12 @@ function onShopEvent(e: ShopEvent): void {
         'rare',
       );
       break;
+    case 'bespoke':
+      log(h('span', {}, t('特注: ', 'Made to order: '), h('b', {}, e.hero.name), t(' に ', ' gets '), itemName(e.item), t(' を手渡した', '')), 'good');
+      break;
+    case 'settled':
+      log(h('span', {}, h('b', {}, e.hero.name), t(' は代わりの品を買うことにした', ' settles for something else')));
+      break;
     case 'partySkill':
       sound.play('buff');
       // The first skill of each hero in a day gets the cut-in; after that, their bubble on the balcony.

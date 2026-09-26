@@ -54,4 +54,14 @@ export const PHASE4_NODES: SkillNode[] = [
   node({ id: 'owner', branch: 'seiryu', name: 'ランドオーナー招待', desc: 'ランドの日以外にもランドオーナーが来る（最高の品を ×3 で買う）。確率 +1%', icon: seriesIcon('Crown', 1), x: 7, y: -3, max: 5, baseCost: 40000, growth: 1.8, requires: ['collectorPay'], effects: [add('ownerChance', 0.01)] }),
   node({ id: 'ownerPay', branch: 'seiryu', name: 'VIP 待遇', desc: 'ランドオーナーの支払い +0.4倍', icon: seriesIcon('Crown', 4), x: 8, y: -3, max: 5, baseCost: 60000, growth: 1.8, requires: ['owner'], effects: [add('ownerPay', 0.4)] }),
   node({ id: 'legend', branch: 'seiryu', name: '伝説の来訪', desc: '伝説のヒーローが来店する確率 +8%/日（いる間は売上 2 倍）', icon: seriesIcon('Oriflamme', 4), x: 9, y: -3, max: 5, baseCost: 150000, growth: 1.9, requires: ['ownerPay'], effects: [add('legendChance', 0.08)] }),
+
+  // ---- 青龍: collectors who find what they came for (row -5, after ファンサービス)
+  node({ id: 'collectorStock', branch: 'seiryu', name: '品揃えの評判', desc: 'コレクター客が、店の棚や倉庫にあるシリーズを探しに来やすくなる（+12%。基本 40%、Lv5 で必ず）', icon: seriesIcon('Scrolls', 3), x: 7, y: -5, max: 5, baseCost: 30000, growth: 1.8, requires: ['fanService'], requiresAll: ['collectors'], effects: [add('collectorStock', 0.12)] }),
+  node({ id: 'bespoke', branch: 'seiryu', name: '特注受付', desc: '探し物が見つからないコレクター客・注文の客の品を、工房が次のクラフトで作って直接手渡す（棚が満杯でも）', icon: seriesIcon('Hammer', 4), x: 8, y: -5, max: 1, baseCost: 150000, growth: 1, requires: ['collectorStock'], effects: [atLeast('bespoke', 1)] }),
+  node({ id: 'alternative', branch: 'seiryu', name: '代わりの品のご提案', desc: '待ちくたびれたコレクター客・注文の客が、帰らずに棚でいちばん高い品を買っていく', icon: seriesIcon('Sensu', 3), x: 9, y: -5, max: 1, baseCost: 300000, growth: 1, requires: ['bespoke'], effects: [atLeast('alternative', 1)] }),
+
+  // ---- 青龍: a bigger, busier shop (column 10, beside ランドゲート)
+  node({ id: 'bigStore', branch: 'seiryu', name: '店舗拡張', desc: '店に同時に入れる客 +4人（基本 24人）', icon: seriesIcon('Ferris wheel', 2), x: 10, y: -2, max: 6, baseCost: 1000000, growth: 5, requires: ['landGate'], effects: [add('shopCapacity', 4)] }),
+  node({ id: 'bustling', branch: 'seiryu', name: '繁盛店', desc: '来客ペース +10%', icon: seriesIcon('Oriflamme', 3), x: 10, y: -3, max: 10, baseCost: 2000000, growth: 1.6, requires: ['bigStore'], effects: [mul('spawnRate', 0.1, 'bustle')] }),
+  node({ id: 'safeShop', branch: 'seiryu', name: '安心の店内', desc: '店に入り込んだエネミーや床の泥で客が帰ってしまう確率 -65%', icon: seriesIcon('Shield', 4), x: 10, y: -4, max: 3, baseCost: 500000, growth: 4, requires: ['bustling'], effects: [pow('scareChance', 0.35)] }),
 ];

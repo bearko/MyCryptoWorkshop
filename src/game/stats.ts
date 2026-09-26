@@ -124,6 +124,16 @@ export const BASE_STATS = {
   collectorFetch: 0,
   /** Heroes that can be in the party (英雄の酒場, パーティ枠). */
   partySlots: 0,
+  /** Chance a collector looks for a series the shop has in stock (品揃えの評判). */
+  collectorStock: 0.4,
+  /** 1: waiting collectors' and orders' items are crafted next and handed over (特注受付). */
+  bespoke: 0,
+  /** 1: collectors and orders out of patience buy the priciest item instead (代わりの品のご提案). */
+  alternative: 0,
+  /** Customers (and thieves) in the shop at once. */
+  shopCapacity: 24,
+  /** Multiplier on customers leaving over shop enemies or mud (安心の店内). */
+  scareChance: 1,
   /** Chance per customer of a land owner (land days always bring one). */
   ownerChance: 0,
   ownerPay: 3,
