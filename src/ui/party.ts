@@ -1,6 +1,6 @@
-import { attributeName, series } from '../game/catalog';
+import { attributeName } from '../game/catalog';
 import { FACTION_BY_NAME, FACTION_NAME } from '../game/factions';
-import { activeParty, MAX_PARTY, memberTuning, PARTY_ROSTER, partyHero, partySynergies, scoutId, SKILL_KIND_NAME, skillText, skillValue, suggestParty, supportText, taughtSeries, type PartyHeroDef } from '../game/party';
+import { activeParty, MAX_PARTY, memberTuning, PARTY_ROSTER, partyHero, partySynergies, scoutId, SKILL_KIND_NAME, skillText, skillValue, suggestParty, supportText, type PartyHeroDef } from '../game/party';
 import type { SaveData } from '../game/save';
 import { computeStats } from '../game/stats';
 import { t } from '../i18n';
@@ -13,7 +13,7 @@ const TIER_LABEL = { 1: t('酒場', 'Tavern'), 2: t('広間', 'Hall'), 3: t('伝
  * it), with the synergies of the current line-up and an おまかせ button. Changes are saved at
  * once through `persist`, and `onChange` refreshes whatever shows the party.
  */
-export function partyView(save: SaveData, persist: () => void, onChange: () => void): HTMLElement {
+export function partyView(save: SaveData, persist: () => void, onChange: () => void, onRecipes: (heroId: number) => void): HTMLElement {
   const slots = computeStats(save.levels).partySlots;
   const head = h('div.party-slots');
   const synergyBox = h('div.party-synergies');
@@ -36,14 +36,24 @@ export function partyView(save: SaveData, persist: () => void, onChange: () => v
     const skill = skillText(d.kind, skillValue(d.kind, level, d.tier, boost), hero.name);
     const faction = hero.faction ? FACTION_BY_NAME[hero.faction] : undefined;
     const full = !inParty && members.length >= slots;
+    const toggle = () => {
+      if (inParty) setParty(members.filter((id) => id !== d.id));
+      else if (!full) setParty([...members, d.id]);
+    };
+    // A div acting as a button, so the recipes button can sit inside it.
     return h(
-      'button.party-card',
+      'div.party-card',
       {
         class: `party-card ${inParty ? 'in' : ''} ${full ? 'full' : ''}`,
+        role: 'button',
+        tabindex: '0',
         'aria-pressed': String(inParty),
-        onclick: () => {
-          if (inParty) setParty(members.filter((id) => id !== d.id));
-          else if (!full) setParty([...members, d.id]);
+        onclick: toggle,
+        onkeydown: (e: Event) => {
+          if ((e as KeyboardEvent).key === 'Enter' || (e as KeyboardEvent).key === ' ') {
+            e.preventDefault();
+            toggle();
+          }
         },
       },
       icon(hero.image, 'px party-card-img'),
@@ -60,7 +70,21 @@ export function partyView(save: SaveData, persist: () => void, onChange: () => v
         ),
         h('div.party-skill', {}, h('span.party-kind', {}, SKILL_KIND_NAME[d.kind]), `「${hero.passive}」 `, skill, h('small', {}, t(` （${Math.round(cooldown)}秒ごと）`, ` (every ${Math.round(cooldown)}s)`))),
         h('small.party-support', {}, t('サポート（常時）: ', 'Support (always): '), supportText(d, level)),
-        h('small.party-attrs', {}, (hero.attributes ?? []).map(attributeName).join(' / '), ' · ', t('レシピ: ', 'Recipes: '), taughtSeries(d).map((i) => series[i].name).join(t('・', ', '))),
+        h(
+          'div.party-card-foot',
+          {},
+          h('small.party-attrs', {}, (hero.attributes ?? []).map(attributeName).join(' / ')),
+          h(
+            'button.btn.small.party-recipes',
+            {
+              onclick: (e: Event) => {
+                e.stopPropagation();
+                onRecipes(d.id);
+              },
+            },
+            t(`📜 レシピ（${d.teaches.length}）`, `📜 Recipes (${d.teaches.length})`),
+          ),
+        ),
       ),
       inParty ? h('span.party-check', {}, '✓') : null,
     );

@@ -1142,6 +1142,7 @@ function openPartyEditor(): void {
         if (shop && !shop.started) shop.party.build();
         updateOpenCard();
       },
+      (heroId) => openRecipes(heroId),
     ),
     [{ label: t('決定', 'Done'), primary: true }],
     'wide',

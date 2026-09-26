@@ -3018,9 +3018,24 @@ body.in-day {
   color: #9fe6b8;
 }
 
+.party-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .party-attrs {
   display: block;
+  min-width: 0;
   color: var(--muted);
+}
+
+.party-recipes {
+  flex: none;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .party-check {
