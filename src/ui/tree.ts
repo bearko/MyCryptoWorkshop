@@ -42,6 +42,8 @@ export interface TreeCallbacks {
   onCollection(): void;
   onRanking(): void;
   onRelocate(): void;
+  /** A scout's "recipes" button: the recipes that hero teaches. */
+  onRecipes(heroId: number): void;
 }
 
 /** Closest zoom of the tree view. */
@@ -560,11 +562,12 @@ export class TreeView {
               h('ul.detail-conditions', {}, ...unlockConditions(node, levels).map((c) => h('li', { class: c.met ? 'met' : '' }, c.met ? '✓ ' : '• ', c.text))),
             ),
         h('div.detail-level', {}, node.max > 1 ? `Lv ${lv} / ${node.max}` : maxed ? t('習得済み', 'Learned') : t('未習得', 'Not learned')),
-        scoutPreview(node, lv) ?? '',
+        scoutPreview(node, lv, (id) => this.cb.onRecipes(id)) ?? '',
       );
       if (available && !maxed) {
         // Exact effect of the next level, from the node's effect data.
-        const changes = describeChanges(computeStats(levels), computeStats({ ...levels, [node.id]: lv + 1 }));
+        // Scouts: the support line above already says what the next level adds.
+        const changes = node.branch === 'party' && node.id.startsWith('scout_') ? [] : describeChanges(computeStats(levels), computeStats({ ...levels, [node.id]: lv + 1 }));
         if (changes.length) {
           this.detail.append(
             h('ul.detail-changes', {}, ...changes.map((c) => h('li', {}, h('span', {}, c.label), h('b', {}, `${c.from} → ${c.to}`)))),
@@ -653,8 +656,8 @@ export class TreeView {
   }
 }
 
-/** A scout node's skill now and at the next level. */
-function scoutPreview(node: SkillNode, lv: number): HTMLElement | null {
+/** A scout node's skill now and at the next level, its support effect, and its recipes button. */
+function scoutPreview(node: SkillNode, lv: number, onRecipes: (heroId: number) => void): HTMLElement | null {
   const def = node.branch === 'party' && node.id.startsWith('scout_') ? partyDef(Number(node.id.slice(6))) : undefined;
   if (!def) return null;
   const hero = partyHero(def.id);
@@ -668,5 +671,6 @@ function scoutPreview(node: SkillNode, lv: number): HTMLElement | null {
     ...rows,
     h('li.detail-skill-name', {}, t('サポート効果（パーティ外でも常に）', 'Support (always, in the party or not)')),
     h('li', {}, h('span', {}, `Lv${lv < node.max ? lv + 1 : lv}`), support),
+    h('li.detail-recipes', {}, h('button.btn.small', { onclick: () => onRecipes(def.id) }, t(`📜 獲得できるレシピ（${def.teaches.length}）`, `📜 Recipes taught (${def.teaches.length})`))),
   );
 }

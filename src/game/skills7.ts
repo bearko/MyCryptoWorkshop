@@ -3,7 +3,7 @@
 // with its tier's scouts in a row going left, cheapest first.
 import { series, seriesIcon } from './catalog';
 import { add, mul } from './effects';
-import { PARTY_ROSTER, partyHero, scoutId, skillText, skillValue, SKILL_KIND_NAME, supportEffects, supportText, TIER_HALL, taughtSeries, type PartyHeroDef, type PartyTier } from './party';
+import { PARTY_ROSTER, partyHero, scoutId, supportEffects, TIER_HALL, taughtSeries, type PartyHeroDef, type PartyTier } from './party';
 import type { SkillNode } from './skills';
 import { recipeCost } from './skills5';
 import { t } from '../i18n';
@@ -24,16 +24,12 @@ export function scoutCost(d: PartyHeroDef): number {
 
 function scoutNode(d: PartyHeroDef, x: number): SkillNode {
   const hero = partyHero(d.id);
-  const recipes = taughtSeries(d).map((i) => series[i].name).join(t('・', ', '));
-  const skill = skillText(d.kind, skillValue(d.kind, 1, d.tier), hero.name);
   return {
     id: scoutId(d.id),
     branch: 'party',
     name: t(`スカウト：${hero.name}`, `Scout: ${hero.name}`),
-    desc: t(
-      `${hero.name}を仲間にする。レシピ（${recipes}）を教えてくれる。スキル「${hero.passive}」〈${SKILL_KIND_NAME[d.kind]}〉: ${skill}（パーティで発動。Lv が上がるほど強く、早く溜まる）。サポート効果（パーティに入れなくても常に）: Lv 1 ごとに ${supportText(d, 1)}`,
-      `${hero.name} joins you and teaches the recipes for ${recipes}. Skill "${hero.passive}" <${SKILL_KIND_NAME[d.kind]}>: ${skill} (used in the party; stronger and faster with levels). Support (always, in the party or not), per level: ${supportText(d, 1)}`,
-    ),
+    // Short: the tree's detail card shows the skill, the support effect and the recipes (a button).
+    desc: t(`${hero.name}を仲間にする。ゆかりのシリーズのレシピを教えてくれる`, `${hero.name} joins you and teaches the recipes of their series`),
     icon: hero.image,
     x,
     y: ROW_Y[d.tier],
