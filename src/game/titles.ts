@@ -144,7 +144,7 @@ export const TITLE_NODES: SkillNode[] = [
       text: t(`${VERSE_LANDS} つのランドで G5 以上の称号を獲得`, `Earn G5 or higher on ${VERSE_LANDS} lands`),
     },
     visibleWith: 'titleHall',
-    extraCosts: { research: 30000, dust: 2000, emblem: 100 },
+    extraCosts: { research: 30000, dust: 30000, emblem: 100 },
     effects: [mul('priceMult', 1, 'verse'), mul('cpMult', 0.5, 'verse')],
   },
 ];

@@ -1,6 +1,7 @@
 import { COUNTER, HERO_PX } from '../layout';
 import { itemExt } from '../items';
 import { salePrice } from '../stats';
+import { DUST_BY_RARITY } from './dismantler';
 import type { Shop } from './index';
 
 /** A self-checkout machine takes this much longer than Chris-kun. */
@@ -11,6 +12,8 @@ export class Register {
   /** Checkout progress in seconds per lane (staffed registers first, then machines). */
   progress: number[];
   pulse = 0;
+  /** Gold dust from sales not yet a whole grain (金粉の還元). */
+  private dustFrac = 0;
   /** Lanes that are self-checkout machines (no taps, slower). */
   autoFrom: number;
 
@@ -89,6 +92,16 @@ export class Register {
     shop.addGum(price, a.x, a.y - HERO_PX - 30);
     shop.report.sold++;
     shop.save.totals.sold++;
+    // 金粉の還元: a pinch of gold dust for every sale, by rarity.
+    if (shop.stats.saleDust > 0) {
+      this.dustFrac += DUST_BY_RARITY[itemExt(a.item).rarityIndex] * shop.stats.saleDust * shop.stats.dustMult;
+      const grains = Math.floor(this.dustFrac);
+      if (grains > 0) {
+        this.dustFrac -= grains;
+        shop.save.resources.dust += grains;
+        shop.report.dust += grains;
+      }
+    }
     if (itemExt(a.item).rarityIndex >= 2) shop.report.rareSold++;
     if (!shop.save.heroes[a.hero.id]) shop.report.newHeroes.push(a.hero.id);
     shop.save.heroes[a.hero.id] = (shop.save.heroes[a.hero.id] ?? 0) + 1;

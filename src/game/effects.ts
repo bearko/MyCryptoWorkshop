@@ -89,6 +89,7 @@ export type GlobalStat =
   | 'collectorFocus'
   | 'collectorFetch'
   | 'partySlots'
+  | 'saleDust'
   | 'collectorStock'
   | 'bespoke'
   | 'alternative'

@@ -44,6 +44,8 @@ export interface TreeCallbacks {
   onRelocate(): void;
   /** A scout's "recipes" button: the recipes that hero teaches. */
   onRecipes(heroId: number): void;
+  /** A setting changed here (the bulk-buy currencies): save it. */
+  onSettings(): void;
 }
 
 /** Closest zoom of the tree view. */
@@ -468,11 +470,34 @@ export class TreeView {
       .sort((a, b) => a.cost - b.cost);
   }
 
-  /** Buys the cheapest affordable level repeatedly until nothing is affordable. */
+  /** Buys the cheapest affordable level repeatedly until nothing is affordable (skipping the unticked currencies). */
   private buyCheapestRepeatedly(): void {
+    const skip = new Set(this.save.settings.bulkSkip ?? []);
+    const next = () => this.affordable().find((o) => !skip.has(o.node.currency ?? 'gum'));
     let guard = 0;
-    for (let next = this.affordable()[0]; next && guard < 500; next = this.affordable()[0], guard++) this.cb.onBuy(next.node);
+    for (let o = next(); o && guard < 500; o = next(), guard++) this.cb.onBuy(o.node);
     this.refresh();
+  }
+
+  /** Ticks for the currencies the bulk buy may spend (always the same row; Cp once relocated). */
+  private bulkCurrencyToggles(): HTMLElement {
+    const present: Currency[] = ['gum', 'dust', 'research', 'emblem', ...(this.save.prestige.runs > 0 ? (['cp'] as Currency[]) : [])];
+    const skip = this.save.settings.bulkSkip ?? [];
+    return h(
+      'div.bulk-currencies',
+      {},
+      h('small', {}, t('まとめて使う:', 'Spend:')),
+      ...present.map((c) => {
+        const box = h('input', { type: 'checkbox' }) as HTMLInputElement;
+        box.checked = !skip.includes(c);
+        box.addEventListener('change', () => {
+          const rest = (this.save.settings.bulkSkip ?? []).filter((x) => x !== c);
+          this.save.settings.bulkSkip = box.checked ? rest : [...rest, c];
+          this.cb.onSettings();
+        });
+        return h('label.bulk-currency', {}, box, icon(CURRENCIES[c].icon, 'px gum-icon'), CURRENCIES[c].name);
+      }),
+    );
   }
 
   private tryBuy(node: SkillNode): void {
@@ -631,6 +656,7 @@ export class TreeView {
             h('span.buy-cost', { class: `buy-cost ${n.currency ?? ''}` }, fmt(c)),
           ),
         ),
+        this.bulkCurrencyToggles(),
         h('button.btn.small', { onclick: () => this.buyCheapestRepeatedly() }, t('安い順にまとめて習得', 'Learn all, cheapest first')),
       );
     }

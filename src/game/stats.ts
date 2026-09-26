@@ -122,6 +122,8 @@ export const BASE_STATS = {
   collectorFocus: 0,
   /** 1: collectors' series are fetched from storage first (取り寄せ). */
   collectorFetch: 0,
+  /** Gold dust per sale, as a share of what dismantling the item gives (金粉の還元). */
+  saleDust: 0,
   /** Heroes that can be in the party (英雄の酒場, パーティ枠). */
   partySlots: 0,
   /** Chance a collector looks for a series the shop has in stock (品揃えの評判). */

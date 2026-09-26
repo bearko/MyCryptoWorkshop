@@ -98,6 +98,7 @@ export const STAT_INFO: Partial<Record<NumStat | 'spawnInterval', Info>> = {
   collectorPay: { label: t('コレクター客の支払い', 'Collector payment'), format: times },
   collectorFocus: { label: t('コレクターのシリーズのクラフトされやすさ', "Collectors' series craft weight"), format: (v) => `+${Math.round(v * 100)}%` },
   collectorFetch: { label: t('取り寄せ', 'Fetch for collectors'), format: (v) => (v > 0 ? t('あり', 'On') : t('なし', 'Off')) },
+  saleDust: { label: t('売れた品から得るゴールドダスト', 'Gold dust per sale'), format: (v) => t(`分解の ${Math.round(v * 100)}%`, `${Math.round(v * 100)}% of dismantling`) },
   partySlots: { label: t('パーティ枠', 'Party slots'), format: (v) => t(`${v}人`, `${v}`) },
   collectorStock: { label: t('コレクター客が在庫のシリーズを探す確率', 'Collectors after in-stock series'), format: (v) => `${Math.round(Math.min(1, v) * 100)}%` },
   bespoke: { label: t('特注受付', 'Made to order'), format: (v) => (v > 0 ? t('あり', 'On') : t('なし', 'Off')) },
