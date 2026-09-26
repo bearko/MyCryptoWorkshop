@@ -23,6 +23,7 @@ import { TreeView } from './ui/tree';
 import { dailiesList, ordersList } from './ui/dayInfo';
 import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
+import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
@@ -150,6 +151,7 @@ const tree = new TreeView(save, {
   onCollection: () => openCollection(),
   onRanking: () => openRanking(),
   onRelocate: () => openRelocate(),
+  onRecipes: (heroId) => openRecipes(heroId),
 });
 tree.hide();
 
@@ -1101,6 +1103,32 @@ function updateOpenCard(): void {
     openParty.replaceChildren(strip, h('button.btn.small.party-edit', { onclick: () => openPartyEditor() }, t('⚔ パーティ編成', '⚔ Party')));
     if (!save.party.length) tip('party', t('英雄の酒場ができたよ！スキルツリーの「英雄」でヒーローをスカウトして、開店前に「パーティ編成」でバルコニーに立ってもらおう', 'The tavern is open! Scout heroes in the Heroes branch of the skill tree, then put them on the balcony with "Party" before opening'));
   }
+}
+
+/** A scouted (or scoutable) hero's recipes: each series, what its recipe does, and whether it is learned. */
+function openRecipes(heroId: number): void {
+  const def = partyDef(heroId);
+  if (!def) return;
+  const hero = partyHero(heroId);
+  const rows = taughtSeries(def).map((i) => {
+    const s = series[i];
+    const node = skillById.get(`recipe_${s.key}`);
+    const learned = level(save.levels, `recipe_${s.key}`) > 0;
+    return h(
+      'div.recipe-row',
+      { class: `recipe-row ${learned ? 'learned' : ''}` },
+      icon(s.items[4].image, 'px recipe-icon'),
+      h(
+        'div',
+        {},
+        h('b', {}, s.name),
+        node ? h('p', {}, node.desc) : null,
+        h('div.recipe-items', {}, ...s.items.map((it) => icon(it.image, 'px', it.name))),
+      ),
+      h('span.recipe-state', {}, learned ? t('✓ 習得済み', '✓ Learned') : t('未習得', 'Not yet')),
+    );
+  });
+  openModal(t(`${hero.name}が教えるレシピ`, `Recipes from ${hero.name}`), h('div.recipe-list', {}, ...rows), [{ label: t('閉じる', 'Close'), primary: true }]);
 }
 
 /** パーティ編成 (before opening): changes show on the balcony at once. */
