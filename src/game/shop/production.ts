@@ -97,6 +97,11 @@ export class Line {
     this.progress += (dt / s.craftTime) * rate * shop.party.craftMult;
     this.blocked = false;
     while (this.progress >= 1) {
+      // 特注受付: a waiting collector's (or order's) item first, straight into their hands.
+      if (shop.stats.bespoke > 0 && this.craftBespoke()) {
+        this.progress -= 1;
+        continue;
+      }
       if (!shop.stock.makeRoom()) {
         this.progress = 1;
         this.blocked = true;
@@ -153,8 +158,33 @@ export class Line {
     return makeItem(id, edition);
   }
 
+  /** 特注受付: crafts the item a waiting collector or ordering customer is after, if this line can. */
+  private craftBespoke(): boolean {
+    const shop = this.shop;
+    const recipes = this.recipes();
+    const a = shop.actors.find(
+      (c) =>
+        c.kind === 'customer' &&
+        c.state === 'waitShelf' &&
+        c.item === null &&
+        ((c.special === 'collector' && c.wants !== undefined && recipes.includes(c.wants)) || (c.special === 'order' && !!c.order && recipes.includes(c.order.series))),
+    );
+    if (!a) return false;
+    const want = a.special === 'order' ? { series: a.order!.series, minRarity: a.order!.minRarity } : { series: a.wants!, minRarity: 0 };
+    const code = this.makeItem(want);
+    shop.customers.handOver(a, code);
+    shop.fx.push({ kind: 'hit', x: a.x, y: a.y - 40, t: 0 });
+    shop.emit({ type: 'bespoke', hero: a.hero, item: code });
+    return true;
+  }
+
   /** Crafts one item from this line's recipes and sends it to the shelf (or storage). */
   craftOne(want?: { series: number; minRarity: number }): void {
+    this.shop.stock.receive(this.makeItem(want), this.station.from);
+  }
+
+  /** Rolls an item and records it (collection, best edition, totals); the caller places it. */
+  private makeItem(want?: { series: number; minRarity: number }): ItemCode {
     const { save, report } = this.shop;
     const code = this.rollItem(want);
     const id = itemId(code);
@@ -167,8 +197,8 @@ export class Line {
     if (edition > (save.bestEdition[id] ?? 0)) save.bestEdition[id] = edition;
     report.crafted++;
     save.totals.crafted++;
-    this.shop.stock.receive(code, this.station.from);
     this.shop.emit({ type: 'craft', item: code, isNew, line: this.id });
+    return code;
   }
 }
 

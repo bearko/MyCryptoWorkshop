@@ -118,7 +118,7 @@ export class Hazards {
     for (const a of shop.actors) {
       if (a.kind !== 'customer' || !ROAMING.has(a.state)) continue;
       const near = this.pests.some((p) => Math.hypot(p.x - a.x, p.y - a.y) < SCARE_RANGE);
-      if (near && shop.rand.next() < 0.1 * dt) shop.customers.lose(a, 'scared');
+      if (near && shop.rand.next() < 0.1 * dt * shop.stats.scareChance) shop.customers.lose(a, 'scared');
     }
   }
 
@@ -129,7 +129,7 @@ export class Hazards {
     if (!this.messes.some((m) => Math.hypot(m.x - a.x, m.y - a.y) < MESS_RANGE)) return;
     a.mudCooldown = 4;
     a.hitFlash = 1;
-    if (this.shop.rand.next() < 0.25) this.shop.customers.lose(a, 'mess');
+    if (this.shop.rand.next() < 0.25 * this.shop.stats.scareChance) this.shop.customers.lose(a, 'mess');
   }
 
   /** Rainy days: customers track mud in. */

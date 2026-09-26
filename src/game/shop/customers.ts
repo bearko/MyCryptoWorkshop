@@ -11,7 +11,6 @@ import { followPath, moveToward } from './movement';
 import type { Actor, Mood } from './types';
 
 /** Cap on heroes in the shop (vehicles bring guilds on top of the usual flow). */
-const MAX_ACTORS = 24;
 /** Guild members pay a little more. */
 const GUILD_PAY = 1.1;
 
@@ -51,13 +50,21 @@ export class Customers {
     }
     const tier = rand.weighted(tierWeights(stats.maxTier));
     const hero = rand.pick(customersByTier[tier]);
-    if (rand.next() < stats.collectorChance) return { hero, tier, special: 'collector', wants: rand.pick(stats.seriesUnlocked) };
+    if (rand.next() < stats.collectorChance) {
+      // 品揃えの評判: collectors often come for a series the shop has on its shelves or in storage.
+      const stocked = this.stockedSeries();
+      // Otherwise any series the workshop can make (a line for its family is running).
+      const craftable = [...new Set(shop.production.lines.flatMap((l) => l.recipes()))];
+      const pool = craftable.length ? craftable : stats.seriesUnlocked;
+      const wants = stocked.length && rand.next() < stats.collectorStock ? rand.pick(stocked) : rand.pick(pool);
+      return { hero, tier, special: 'collector', wants };
+    }
     return { hero, tier };
   }
 
   private spawn(offset = 0, guild = false): boolean {
     const shop = this.shop;
-    if (shop.actors.length >= MAX_ACTORS) return false;
+    if (shop.actors.length >= shop.stats.shopCapacity) return false;
     const v = guild ? { hero: shop.rand.pick(customersByTier[shop.rand.weighted(tierWeights(shop.stats.maxTier))]), special: 'guild' as const, wants: undefined, tier: 0 } : this.pickVisitor();
     if (guild) v.tier = customersByTier.findIndex((list) => list.includes(v.hero));
     const a = makeActor(shop, 'customer', v.hero, v.tier, offset);
@@ -87,10 +94,29 @@ export class Customers {
     this.chooseShelfTarget(a);
   }
 
+  /** Series on the shelves (not yet claimed) or in storage. */
+  private stockedSeries(): number[] {
+    const { stock } = this.shop;
+    const codes = [...stock.slots.flatMap((s) => (s.item !== null && s.claimedBy === null ? [s.item] : [])), ...stock.storage];
+    return [...new Set(codes.map((c) => itemExt(c).seriesIndex))];
+  }
+
+  /** 特注受付: an item crafted for a waiting customer goes straight into their hands, then to the register. */
+  handOver(a: Actor, code: number): void {
+    releaseClaim(this.shop, a);
+    a.item = code;
+    a.priceBonus = 1;
+    a.slot = -1;
+    a.state = 'toQueue';
+    a.timer = 0;
+    a.mood = 'happy';
+    this.queue.push(a);
+  }
+
   /** A party hero comes in person (来店) and buys the priciest item at ×pay. */
   spawnVip(hero: Hero, pay: number): boolean {
     const shop = this.shop;
-    if (shop.actors.length >= MAX_ACTORS) return false;
+    if (shop.actors.length >= shop.stats.shopCapacity) return false;
     const a = makeActor(shop, 'customer', hero, 4, 0);
     a.special = 'vip';
     a.vipPay = pay;
@@ -189,7 +215,7 @@ export class Customers {
     const shop = this.shop;
     shop.report.lost++;
     shop.save.totals.lost++;
-    shop.emit({ type: 'lost', hero: a.hero, reason });
+    shop.emit({ type: 'lost', hero: a.hero, reason, special: a.special });
     this.leave(a, 'angry');
   }
 
@@ -233,6 +259,16 @@ export class Customers {
       case 'waitShelf': {
         moveToward(a, dt, a.speed * 0.5);
         if (a.timer > (shop.stats.patience + shop.party.patienceBonus) * (a.special === 'order' || a.special === 'vip' ? 3 : 1)) {
+          // 代わりの品のご提案: a picky customer settles for the priciest item on the shelves.
+          if (shop.stats.alternative > 0 && (a.special === 'collector' || a.special === 'order') && slots.some((s) => s.item !== null && s.claimedBy === null)) {
+            a.special = undefined;
+            a.wants = undefined;
+            a.order = undefined;
+            a.tier = 4;
+            shop.emit({ type: 'settled', hero: a.hero });
+            this.chooseShelfTarget(a);
+            break;
+          }
           this.lose(a, 'empty');
           break;
         }
