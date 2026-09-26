@@ -35,6 +35,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+html,
 body {
   overflow-x: hidden;
 }
@@ -136,6 +137,10 @@ a {
   position: sticky;
   top: env(safe-area-inset-top, 0px);
   z-index: 20;
+  /* Never wider than the screen (the page must not scroll sideways). */
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow: hidden;
   height: var(--topbar-h);
   display: flex;
   align-items: center;
@@ -1535,6 +1540,12 @@ body.in-day {
   .btn-buy {
     padding: 8px;
     font-size: 15px;
+    /* Long descriptions (hero scouts) scroll under it: the button stays in view, above the
+       "to the shop" button at the bottom right. */
+    position: sticky;
+    bottom: 64px;
+    z-index: 2;
+    box-shadow: 0 -6px 14px #000c;
   }
 
   .tree-stats {
@@ -1580,7 +1591,61 @@ body.in-day {
   }
 
   .day-label {
-    font-size: 14px;
+    font-size: 12px;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: right;
+    min-width: 0;
+  }
+
+  /* The branch shortcuts: one row that scrolls sideways, instead of three rows over the tree. */
+  .branch-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    pointer-events: auto;
+    padding-bottom: 2px;
+  }
+
+  .branch-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .branch-chip {
+    flex: none;
+  }
+
+  /* Five currencies, the day and two buttons share 390px. */
+  .topbar {
+    gap: 5px;
+    padding: 0 6px;
+  }
+
+  .gum {
+    gap: 3px;
+    padding: 3px 8px 3px 4px;
+    font-size: 15px;
+  }
+
+  .dust {
+    gap: 2px;
+    font-size: 12px;
+  }
+
+  .dust img,
+  .dust .sprite {
+    width: 16px;
+    height: 16px;
+  }
+
+  .topbar .settings {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .topbar .settings .btn.small {
+    padding: 4px 7px;
+    min-width: 0;
   }
 }
 
