@@ -56,4 +56,18 @@ describe('a shop that flows', () => {
     expect(computeStats({ safeShop: 3 }).scareChance).toBeLessThan(0.05);
     expect(computeStats({ bustling: 10 }).spawnInterval).toBeLessThan(computeStats({}).spawnInterval);
   });
+
+  it('金粉の還元: every sale brings gold dust', () => {
+    const dustOf = (extra: Record<string, number>) => {
+      const { shop } = play(busyShop({ ...extra, dismantle: 0 }), 7);
+      return shop.report.dust;
+    };
+    expect(dustOf({})).toBe(0);
+    expect(dustOf({ saleDust: 5 })).toBeGreaterThan(0);
+  });
+
+  it('the bulk buy spends every currency unless told otherwise', () => {
+    expect(newSave(0).settings.bulkSkip).toEqual([]);
+  });
 });
+

@@ -5,7 +5,7 @@ import { newPrestige, type Prestige } from './prestige';
 import { CONDITIONS } from './conditions';
 
 const CONDITION_KINDS = Object.keys(CONDITIONS);
-import { addTo } from './currency';
+import { addTo, type Currency } from './currency';
 import type { DayCondition } from './conditions';
 import { itemId } from './items';
 import { GEM_IDS, type GemId, type LineId } from './lines';
@@ -56,6 +56,8 @@ export interface SaveData {
     reduceMotion: boolean;
     /** On-screen alerts for events (always shown while sound effects are off). */
     alerts: boolean;
+    /** Currencies the "learn all, cheapest first" button leaves alone. */
+    bulkSkip: Currency[];
   };
   tips: string[];
   meta: {
@@ -149,6 +151,7 @@ export function newSave(now = Date.now()): SaveData {
       autoBuy: true,
       quality: 'auto',
       colorAssist: false,
+      bulkSkip: [],
       reduceMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
       alerts: false,
     },

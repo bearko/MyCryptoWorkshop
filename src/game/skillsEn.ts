@@ -122,6 +122,7 @@ export const NODE_EN: Record<string, [name: string, desc: string]> = {
   dismantle: ['Dismantler', 'When there is no room, breaks plain Common items down into gold dust and magic stones'],
   dismantleRarity: ['Hotter Furnace', 'Dismantler handles one more rarity (Uncommon → Rare)'],
   dustYield: ['Refining', 'Gold dust from dismantling +25%'],
+  saleDust: ['Gold from Sales', 'Every item sold brings gold dust by its rarity (1% of what dismantling it would give; dust bonuses such as Refining apply)'],
   gemChance: ['Stone Sense', 'Magic stone chance when dismantling +10%'],
   infusion: ['Stone Infusion', 'Before opening, infuse a magic stone into each line to boost it for the day (2 per day)'],
   infusionPower: ['Stone Resonance', 'Magic stone effect +25%'],

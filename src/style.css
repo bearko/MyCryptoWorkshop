@@ -3140,3 +3140,29 @@ body.in-day {
 .recipe-row.learned .recipe-state {
   color: #9fdc7c;
 }
+
+.bulk-currencies {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.bulk-currencies small {
+  color: var(--muted);
+}
+
+.bulk-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bulk-currency .gum-icon {
+  width: 16px;
+  height: 16px;
+}

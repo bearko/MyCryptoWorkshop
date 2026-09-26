@@ -152,6 +152,7 @@ const tree = new TreeView(save, {
   onRanking: () => openRanking(),
   onRelocate: () => openRelocate(),
   onRecipes: (heroId) => openRecipes(heroId),
+  onSettings: () => writeSave(save),
 });
 tree.hide();
 
