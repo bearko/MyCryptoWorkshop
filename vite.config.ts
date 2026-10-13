@@ -64,10 +64,16 @@ function devLeaderboard(): Plugin {
 
 /**
  * The site's address for link previews (og:image and og:url must be absolute): SITE_URL if set,
- * else the production domain Vercel provides at build time, else relative paths.
+ * else the production domain Vercel provides at build time, else the Cloudflare domain when built
+ * on Workers Builds (WORKERS_CI), else relative paths.
  */
+const CLOUDFLARE_SITE_URL = 'https://workshop.bearko.games';
+
 function siteUrl(): Plugin {
-  const domain = process.env.SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '');
+  const domain =
+    process.env.SITE_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '') ||
+    (process.env.WORKERS_CI ? CLOUDFLARE_SITE_URL : '');
   const base = domain ? `${domain.replace(/\/+$/, '')}/` : './';
   return {
     name: 'mcw-site-url',

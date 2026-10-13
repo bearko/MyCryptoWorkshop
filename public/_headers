@@ -1,0 +1,9 @@
+# Cloudflare Workers static assets headers (same rules as vercel.json)
+/sw.js
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
