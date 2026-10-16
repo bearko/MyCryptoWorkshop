@@ -25,11 +25,13 @@ import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
 import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
+import { initPlatform, reportScore } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 
 const save = loadSave();
+initPlatform('web'); // bearko.games 共通基盤（総合スコア）。SDK がなければ何もしない
 const sound = new Sound();
 sound.bgmOn = save.settings.bgm;
 sound.seOn = save.settings.se;
@@ -619,8 +621,10 @@ function openRanking(): void {
 }
 
 /** Sends the records to the leaderboards (joined players only; failures are silent). */
-function sendRanking(lastDay = 0): void {
+function sendRanking(lastDay = 0, { clear = false } = {}): void {
   submitRanking(save, lastDay).catch(() => undefined);
+  // bearko.games の総合スコア（クリアのときだけ通知を出す）
+  reportScore(save, { quiet: !clear });
 }
 
 function openCollection(): void {
@@ -1016,7 +1020,7 @@ function buyNode(node: SkillNode): void {
   updateTopbar();
   if (node.id === 'goldenExtension') {
     // The clear time goes up right away.
-    sendRanking();
+    sendRanking(0, { clear: true });
     showEnding();
   }
 }
