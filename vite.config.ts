@@ -79,7 +79,11 @@ function siteUrl(): Plugin {
   };
 }
 
+/** The game's version (package.json), shown on the home screen and sent to bearko.games. */
+const APP_VERSION = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   // Relative base so the build works from any sub-path (itch.io, static hosting).
   base: './',
   build: { assetsInlineLimit: 0 },

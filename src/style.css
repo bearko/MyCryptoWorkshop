@@ -2823,6 +2823,11 @@ body.in-day {
   text-shadow: 0 1px 3px #000;
 }
 
+.home-version {
+  display: block;
+  opacity: 0.8;
+}
+
 .home-end h2 {
   margin: 4px 0 0;
   color: var(--gold);
