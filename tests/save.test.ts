@@ -66,3 +66,22 @@ describe('save codes', () => {
     expect(() => importCode('MCW:@@@')).toThrow(SaveError);
   });
 });
+
+describe('表示しないキャラクター（content.json の excludedHeroIds / excludedEnemyIds）', () => {
+  it('カタログに入らない（猿田彦・ゴースト・猿田彦）', async () => {
+    const content = (await import('../src/game/content.json')).default as { excludedHeroIds: number[]; excludedEnemyIds: number[] };
+    const raw = (await import('../src/generated/catalog.json')).default as { heroes: { id: number; name: string }[]; enemies: { id: number; name: string }[] };
+    expect(content.excludedHeroIds).toEqual(expect.arrayContaining([2035, 12035]));
+    expect(content.excludedEnemyIds).toEqual(expect.arrayContaining([715, 745]));
+    expect(raw.heroes.filter((h) => content.excludedHeroIds.includes(h.id) || h.name.includes('猿田彦'))).toEqual([]);
+    expect(raw.enemies.filter((e) => content.excludedEnemyIds.includes(e.id) || e.name.includes('猿田彦'))).toEqual([]);
+  });
+  it('前に猿田彦が来店していたセーブも読める（図鑑と常連から外れる）', () => {
+    const s = newSave(0);
+    s.heroes = { 2035: 3, 12035: 1 };
+    s.regulars = [2035];
+    sanitize(s);
+    expect(s.heroes).toEqual({});
+    expect(s.regulars).toEqual([]);
+  });
+});

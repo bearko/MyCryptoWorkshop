@@ -158,7 +158,12 @@ function bodyCenterX(relPath) {
 
 // ---------------------------------------------------------------- heroes (all usable)
 // Original, novice and replica heroes. Customers and thieves are chosen in src/game/catalog.ts.
-const heroes = readJson('Data/Heroes/heroes.json')
+// Characters in content.json's excludedHeroIds / excludedEnemyIds (third-party copyrights) are never
+// written to the catalog or the sprite sheets.
+const excludedHeroes = new Set(content.excludedHeroIds);
+const excludedEnemies = new Set(content.excludedEnemyIds);
+const heroSource = readJson('Data/Heroes/heroes.json').filter((h) => !excludedHeroes.has(h.id));
+const heroes = heroSource
   .filter((h) => ['original', 'novice', 'replica'].includes(h.category))
   .sort(firstBy((h) => h.category === 'original'))
   .map((h) => ({
@@ -177,14 +182,14 @@ const heroes = readJson('Data/Heroes/heroes.json')
 
 // English labels for hero attributes and factions (the game keys them by their Japanese names).
 const heroLabels = { attributes: {}, factions: {} };
-for (const h of readJson('Data/Heroes/heroes.json')) {
+for (const h of heroSource) {
   for (const a of h.attributes ?? []) heroLabels.attributes[a.name.ja] = en(a.name.en);
   if (h.faction?.name) heroLabels.factions[h.faction.name.ja] = h.faction.name.en;
 }
 
 // ---------------------------------------------------------------- enemies (all with 64px art)
 const enemies = readJson('Data/Enemies/enemies.json')
-  .filter((e) => e.image_exists)
+  .filter((e) => e.image_exists && !excludedEnemies.has(e.id))
   .sort(firstBy((e) => content.pestIds.includes(e.id) || content.storePestIds.includes(e.id)))
   .map((e) => ({ id: e.id, name: e.name.ja, nameEn: en(e.name.en), image: sprite('enemy', e.image_file_path) }));
 
