@@ -1,4 +1,4 @@
-# Cloudflare Workers static assets headers (same rules as vercel.json)
+# Cloudflare Workers static assets headers (cache rules for the service worker, hashed assets and the manifest)
 /sw.js
   Cache-Control: no-cache
 
