@@ -7,7 +7,7 @@ import { computeStats } from '../game/stats';
 type Result = { ok: boolean; error?: string };
 
 interface BearkoGamesSdk {
-  init(opts: { game: string; version?: string }): Promise<unknown>;
+  init(opts: { game: string; version?: string; chat?: { position?: string; offset?: { x: number; y: number } } }): Promise<unknown>;
   submitScore(metrics: Record<string, unknown>, opts?: { quiet?: boolean }): Promise<Result>;
   unlockTrophy?(id: string): Promise<Result>;
   rta?: {
@@ -50,7 +50,8 @@ export function initPlatform(version: string): void {
   if (initedWith === version) return;
   initedWith = version;
   try {
-    Promise.resolve(bg.init({ game: 'workshop', version })).catch((e) => console.warn('[platform] init', e));
+    // 全体チャット（共通基盤 SPEC-004。SDK 1.6.0 から）：右下の 💬 は工房の「Skill tree」のボタンと重なるので、そのぶん上に置く
+    Promise.resolve(bg.init({ game: 'workshop', version, chat: { position: 'bottom-right', offset: { x: 16, y: 96 } } })).catch((e) => console.warn('[platform] init', e));
   } catch (e) {
     console.warn('[platform] init', e);
   }
