@@ -211,5 +211,13 @@ export function rankingView(save: SaveData, persist: () => void): HTMLElement {
   }
   renderAccount();
   void load();
-  return h('div.ranking', {}, account, status, tabs, desc, list);
+  // bearko.games の総合ランキングへ（MyCryptoPortfolio#29）。この画面のランキングとは別物だと分かるように添え書きする。
+  // 新しいタブで開く：再読み込みすると RTA の計測が消えるため
+  const platform = h(
+    'p.rank-platform',
+    {},
+    h('a', { href: 'https://bearko.games/score/?game=workshop', target: '_blank', rel: 'noopener' }, t('bearko.games の総合ランキング ↗', 'bearko.games overall ranking ↗')),
+    h('small', {}, t('このランキングとは別の、bearko.games のタイトル共通のランキングです', 'A separate ranking shared by all bearko.games titles')),
+  );
+  return h('div.ranking', {}, account, status, tabs, desc, list, platform);
 }
