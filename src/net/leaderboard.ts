@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { titleCode } from '../game/titles';
 
 /**
- * The worldwide leaderboards (api/leaderboard.ts on Vercel, Upstash Redis behind it).
+ * The worldwide leaderboards (api/leaderboard.ts on the Cloudflare Worker, Upstash Redis behind it).
  * Nothing is sent until the player joins with a nickname.
  */
 
@@ -54,7 +54,7 @@ export interface BoardResult {
   auth?: AuthInfo;
 }
 
-/** Where the API lives: same site on Vercel; builds for other hosts set VITE_LEADERBOARD_URL. */
+/** Where the API lives: same site (workshop.bearko.games); builds for other hosts set VITE_LEADERBOARD_URL. */
 export const API_URL = new URL((import.meta.env.VITE_LEADERBOARD_URL as string | undefined) || 'api/leaderboard', typeof location === 'undefined' ? 'http://localhost/' : location.href).href;
 
 /** What the server keeps for this player (each board keeps the best value it has seen). */

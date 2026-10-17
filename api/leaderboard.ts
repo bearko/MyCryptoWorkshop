@@ -1,4 +1,5 @@
-// Vercel Function: the worldwide sales leaderboards, stored in Upstash Redis (sorted sets).
+// The worldwide sales leaderboards, stored in Upstash Redis (sorted sets). Served by the Cloudflare
+// Worker (worker/index.ts) in production and by the Vite dev server (vite.config.ts) locally.
 //
 //   GET    /api/leaderboard?board=total&me=<id>&limit=50   top entries (+ the caller's own rank)
 //   POST   /api/leaderboard   { id, name, total, bestDay, lastDay, day30, clear1, clearBest, …, secret? }
@@ -10,8 +11,8 @@
 //   GET    ?board=…&admin=1   entries with player ids
 //   DELETE { id, ban: true }  removes a player; a banned id is never recorded again
 //
-// Environment: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or the KV_REST_API_URL /
-// KV_REST_API_TOKEN pair that the Vercel Marketplace integration sets); optional
+// Environment (Worker variables / secrets): UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or the
+// KV_REST_API_URL / KV_REST_API_TOKEN pair); optional
 // GOOGLE_CLIENT_ID (Sign in with Google), LEADERBOARD_REQUIRE_GOOGLE=1 (only signed-in players
 // submit) and LEADERBOARD_ADMIN_TOKEN.
 //
@@ -21,7 +22,7 @@
 //
 // A browser game cannot prove its own numbers, so submissions are sanity-checked here (ranges,
 // consistency, rate limits) and the admin can remove and ban players. This file is self-contained
-// (no relative imports) so Vercel can deploy it as is.
+// (no relative imports, Web-standard Request/Response) so the Worker and the dev server share it.
 
 /** Board key → sort order ('asc': lower is better, e.g. clear time). Keep in step with src/net/leaderboard.ts. */
 export const BOARDS = {
@@ -560,28 +561,3 @@ export function createHandler(getStore: () => Store | null, options: HandlerOpti
     }
   };
 }
-
-// ---------------------------------------------------------------- Vercel entry points
-
-const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
-
-let store: Store | null | undefined;
-function envStore(): Store | null {
-  if (store === undefined) {
-    const url = env.UPSTASH_REDIS_REST_URL ?? env.KV_REST_API_URL;
-    const token = env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN;
-    store = url && token ? upstash(url, token) : null;
-  }
-  return store;
-}
-
-const handler = createHandler(envStore, {
-  adminToken: env.LEADERBOARD_ADMIN_TOKEN || undefined,
-  googleClientId: env.GOOGLE_CLIENT_ID || undefined,
-  requireGoogle: env.LEADERBOARD_REQUIRE_GOOGLE === '1',
-});
-
-export const GET = handler;
-export const POST = handler;
-export const DELETE = handler;
-export const OPTIONS = handler;

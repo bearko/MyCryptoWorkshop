@@ -146,40 +146,46 @@ src/
   audio.ts     BGM / SE
   net/         ランキングサーバーとの通信（leaderboard.ts）
   main.ts      画面遷移とゲームループ
-api/           Vercel Function（leaderboard.ts: ランキング API、Upstash Redis に保存）
+api/           ランキング API（leaderboard.ts。Upstash Redis に保存。Worker と開発サーバーが共有）
+worker/        Cloudflare Workers の入口（index.ts: /api/leaderboard は API、それ以外は dist/）
 tests/         Vitest
 docs/          ゲームデザインドキュメント
 ```
 
-### デプロイ
+### デプロイ（Cloudflare Workers）
 
-ビルド（`dist/`）は相対パスなので、どのホスティング・サブフォルダでも動きます。`dist/sw.js`（Service Worker）が
-オフライン用のキャッシュを担当します（起動に必要なファイルはインストール時、BGM などは初回再生時）。
+本番は **https://workshop.bearko.games** で、Cloudflare Workers が配信しています（`wrangler.jsonc`・`worker/index.ts`）。
 
-- **GitHub Pages**: `main` ブランチへの push で `.github/workflows/deploy.yml` がデプロイします。
-  リポジトリの Settings → Pages → Source を「GitHub Actions」にしてください。
-- **Vercel**: リポジトリをインポートするだけ（`vercel.json` にビルド設定とキャッシュヘッダー）。素材のサブモジュールも取得されます。
-  リンクを投稿したときのサムネイル（OGP・X のカード）は `public/og-image.jpg`（1200×630）。画像の URL は
-  Vercel の本番ドメインがビルド時に自動で入ります。独自ドメインや Vercel 以外で配信するときは、環境変数
-  `SITE_URL=https://<ドメイン>` を設定してビルドしてください。
+- 本番のブランチは `claude/mycryptoheroes-craft-game-vsfplv`。PR をここにマージすると、Cloudflare の Workers Builds が
+  `npm run build` で `dist/` を作って公開します。ほかのブランチはプレビューとしてビルドされます（`wrangler.jsonc` の
+  空の `previews` により、プレビューには本番の変数・シークレットがつながりません）
+- `/api/*` だけ Worker のコードが動き（`run_worker_first`）、それ以外は `dist/` をそのまま返します。キャッシュの指定は `public/_headers`
+- PR では GitHub Actions（`.github/workflows/ci.yml`）が `npm test`・`npm run typecheck`・`npm run i18n:check`・`npm run build` を回します
+- ビルド（`dist/`）は相対パスなので、ほかの静的ホスティング・サブフォルダでも動きます。`dist/sw.js`（Service Worker）が
+  オフライン用のキャッシュを担当します（起動に必要なファイルはインストール時、BGM などは初回再生時）
+- リンクを投稿したときのサムネイル（OGP・X のカード）は `public/og-image.jpg`（1200×630）。画像の URL は Workers Builds
+  では `https://workshop.bearko.games/` が入ります。ほかのドメインで配信するときは、環境変数 `SITE_URL=https://<ドメイン>` を
+  設定してビルドしてください
 - **itch.io**: `npm run package` で `release/mycryptoworkshop-web-<version>.zip` を作り、「HTML」プロジェクトとして
   アップロードして「This file will be played in the browser」にチェック。推奨ビューポートは 1280×800（スマホは縦画面も可）。
-  ランキングを使う場合は、Vercel 版の API を指定してビルドします:
-  `VITE_LEADERBOARD_URL=https://<Vercel のドメイン>/api/leaderboard npm run package`
+  ランキングを使う場合は、本番の API を指定してビルドします:
+  `VITE_LEADERBOARD_URL=https://workshop.bearko.games/api/leaderboard npm run package`
 
-### ランキングサーバー（Vercel + Upstash Redis）
+### ランキングサーバー（Cloudflare Workers + Upstash Redis）
 
-ランキングは `api/leaderboard.ts`（Vercel Function）が Upstash Redis に保存します。設定するまでゲームは
+ランキングは `api/leaderboard.ts` の API を Worker（`worker/index.ts`）が動かし、Upstash Redis に保存します。設定するまでゲームは
 「ランキングサーバーはまだ準備中です」と表示するだけで、ほかの機能には影響しません。
 
-1. Vercel のプロジェクト → **Storage**（または Marketplace）→ **Upstash for Redis** を作成し、このプロジェクトに接続する。
-   接続すると `KV_REST_API_URL` / `KV_REST_API_TOKEN`（または `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`）が
-   環境変数に自動で入ります。無料枠で始められます。
-2. （任意）環境変数 `LEADERBOARD_ADMIN_TOKEN` に長いランダムな文字列を設定する（不正な記録の削除用）。
-3. 再デプロイし、`https://<ドメイン>/api/leaderboard?board=total` が JSON を返すことを確認する
-   （`{"error":"not_configured"}` なら環境変数が入っていません）。
+1. [Upstash](https://upstash.com/) で Redis のデータベースを作る（無料枠で始められます）。REST の URL とトークンを控える。
+2. Cloudflare のダッシュボード → Workers & Pages → `mycryptoworkshop` → Settings → **Variables and Secrets** に、
+   `UPSTASH_REDIS_REST_URL` と `UPSTASH_REDIS_REST_TOKEN`（シークレット）を設定する（`KV_REST_API_URL` / `KV_REST_API_TOKEN` の名前でも可）。
+3. （任意）シークレット `LEADERBOARD_ADMIN_TOKEN` に長いランダムな文字列を設定する（不正な記録の削除用）。
+4. デプロイし直し、`https://workshop.bearko.games/api/leaderboard?board=total` が JSON を返すことを確認する
+   （`{"error":"not_configured"}` なら変数が入っていません）。
 
 `npm run dev` では同じ API がメモリ上のストアで動くので、Upstash なしで試せます（再起動で消えます）。
+
+bearko.games 共通基盤の総合スコアは、このランキングとは別に共通基盤へ送っています（[docs/platform-score.md](docs/platform-score.md)）。
 
 #### Google ログイン（任意）
 
@@ -187,9 +193,9 @@ docs/          ゲームデザインドキュメント
    設定する（ユーザーの種類は「外部」、アプリ名とサポートメールを入力し、公開ステータスを「本番環境」にする。
    使うのはログインの基本情報だけなので、Google の審査は不要です）。
 2. 「認証情報」→「認証情報を作成」→「OAuth クライアント ID」→ 種類「ウェブ アプリケーション」。
-   「承認済みの JavaScript 生成元」に `https://<Vercel のドメイン>` を追加する（`npm run dev` で試すなら
+   「承認済みの JavaScript 生成元」に `https://workshop.bearko.games` を追加する（`npm run dev` で試すなら
    `http://localhost:5173` も）。リダイレクト URI は不要です。
-3. 作成された **クライアント ID**（`….apps.googleusercontent.com`）を Vercel の環境変数 `GOOGLE_CLIENT_ID` に設定して
+3. 作成された **クライアント ID**（`….apps.googleusercontent.com`）を Worker の変数 `GOOGLE_CLIENT_ID` に設定して
    再デプロイする。クライアントシークレットは使いません。ゲーム側はサーバーからクライアント ID を受け取るので、
    ビルドのやり直しは不要です。
 4. （任意）`LEADERBOARD_REQUIRE_GOOGLE=1` にすると、Google でログインしたプレイヤーだけが参加できます。
@@ -203,10 +209,10 @@ docs/          ゲームデザインドキュメント
 
 ```sh
 # プレイヤー ID つきで一覧を見る
-curl -H "Authorization: Bearer $TOKEN" "https://<ドメイン>/api/leaderboard?board=total&admin=1"
+curl -H "Authorization: Bearer $TOKEN" "https://workshop.bearko.games/api/leaderboard?board=total&admin=1"
 # 記録を削除して、以後の送信を禁止する
 curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"id":"<プレイヤー ID>","ban":true}' "https://<ドメイン>/api/leaderboard"
+  -d '{"id":"<プレイヤー ID>","ban":true}' "https://workshop.bearko.games/api/leaderboard"
 ```
 
 ## 素材とクレジット

@@ -35,7 +35,7 @@ function pwa(): Plugin {
 }
 
 /**
- * Dev server only: serves /api/leaderboard from an in-memory store (Vercel runs the real one).
+ * Dev server only: serves /api/leaderboard from an in-memory store (the Cloudflare Worker runs the real one).
  * GOOGLE_CLIENT_ID in the environment turns on Google sign-in (add http://localhost:5173 to the
  * client's authorized origins).
  */
@@ -64,15 +64,13 @@ function devLeaderboard(): Plugin {
 
 /**
  * The site's address for link previews (og:image and og:url must be absolute): SITE_URL if set,
- * else the production domain Vercel provides at build time, else the Cloudflare domain when built
- * on Workers Builds (WORKERS_CI), else relative paths.
+ * else the Cloudflare domain when built on Workers Builds (WORKERS_CI), else relative paths.
  */
 const CLOUDFLARE_SITE_URL = 'https://workshop.bearko.games';
 
 function siteUrl(): Plugin {
   const domain =
     process.env.SITE_URL ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '') ||
     (process.env.WORKERS_CI ? CLOUDFLARE_SITE_URL : '');
   const base = domain ? `${domain.replace(/\/+$/, '')}/` : './';
   return {
@@ -82,7 +80,7 @@ function siteUrl(): Plugin {
 }
 
 export default defineConfig({
-  // Relative base so the build works from any sub-path (GitHub Pages, itch.io, static hosting).
+  // Relative base so the build works from any sub-path (itch.io, static hosting).
   base: './',
   build: { assetsInlineLimit: 0 },
   plugins: [pwa(), devLeaderboard(), siteUrl()],
