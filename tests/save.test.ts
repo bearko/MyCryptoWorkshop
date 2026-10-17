@@ -24,8 +24,26 @@ describe('save migration', () => {
     expect(data.gum).toBe(500);
     expect(data.day).toBe(5);
     expect(data.levels).toEqual({ root: 1, craftSpeed: 3, shelf: 2 });
-    expect(data.settings.bgm).toBe(false);
+    expect(data.settings.bgmVolume).toBe(0);
+    expect(data.settings.seVolume).toBe(1);
     expect(data.meta.playSeconds).toBeGreaterThan(0);
+  });
+
+  it('turns the v7 BGM / SE switches into volumes (on → 100%, off → OFF)', () => {
+    const v7 = { ...newSave(), version: 7, settings: { bgm: true, se: false, autoBuy: false } } as Record<string, unknown>;
+    const data = parseSave(JSON.stringify(v7));
+    expect(data.version).toBe(SAVE_VERSION);
+    expect(data.settings).toMatchObject({ bgmVolume: 1, seVolume: 0, autoBuy: false });
+    expect(data.settings).not.toHaveProperty('bgm');
+    expect(data.settings).not.toHaveProperty('se');
+  });
+
+  it('keeps volumes within 0..1 and falls back to full loudness for broken ones', () => {
+    const d = { ...newSave(), settings: { ...newSave().settings, bgmVolume: 0.45, seVolume: 'loud' } } as Record<string, unknown>;
+    const data = parseSave(JSON.stringify(d));
+    expect(data.settings.bgmVolume).toBe(0.45);
+    expect(data.settings.seVolume).toBe(1);
+    expect(parseSave(JSON.stringify({ ...newSave(), settings: { bgmVolume: 7, seVolume: -1 } })).settings).toMatchObject({ bgmVolume: 1, seVolume: 0 });
   });
 
   it('rejects saves from a newer version instead of corrupting them', () => {
