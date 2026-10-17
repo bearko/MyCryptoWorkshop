@@ -223,5 +223,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/j
 - 紙吹雪（`src/ui/confetti.ts`）とカットイン（`style.css` の `.mch-passive-cutin*`）は、同リポジトリの
   金宝箱演出・カットイン CSS（MIT License, © 2026 bearko）を移植・改変したものです。
 
+ソースコードと文書は [MIT License](LICENSE) です。マイクリの素材（画像・音声）とクリスくん・マインちゃん・マイクリくんのドット絵は対象外です。
+
 本作は非公式の二次創作です。マイクリ画像の利用は [MCH デザインガイドライン](https://medium.com/mycryptoheroes/mch-design-guideline-ja-99ff0970ccdc) に従い、
 非営利の範囲に限ります。営利目的での利用（有償販売など）は事前に MCH Co.,Ltd. への連絡が必要です。
