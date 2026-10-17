@@ -457,15 +457,6 @@ body.in-day {
   color: var(--muted);
 }
 
-.pause-toggles {
-  display: flex;
-  gap: 8px;
-}
-
-.pause-toggles .btn {
-  flex: 1;
-}
-
 .muted {
   color: var(--muted);
   font-size: 13px;
@@ -1465,6 +1456,25 @@ body.in-day {
 .menu-sound span {
   margin-right: auto;
   color: var(--muted);
+}
+
+/* Volume sliders (BGM / SE): 0–100% in steps of 5, 0 = OFF. */
+.vol-row label {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.vol-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--gold-2);
+}
+
+.vol-row .vol-value {
+  flex: 0 0 3.6em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------- responsive */

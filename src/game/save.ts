@@ -29,7 +29,7 @@ export interface Totals {
 }
 
 /** Bump when the save shape changes, and add a step to MIGRATIONS. */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 export interface SaveData {
   version: typeof SAVE_VERSION;
@@ -45,8 +45,9 @@ export interface SaveData {
   bestDayRevenue: number;
   /** autoBuy: 番頭 buys GUM skills after each day (once learned). */
   settings: {
-    bgm: boolean;
-    se: boolean;
+    /** BGM / sound-effect volume, 0 (off) to 1 (the sounds' own loudness), set in steps of 0.05. */
+    bgmVolume: number;
+    seVolume: number;
     autoBuy: boolean;
     /** Drawing quality: auto drops to low on slow devices. */
     quality: 'auto' | 'high' | 'low';
@@ -146,8 +147,8 @@ export function newSave(now = Date.now()): SaveData {
     totals: emptyTotals(),
     bestDayRevenue: 0,
     settings: {
-      bgm: true,
-      se: true,
+      bgmVolume: 1,
+      seVolume: 1,
       autoBuy: true,
       quality: 'auto',
       colorAssist: false,
@@ -195,7 +196,15 @@ const MIGRATIONS: Record<number, (d: RawSave) => RawSave> = {
   // v6 → v7 (Phase 6): ランド移転.
   6: (d) => ({ ...d, version: 7, prestige: newPrestige() }),
   5: (d) => ({ ...d, version: 6, heroes: {}, orders: [], achievements: [], dailies: [], resources: { ...(d.resources as object), emblem: 0 } }),
+  // v7 → v8: the BGM / SE on-off switches become volumes (on → 100%, off → 0).
+  7: (d) => {
+    const { bgm, se, ...rest } = (d.settings ?? {}) as { bgm?: boolean; se?: boolean };
+    return { ...d, version: 8, settings: { ...rest, bgmVolume: bgm === false ? 0 : 1, seVolume: se === false ? 0 : 1 } };
+  },
 };
+
+/** A volume setting as saved: a number in 0..1, else the full loudness. */
+const clampVolume = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
 
 export class SaveError extends Error {}
 
@@ -273,6 +282,8 @@ export function parseSave(json: string): SaveData {
   const res = (migrated.resources ?? {}) as Partial<SaveData['resources']>;
   data.prestige = { ...newPrestige(), ...(migrated.prestige as object) };
   data.settings = { ...base.settings, ...(migrated.settings as object) };
+  data.settings.bgmVolume = clampVolume(data.settings.bgmVolume);
+  data.settings.seVolume = clampVolume(data.settings.seVolume);
   data.ranking = { ...base.ranking, ...(migrated.ranking as object) };
   if (!RANKING_ID.test(data.ranking.id)) data.ranking.id = base.ranking.id;
   data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0, emblem: res.emblem ?? 0 };

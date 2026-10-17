@@ -2,6 +2,11 @@
 
 版の番号は `package.json` の `version` で、ゲームのホーム画面の右下にも出ます。
 
+## 未リリース
+
+- BGM / 効果音の音量を 20 段階（0〜100%、5% 刻み。0 で OFF）で設定できるようにした。メニューと一時停止の画面のスライダーで変え、上のバーの BGM / SE ボタンはミュートに。
+  セーブは v8（`settings.bgmVolume` / `seVolume`、0〜1）。これまでの ON / OFF は 100% / OFF として引き継ぐ
+
 ## 1.0.0（2026-10-17）
 
 bearko.games のタイトル仕上げで v1.0 として確定した版です（計画と結果は [docs/ROADMAP.md](docs/ROADMAP.md) 8 章、Issue #4）。

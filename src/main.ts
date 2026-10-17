@@ -36,8 +36,7 @@ initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・
 reportTrophies(save);
 window.addEventListener('load', () => reportTrophies(save), { once: true });
 const sound = new Sound();
-sound.bgmOn = save.settings.bgm;
-sound.seOn = save.settings.se;
+sound.setVolumes({ bgm: save.settings.bgmVolume, se: save.settings.seVolume });
 
 // Facility overlays, back to front. They are <img> elements so animated GIFs play natively.
 const OVERLAY_ORDER = [
@@ -64,8 +63,9 @@ const emblemBox = h('div.dust.emblem', { title: t('エンブレム', 'Emblems') 
 const cpText = h('span.cp-amount', {}, '0');
 const cpBox = h('div.dust.cp', { title: t('Cp（移転ポイント）', 'Cp (relocation points)') }, icon(CURRENCIES.cp.icon, 'px'), cpText);
 const dayText = h('span.day-label');
-const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('bgm') }, 'BGM');
-const seBtn = h('button.btn.small.toggle', { onclick: () => toggleSetting('se') }, 'SE');
+// Quick mute buttons; the volumes themselves are set in the menu and the pause menu.
+const bgmBtn = h('button.btn.small.toggle', { onclick: () => toggleMute('bgmVolume'), title: t('BGM を消す / 戻す', 'Mute / unmute BGM') }, 'BGM');
+const seBtn = h('button.btn.small.toggle', { onclick: () => toggleMute('seVolume'), title: t('効果音を消す / 戻す', 'Mute / unmute sound effects') }, 'SE');
 const topbar = h(
   'header.topbar',
   {},
@@ -331,17 +331,43 @@ function updateTopbar(): void {
   cpText.textContent = fmt(save.prestige.cp);
   cpBox.hidden = save.prestige.cp <= 0 && save.prestige.runs === 0;
   dayText.textContent = save.prestige.runs > 0 ? t(`${save.prestige.runs + 1}周目 Day ${save.day}`, `Run ${save.prestige.runs + 1} · Day ${save.day}`) : `Day ${save.day}`;
-  bgmBtn.classList.toggle('off', !save.settings.bgm);
-  seBtn.classList.toggle('off', !save.settings.se);
+  bgmBtn.classList.toggle('off', save.settings.bgmVolume <= 0);
+  seBtn.classList.toggle('off', save.settings.seVolume <= 0);
 }
 
-function toggleSetting(key: 'bgm' | 'se'): void {
+type VolumeKey = 'bgmVolume' | 'seVolume';
+
+/** Where the quick mute buttons go back to: the last non-zero volume this session (else 100%). */
+const lastVolume: Record<VolumeKey, number> = { bgmVolume: save.settings.bgmVolume || 1, seVolume: save.settings.seVolume || 1 };
+
+/** Sets a volume (0..1), applies it to the sound at once and saves it. */
+function setVolume(key: VolumeKey, value: number): void {
   sound.unlock();
-  save.settings[key] = !save.settings[key];
-  if (key === 'bgm') sound.setBgm(save.settings.bgm);
-  else sound.seOn = save.settings.se;
+  save.settings[key] = value;
+  if (value > 0) lastVolume[key] = value;
+  sound.setVolumes(key === 'bgmVolume' ? { bgm: value } : { se: value });
   writeSave(save);
   updateTopbar();
+}
+
+/** The BGM / SE buttons in the top bar: off, or back to the last volume. */
+function toggleMute(key: VolumeKey): void {
+  setVolume(key, save.settings[key] > 0 ? 0 : lastVolume[key]);
+}
+
+const volumeLabel = (v: number): string => (v <= 0 ? 'OFF' : `${Math.round(v * 100)}%`);
+
+/** A volume slider row: 0–100% in 20 steps of 5 (0 = OFF). Releasing the SE slider plays one sample. */
+function volumeRow(key: VolumeKey, label: string): HTMLElement {
+  const id = `vol-${key}`;
+  const input = h('input', { type: 'range', id, min: 0, max: 100, step: 5, value: Math.round(save.settings[key] * 100) }) as HTMLInputElement;
+  const value = h('output.vol-value', { for: id }, volumeLabel(save.settings[key]));
+  input.addEventListener('input', () => {
+    setVolume(key, Number(input.value) / 100);
+    value.textContent = volumeLabel(save.settings[key]);
+  });
+  if (key === 'seVolume') input.addEventListener('change', () => sound.play('sale'));
+  return h('div.menu-sound.vol-row', {}, h('label', { for: id }, label), input, value);
 }
 
 function applyOverlays(keys: string[]): void {
@@ -459,23 +485,12 @@ document.addEventListener(
 function openPauseMenu(): void {
   if (!shop || shop.over) return;
   const r = shop.report;
-  const toggles = h(
-    'div.pause-toggles',
-    {},
-    ...(['bgm', 'se'] as const).map((key) => {
-      const btn = h('button.btn.toggle', { class: `btn toggle ${save.settings[key] ? '' : 'off'}` }, key === 'bgm' ? 'BGM' : 'SE');
-      btn.addEventListener('click', () => {
-        toggleSetting(key);
-        btn.classList.toggle('off', !save.settings[key]);
-      });
-      return btn;
-    }),
-  );
   const logCopy = logList.cloneNode(true) as HTMLElement;
   const body = h(
     'div.pause',
     {},
-    toggles,
+    volumeRow('bgmVolume', 'BGM'),
+    volumeRow('seVolume', t('効果音', 'SE')),
     h('h3', {}, t(`Day ${save.day} 本日の成績`, `Day ${save.day}: today so far`)),
     h(
       'div.stat-grid',
@@ -534,7 +549,7 @@ function watchFrameRate(dt: number): void {
 
 /** Events shown on screen as well as heard: always while sound effects are off, or when asked. */
 function alertOnScreen(text: string, kind: 'bad' | 'good' | 'rare' = 'bad'): void {
-  if (save.settings.se && !save.settings.alerts) return;
+  if (save.settings.seVolume > 0 && !save.settings.alerts) return;
   const chip = h('div.alert-chip', { class: `alert-chip ${kind}`, role: 'status' }, text);
   scene.append(chip);
   scene.classList.remove('alert-bad', 'alert-good', 'alert-rare');
@@ -662,21 +677,12 @@ function openCollection(): void {
 
 /** The menu (the home screen's 設定 opens it without the in-game actions). */
 function openMenu(fromHome = false): void {
-  // Sound toggles live here too: the topbar hides them on narrow screens.
-  const soundBtn = (key: 'bgm' | 'se', label: string) => {
-    const btn = h('button.btn.small.toggle', {}, label) as HTMLButtonElement;
-    const sync = () => btn.classList.toggle('off', !save.settings[key]);
-    btn.addEventListener('click', () => {
-      toggleSetting(key);
-      sync();
-    });
-    sync();
-    return btn;
-  };
+  // The volumes are set here (the topbar's BGM / SE buttons only mute, and are hidden on narrow screens).
   const body = h(
     'div.menu',
     {},
-    h('div.menu-sound', {}, h('span', {}, t('サウンド', 'Sound')), soundBtn('bgm', 'BGM'), soundBtn('se', 'SE')),
+    volumeRow('bgmVolume', 'BGM'),
+    volumeRow('seVolume', t('効果音', 'SE')),
     langSwitch(),
     displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
