@@ -9,6 +9,11 @@ bearko.games の総合スコア（[bearko/mycryptoportfolio の SPEC-002](https:
 - SDK（`https://bearko.games/sdk/v1.js`）は `index.html` の head で、ゲーム本体（Vite が head に入れる module）より先に読む。読めない・通信に失敗しても何もしない
 - 今の Workshop のランキング（Google ログイン）とは別。アカウントのつなぎ込みは共通基盤の SPEC-001 4.5 で今後
 
+## 総合ランキングへの導線（MyCryptoPortfolio#29）
+
+- ランキングの画面（`src/ui/ranking.ts`）の下に「bearko.games の総合ランキング ↗」と添え書き。行き先は `https://bearko.games/score/?game=workshop`（共通基盤のタイトル別ランキング）
+- 新しいタブで開く（再読み込みすると RTA の計測が消えるため）。前からのランキング（Upstash）はそのまま
+
 ## トロフィー（共通基盤の SPEC-001 9.4、ROADMAP 8.4）
 
 | ID | 名前 | 条件 |

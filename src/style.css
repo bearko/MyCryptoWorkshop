@@ -2675,6 +2675,22 @@ body.in-day {
   white-space: nowrap;
 }
 
+.rank-platform {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+}
+.rank-platform a {
+  color: var(--gold);
+  font-weight: 700;
+}
+.rank-platform small {
+  color: var(--muted);
+  font-size: 11px;
+}
 .rank-foot {
   margin: 8px 0 0;
   font-size: 13px;
