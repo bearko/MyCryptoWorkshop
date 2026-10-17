@@ -1061,6 +1061,9 @@
       "Moai"
     ]
   },
+  "$excluded": "Characters the game never shows, even though the asset database has them (copyrighted by a third party). scripts/sync-assets.mjs leaves them out of the catalog and the sprite sheets. Which ones and why: CHANGELOG.md 1.0.1.",
+  "excludedHeroIds": [2035, 12035],
+  "excludedEnemyIds": [715, 745],
   "pirateIds": [
     4036,
     3032,
