@@ -128,7 +128,7 @@ const gearBtn = h(
 // Mine-chan's tips pop up briefly over the scene instead of occupying a side panel.
 const naviImg = fileImg(staffFrames.mine[0].image, 'px navi-img');
 const naviText = h('p.navi-text');
-const naviToast = h('div.navi-toast', {}, naviImg, naviText);
+const naviToast = h('div.navi-toast', { role: 'status', 'aria-live': 'polite' }, naviImg, naviText);
 naviToast.hidden = true;
 const logList = h('ul.log');
 
@@ -389,19 +389,32 @@ const extLabel = (code: number) => {
 
 // ------------------------------------------------------------------ modals
 
-function openModal(title: string, body: HTMLElement, buttons: { label: string; primary?: boolean; onClick?: () => void }[], cls = ''): () => void {
+/** Open modals, newest last. Escape presses the top one's cancel button (if it has one). */
+const modalStack: { wrap: HTMLElement; cancel: (() => void) | null }[] = [];
+
+/**
+ * A modal dialog. A button marked `cancel` (or, if none is, the last button without an action) is
+ * what Escape presses; a modal whose buttons are all real choices stays open on Escape.
+ */
+function openModal(title: string, body: HTMLElement, buttons: { label: string; primary?: boolean; cancel?: boolean; onClick?: () => void }[], cls = ''): () => void {
   modalOpen++;
   const close = () => {
     if (!wrap.isConnected) return;
     wrap.remove();
     modalOpen--;
+    const i = modalStack.findIndex((m) => m.wrap === wrap);
+    if (i >= 0) modalStack.splice(i, 1);
+  };
+  const press = (b: (typeof buttons)[number]) => {
+    close();
+    b.onClick?.();
   };
   const wrap = h(
     'div.modal-backdrop',
     {},
     h(
       'div.modal',
-      { class: `modal ${cls}`, role: 'dialog', 'aria-label': title },
+      { class: `modal ${cls}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('h2', {}, title),
       body,
       h(
@@ -412,10 +425,7 @@ function openModal(title: string, body: HTMLElement, buttons: { label: string; p
             'button.btn',
             {
               class: b.primary ? 'btn btn-primary' : 'btn',
-              onclick: () => {
-                close();
-                b.onClick?.();
-              },
+              onclick: () => press(b),
             },
             b.label,
           ),
@@ -423,9 +433,24 @@ function openModal(title: string, body: HTMLElement, buttons: { label: string; p
       ),
     ),
   );
+  const cancel = buttons.find((b) => b.cancel) ?? [...buttons].reverse().find((b) => !b.onClick);
+  modalStack.push({ wrap, cancel: cancel ? () => press(cancel) : null });
   modalRoot.append(wrap);
   return close;
 }
+
+// Escape closes the top modal (before the in-day keys see it, so it doesn't reopen the menu).
+document.addEventListener(
+  'keydown',
+  (ev) => {
+    const top = modalStack[modalStack.length - 1];
+    if (ev.key !== 'Escape' || !top) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    top.cancel?.();
+  },
+  true,
+);
 
 /** In-day menu behind the gear icon. Opening it pauses the day (any open modal does). */
 function openPauseMenu(): void {
@@ -1212,7 +1237,7 @@ function showDecision(d: Decision): void {
   };
   window.setTimeout(() => buttons.forEach((b) => (b.disabled = false)), DECISION_ARM_MS);
   const body = h('div.decision', {}, h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)), ...buttons);
-  const close = openModal(d.title, body, [{ label: t('あとで決める', 'Decide later'), onClick: () => ((done = true), shop?.deferDecision()) }], 'decision-modal');
+  const close = openModal(d.title, body, [{ label: t('あとで決める', 'Decide later'), cancel: true, onClick: () => ((done = true), shop?.deferDecision()) }], 'decision-modal');
 }
 
 /** The MCH gold-chest moment, for the first Epic / Legendary / 真 / golden edition. */
