@@ -18,7 +18,9 @@ My Crypto Heroes の世界でエクステンション（装備品）をクラフ
 - 閉店後に、五勢力（朱雀・青龍・黄竜・白虎・玄武）＋店舗・研究・シリーズ・名誉・移転の枝をもつスキルツリーで工房を強化
 - マインちゃんのチュートリアル、日本語 / English、オフラインで遊べる PWA（ホーム画面に追加）、色覚サポート・動きを減らす・効果音オフ時の画面通知・低スペック向け画質
 
-ゲームデザインは [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)、本格開発のロードマップは [docs/ROADMAP.md](docs/ROADMAP.md) を参照してください。
+ゲームデザインは [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)、本格開発のロードマップは [docs/ROADMAP.md](docs/ROADMAP.md)、変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+
+**プレイ:** https://workshop.bearko.games （v1.0.0）
 
 ## 遊び方
 

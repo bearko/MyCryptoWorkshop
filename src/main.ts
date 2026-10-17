@@ -31,7 +31,7 @@ import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 
 const save = loadSave();
-initPlatform('web'); // bearko.games 共通基盤（総合スコア・トロフィー・RTA）。SDK がなければ何もしない
+initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・トロフィー・RTA）。SDK がなければ何もしない
 // トロフィー: いまのセーブで満たしているもの（前から遊んでいる人にも付く）。SDK が遅れて読まれたら、init（load で）のあとに
 reportTrophies(save);
 window.addEventListener('load', () => reportTrophies(save), { once: true });
@@ -876,7 +876,7 @@ function showHome(): void {
       ),
     ),
     h('button.btn.small.danger.home-reset', { onclick: () => openReset() }, t('リセット', 'Reset')),
-    h('p.home-credit', {}, t('非公式の二次創作です（素材 © MCH Co.,Ltd.）', 'An unofficial fan work (assets © MCH Co.,Ltd.)')),
+    h('p.home-credit', {}, t('非公式の二次創作です（素材 © MCH Co.,Ltd.）', 'An unofficial fan work (assets © MCH Co.,Ltd.)'), h('span.home-version', {}, `v${__APP_VERSION__}`)),
   );
   homeRoot.hidden = false;
   document.body.classList.add('at-home');

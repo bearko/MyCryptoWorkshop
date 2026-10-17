@@ -577,7 +577,23 @@ MyCryptoPortfolio 側の定義（`platform/trophies.js`・`platform/rta.js`）�
 
 最後に MyCryptoPortfolio の docs/ROADMAP.md 4 章と docs/INTEGRATION.md 1 章の Workshop の行を更新する。
 
-### 8.6 v1.0 のあと
+### 8.6 結果（2026-10-17、v1.0.0）
+
+| 順 | PR | 状態 |
+| --- | --- | --- |
+| 1 | #5 計画 | マージ済み |
+| 2 | #6 ドキュメントの数字 | マージ済み |
+| 3 | #7 デプロイ設定（Workers・CI） | マージ済み |
+| 4 | #8 LICENSE（MIT） | マージ済み |
+| 5 | #9 UI/UX | マージ済み。360×640・390×844・1280×800 で崩れなし |
+| 6 | MyCryptoPortfolio#17 → #10 トロフィー・RTA | マージ済み |
+| 7 | 版（この PR） | ホーム画面に `v1.0.0`、`CHANGELOG.md` |
+
+- 作者に見てもらうこと：本番（workshop.bearko.games）で iPhone の safe-area、ログインしてトロフィーと RTA のランキングに載ること
+- Vercel の GitHub 連携（PR に「Vercel Preview Comments」のチェックが付く）は、Vercel のダッシュボードで外す（コードからは外せない）
+- リポジトリ直下の `lock.png`（どこからも使われていない画像）は残したまま
+
+### 8.7 v1.0 のあと
 
 - ランキング（Google ログイン）と共通基盤のアカウントのつなぎ込み（共通基盤の SPEC-001 4.5）
 - ランキングの保存先を Upstash Redis から D1 に移すか
