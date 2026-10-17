@@ -25,13 +25,16 @@ import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
 import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
-import { initPlatform, reportScore } from './net/platform';
+import { abortRta, initPlatform, isRtaAvailable, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 
 const save = loadSave();
-initPlatform('web'); // bearko.games 共通基盤（総合スコア）。SDK がなければ何もしない
+initPlatform('web'); // bearko.games 共通基盤（総合スコア・トロフィー・RTA）。SDK がなければ何もしない
+// トロフィー: いまのセーブで満たしているもの（前から遊んでいる人にも付く）。SDK が遅れて読まれたら、init（load で）のあとに
+reportTrophies(save);
+window.addEventListener('load', () => reportTrophies(save), { once: true });
 const sound = new Sound();
 sound.bgmOn = save.settings.bgm;
 sound.seOn = save.settings.se;
@@ -618,6 +621,7 @@ function openRelocate(): void {
       shop = null;
       const record = relocate(save, land);
       writeSave(save);
+      reportTrophies(save);
       sound.play('helper');
       confetti(2500);
       const home = lands.find((l) => l.key === land)!;
@@ -867,6 +871,7 @@ function showHome(): void {
         hasProgress ? h('p.home-save', {}, t(`Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Day ${save.day} · ${fmt(save.gum)} GUM`)) : null,
         button(t('⚙ 設定', '⚙ Settings'), () => openMenu(true)),
         button(t('🏆 ランキング', '🏆 Leaderboards'), () => openRanking()),
+        isRtaAvailable() ? button(t('⏱ RTA で始める', '⏱ Start an RTA run'), () => openRtaStart()) : null,
         button(t('終了する', 'Quit'), quitGame),
       ),
     ),
@@ -914,6 +919,44 @@ function quitGame(): void {
   }, 300);
 }
 
+/** Erases the progress and reloads at Day 1 (settings and the leaderboard entry stay). */
+function eraseSaveAndReload(): void {
+  resetting = true;
+  const fresh = newSave();
+  fresh.settings = save.settings;
+  // Same player on the leaderboards; the records there are kept (each board keeps the best).
+  fresh.ranking = { ...save.ranking, day30: null };
+  writeSave(fresh);
+  location.reload();
+}
+
+/** RTA（bearko.games の共通基盤）: erases the save like リセット, then the timer starts when Day 1 opens. */
+function openRtaStart(): void {
+  const confirm = h('button.btn.danger', {}, t('セーブを消して RTA を始める', 'Erase the save and start')) as HTMLButtonElement;
+  confirm.addEventListener('click', () => {
+    if (confirm.dataset.armed !== '1') {
+      confirm.dataset.armed = '1';
+      confirm.textContent = t('もう一度押すとセーブデータを消します', 'Press again to erase your save');
+      return;
+    }
+    abortRta();
+    setRtaPending(true);
+    eraseSaveAndReload();
+  });
+  openModal(
+    t('⏱ RTA で始める', '⏱ Start an RTA run'),
+    h(
+      'div.reset',
+      {},
+      h('p', {}, t('bearko.games の RTA「Workshop 黄金のエクステンション」に挑戦します。セーブデータを消して Day 1 から始め、Day 1 の「開店する」で計測が始まります。黄金のエクステンションを習得するとゴールです。', 'Run the bearko.games RTA "Workshop: the golden extension". Your save is erased and you start from Day 1; the timer starts when you open Day 1 and stops when you learn the golden extension.')),
+      h('p.muted', {}, t('区切り: Epic 解放 → Legendary 解放 → 黄金のエクステンション。タイムは実時間（スキルツリーやメニューの時間も含む）。2〜3 時間かかります。再読み込みやタブを閉じると記録になりません。15 分操作がないと参考記録になります。', 'Splits: Epic → Legendary → the golden extension. The time is real time (the skill tree and menus count too) and takes 2–3 hours. Reloading or closing the tab ends the run without a record; 15 minutes without input makes it an unofficial record.')),
+      h('p.muted', {}, t('残るもの: 設定、ランキングの参加情報と登録済みの記録。スキル・GUM・図鑑・実績・周回の記録は消え、元に戻せません。', 'Kept: settings and your leaderboard entry and records. Skills, GUM, the collection, achievements and run history are lost for good.')),
+      confirm,
+    ),
+    [{ label: t('キャンセル', 'Cancel') }],
+  );
+}
+
 /** リセット: erases the progress and starts over (settings and the leaderboard entry stay). */
 function openReset(): void {
   const confirm = h('button.btn.danger', {}, t('リセットする', 'Reset')) as HTMLButtonElement;
@@ -924,13 +967,9 @@ function openReset(): void {
       confirm.textContent = t('もう一度押すとセーブデータを消します', 'Press again to erase your save');
       return;
     }
-    resetting = true;
-    const fresh = newSave();
-    fresh.settings = save.settings;
-    // Same player on the leaderboards; the records there are kept (each board keeps the best).
-    fresh.ranking = { ...save.ranking, day30: null };
-    writeSave(fresh);
-    location.reload();
+    abortRta();
+    setRtaPending(false);
+    eraseSaveAndReload();
   });
   openModal(
     t('リセット', 'Reset'),
@@ -1038,11 +1077,24 @@ function showTree(): void {
   updateTopbar();
 }
 
+/** この周回の営業時間（ミリ秒）。営業中ならその日の経過も足す（RTA の IGT） */
+function runBusinessMs(): number {
+  const today = shop && shop.started && !shop.over ? shop.elapsed : 0;
+  return (save.meta.playSeconds - save.prestige.runStartSeconds + today) * 1000;
+}
+
+/** 習得・閉店・移転のあと: 共通基盤のトロフィーと RTA の区切り */
+function reportProgress(): void {
+  reportTrophies(save);
+  reportRtaProgress(save, runBusinessMs());
+}
+
 function buyNode(node: SkillNode): void {
   if (!buy(save, node)) return;
   sound.play(FACILITY_NODES.has(node.id) ? 'build' : 'unlock');
   writeSave(save);
   updateTopbar();
+  reportProgress();
   if (node.id === 'goldenExtension') {
     // The clear time goes up right away.
     sendRanking(0, { clear: true });
@@ -1189,6 +1241,11 @@ function startDay(): void {
 function openDay(): void {
   if (!shop || shop.started) return;
   shop.start();
+  if (save.day === 1) {
+    // RTA の経過時間は、右下の「スキルツリー」ボタンのすぐ上に出す
+    const btn = toTreeBtn.getBoundingClientRect();
+    startRtaIfPending(save, btn.height ? Math.round(window.innerHeight - btn.top + 6) : 64);
+  }
   registerClicks = 0;
   updateOpenCard();
   if (save.day <= 3 && tutorial.pending('day')) {
@@ -1480,6 +1537,7 @@ function onShopEvent(e: ShopEvent): void {
         const auto = autoBuy(save);
         writeSave(save);
         sendRanking(e.report.revenue);
+        reportProgress();
         updateTopbar();
         window.setTimeout(() => showResults(e.report, auto), 500);
       }
