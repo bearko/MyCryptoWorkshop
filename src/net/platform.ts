@@ -8,6 +8,7 @@ type Result = { ok: boolean; error?: string };
 
 interface BearkoGamesSdk {
   init(opts: { game: string; version?: string; chat?: { position?: string; offset?: { x: number; y: number } } }): Promise<unknown>;
+  openAvatarPicker?(): void;   // bearko.games 共通のアイコンを選ぶ窓（共通基盤 SPEC-005 5.3。SDK 1.7.0）
   submitScore(metrics: Record<string, unknown>, opts?: { quiet?: boolean }): Promise<Result>;
   unlockTrophy?(id: string): Promise<Result>;
   rta?: {
@@ -184,4 +185,22 @@ export function reportRtaProgress(save: SaveData, igtMs: number): void {
 /** リセットなどで、計測中の RTA をやめる */
 export function abortRta(): void {
   call('rta abort', (bg) => (bg.rta?.current?.() ? bg.rta.abort() : null));
+}
+
+// ---------------------------------------------------------------- bearko.games 共通のアイコン（共通基盤 SPEC-005 5.3）
+/** 選ぶ窓を出せるか（SDK が読めて 1.7.0 以上） */
+export function canPickAvatar(): boolean {
+  const bg = sdk();
+  return !!bg && typeof bg.openAvatarPicker === 'function';
+}
+/** アイコンを選ぶ窓（すべてのゲームとチャットで同じ絵になる）。SDK がない・古いときは何もしない */
+export function openAvatarPicker(): boolean {
+  const bg = sdk();
+  if (!bg || typeof bg.openAvatarPicker !== 'function') return false;
+  try {
+    bg.openAvatarPicker();
+  } catch (e) {
+    console.warn('[platform] avatar', e);
+  }
+  return true;
 }

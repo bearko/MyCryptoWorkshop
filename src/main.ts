@@ -25,7 +25,7 @@ import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
 import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
-import { abortRta, initPlatform, isRtaAvailable, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
+import { abortRta, canPickAvatar, initPlatform, isRtaAvailable, openAvatarPicker, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
@@ -686,6 +686,10 @@ function openMenu(fromHome = false): void {
     langSwitch(),
     displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
+    // bearko.games 共通のアイコン（共通基盤 SPEC-005 5.3。窓は SDK 1.7.0。SDK が読めたときだけ）
+    canPickAvatar()
+      ? h('div.menu-sound', {}, h('span', {}, t('アイコン（bearko.games 全体で共通）', 'Icon (shared on bearko.games)')), h('button.btn.small', { onclick: () => openAvatarPicker() }, t('変える', 'Change')))
+      : null,
     h(
       'div.menu-actions',
       {},

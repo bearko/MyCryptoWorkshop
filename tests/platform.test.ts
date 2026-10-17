@@ -1,7 +1,7 @@
 // bearko.games 共通基盤（総合スコア・トロフィー・RTA）に送るもの
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { newSave } from '../src/game/save';
-import { abortRta, reportRtaProgress, reportScore, reportTrophies, rtaCheckpointsReached, scoreMetrics, setRtaPending, startRtaIfPending, trophyIds } from '../src/net/platform';
+import { abortRta, canPickAvatar, openAvatarPicker, reportRtaProgress, reportScore, reportTrophies, rtaCheckpointsReached, scoreMetrics, setRtaPending, startRtaIfPending, trophyIds } from '../src/net/platform';
 
 describe('総合スコアの成績', () => {
   it('はじめは day・クリアなし', () => {
@@ -138,5 +138,21 @@ describe('共通基盤の SDK への送信', () => {
     const sdk = fakeSdk();
     reportRtaProgress(withLevels({ epic: 1 }), 1000);
     expect(sdk.rta.checkpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe('bearko.games 共通のアイコン', () => {
+  const g = globalThis as unknown as { window?: unknown };
+  afterEach(() => { delete g.window; });
+  it('SDK がない・古いときは出さず例外も出さない。あれば窓を開く', () => {
+    expect(canPickAvatar()).toBe(false);
+    expect(openAvatarPicker()).toBe(false);
+    g.window = { BearkoGames: { init: async () => ({ ok: true }) } };
+    expect(canPickAvatar()).toBe(false);
+    let opened = 0;
+    g.window = { BearkoGames: { init: async () => ({ ok: true }), openAvatarPicker: () => { opened++; } } };
+    expect(canPickAvatar()).toBe(true);
+    expect(openAvatarPicker()).toBe(true);
+    expect(opened).toBe(1);
   });
 });
