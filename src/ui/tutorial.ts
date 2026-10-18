@@ -30,14 +30,17 @@ export interface Step {
  * マインちゃんのチュートリアル: guided steps over the first days. Each step dims the screen
  * around its target, points at it and explains in Mine-chan's bubble. The dimming never
  * blocks taps, so the player does the real thing; explanation steps (no `done`) pause the
- * day until OK. Finished steps are remembered in save.tips as `tut:<id>`; "Skip" ends the
- * tutorial for good.
+ * day until 次へ (Next). Finished steps are remembered in save.tips as `tut:<id>`. Skipping is a
+ * label at the top right of the screen (not a button beside 次へ, so the bubble doesn't suggest it);
+ * pressed twice, it ends the tutorial for good.
  */
 export class Tutorial {
   private readonly spot = h('div.tut-spot');
   private readonly hand = h('div.tut-hand', { 'aria-hidden': 'true' }, '👆');
   private readonly text = h('p.tut-text');
-  private readonly okBtn = h('button.btn.btn-primary.small.tut-ok', {}, 'OK') as HTMLButtonElement;
+  private readonly okBtn = h('button.btn.btn-primary.small.tut-ok', {}, t('次へ', 'Next')) as HTMLButtonElement;
+  private readonly skipBtn = h('button.tut-skip', { type: 'button' }, t('チュートリアルをスキップ', 'Skip tutorial')) as HTMLButtonElement;
+  private skipTimer = 0;
   private readonly bubble: HTMLElement;
   private readonly root: HTMLElement;
   private current: Step | null = null;
@@ -48,16 +51,15 @@ export class Tutorial {
     mineImage: string,
     private readonly onChange: () => void = () => undefined,
   ) {
-    const skip = h('button.btn.small.tut-skip', {}, t('チュートリアルをスキップ', 'Skip tutorial'));
-    skip.addEventListener('click', () => this.skipAll());
+    this.skipBtn.addEventListener('click', () => this.pressSkip());
     this.okBtn.addEventListener('click', () => this.finish());
     this.bubble = h(
       'div.tut-bubble',
       { role: 'dialog', 'aria-live': 'polite', 'aria-label': t('チュートリアル', 'Tutorial') },
       fileImg(mineImage, 'px tut-mine'),
-      h('div.tut-body', {}, h('b.tut-name', {}, t('マインちゃん', 'Mine-chan')), this.text, h('div.tut-buttons', {}, skip, this.okBtn)),
+      h('div.tut-body', {}, h('b.tut-name', {}, t('マインちゃん', 'Mine-chan')), this.text, h('div.tut-buttons', {}, this.okBtn)),
     );
-    this.root = h('div.tutorial', {}, this.spot, this.hand, this.bubble);
+    this.root = h('div.tutorial', {}, this.spot, this.hand, this.bubble, this.skipBtn);
     this.root.hidden = true;
     document.body.append(this.root);
   }
@@ -142,6 +144,18 @@ export class Tutorial {
     this.current = null;
     this.hide();
     this.onChange();
+  }
+
+  /** Skipping takes two presses (the label first asks again), so a stray tap doesn't end it. */
+  private pressSkip(): void {
+    if (this.skipBtn.dataset.armed === '1') return this.skipAll();
+    this.skipBtn.dataset.armed = '1';
+    this.skipBtn.textContent = t('もう一度押すとスキップ', 'Press again to skip');
+    window.clearTimeout(this.skipTimer);
+    this.skipTimer = window.setTimeout(() => {
+      delete this.skipBtn.dataset.armed;
+      this.skipBtn.textContent = t('チュートリアルをスキップ', 'Skip tutorial');
+    }, 3000);
   }
 
   private skipAll(): void {

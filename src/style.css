@@ -2287,7 +2287,8 @@ body.in-day {
 }
 
 .tut-bubble.top {
-  top: 12px;
+  /* Below the skip label at the top right. */
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + 40px);
 }
 
 .tut-bubble.bottom {
@@ -2327,8 +2328,31 @@ body.in-day {
   gap: 8px;
 }
 
+/* Skipping: a quiet label at the top right of the screen, apart from Mine-chan's 次へ. */
 .tut-skip {
-  opacity: 0.8;
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(20, 12, 6, 0.78);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.tut-skip:hover,
+.tut-skip:focus-visible {
+  color: var(--text);
+}
+
+.tut-skip[data-armed='1'] {
+  border-color: var(--gold);
+  color: var(--gold);
 }
 
 @media (prefers-reduced-motion: reduce) {
