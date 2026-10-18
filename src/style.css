@@ -2118,7 +2118,7 @@ body.in-day {
   box-shadow: 0 0 0 2px #7fe3ff55;
 }
 
-.land-card.home b::after {
+.land-card.current b::after {
   content: '（現在地）';
   color: var(--muted);
   font-weight: 400;

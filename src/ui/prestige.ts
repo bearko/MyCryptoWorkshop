@@ -38,7 +38,8 @@ export function relocateView(save: SaveData, onMove: (land: string) => void): HT
       h('span.land-card-bless', {}, `${b.name}${lv ? ` Lv${lv}→${lv + 1}` : ''}`),
       h('small', {}, b.desc),
     );
-    if (land.key === save.prestige.home) card.classList.add('home');
+    // 「home」はホーム画面（全面を覆う .home）と同じ名前になるので使わない
+    if (land.key === save.prestige.home) card.classList.add('current');
     return card;
   });
   confirm.addEventListener('click', () => {
