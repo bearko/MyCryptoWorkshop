@@ -543,6 +543,8 @@ MyCryptoPortfolio 側の定義（`platform/trophies.js`・`platform/rta.js`）�
 
 **トロフィー**（名前はマイクリのスキル名から。D9）
 
+> いまは「アチーブメント」と呼び、ID・名前・絵が組み直されている（MyCryptoPortfolio SPEC-008）。最新の一覧は [platform-score.md](platform-score.md)。下の表は v1.0 当時のもの
+
 | ID | 名前 | 由来 | 条件 |
 | --- | --- | --- | --- |
 | `workshop.day30` | 行列のできる人気店 | エクステンション「定番醤油ラーメン」のスキル | 30 日目の営業を終える（総合スコアの最初の節目と同じ） |

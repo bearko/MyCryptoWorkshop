@@ -1,4 +1,4 @@
-# bearko.games 共通基盤（総合スコア・トロフィー・RTA）
+# bearko.games 共通基盤（総合スコア・アチーブメント・RTA）
 
 bearko.games の総合スコア（[bearko/mycryptoportfolio の SPEC-002](https://github.com/bearko/mycryptoportfolio/blob/claude/game-portfolio-page-4afqbc/docs/specs/SPEC-002-total-score.md) 3.7）に参加する。
 
@@ -14,22 +14,38 @@ bearko.games の総合スコア（[bearko/mycryptoportfolio の SPEC-002](https:
 - ランキングの画面（`src/ui/ranking.ts`）の下に「bearko.games の総合ランキング ↗」と添え書き。行き先は `https://bearko.games/score/?game=workshop`（共通基盤のタイトル別ランキング）
 - 新しいタブで開く（再読み込みすると RTA の計測が消えるため）。前からのランキング（Upstash）はそのまま
 
-## トロフィー（共通基盤の SPEC-001 9.4、ROADMAP 8.4）
+## アチーブメント（旧トロフィー。共通基盤の SPEC-001 9.4・SPEC-008、ROADMAP 8.4）
 
-bearko.games では「アチーブメント」と呼ぶ（MyCryptoPortfolio SPEC-008）。名前と絵（ヒーロー）は共通基盤の `platform/trophies.js` が決める。
+bearko.games では「アチーブメント」と呼ぶ（MyCryptoPortfolio SPEC-008）。名前と絵は共通基盤の `platform/trophies.js` が決める（下の表は MyCryptoPortfolio の `docs/ACHIEVEMENT_CATALOG.md` の写し）。
+来訪（`workshop.visit`）は SDK が送るので、ゲームからは送らない。
 
-| ID | 名鑑 | 条件 |
-| --- | --- | --- |
-| `workshop.day1` | No.045 大長今（Common） | 1 日目の営業を終える（SPEC-008。マインが最初に勧める 3 本のひとつなので、最初の節目を早くした） |
-| `workshop.day30` | No.048 サンタクロース（Uncommon） | 30 日目の営業を終える |
-| `workshop.legendary` | No.051 ルーベンス（Rare） | 「MCH製法」を習得（Legendary） |
-| `workshop.clear` | No.052 ゴッホ（Epic） | 黄金のエクステンション（クリア） |
-| `workshop.relocate` | No.053 マルコ・ポーロ（Epic） | ランド移転して 2 周目 |
+**ヒーロー名鑑**（No.045〜055）
 
-- 名鑑にはほかに Workshop の節目が 6 つ（ブレイブ製法・具現化カプセル・インペリアル製法・伝説の間・3 周目・MCH Verse Pass）と、エクステンション 4 つ（来訪は SDK が送る）がある。送るのは SPEC-008 の段階 3
+| ID | 名鑑 | 名前 | 条件 | 判定 |
+| --- | --- | --- | --- | --- |
+| `workshop.day1` | No.045 大長今（Common） | 李氏朝鮮、宮廷医女 | 1 日目の営業を終える | `day >= 2`（閉店で 2 になる）。移転したあとは常に |
+| `workshop.brave` | No.046 花木蘭（Uncommon） | 三綱五常 | 「ブレイブ製法」を習得する | Rare をクラフトできる（`maxRarity >= 2`）。移転したあとは常に（クリアの前提） |
+| `workshop.capsule` | No.047 シュレディンガー（Uncommon） | シュレディンガーの猫 | 具現化カプセルを動かす | `levels.capsuleLine > 0`。クリアの前提ではないので、移転したあとでも補わない |
+| `workshop.day30` | No.048 サンタクロース（Uncommon） | プレゼント・フォー・ユー | 30 日目の営業を終える | `ranking.day30` か `day > 30`。移転したあとは常に |
+| `workshop.imperial` | No.049 ラファエロ（Rare） | システィーナの聖母 | 「インペリアル製法」を習得する | Epic をクラフトできる（`maxRarity >= 3`）。移転したあとは常に（クリアの前提） |
+| `workshop.legendhall` | No.050 パーシヴァル（Rare） | 聖杯探索 | 伝説の間を開く | `levels.legendHall > 0`、または移転で残る「称号の間」（伝説の間が前提）を持っている。移転しただけでは補わない（クリアの前提ではない） |
+| `workshop.legendary` | No.051 ルーベンス（Rare） | 黄金の工房 | 「MCH製法」を習得（Legendary） | `maxRarity >= 4`。移転したあとは常に |
+| `workshop.clear` | No.052 ゴッホ（Epic） | ひまわり | 黄金のエクステンション（クリア） | `cleared > 0`。移転したあとは常に |
+| `workshop.relocate` | No.053 マルコ・ポーロ（Epic） | 東方見聞録 | ランド移転して 2 周目 | `prestige.runs >= 1` |
+| `workshop.loop3` | No.054 フランシス・ドレーク（Epic） | 女王直属海賊 | 3 周目を始める | `prestige.runs >= 2` |
+| `workshop.versepass` | No.055 レオナルド・ダ・ビンチ（Legendary） | モナリザ | 「MCH Verse Pass」を習得する | `levels.versePass > 0`（移転しても残る） |
 
-- 条件は `src/net/platform.ts` の `trophyIds`（純関数、`tests/platform.test.ts`）。移転したあとは 1 周目の分も満たしているとみなす
-- 送るのは起動したとき（前から遊んでいる人にも付く）・習得・閉店・移転のあと。同じ起動で同じ ID は 1 回だけ
+**エクステンション**
+
+| ID | 絵 | 名前 | 条件 | 判定 |
+| --- | --- | --- | --- | --- |
+| `workshop.firstsale` | デカ盛りもやしラーメン（Epic） | 分け入っても分け入っても白い山 | 初めて販売する | `totals.sold >= 1`（通算。移転しても残る） |
+| `workshop.caught` | モロッサス（Epic） | ドッグファイト | 泥棒を初めて捕まえる | `totals.caught >= 1` |
+| `workshop.sold1000` | 絶品龍骨ラーメン（Legendary） | 千載一遇の至杯 | 通算 1,000 個販売する | `totals.sold >= 1000` |
+
+- 条件は `src/net/platform.ts` の `trophyIds`（純関数、`tests/platform.test.ts`）。移転で消える値（スキル・日数）は、移転したあとなら必ず通ったもの（クリアの前提）だけ満たしているとみなす
+- 送るのは起動したとき（前から遊んでいる人にも付く）・習得・閉店・移転のあと。営業中は、通算の販売数が 1 個目・1,000 個目になった瞬間と、泥棒を初めて捕まえた瞬間にも送る。同じ起動で同じ ID は 1 回だけ
+- 共通基盤の定義が公開されるまでは、新しい ID は共通基盤が知らない ID としてはじくだけ（遊びには影響しない）
 - **1 つずつ順に送る**。未ログインの最初の 1 回で仮アカウントができるので、同時に送ると別々の仮アカウントに入る（ローカルの e2e で実際に起きた）
 
 ## RTA（共通基盤の SPEC-001 6.8、ROADMAP 8.4）

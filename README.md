@@ -189,7 +189,7 @@ docs/          ゲームデザインドキュメント
 
 `npm run dev` では同じ API がメモリ上のストアで動くので、Upstash なしで試せます（再起動で消えます）。
 
-bearko.games 共通基盤の総合スコア・トロフィー・RTA は、このランキングとは別に共通基盤へ送っています（[docs/platform-score.md](docs/platform-score.md)）。
+bearko.games 共通基盤の総合スコア・アチーブメント（旧トロフィー）・RTA は、このランキングとは別に共通基盤へ送っています（[docs/platform-score.md](docs/platform-score.md)）。
 
 #### Google ログイン（任意）
 
