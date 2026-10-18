@@ -1,7 +1,7 @@
 // bearko.games 共通基盤（総合スコア・トロフィー・RTA）に送るもの
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { newSave } from '../src/game/save';
-import { abortRta, canPickAvatar, openAvatarPicker, reportRtaProgress, reportScore, reportTrophies, rtaCheckpointsReached, scoreMetrics, setRtaPending, startRtaIfPending, trophyIds } from '../src/net/platform';
+import { abortRta, canPickAvatar, isTrophyMoment, openAvatarPicker, reportRtaProgress, reportScore, reportTrophies, rtaCheckpointsReached, scoreMetrics, setRtaPending, startRtaIfPending, trophyIds } from '../src/net/platform';
 
 describe('総合スコアの成績', () => {
   it('はじめは day・クリアなし', () => {
@@ -30,26 +30,69 @@ const withLevels = (levels: Record<string, number>) => {
   return s;
 };
 
-describe('トロフィーの条件', () => {
+describe('アチーブメント（旧トロフィー）の条件', () => {
   it('はじめは何もない', () => {
     expect(trophyIds(newSave(0))).toEqual([]);
+  });
+  it('1 日目の営業を終えると day1（閉店で day が 2 になる）', () => {
+    const s = newSave(0);
+    expect(trophyIds(s)).not.toContain('workshop.day1');
+    s.day = 2;
+    expect(trophyIds(s)).toEqual(['workshop.day1']);
   });
   it('30 日目を終えると day30、MCH製法で legendary、黄金のエクステンションで clear', () => {
     const s = withLevels({ epic: 1, legendary: 1 });
     s.day = 31;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.brave', 'workshop.day30', 'workshop.imperial', 'workshop.legendary']);
     s.levels.goldenExtension = 1;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary', 'workshop.clear']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.brave', 'workshop.day30', 'workshop.imperial', 'workshop.legendary', 'workshop.clear']);
+  });
+  it('ブレイブ製法で brave、インペリアル製法で imperial', () => {
+    expect(trophyIds(withLevels({ uncommon: 1 }))).toEqual([]);
+    expect(trophyIds(withLevels({ rare: 1 }))).toEqual(['workshop.brave']);
+    expect(trophyIds(withLevels({ rare: 1, epic: 1 }))).toEqual(['workshop.brave', 'workshop.imperial']);
+  });
+  it('具現化カプセル起動で capsule、伝説の間で legendhall、MCH Verse Pass で versepass', () => {
+    expect(trophyIds(withLevels({ capsuleLine: 1 }))).toEqual(['workshop.capsule']);
+    expect(trophyIds(withLevels({ legendHall: 1 }))).toEqual(['workshop.legendhall']);
+    expect(trophyIds(withLevels({ versePass: 1 }))).toEqual(['workshop.versepass']);
+  });
+  it('通算 1 個販売で firstsale、1,000 個で sold1000、泥棒を 1 人捕まえて caught', () => {
+    const s = newSave(0);
+    s.totals.sold = 1;
+    expect(trophyIds(s)).toEqual(['workshop.firstsale']);
+    s.totals.sold = 999;
+    s.totals.caught = 1;
+    expect(trophyIds(s)).toEqual(['workshop.firstsale', 'workshop.caught']);
+    s.totals.sold = 1000;
+    expect(trophyIds(s)).toEqual(['workshop.firstsale', 'workshop.caught', 'workshop.sold1000']);
+  });
+  it('営業中に送るのは、販売 1 個目・1,000 個目と、泥棒を初めて捕まえた瞬間だけ', () => {
+    const totals = (sold: number, caught = 0) => ({ ...newSave(0).totals, sold, caught });
+    expect([1, 2, 999, 1000, 1001].map((n) => isTrophyMoment('sale', totals(n)))).toEqual([true, false, false, true, false]);
+    expect([1, 2].map((n) => isTrophyMoment('caught', totals(0, n)))).toEqual([true, false]);
   });
   it('30 日目の途中ではまだ付かない', () => {
     const s = newSave(0);
     s.day = 30;
     expect(trophyIds(s)).not.toContain('workshop.day30');
   });
-  it('移転したあとは 1 周目の分も含めて 4 つ', () => {
+  it('移転したあとは 1 周目の分（クリアの前提）も含めて 7 つ。カプセル・伝説の間は補わない', () => {
     const s = newSave(0);
     s.prestige.runs = 1;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary', 'workshop.clear', 'workshop.relocate']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.brave', 'workshop.day30', 'workshop.imperial', 'workshop.legendary', 'workshop.clear', 'workshop.relocate']);
+  });
+  it('移転で伝説の間が消えても、残る「称号の間」があれば legendhall', () => {
+    const s = withLevels({ titleHall: 1 });
+    s.prestige.runs = 1;
+    expect(trophyIds(s)).toContain('workshop.legendhall');
+  });
+  it('2 回移転すると loop3', () => {
+    const s = newSave(0);
+    s.prestige.runs = 2;
+    expect(trophyIds(s)).toContain('workshop.loop3');
+    s.prestige.runs = 1;
+    expect(trophyIds(s)).not.toContain('workshop.loop3');
   });
 });
 
@@ -96,10 +139,10 @@ describe('共通基盤の SDK への送信', () => {
     reportTrophies(s);
     reportTrophies(s);
     await new Promise((r) => setTimeout(r, 0));
-    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day30']);
+    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day1']);
     release();
     await new Promise((r) => setTimeout(r, 0));
-    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day30', 'workshop.legendary']);
+    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day1', 'workshop.brave', 'workshop.day30', 'workshop.imperial', 'workshop.legendary']);
   });
 
   it('「RTA で始める」から来た Day 1 だけ計測を始め、区切りを順に 1 回ずつ送る', () => {

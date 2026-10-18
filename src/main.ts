@@ -25,14 +25,14 @@ import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
 import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
-import { abortRta, canPickAvatar, initPlatform, isChatAvailable, isRtaAvailable, mountChat, openAvatarPicker, setChatVisible, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
+import { abortRta, canPickAvatar, initPlatform, isChatAvailable, isRtaAvailable, isTrophyMoment, mountChat, openAvatarPicker, setChatVisible, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 
 const save = loadSave();
-initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・トロフィー・RTA）。SDK がなければ何もしない
-// トロフィー: いまのセーブで満たしているもの（前から遊んでいる人にも付く）。SDK が遅れて読まれたら、init（load で）のあとに
+initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・アチーブメント・RTA）。SDK がなければ何もしない
+// アチーブメント（旧トロフィー）: いまのセーブで満たしているもの（前から遊んでいる人にも付く）。SDK が遅れて読まれたら、init（load で）のあとに
 reportTrophies(save);
 window.addEventListener('load', () => reportTrophies(save), { once: true });
 const sound = new Sound();
@@ -1101,7 +1101,7 @@ function runBusinessMs(): number {
   return (save.meta.playSeconds - save.prestige.runStartSeconds + today) * 1000;
 }
 
-/** 習得・閉店・移転のあと: 共通基盤のトロフィーと RTA の区切り */
+/** 習得・閉店・移転のあと: 共通基盤のアチーブメントと RTA の区切り */
 function reportProgress(): void {
   reportTrophies(save);
   reportRtaProgress(save, runBusinessMs());
@@ -1364,6 +1364,8 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'sale':
       sound.play('sale');
+      // アチーブメント：初めての販売・通算 1,000 個（その瞬間に送る）
+      if (isTrophyMoment('sale', save.totals)) reportTrophies(save);
       log(h('span', {}, h('b', {}, e.hero.name), t(' が ', ' bought '), extLabel(e.item), t(' を購入 ', ' '), h('span.gum-text', {}, `+${fmt(e.price)}`), e.tip ? h('span.tag', {}, t('チップ', 'Tip')) : ''));
       break;
     case 'lost':
@@ -1393,6 +1395,8 @@ function onShopEvent(e: ShopEvent): void {
       break;
     case 'caught':
       sound.play('hit');
+      // アチーブメント：初めて泥棒を捕まえる（その瞬間に送る）
+      if (isTrophyMoment('caught', save.totals)) reportTrophies(save);
       log(
         h(
           'span',
