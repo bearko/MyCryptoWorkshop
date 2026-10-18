@@ -59,6 +59,8 @@ export interface SaveData {
     alerts: boolean;
     /** Currencies the "learn all, cheapest first" button leaves alone. */
     bulkSkip: Currency[];
+    /** The bearko.games chat: shown (on wide screens, below the storefront) or hidden. */
+    chat: boolean;
   };
   tips: string[];
   meta: {
@@ -155,6 +157,7 @@ export function newSave(now = Date.now()): SaveData {
       bulkSkip: [],
       reduceMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
       alerts: false,
+      chat: true,
     },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },

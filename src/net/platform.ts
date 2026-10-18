@@ -7,7 +7,12 @@ import { computeStats } from '../game/stats';
 type Result = { ok: boolean; error?: string };
 
 interface BearkoGamesSdk {
-  init(opts: { game: string; version?: string; chat?: { position?: string; offset?: { x: number; y: number } } }): Promise<unknown>;
+  init(opts: { game: string; version?: string; chat?: { position?: string; offset?: { x: number; y: number }; layout?: 'dock' | 'float' } }): Promise<unknown>;
+  /** 全体チャット（共通基盤 SPEC-004・005）。mount は自分の場所にタイムラインを描く（SDK 1.7.0） */
+  chat?: {
+    setVisible(on: boolean): void;
+    mount(el: HTMLElement, opts?: { composerAt?: 'top' | 'bottom'; title?: string }): { ok: boolean; unmount?: () => void };
+  };
   openAvatarPicker?(): void;   // bearko.games 共通のアイコンを選ぶ窓（共通基盤 SPEC-005 5.3。SDK 1.7.0）
   submitScore(metrics: Record<string, unknown>, opts?: { quiet?: boolean }): Promise<Result>;
   unlockTrophy?(id: string): Promise<Result>;
@@ -51,8 +56,9 @@ export function initPlatform(version: string): void {
   if (initedWith === version) return;
   initedWith = version;
   try {
-    // 全体チャット（共通基盤 SPEC-004。SDK 1.6.0 から）：右下の 💬 は工房の「Skill tree」のボタンと重なるので、そのぶん上に置く
-    Promise.resolve(bg.init({ game: 'workshop', version, chat: { position: 'bottom-right', offset: { x: 16, y: 96 } } })).catch((e) => console.warn('[platform] init', e));
+    // 全体チャット（共通基盤 SPEC-004。SDK 1.6.0 から）：右下の 💬 は工房の「Skill tree」のボタンと重なるので、そのぶん上に置く。
+    // PC でも右側のドックは使わない（ゲームの上に重なって店の右端とボタンを隠す）。営業中の PC は店の下にタイムラインを置く（mountChat）
+    Promise.resolve(bg.init({ game: 'workshop', version, chat: { position: 'bottom-right', offset: { x: 16, y: 96 }, layout: 'float' } })).catch((e) => console.warn('[platform] init', e));
   } catch (e) {
     console.warn('[platform] init', e);
   }
@@ -204,3 +210,31 @@ export function openAvatarPicker(): boolean {
   }
   return true;
 }
+
+// ---------------------------------------------------------------- 全体チャット（表示する / 非表示にする）
+
+/** 全体チャットを出せるか（SDK 1.7.0 以上が読めたときだけ） */
+export function isChatAvailable(): boolean {
+  return typeof sdk()?.chat?.mount === 'function';
+}
+
+/** SDK 自身の 💬（と窓）を出す・隠す */
+export function setChatVisible(on: boolean): void {
+  try {
+    sdk()?.chat?.setVisible(on);
+  } catch (e) {
+    console.warn('[platform] chat', e);
+  }
+}
+
+/** el にタイムラインを描く。外すための関数を返す（出せなければ null） */
+export function mountChat(el: HTMLElement): (() => void) | null {
+  try {
+    const r = sdk()?.chat?.mount(el, { composerAt: 'top' });
+    return r?.ok ? (r.unmount ?? (() => undefined)) : null;
+  } catch (e) {
+    console.warn('[platform] chat', e);
+    return null;
+  }
+}
+

@@ -1,5 +1,5 @@
 import { fmt } from '../format';
-import { MAX_SLOTS } from '../layout';
+import { MAX_SLOTS, SCENE_H } from '../layout';
 import type { SaveData } from '../save';
 import { computeStats, type Stats } from '../stats';
 import { Customers } from './customers';
@@ -149,6 +149,28 @@ export class Shop {
     this.production.applyStats();
     this.register.applyStats();
     this.staff.applyStats();
+  }
+
+  /**
+   * After the storefront floor was laid out again mid-day (setSceneHeight: the window changed
+   * shape, or the chat was shown or hidden): whoever and whatever is below the new bottom edge,
+   * and every walk that ends there, is brought back onto the floor.
+   */
+  relayout(): void {
+    const maxY = SCENE_H - 20;
+    const seen = new Set<object>();
+    const fit = (v: unknown, depth: number): void => {
+      if (!v || typeof v !== 'object' || seen.has(v) || depth > 4) return;
+      seen.add(v);
+      if (Array.isArray(v)) {
+        for (const x of v) fit(x, depth + 1);
+        return;
+      }
+      const o = v as Record<string, unknown>;
+      if (typeof o.x === 'number' && typeof o.y === 'number' && o.y > maxY) o.y = maxY;
+      for (const [k, x] of Object.entries(o)) if (k !== 'shop' && k !== 'save' && k !== 'stats') fit(x, depth + 1);
+    };
+    for (const part of [this.actors, this.hazards, this.visitors, this.decisions, this.raid]) fit(part, 0);
   }
 
   /** Series wanted by the collectors in the shop (only those still looking, if `waiting`). */
