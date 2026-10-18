@@ -92,18 +92,43 @@ function call(name: string, fn: (bg: BearkoGamesSdk) => Promise<Result> | null |
 
 // ---------------------------------------------------------------- トロフィー
 
-/** いまのセーブで条件を満たしているトロフィー（純関数）。移転したあとは 1 周目に満たしたものも含む */
+/**
+ * いまのセーブで条件を満たしているアチーブメント（旧トロフィー。純関数、MyCryptoPortfolio SPEC-008、docs/platform-score.md）。
+ * 移転で消える値（スキル・日数）は、移転したあとなら必ず通ったもの（クリアの前提）だけ 1 周目に満たしたとみなす
+ */
 export function trophyIds(save: SaveData): string[] {
   const p = save.prestige;
-  const stats = computeStats(save.levels);
+  const lv = save.levels;
+  const stats = computeStats(lv);
+  const moved = p.runs > 0;
   const ids: string[] = [];
-  // 1 日目の営業を終えた（day は閉店で 2 になる）。bearko.games のアチーブメントの最初のヒーロー（MyCryptoPortfolio SPEC-008）
-  if (p.runs > 0 || save.day >= 2) ids.push('workshop.day1');
-  if (p.runs > 0 || save.ranking.day30 != null || save.day > 30) ids.push('workshop.day30');
-  if (p.runs > 0 || stats.maxRarity >= 4) ids.push('workshop.legendary');
-  if (p.runs > 0 || stats.cleared > 0) ids.push('workshop.clear');
-  if (p.runs > 0) ids.push('workshop.relocate');
+  // ヒーロー名鑑（No.045〜055）
+  // 1 日目の営業を終えた（day は閉店で 2 になる）
+  if (moved || save.day >= 2) ids.push('workshop.day1');
+  // ブレイブ製法（Rare）・インペリアル製法（Epic）はクリアの前提なので、移転したあとは常に
+  if (moved || stats.maxRarity >= 2) ids.push('workshop.brave');
+  // 具現化カプセルはクリアの前提ではないので、移転しただけでは補わない
+  if ((lv.capsuleLine ?? 0) > 0) ids.push('workshop.capsule');
+  if (moved || save.ranking.day30 != null || save.day > 30) ids.push('workshop.day30');
+  if (moved || stats.maxRarity >= 3) ids.push('workshop.imperial');
+  // 伝説の間は移転で消えるが、移転で残る「称号の間」は伝説の間が前提（titles.ts）
+  if ((lv.legendHall ?? 0) > 0 || (lv.titleHall ?? 0) > 0) ids.push('workshop.legendhall');
+  if (moved || stats.maxRarity >= 4) ids.push('workshop.legendary');
+  if (moved || stats.cleared > 0) ids.push('workshop.clear');
+  if (moved) ids.push('workshop.relocate');
+  if (p.runs >= 2) ids.push('workshop.loop3');
+  // MCH Verse Pass は移転しても残る
+  if ((lv.versePass ?? 0) > 0) ids.push('workshop.versepass');
+  // エクステンション（通算は移転しても残る）
+  if (save.totals.sold >= 1) ids.push('workshop.firstsale');
+  if (save.totals.caught >= 1) ids.push('workshop.caught');
+  if (save.totals.sold >= 1000) ids.push('workshop.sold1000');
   return ids;
+}
+
+/** 営業中の販売・捕り物のたびに呼ぶ（純関数）。アチーブメントの数に届いた瞬間だけ true（毎回ぜんぶを判定し直さないため） */
+export function isTrophyMoment(kind: 'sale' | 'caught', totals: SaveData['totals']): boolean {
+  return kind === 'sale' ? totals.sold === 1 || totals.sold === 1000 : totals.caught === 1;
 }
 
 const sentTrophies = new Set<string>();
