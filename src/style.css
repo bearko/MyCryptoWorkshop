@@ -2456,10 +2456,39 @@ body.in-day {
   box-shadow: 0 4px 14px #000a;
 }
 
-.to-tree {
+/* Bottom right of the scene: the chat switch and the way to the skill tree. */
+.scene-actions {
   position: absolute;
   right: 10px;
   bottom: 10px;
+  z-index: 8;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-toggle {
+  box-shadow: 0 4px 14px #000a;
+}
+
+/* The bearko.games chat below the storefront (wide screens, chat shown). The SDK draws the timeline
+   in the pane's shadow root as a flex column, so the pane is one too. */
+.chat-pane {
+  position: absolute;
+  left: 50%;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  border-top: 6px solid #1b120c;
+  border-left: 3px solid #1b120c;
+  background: #151926;
+  overflow: hidden;
+}
+
+.chat-pane[hidden] {
+  display: none;
 }
 
 .to-shop {

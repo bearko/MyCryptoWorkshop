@@ -6,7 +6,7 @@ import { confetti, confettiSettings } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
 import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
-import { COUNTER, FLOOR_Y, HERO_PX, POT, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP, WORKSHOP_H } from './game/layout';
+import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP, WORKSHOP_H } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { exportCode, importCode, loadSave, newSave, SaveError, writeSave } from './game/save';
@@ -25,7 +25,7 @@ import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
 import { partyDef, partyHero, taughtSeries } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
-import { abortRta, canPickAvatar, initPlatform, isRtaAvailable, openAvatarPicker, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
+import { abortRta, canPickAvatar, initPlatform, isChatAvailable, isRtaAvailable, mountChat, openAvatarPicker, setChatVisible, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
@@ -145,7 +145,13 @@ const openParty = h('div.open-party');
 const openCard = h('div.open-card', {}, openInfo, openExtras, openParty, openDayBtn);
 // The switch to the skill tree, bottom right (the tree's "to the shop" button sits in the same spot).
 const toTreeBtn = h('button.btn.nav-btn.to-tree', { onclick: () => showTree() }, t('🌳 スキルツリー', '🌳 Skill tree'));
-const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast, openCard, toTreeBtn);
+// The bearko.games chat: on wide screens, its timeline below the storefront (the right column).
+const chatPane = h('div.chat-pane', { 'aria-label': t('全体チャット', 'Chat') });
+chatPane.hidden = true;
+const chatToggle = h('button.btn.small.chat-toggle', { onclick: () => toggleChat() });
+chatToggle.hidden = true;
+const sceneActions = h('div.scene-actions', {}, chatToggle, toTreeBtn);
+const scene = h('div.scene', {}, workshop, canvas, hud, gearBtn, naviToast, openCard, chatPane, sceneActions);
 const renderer = new SceneRenderer(canvas);
 
 const stage = h('main.stage', {}, scene);
@@ -890,6 +896,7 @@ function showHome(): void {
   );
   homeRoot.hidden = false;
   document.body.classList.add('at-home');
+  syncChat();
 }
 
 function leaveHome(): void {
@@ -1085,6 +1092,7 @@ function showTree(): void {
   tree.show();
   sound.playBgm('bgmTree');
   updateTopbar();
+  syncChat();
 }
 
 /** この周回の営業時間（ミリ秒）。営業中ならその日の経過も足す（RTA の IGT） */
@@ -1730,15 +1738,31 @@ function updateHud(s: Shop): void {
  */
 /** Screens at least this wide (width / height) show the workshop and the storefront side by side. */
 const SIDE_BY_SIDE = 1.3;
+/** Side by side with the chat shown: the storefront's height (the chat takes the rest of the column). */
+const SIDE_STORE_WITH_CHAT = 620;
+/** The layout the storefront floor was last laid out for (side by side / chat below it). */
+let floorLayout = '';
+
+/** The chat is shown (the player's setting, and the bearko.games SDK has it). */
+const chatOn = (): boolean => save.settings.chat && isChatAvailable();
 
 function fitScene(relayout = false): void {
   const W = window.innerWidth;
   const H = window.innerHeight;
   const side = W / H >= SIDE_BY_SIDE;
+  const pane = side && chatOn();
   renderer.side = side;
   scene.classList.toggle('side', side);
-  // Side by side, the storefront is as tall as the workshop; stacked, it fills the phone's height.
-  if (relayout) setSceneHeight(side ? WORKSHOP_H * 2 : (1000 * H) / W);
+  // Side by side, the storefront is as tall as the workshop (or shares the column with the chat);
+  // stacked, it fills the phone's height. Laid out again before each day, and at once mid-day when
+  // the window changes between stacked and side by side or the chat is shown or hidden (otherwise
+  // half the column stays empty).
+  const layoutKey = `${side}|${pane}`;
+  if (relayout || layoutKey !== floorLayout) {
+    setSceneHeight(side ? WORKSHOP_H + (pane ? SIDE_STORE_WITH_CHAT : WORKSHOP_H) : (1000 * H) / W);
+    if (!relayout) shop?.relayout();
+    floorLayout = layoutKey;
+  }
   const vw = renderer.viewW;
   const vh = renderer.viewH;
   const width = Math.min(W, (H * vw) / vh);
@@ -1747,9 +1771,43 @@ function fitScene(relayout = false): void {
   workshop.style.width = side ? '50%' : '';
   workshop.style.top = `${(-WORKSHOP_CROP / vh) * 100}%`;
   workshop.style.height = `${(1000 / vh) * 100}%`;
+  chatPane.style.top = `${((SCENE_H - WORKSHOP_H) / vh) * 100}%`;
+  syncChat();
+}
+
+let unmountChat: (() => void) | null = null;
+
+/**
+ * Where the chat is: below the storefront during a day on a wide screen; otherwise the SDK's own
+ * 💬 button (a window on PC, a sheet on phones). Hidden everywhere when the player hides it.
+ */
+function syncChat(): void {
+  const pane = chatOn() && renderer.side && !stage.hidden && (place === 'day' || place === 'results');
+  if (pane && !unmountChat) unmountChat = mountChat(chatPane);
+  if (!pane && unmountChat) {
+    unmountChat();
+    unmountChat = null;
+  }
+  chatPane.hidden = !unmountChat;
+  setChatVisible(chatOn() && !unmountChat);
+  chatToggle.hidden = !isChatAvailable() || stage.hidden;
+  chatToggle.textContent = save.settings.chat ? t('💬 チャットを非表示にする', '💬 Hide chat') : t('💬 チャットを表示する', '💬 Show chat');
+  chatToggle.setAttribute('aria-pressed', String(save.settings.chat));
+}
+
+/** 【チャットを表示する】/【チャットを非表示にする】: the storefront makes room for it (or takes the column back) at once. */
+function toggleChat(): void {
+  save.settings.chat = !save.settings.chat;
+  writeSave(save);
+  fitScene(false);
 }
 window.addEventListener('resize', () => {
   if (!stage.hidden) fitScene(false);
+});
+// The bearko.games SDK may be read after the game: once it is, place the chat (and make room for it).
+window.addEventListener('load', () => {
+  if (!stage.hidden) fitScene(false);
+  else syncChat();
 });
 
 // Animate the navi portrait.
