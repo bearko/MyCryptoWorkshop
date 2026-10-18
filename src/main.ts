@@ -18,7 +18,7 @@ import { level, skillById, type SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
 import { SCENE_SPRITES, SceneRenderer } from './render/scene';
 import { collectionView } from './ui/collection';
-import { fileImg, fmt, h, icon } from './ui/dom';
+import { fileImg, fmt, h, icon, isTypingEvent } from './ui/dom';
 import { TreeView } from './ui/tree';
 import { dailiesList, ordersList } from './ui/dayInfo';
 import { rankingView } from './ui/ranking';
@@ -473,7 +473,7 @@ document.addEventListener(
   'keydown',
   (ev) => {
     const top = modalStack[modalStack.length - 1];
-    if (ev.key !== 'Escape' || !top) return;
+    if (ev.key !== 'Escape' || !top || isTypingEvent(ev)) return;
     ev.preventDefault();
     ev.stopPropagation();
     top.cancel?.();
@@ -1623,8 +1623,8 @@ canvas.addEventListener('pointermove', (ev) => {
 // Escape opens the menu.
 let spaceHeld = false;
 window.addEventListener('keydown', (ev) => {
-  const typing = ev.target instanceof HTMLTextAreaElement || ev.target instanceof HTMLInputElement;
-  if (typing || !shop || paused || !shop.started || modalOpen > 0) return;
+  // Typing in a field (the menu's, or the bearko.games chat's) is not a game key.
+  if (isTypingEvent(ev) || !shop || paused || !shop.started || modalOpen > 0) return;
   if (ev.code === 'Space') {
     ev.preventDefault();
     if (ev.repeat) {
