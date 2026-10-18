@@ -8,6 +8,7 @@
 // Outputs: public/mch/** (copied assets), public/mch-atlas/*.png (sprite sheets) and
 // src/generated/catalog.json.
 
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +73,18 @@ function packSprite(kind, relPath) {
   return `#${kind}-${Math.floor(index / perSheet)}/${index % perSheet}`;
 }
 
+/**
+ * Writes a generated image under mch-atlas/ with a content hash in its name and returns its URL.
+ * The cell numbers in the catalog change whenever a sheet's contents do, so a sheet must never be
+ * served from an old cache under the same name (the service worker serves these cache-first).
+ */
+function writeHashed(name, buf) {
+  const file = `${name}.${createHash('sha256').update(buf).digest('hex').slice(0, 10)}.png`;
+  mkdirSync(outAtlas, { recursive: true });
+  writeFileSync(join(outAtlas, file), buf);
+  return `mch-atlas/${file}`;
+}
+
 function writeAtlases() {
   const sheets = {};
   mkdirSync(outAtlas, { recursive: true });
@@ -86,8 +99,7 @@ function writeAtlases() {
         PNG.bitblt(png, sheet, 0, 0, CELL, CELL, (i % cols) * CELL, Math.floor(i / cols) * CELL);
       });
       const name = `${kind}-${page}`;
-      writeFileSync(join(outAtlas, `${name}.png`), PNG.sync.write(sheet, { deflateLevel: 9 }));
-      sheets[name] = { url: `mch-atlas/${name}.png`, cols, rows, cell: CELL };
+      sheets[name] = { url: writeHashed(name, PNG.sync.write(sheet, { deflateLevel: 9 })), cols, rows, cell: CELL };
     }
   }
   return sheets;
@@ -220,9 +232,7 @@ function windowCrop(relPath, key) {
       for (let c = 0; c < 4; c++) out.data[o + c] = Math.round(acc[c] / Math.max(1, n));
     }
   }
-  mkdirSync(outAtlas, { recursive: true });
-  writeFileSync(join(outAtlas, `window-${key}.png`), PNG.sync.write(out, { deflateLevel: 9 }));
-  return `mch-atlas/window-${key}.png`;
+  return writeHashed(`window-${key}`, PNG.sync.write(out, { deflateLevel: 9 }));
 }
 
 // Workshop background and facility overlays.
