@@ -97,6 +97,8 @@ export function trophyIds(save: SaveData): string[] {
   const p = save.prestige;
   const stats = computeStats(save.levels);
   const ids: string[] = [];
+  // 1 日目の営業を終えた（day は閉店で 2 になる）。bearko.games のアチーブメントの最初のヒーロー（MyCryptoPortfolio SPEC-008）
+  if (p.runs > 0 || save.day >= 2) ids.push('workshop.day1');
   if (p.runs > 0 || save.ranking.day30 != null || save.day > 30) ids.push('workshop.day30');
   if (p.runs > 0 || stats.maxRarity >= 4) ids.push('workshop.legendary');
   if (p.runs > 0 || stats.cleared > 0) ids.push('workshop.clear');

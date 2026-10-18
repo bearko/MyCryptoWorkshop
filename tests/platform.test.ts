@@ -34,22 +34,28 @@ describe('トロフィーの条件', () => {
   it('はじめは何もない', () => {
     expect(trophyIds(newSave(0))).toEqual([]);
   });
+  it('1 日目の営業を終えると day1（閉店で day が 2 になる）', () => {
+    const s = newSave(0);
+    expect(trophyIds(s)).not.toContain('workshop.day1');
+    s.day = 2;
+    expect(trophyIds(s)).toEqual(['workshop.day1']);
+  });
   it('30 日目を終えると day30、MCH製法で legendary、黄金のエクステンションで clear', () => {
     const s = withLevels({ epic: 1, legendary: 1 });
     s.day = 31;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.day30', 'workshop.legendary']);
     s.levels.goldenExtension = 1;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary', 'workshop.clear']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.day30', 'workshop.legendary', 'workshop.clear']);
   });
   it('30 日目の途中ではまだ付かない', () => {
     const s = newSave(0);
     s.day = 30;
     expect(trophyIds(s)).not.toContain('workshop.day30');
   });
-  it('移転したあとは 1 周目の分も含めて 4 つ', () => {
+  it('移転したあとは 1 周目の分も含めて 5 つ', () => {
     const s = newSave(0);
     s.prestige.runs = 1;
-    expect(trophyIds(s)).toEqual(['workshop.day30', 'workshop.legendary', 'workshop.clear', 'workshop.relocate']);
+    expect(trophyIds(s)).toEqual(['workshop.day1', 'workshop.day30', 'workshop.legendary', 'workshop.clear', 'workshop.relocate']);
   });
 });
 
@@ -96,10 +102,10 @@ describe('共通基盤の SDK への送信', () => {
     reportTrophies(s);
     reportTrophies(s);
     await new Promise((r) => setTimeout(r, 0));
-    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day30']);
+    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day1']);
     release();
     await new Promise((r) => setTimeout(r, 0));
-    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day30', 'workshop.legendary']);
+    expect(sdk.unlockTrophy.mock.calls.map((c) => c[0])).toEqual(['workshop.day1', 'workshop.day30', 'workshop.legendary']);
   });
 
   it('「RTA で始める」から来た Day 1 だけ計測を始め、区切りを順に 1 回ずつ送る', () => {

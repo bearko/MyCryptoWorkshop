@@ -16,12 +16,17 @@ bearko.games の総合スコア（[bearko/mycryptoportfolio の SPEC-002](https:
 
 ## トロフィー（共通基盤の SPEC-001 9.4、ROADMAP 8.4）
 
-| ID | 名前 | 条件 |
+bearko.games では「アチーブメント」と呼ぶ（MyCryptoPortfolio SPEC-008）。名前と絵（ヒーロー）は共通基盤の `platform/trophies.js` が決める。
+
+| ID | 名鑑 | 条件 |
 | --- | --- | --- |
-| `workshop.day30` | 行列のできる人気店 | 30 日目の営業を終える |
-| `workshop.legendary` | 千磨百錬 | 「MCH製法」を習得（Legendary） |
-| `workshop.clear` | 黄金の工房 | 黄金のエクステンション（クリア） |
-| `workshop.relocate` | 西廻り航路の夢 | ランド移転して 2 周目 |
+| `workshop.day1` | No.045 大長今（Common） | 1 日目の営業を終える（SPEC-008。マインが最初に勧める 3 本のひとつなので、最初の節目を早くした） |
+| `workshop.day30` | No.048 サンタクロース（Uncommon） | 30 日目の営業を終える |
+| `workshop.legendary` | No.051 ルーベンス（Rare） | 「MCH製法」を習得（Legendary） |
+| `workshop.clear` | No.052 ゴッホ（Epic） | 黄金のエクステンション（クリア） |
+| `workshop.relocate` | No.053 マルコ・ポーロ（Epic） | ランド移転して 2 周目 |
+
+- 名鑑にはほかに Workshop の節目が 6 つ（ブレイブ製法・具現化カプセル・インペリアル製法・伝説の間・3 周目・MCH Verse Pass）と、エクステンション 4 つ（来訪は SDK が送る）がある。送るのは SPEC-008 の段階 3
 
 - 条件は `src/net/platform.ts` の `trophyIds`（純関数、`tests/platform.test.ts`）。移転したあとは 1 周目の分も満たしているとみなす
 - 送るのは起動したとき（前から遊んでいる人にも付く）・習得・閉店・移転のあと。同じ起動で同じ ID は 1 回だけ
