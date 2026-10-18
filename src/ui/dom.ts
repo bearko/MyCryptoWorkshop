@@ -51,3 +51,13 @@ export function fileImg(path: string, cls = 'px', alt = ''): HTMLImageElement {
 }
 
 export { fmt, secs } from '../game/format';
+
+/**
+ * Whether a key event is someone typing in a text field. It looks at composedPath() so a field
+ * inside a shadow root (the bearko.games chat) counts: there ev.target is only the shadow host.
+ */
+export function isTypingEvent(ev: { target: EventTarget | null; composedPath?: () => EventTarget[] }): boolean {
+  const el = (ev.composedPath?.()[0] ?? ev.target) as { tagName?: string; isContentEditable?: boolean } | null;
+  if (!el) return false;
+  return el.isContentEditable === true || ['INPUT', 'TEXTAREA', 'SELECT'].includes(String(el.tagName ?? '').toUpperCase());
+}
