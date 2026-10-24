@@ -1,0 +1,202 @@
+// 経営モードの画面（docs/EMPIRE_DESIGN.md 3・4.1 章）。報告を読み、決め、月を進める。
+// テストモードのときだけ読む（main.ts から動的 import）。
+import { newEmpire, type EmpireState, type MonthReport, type Note, type Store } from '../empire/model';
+import { advanceMonth, expectedDemand, MAX_STAFF, MAX_STORES, OPEN_COST, ORDER_RANGE, RENOVATE_COST, STAFF_NEEDED, type Decisions } from '../empire/sim';
+import { t } from '../i18n';
+import { fmt, h } from './dom';
+
+/** 会社の格（フェーズごとの呼び名） */
+export function companyTitle(e: Pick<EmpireState, 'name' | 'phase'>): string {
+  const n = e.name;
+  switch (e.phase) {
+    case 1:
+      return t(`${n}商店`, `${n} Store`);
+    case 2:
+      return t(`${n}商会`, `${n} Trading`);
+    case 3:
+      return t(`株式会社${n}`, `${n} Inc.`);
+    case 4:
+      return t(`${n}インターナショナル`, `${n} International`);
+    default:
+      return t(`${n}ホールディングス`, `${n} Holdings`);
+  }
+}
+
+export const monthLabel = (month: number) => t(`${Math.floor(month / 12) + 1}年目 ${(month % 12) + 1}月`, `Year ${Math.floor(month / 12) + 1}, month ${(month % 12) + 1}`);
+const storeName = (id: number) => t(`${id}号店`, `Store ${id}`);
+const money = (v: number) => `${v < 0 ? '−' : ''}${fmt(Math.abs(Math.round(v)))}`;
+
+/** 報告の一行（予兆を含む） */
+export function noteText(n: Note): string {
+  switch (n.kind) {
+    case 'fatigue':
+      return t(`${storeName(n.store)}の店主が眠そうです。人手が足りていません`, `The owner of ${storeName(n.store)} looks exhausted. The shifts are short-handed`);
+    case 'waste':
+      return t(`${storeName(n.store)}は売れ残りの廃棄が多めです。発注を絞ってもよさそうです`, `${storeName(n.store)} is throwing away a lot. Consider ordering less`);
+    case 'stockout':
+      return t(`${storeName(n.store)}で欠品が出ています。発注を増やすと売上が伸びそうです`, `${storeName(n.store)} ran out of stock. Ordering more could lift sales`);
+    case 'opened':
+      return t(`${storeName(n.store)}が開店しました！`, `${storeName(n.store)} is open!`);
+    case 'shortOfFunds':
+      return t('資金が足りず、できなかったことがあります', "Some plans couldn't go ahead: not enough funds");
+    case 'storeLimit':
+      return t('いまの会社の格では、これ以上は店を出せません', "The company can't run more stores at this stage");
+  }
+}
+
+/** 決定の下書きを当てた店（画面の見込みに使う） */
+function drafted(s: Store, d: Decisions): Store {
+  const c = d.stores?.[s.id] ?? {};
+  const r = d.renovate ?? [];
+  return { ...s, ...c, sign: s.sign || r.some((x) => x.store === s.id && x.kind === 'sign'), parking: s.parking || r.some((x) => x.store === s.id && x.kind === 'parking') };
+}
+
+/**
+ * 経営画面。`commit` は会社が変わるたびに呼ばれ、セーブに書く。
+ * 決定は「月を進める」まで下書きで、改装・出店の支払いもそのときに起きる。
+ */
+export function empireView(initial: EmpireState, commit: (e: EmpireState) => void): HTMLElement {
+  let e = initial;
+  let draft: Decisions = {};
+  let last: MonthReport | null = initial.history.at(-1) ?? null;
+  const root = h('div.empire', {});
+
+  const setStore = (id: number, patch: NonNullable<Decisions['stores']>[number]) => {
+    draft = { ...draft, stores: { ...draft.stores, [id]: { ...draft.stores?.[id], ...patch } } };
+    render();
+  };
+  const reserved = () => (draft.renovate ?? []).reduce((a, r) => a + RENOVATE_COST[r.kind], 0) + (draft.open ?? []).length * OPEN_COST;
+
+  const storeCard = (orig: Store) => {
+    const s = drafted(orig, draft);
+    const rep = last?.stores.find((r) => r.id === s.id);
+    const need = STAFF_NEEDED[s.hours];
+    const renovate = (kind: 'sign' | 'parking', label: string) => {
+      if (orig[kind]) return h('span.empire-done', {}, `✓ ${label}`);
+      const on = (draft.renovate ?? []).some((r) => r.store === s.id && r.kind === kind);
+      return h(
+        'button.btn.small',
+        {
+          class: `btn small ${on ? 'btn-primary' : ''}`,
+          'aria-pressed': String(on),
+          onclick: () => {
+            const rest = (draft.renovate ?? []).filter((r) => !(r.store === s.id && r.kind === kind));
+            draft = { ...draft, renovate: on ? rest : [...rest, { store: s.id, kind }] };
+            render();
+          },
+        },
+        t(`${label}（${fmt(RENOVATE_COST[kind])}）`, `${label} (${fmt(RENOVATE_COST[kind])})`),
+      );
+    };
+    const order = h('input', { type: 'range', min: ORDER_RANGE[0], max: ORDER_RANGE[1], step: 0.05, value: s.order, 'aria-label': t('発注の多さ', 'Order size') }) as HTMLInputElement;
+    order.addEventListener('change', () => setStore(s.id, { order: Number(order.value) }));
+    order.addEventListener('input', () => (orderLabel.textContent = `×${Number(order.value).toFixed(2)}`));
+    const orderLabel = h('b', {}, `×${s.order.toFixed(2)}`);
+    return h(
+      'div.empire-store',
+      {},
+      h('div.empire-store-head', {}, h('b', {}, storeName(s.id)), h('span.muted', {}, t(`見込み日販 ${fmt(Math.round(expectedDemand(s, e.month)))}`, `Expected ${fmt(Math.round(expectedDemand(s, e.month)))}/day`))),
+      rep ? h('div.empire-store-last', {}, t(`先月　売上 ${money(rep.revenue)}・利益 `, `Last month: sales ${money(rep.revenue)} · profit `), h('b', { class: rep.profit < 0 ? 'bad' : 'good' }, money(rep.profit))) : null,
+      h('label.empire-row', {}, h('span', {}, t('発注', 'Order')), order, orderLabel),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('営業時間', 'Hours')),
+        ...([16, 24] as const).map((hrs) => h('button.btn.small', { class: `btn small ${s.hours === hrs ? 'btn-primary' : ''}`, 'aria-pressed': String(s.hours === hrs), onclick: () => setStore(s.id, { hours: hrs }) }, t(`${hrs}時間`, `${hrs}h`))),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('シフト', 'Shifts')),
+        h('button.btn.small', { onclick: () => setStore(s.id, { staff: Math.max(0, s.staff - 1) }), 'aria-label': t('減らす', 'Fewer') }, '−'),
+        h('b', { class: s.staff < need ? 'bad' : '' }, t(`${s.staff}人`, `${s.staff}`)),
+        h('button.btn.small', { onclick: () => setStore(s.id, { staff: Math.min(MAX_STAFF, s.staff + 1) }), 'aria-label': t('増やす', 'More') }, '+'),
+        h('span.muted', {}, t(`（回すには ${need} 人）`, `(${need} needed)`)),
+      ),
+      s.fatigue > 0 ? h('div.empire-row', {}, h('span', {}, t('店主の疲れ', 'Owner fatigue')), h('meter', { min: 0, max: 100, low: 40, high: 60, optimum: 0, value: s.fatigue })) : null,
+      h('div.empire-row', {}, h('span', {}, t('改装', 'Upgrades')), renovate('sign', t('看板', 'Sign')), renovate('parking', t('駐車場', 'Parking'))),
+    );
+  };
+
+  const render = () => {
+    const pendingOpen = (draft.open ?? []).length;
+    const cap = MAX_STORES[e.phase];
+    const canOpen = e.stores.length + pendingOpen < cap;
+    root.replaceChildren(
+      h(
+        'div.empire-head',
+        {},
+        h('div', {}, h('div.empire-title', {}, companyTitle(e)), h('div.muted', {}, t(`${monthLabel(e.month)}・${e.stores.length} 店`, `${monthLabel(e.month)} · ${e.stores.length} store(s)`))),
+        h('div.empire-funds', {}, h('span.muted', {}, t('資金', 'Funds')), h('b', {}, money(e.funds)), reserved() > 0 ? h('small.muted', {}, t(`（予定の支払い ${fmt(reserved())}）`, `(planned ${fmt(reserved())})`)) : null),
+      ),
+      last
+        ? h(
+            'section.empire-report',
+            {},
+            h('h3', {}, t(`${monthLabel(last.month)}の報告`, `Report: ${monthLabel(last.month)}`)),
+            h(
+              'div.stat-grid',
+              {},
+              h('div.stat-row', {}, h('span', {}, t('売上', 'Sales')), h('b', {}, money(last.revenue))),
+              h('div.stat-row', { class: `stat-row ${last.profit < 0 ? 'bad' : ''}` }, h('span', {}, t('利益', 'Profit')), h('b', {}, money(last.profit))),
+              h('div.stat-row', {}, h('span', {}, t('本店からの送金', 'From the main shop')), h('b', {}, money(last.inflow ?? 0))),
+            ),
+            last.notes.length ? h('ul.empire-notes', {}, ...last.notes.map((n) => h('li', { class: n.kind === 'opened' ? 'good' : '' }, noteText(n)))) : null,
+          )
+        : h('p.empire-intro', {}, t('お店の設定を決めて「月を進める」を押すと、1 か月の結果が出ます。発注は多いと欠品が減って廃棄が増え、少ないとその逆です。', 'Set up the store and press "Next month" to see how a month goes. Ordering more means fewer stock-outs but more waste, and less means the opposite.')),
+      h('section.empire-stores', {}, ...e.stores.map(storeCard)),
+      h(
+        'div.empire-row.empire-open',
+        {},
+        h(
+          'button.btn.small',
+          {
+            disabled: !canOpen,
+            onclick: () => {
+              draft = { ...draft, open: [...(draft.open ?? []), { base: 260_000, rent: 350_000 }] };
+              render();
+            },
+          },
+          t(`＋ 新しい店を出す（${fmt(OPEN_COST)}）`, `+ Open a new store (${fmt(OPEN_COST)})`),
+        ),
+        pendingOpen > 0 ? h('button.btn.small', { onclick: () => ((draft = { ...draft, open: draft.open!.slice(1) }), render()) }, t(`出店の予定を取り消す（${pendingOpen}）`, `Cancel planned opening (${pendingOpen})`)) : null,
+        h('span.muted', {}, t(`${e.stores.length + pendingOpen} / ${cap} 店`, `${e.stores.length + pendingOpen} / ${cap} stores`)),
+      ),
+      h(
+        'button.btn.btn-primary.empire-advance',
+        {
+          onclick: () => {
+            const r = advanceMonth(e, draft);
+            e = r.state;
+            last = r.report;
+            draft = {};
+            commit(e);
+            render();
+            root.scrollIntoView?.({ block: 'start' });
+          },
+        },
+        t('▶ 月を進める', '▶ Next month'),
+      ),
+    );
+  };
+  render();
+  return root;
+}
+
+/** マインちゃんの誘い：屋号を決めて会社を作る */
+export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement): HTMLElement {
+  const input = h('input.empire-name', { type: 'text', maxlength: 12, value: t('マイクリ', 'MyCrypto'), 'aria-label': t('屋号', 'Company name') }) as HTMLInputElement;
+  const seed = () => {
+    const b = new Uint32Array(1);
+    crypto.getRandomValues(b);
+    return b[0];
+  };
+  return h(
+    'div.empire-found',
+    {},
+    h('div.empire-found-mine', {}, mineImg, h('p', {}, t('店主さん、2 週間もかからずに黄金のエクステンションまで行けるなんて、もう立派な商売人です！ そろそろ、新しいお店を出してみませんか？ この工房は「本店」として、これまでどおり続けられます。', "Owner, you reach the golden extension in under two weeks. You're a real merchant now! How about opening a new store? This workshop carries on as the main shop, just as before."))),
+    h('label.empire-row', {}, h('span', {}, t('屋号', 'Company name')), input),
+    h('p.muted', {}, t('本店の売上の一部が、営業日を終えるたびに会社の資金になります（会社のお金で工房は強くなりません）。', "Part of the main shop's sales goes into the company's funds after each business day (company money doesn't power up the workshop).")),
+    h('button.btn.btn-primary', { onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed())) }, t('お店を出す', 'Open a store')),
+  );
+}

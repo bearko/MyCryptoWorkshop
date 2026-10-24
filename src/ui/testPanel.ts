@@ -42,6 +42,14 @@ export const testActions = {
       return e;
     });
   },
+  /** マインちゃんの登場条件を満たす（この周回を Day 10 でクリアしたことにする） */
+  meetUnlock(current: SaveData): SaveData {
+    return { ...current, prestige: { ...current.prestige, clearDay: 10 } };
+  },
+  /** 会社を消す（マインちゃんの誘いからやり直す） */
+  dropEmpire(current: SaveData): SaveData {
+    return { ...current, empire: null };
+  },
   setSeed(current: SaveData, seed: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
   },
@@ -109,6 +117,8 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
     h(
       'div.test-panel-row',
       {},
+      btn(t('登場条件を満たす', 'Meet the unlock condition'), () => testActions.meetUnlock(save)),
+      save.empire ? btn(t('会社を消す', 'Remove the company'), () => testActions.dropEmpire(save)) : null,
       btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),

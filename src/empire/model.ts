@@ -43,11 +43,14 @@ export type Note =
   | { kind: 'waste'; store: number }
   | { kind: 'stockout'; store: number }
   | { kind: 'opened'; store: number }
-  | { kind: 'shortOfFunds' };
+  | { kind: 'shortOfFunds' }
+  | { kind: 'storeLimit' };
 
 export interface MonthReport {
   month: number;
   revenue: number;
+  /** この月に本店から届いた送金 */
+  inflow: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -65,6 +68,8 @@ export interface EmpireState {
   rng: number;
   stores: Store[];
   nextStoreId: number;
+  /** 前の月を進めてから本店から届いた送金（次の報告に載せて 0 に戻す） */
+  inflow: number;
   /** 直近の報告（新しいものが後ろ、最大 HISTORY 件） */
   history: MonthReport[];
 }
@@ -78,7 +83,7 @@ export function newStore(id: number, opened: number, base = 300_000, rent = 400_
 }
 
 export function newEmpire(name: string, seed: number): EmpireState {
-  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, history: [] };
+  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [] };
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -98,6 +103,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     phase,
     month: num(r.month, 0),
     funds: num(r.funds, base.funds),
+    inflow: num(r.inflow, 0),
     stores,
     nextStoreId: Math.max(num(r.nextStoreId, 1), ...stores.map((s) => s.id + 1)),
     history: Array.isArray(r.history) ? r.history.slice(-HISTORY) : [],
