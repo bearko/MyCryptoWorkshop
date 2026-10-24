@@ -3271,3 +3271,20 @@ body.in-day {
   text-decoration: none;
   box-shadow: 0 2px 8px #0008;
 }
+button.test-badge {
+  border: 0;
+  cursor: pointer;
+}
+.test-panel h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+.test-panel-note {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.test-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
