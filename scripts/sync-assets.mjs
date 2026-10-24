@@ -298,6 +298,8 @@ const atlases = writeAtlases();
 // ---------------------------------------------------------------- 経営モードの絵（scripts/pixel/）
 // エクステンションにない物（地形・駅・物流センター・車）と、ドット絵にしたランドの背景
 const empire = buildEmpireAssets({ root, src, use });
+// 新しく取ってきた作業コピーには src/generated/ がまだ無い（目録より先に書くので、ここで作る）
+mkdirSync(join(root, 'src', 'generated'), { recursive: true });
 writeFileSync(join(root, 'src', 'generated', 'empire.json'), JSON.stringify(empire, null, 1));
 
 
