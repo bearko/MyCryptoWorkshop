@@ -2,6 +2,7 @@
 // 数字はすべて仮の値。scripts/empire-sim.mjs で測って決める。
 import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store, type StoreReport } from './model';
 import { makeRng, type Rng } from './rng';
+import { stakeMods, stakeStep } from './stakeholders';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
 import {
   borrowable,
@@ -211,6 +212,8 @@ export interface StoreEnv {
   delivery?: number;
   /** POS：売れ行きのデータで、天気のぶれの半分以上を発注に織りこめる */
   pos?: boolean;
+  /** 家賃の倍率（商店街の最後通告で地主が上げる） */
+  rentMult?: number;
 }
 
 export function storeMonth(store: Store, month: number, env: StoreEnv | number, rng: Rng): { store: Store; report: StoreReport } {
@@ -226,6 +229,7 @@ export function storeMonth(store: Store, month: number, env: StoreEnv | number, 
   // 加盟店は人件費と家賃をオーナーが持ち、本部は粗利の FC_SHARE を受け取る
   const fc = store.owner !== null;
   const labor = fc ? 0 : store.staff * WAGE * (store.hours === 24 ? 1.5 : 1);
+  const rent = fc ? 0 : store.rent * (e.rentMult ?? 1);
   const delivery = e.delivery ?? 0;
   const short = Math.max(0, STAFF_NEEDED[store.hours] - store.staff);
   const fatigue = clamp(store.fatigue + (short > 0 ? short * 12 : -15), 0, 100);
@@ -238,8 +242,8 @@ export function storeMonth(store: Store, month: number, env: StoreEnv | number, 
     waste: Math.max(0, stocked - sold) * DAYS_PER_MONTH,
     lost: Math.max(0, demand - stocked) * DAYS_PER_MONTH,
     labor,
-    rent: fc ? 0 : store.rent,
-    profit: (fc ? (revenue - purchases) * FC_SHARE : revenue - purchases - labor - store.rent) - delivery,
+    rent,
+    profit: (fc ? (revenue - purchases) * FC_SHARE : revenue - purchases - labor - rent) - delivery,
     fatigue,
   };
   return { store: { ...store, fatigue }, report };
@@ -419,7 +423,7 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
     notes.push({ kind: 'pbUp', level: n.pb });
   }
   if (d.borrow && d.borrow > 0) {
-    const amount = Math.min(d.borrow, borrowable(n));
+    const amount = Math.min(d.borrow, borrowable(n) * stakeMods(state).borrow);
     n.loans += amount;
     state.funds += amount;
   }
@@ -514,7 +518,8 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
     n.investigation = null;
     notes.push({ kind: 'investigation', fine });
   }
-  const mods = { demand: 1 + n.pb * PB.demand, costCut: n.pb * PB.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1 };
+  const sm = stakeMods(state);
+  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand, costCut: n.pb * PB.costCut - sm.costRate, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent };
   const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, mods));
   const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + n.loans * LOAN.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
@@ -530,10 +535,16 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   const notes: Note[] = [];
   const rng = makeRng(state.rng);
   applyDecisions(state, decisions, notes, rng);
+  // この月に改装した店の数（常連客が喜ぶ）
+  const renovated = state.stores.filter((s) => {
+    const p = prev.stores.find((x) => x.id === s.id);
+    return !!p && ((s.sign && !p.sign) || (s.parking && !p.parking));
+  }).length;
   if (state.phase >= 3 && state.nation) {
     const report = nationMonth(state, decisions, notes, rng);
     state.inflow = 0;
     state.history = [...state.history, report].slice(-HISTORY);
+    stakeStep(state, report, { renovated });
     if (canPromote(state)) notes.push({ kind: 'phaseReady' });
     state.month++;
     state.rng = rng.state;
@@ -541,9 +552,14 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   }
   rivalStep(state, notes);
   const reports: StoreReport[] = [];
-  const env = state.stores.map((s) => ({ ...logistics(state, s), mult: areaMult(state, s), crowd: state.area && s.cell !== null ? cannibalMult(state.area, s.cell, ownCells(state)) : 1 }));
+  // 最後通告の重し（客離れ・問屋の値上げ・地主の値上げ）
+  const sm = stakeMods(state);
+  const env = state.stores.map((s) => {
+    const l = logistics(state, s);
+    return { delivery: l.delivery, costRate: l.costRate + sm.costRate, mult: areaMult(state, s) * sm.demand, crowd: state.area && s.cell !== null ? cannibalMult(state.area, s.cell, ownCells(state)) : 1 };
+  });
   state.stores = state.stores.map((s, i) => {
-    const { store, report } = storeMonth(s, state.month, { costRate: env[i].costRate, delivery: env[i].delivery, mult: env[i].mult, pos: state.pos }, rng);
+    const { store, report } = storeMonth(s, state.month, { costRate: env[i].costRate, delivery: env[i].delivery, mult: env[i].mult, pos: state.pos, rentMult: sm.rent }, rng);
     if (env[i].crowd < CROWDED_WARN) notes.push({ kind: 'crowded', store: s.id });
     reports.push(report);
     // 予兆：疲れが積もり始めた月から知らせる（需要が大きく落ちる前に）
@@ -561,6 +577,7 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   const report: MonthReport = { month: state.month, revenue, inflow: state.inflow, overhead, profit, funds: state.funds, stores: reports, notes };
   state.inflow = 0;
   state.history = [...state.history, report].slice(-HISTORY);
+  stakeStep(state, report, { renovated });
   if (canPromote(state)) notes.push({ kind: 'phaseReady' });
   state.month++;
   state.rng = rng.state;

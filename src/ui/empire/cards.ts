@@ -49,7 +49,7 @@ import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
 import { cellName, monthLabel, money, plotLabel, storeName } from './text';
 
-export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff';
+export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
 export interface Ctx {
   e: EmpireState;

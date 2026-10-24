@@ -101,11 +101,34 @@ function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   return d;
 }
 
+/**
+ * 絵馬（期限つきの要望）に応える：問屋には発注をしぼり、常連客には発注を戻し、商店街には 24 時間をやめる。
+ * 人のプレイヤーも絵馬を見て直すので、ボットも同じだけ応える（応えないと最後通告が続く）
+ */
+function heedDemands(s: EmpireState, d: Decisions): Decisions {
+  const who = new Set((s.stake?.demands ?? []).map((x) => x.who));
+  if (!who.size || s.phase >= 3) {
+    if (who.has('staff') || who.has('shotengai') || who.has('regulars')) return { ...d, expand: (d.expand ?? []).map((x) => ({ ...x, count: Math.ceil(x.count / 2) })), force24: false };
+    return d;
+  }
+  // 商店街：出店はひと月 2 店まで
+  const openAt = who.has('shotengai') ? (d.openAt ?? []).slice(0, 2) : d.openAt;
+  const stores = { ...d.stores };
+  for (const st of s.stores) {
+    const c = { ...stores[st.id] };
+    if (who.has('wholesaler')) c.order = Math.min(c.order ?? st.order, 1.05);
+    if (who.has('regulars')) c.order = Math.max(c.order ?? st.order, 1.1);
+    if (who.has('shotengai')) Object.assign(c, { hours: 16, staff: STAFF_NEEDED[16] });
+    stores[st.id] = c;
+  }
+  return { ...d, stores, openAt };
+}
+
 /** フェーズごとに手を変えるボット */
 const staged = (p1: (s: EmpireState) => Decisions, reserve: number, type: StoreType) => (s: EmpireState): Decisions => {
   if (canPromote(s) && s.phase < 3) return { promote: true };
-  if (s.phase === 1) return p1(s);
-  return s.phase === 2 ? phase2Moves(s, reserve) : phase3Moves(s, reserve, type);
+  if (s.phase === 1) return heedDemands(s, p1(s));
+  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : phase3Moves(s, reserve, type));
 };
 
 const BOTS_P1: Bot[] = [
@@ -152,6 +175,9 @@ export interface BotResult {
   funds: number;
   /** 資金がマイナスで終わった月の数 */
   redMonths: number;
+  /** 最後通告を受けた回数と、要望が出た回数 */
+  ultimatums: number;
+  demands: number;
 }
 
 export function runBot(bot: Bot, seed: number, months: number): BotResult {
@@ -160,12 +186,17 @@ export function runBot(bot: Bot, seed: number, months: number): BotResult {
   let phase2Month: number | null = null;
   let phase3Month: number | null = null;
   let redMonths = 0;
+  let ultimatums = 0;
+  let demands = 0;
   for (let i = 0; i < months; i++) {
-    s = advanceMonth(s, bot.decide(s)).state;
+    const step = advanceMonth(s, bot.decide(s));
+    s = step.state;
+    ultimatums += step.report.notes.filter((n) => n.kind === 'ultimatum').length;
+    demands += step.report.notes.filter((n) => n.kind === 'demand').length;
     if (s.funds < 0) redMonths++;
     if (phase1Month === null && phase1Done(s)) phase1Month = s.month;
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
     if (phase3Month === null && s.phase === 3 && phase3Done(s)) phase3Month = s.month;
   }
-  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths };
+  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
 }

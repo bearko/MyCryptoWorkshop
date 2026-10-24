@@ -209,3 +209,26 @@ export function sheet(title: string, body: HTMLElement, state: SheetState, onSta
     h('div.ke-sheet-body', {}, body),
   );
 }
+
+/** ステークホルダーの支持度（0〜100）。40 の線を割ると要望が出る。重しが効いていれば、その残り */
+export function supportMeters(items: { name: string; value: number; note?: string }[], line = 40): HTMLElement {
+  return h(
+    'ul.ke-support',
+    { 'aria-label': t('支持度', 'Support') },
+    ...items.map((it) =>
+      h(
+        'li.ke-support-row',
+        { title: t(`${it.name}の支持度 ${Math.round(it.value)}（${line} を割ると要望が出る）`, `${it.name}: support ${Math.round(it.value)} (requests below ${line})`) },
+        h('span.ke-support-name', {}, it.name),
+        h(
+          'span.ke-support-bar',
+          {},
+          h('span', { class: it.value < line ? 'is-bad' : it.value < line + 10 ? 'is-warn' : 'is-good', style: `width:${Math.max(2, Math.min(100, Math.round(it.value)))}%` }),
+          h('i.ke-support-line', { style: `left:${line}%` }),
+        ),
+        h('b', { class: `ke-figure ${it.value < line ? 'ke-bad' : ''}` }, String(Math.round(it.value))),
+        it.note ? h('span.ke-support-note', {}, it.note) : null,
+      ),
+    ),
+  );
+}
