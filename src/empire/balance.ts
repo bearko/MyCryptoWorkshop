@@ -1,8 +1,9 @@
 // 経営モードのバランス測定（scripts/empire-sim.mjs から呼ぶ）。3 つの戦略のボットで、
 // フェーズごとの所要月数と資金の推移を測る。フェーズ 1（3 店舗・3 か月連続の黒字）と
-// フェーズ 2（12 店・ライバルより多い・物流センター）。
+// フェーズ 2（12 店・ライバルより多い・物流センター）とフェーズ 3（本拠ランドで売上 1 位）。
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
+import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
   advanceMonth,
   AREA_OPEN_COST,
@@ -13,6 +14,7 @@ import {
   ownCells,
   phase1Done,
   phase2Done,
+  phase3Done,
   plotsFor,
   POS_COST,
   RENOVATE_COST,
@@ -68,10 +70,42 @@ function phase2Moves(s: EmpireState, reserve: number): Decisions {
   return d;
 }
 
+/** フェーズ 3 の手：研修所を建て、人通りの多いエリアから物流拠点、育った人数ぶん出店 */
+function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decisions {
+  const n = s.nation!;
+  const d: Decisions = { expand: [] };
+  let funds = s.funds;
+  if (n.trainingCenters < 4 && funds > TRAINING_COST * 2 * reserve) {
+    d.training = 1;
+    funds -= TRAINING_COST;
+  }
+  const noHub = n.regions.map((r, i) => ({ r, i })).filter((x) => !x.r.hub && x.i !== 0).sort((a, b) => b.r.traffic - a.r.traffic);
+  const open = n.regions.filter((r, i) => (r.hub || i === 0) && regionStores(r) < r.capacity * 0.75);
+  if (noHub.length && (open.length === 0 || funds > HUB_COST * 1.5 * reserve)) {
+    d.buildHub = [noHub[0].i];
+    funds -= HUB_COST;
+  }
+  if (n.manual === false && n.quality < 0.9) d.manual = true;
+  let people = trainees(n);
+  for (const [i, r] of n.regions.entries()) {
+    if (!(r.hub || i === 0) && !d.buildHub?.includes(i)) continue;
+    const room = Math.floor(r.capacity * 0.75) - regionStores(r);
+    const afford = Math.floor(funds / (OPEN_COSTS[type] * reserve));
+    const count = Math.max(0, Math.min(room, people, afford));
+    if (count > 0) {
+      d.expand!.push({ region: i, type, count });
+      people -= count;
+      funds -= count * OPEN_COSTS[type];
+    }
+  }
+  return d;
+}
+
 /** フェーズごとに手を変えるボット */
-const staged = (p1: (s: EmpireState) => Decisions, reserve: number) => (s: EmpireState): Decisions => {
-  if (canPromote(s) && s.phase === 1) return { promote: true };
-  return s.phase === 1 ? p1(s) : phase2Moves(s, reserve);
+const staged = (p1: (s: EmpireState) => Decisions, reserve: number, type: StoreType) => (s: EmpireState): Decisions => {
+  if (canPromote(s) && s.phase < 3) return { promote: true };
+  if (s.phase === 1) return p1(s);
+  return s.phase === 2 ? phase2Moves(s, reserve) : phase3Moves(s, reserve, type);
 };
 
 const BOTS_P1: Bot[] = [
@@ -103,7 +137,7 @@ const BOTS_P1: Bot[] = [
   },
 ];
 
-export const BOTS: Bot[] = BOTS_P1.map((b, i) => ({ name: b.name, decide: staged(b.decide, [1.6, 1.25, 1][i]) }));
+export const BOTS: Bot[] = BOTS_P1.map((b, i) => ({ name: b.name, decide: staged(b.decide, [1.6, 1.25, 1][i], (['fcOwner', 'fcHq', 'direct'] as const)[i]) }));
 
 export interface BotResult {
   bot: string;
@@ -112,6 +146,8 @@ export interface BotResult {
   phase1Month: number | null;
   /** フェーズ 2 の条件を満たした月 */
   phase2Month: number | null;
+  /** フェーズ 3 の条件を満たした月 */
+  phase3Month: number | null;
   stores: number;
   funds: number;
   /** 資金がマイナスで終わった月の数 */
@@ -122,12 +158,14 @@ export function runBot(bot: Bot, seed: number, months: number): BotResult {
   let s = newEmpire(bot.name, seed);
   let phase1Month: number | null = null;
   let phase2Month: number | null = null;
+  let phase3Month: number | null = null;
   let redMonths = 0;
   for (let i = 0; i < months; i++) {
     s = advanceMonth(s, bot.decide(s)).state;
     if (s.funds < 0) redMonths++;
     if (phase1Month === null && phase1Done(s)) phase1Month = s.month;
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
+    if (phase3Month === null && s.phase === 3 && phase3Done(s)) phase3Month = s.month;
   }
-  return { bot: bot.name, seed, phase1Month, phase2Month, stores: s.stores.length, funds: Math.round(s.funds), redMonths };
+  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths };
 }

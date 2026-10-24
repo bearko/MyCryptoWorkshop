@@ -1,6 +1,7 @@
 // 経営モードの状態（docs/EMPIRE_DESIGN.md 9 章）。DOM に触れない。
 // 会社の資金の単位は GUM だが、工房の GUM とは別の財布（本店 → 会社の一方向）。
 import type { Area } from './area';
+import { STORE_TYPES, type Nation } from './nation';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -72,15 +73,22 @@ export type Note =
   | { kind: 'rivalPlan'; cell: number }
   | { kind: 'rivalOpened'; cell: number }
   | { kind: 'centerBuilt'; cell: number }
-  | { kind: 'crowded'; store: number };
+  | { kind: 'crowded'; store: number }
+  | { kind: 'hubBuilt'; region: number }
+  | { kind: 'needHub'; region: number }
+  | { kind: 'traineeLimit'; trainees: number }
+  | { kind: 'qualityWarn' }
+  | { kind: 'manualReady' };
 
 export interface MonthReport {
   month: number;
   revenue: number;
   /** この月に本店から届いた送金 */
   inflow: number;
-  /** 本部の費用（SV・物流センター）。利益からは引いてある */
+  /** 本部の費用（SV・物流センター・物流拠点・研修所）。利益からは引いてある */
   overhead?: number;
+  /** フェーズ 3 から：ライバルの売上（本拠ランド全体） */
+  rivalRevenue?: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -110,6 +118,8 @@ export interface EmpireState {
   sv: number;
   /** POS を入れたか */
   pos: boolean;
+  /** フェーズ 3 から：本拠ランドの 6 エリア */
+  nation: Nation | null;
 }
 
 export const HISTORY = 24;
@@ -121,7 +131,7 @@ export function newStore(id: number, opened: number, plot: Plot = HOME_PLOT): St
 }
 
 export function newEmpire(name: string, seed: number, land = 'Ocean'): EmpireState {
-  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [], land, area: null, sv: 0, pos: false };
+  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [], land, area: null, sv: 0, pos: false, nation: null };
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -149,6 +159,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     area: restoreArea(r.area),
     sv: Math.max(0, Math.floor(num(r.sv, 0))),
     pos: r.pos === true,
+    nation: restoreNation(r.nation),
   };
 }
 
@@ -159,4 +170,25 @@ function restoreArea(raw: unknown): Area | null {
   const ints = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < a.w! * a.h!) : []);
   const plan = a.rivalPlan && typeof a.rivalPlan === 'object' && Number.isInteger(a.rivalPlan.cell) && typeof a.rivalPlan.month === 'number' ? a.rivalPlan : null;
   return { w: a.w, h: a.h, cells: a.cells.map((c) => ({ base: num(c?.base, 0), rent: num(c?.rent, 0) })), centers: ints(a.centers), rivalStores: ints(a.rivalStores), rivalPlan: plan };
+}
+
+function restoreNation(raw: unknown): Nation | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const n = raw as Partial<Nation>;
+  if (!Array.isArray(n.regions) || n.regions.length === 0) return null;
+  const int = (v: unknown) => Math.max(0, Math.floor(num(v, 0)));
+  return {
+    regions: n.regions.map((r) => ({
+      name: { ja: String(r?.name?.ja ?? ''), en: String(r?.name?.en ?? '') },
+      capacity: Math.max(1, num(r?.capacity, 30)),
+      traffic: num(r?.traffic, 250_000),
+      rent: num(r?.rent, 300_000),
+      hub: r?.hub === true,
+      ...Object.fromEntries(STORE_TYPES.map((k) => [k, int(r?.[k])])),
+      rival: int(r?.rival),
+    })) as Nation['regions'],
+    trainingCenters: int(n.trainingCenters),
+    manual: n.manual === true,
+    quality: Math.min(1, Math.max(0.5, num(n.quality, 1))),
+  };
 }

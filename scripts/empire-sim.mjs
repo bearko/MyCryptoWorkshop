@@ -22,12 +22,15 @@ try {
     const rs = Array.from({ length: seeds }, (_, i) => runBot(bot, i + 1, months));
     const done = rs.filter((r) => r.phase1Month !== null).map((r) => r.phase1Month);
     const done2 = rs.filter((r) => r.phase2Month !== null).map((r) => r.phase2Month - r.phase1Month);
+    const done3 = rs.filter((r) => r.phase3Month !== null).map((r) => r.phase3Month - r.phase2Month);
     return {
       bot: bot.name,
       'フェーズ1 到達': `${done.length}/${seeds}`,
       '所要月（中央値）': median(done) ?? '-',
       'フェーズ2 到達': `${done2.length}/${seeds}`,
       'フェーズ2 の月数': median(done2) ?? '-',
+      'フェーズ3 到達': `${done3.length}/${seeds}`,
+      'フェーズ3 の月数': median(done3) ?? '-',
       '店数（中央値）': median(rs.map((r) => r.stores)),
       '資金（中央値）': median(rs.map((r) => r.funds)).toLocaleString('ja-JP'),
       '赤字月（合計）': rs.reduce((a, r) => a + r.redMonths, 0),
