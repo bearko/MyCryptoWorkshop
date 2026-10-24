@@ -25,7 +25,7 @@ describe('フェーズ 2 → 3', () => {
     const s = phase3();
     expect(s.phase).toBe(3);
     const n = s.nation!;
-    expect(n.regions).toHaveLength(6);
+    expect(n.regions).toHaveLength(11);
     expect(regionStores(n.regions[0])).toBe(s.stores.length);
     expect(n.regions[0].hub).toBe(true);
     expect(n.regions.slice(1).every((r) => !r.hub && regionStores(r) === 0 && r.rival > 0)).toBe(true);
@@ -95,17 +95,45 @@ describe('卒業と保存', () => {
   it('直近 12 か月の売上がライバルを上回ると条件を満たす', () => {
     let s = loose(phase3());
     expect(phase3Done(s)).toBe(false);
-    s = advanceMonth(s, { training: 5, buildHub: [1, 2, 3, 4, 5] }).state;
-    for (let i = 0; i < 24 && !phase3Done(s); i++) {
-      s = advanceMonth(s, { expand: [0, 1, 2, 3, 4, 5].map((region) => ({ region, type: 'fcOwner' as const, count: 4 })) }).state;
+    const open = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    s = advanceMonth(s, { training: 8, buildHub: open }).state;
+    for (let i = 0; i < 36 && !phase3Done(s); i++) {
+      s = advanceMonth(s, { expand: [0, ...open].map((region) => ({ region, type: 'fcOwner' as const, count: 4 })) }).state;
     }
     expect(phase3Done(s)).toBe(true);
     expect(canPromote(s)).toBe(true);
   });
 
-  it('6 エリアごと JSON を通しても同じ', () => {
+  it('11 エリアごと JSON を通しても同じ', () => {
     const s = advanceMonth(phase3()).state;
     expect(restoreEmpire(JSON.parse(JSON.stringify(s)))).toEqual(s);
+  });
+});
+
+describe('11 エリアとレアリティ', () => {
+  it('レアリティが上がるほど広く、Legendary はフェーズ 5 まで閉じている', async () => {
+    const { RARITY_AREA } = await import('../src/empire/nation');
+    const n = phase3().nation!;
+    expect(n.regions.map((r) => r.rarity)).toEqual([0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4]);
+    for (const r of n.regions.slice(1)) expect(r.capacity).toBe(RARITY_AREA[r.rarity].capacity);
+    const legendary = n.regions[10];
+    expect(legendary.locked).toBe(true);
+    const s = advanceMonth({ ...phase3(), funds: 1e10 }, { buildHub: [10], expand: [{ region: 10, type: 'direct', count: 3 }] });
+    expect(s.state.nation!.regions[10].hub).toBe(false);
+    expect(regionStores(s.state.nation!.regions[10])).toBe(0);
+    expect(s.report.rivalRevenue).toBeGreaterThan(0);
+  });
+
+  it('6 エリアだったころのセーブも読める（レアリティは並びから）', () => {
+    const s = advanceMonth(phase3()).state;
+    const old = JSON.parse(JSON.stringify(s));
+    old.nation.regions = old.nation.regions.slice(0, 6).map((r: Record<string, unknown>) => {
+      const { rarity: _r, locked: _l, ...rest } = r;
+      return rest;
+    });
+    const back = restoreEmpire(old)!;
+    expect(back.nation!.regions.map((r) => r.rarity)).toEqual([0, 0, 1, 1, 2, 3]);
+    expect(back.nation!.regions.every((r) => !r.locked)).toBe(true);
   });
 });
 

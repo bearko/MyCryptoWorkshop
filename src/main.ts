@@ -5,7 +5,7 @@ import { ACHIEVEMENTS, DAILY_BONUS, dailyLabel, dailyValue } from './game/achiev
 import { confetti, confettiSettings } from './ui/confetti';
 import { cutin } from './ui/cutin';
 import { Sound } from './audio';
-import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
+import { catalog, customers, getExtension, heroById, icons, lands, pests, setColorAssist, RARITY_COLOR, RARITY_JA, series, staffFrames, thieves, workshopImages } from './game/catalog';
 import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP, WORKSHOP_H } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
@@ -1140,7 +1140,7 @@ function empireLetterHero(): { id: number; name: string; image: HTMLElement } | 
 /** 経営画面（会社がまだ無ければ、マインちゃんの誘いと屋号の入力） */
 async function openEmpire(): Promise<void> {
   if (!empireAvailable()) return;
-  const ui = await import('./ui/empire');
+  const ui = await import('./ui/empire/index');
   if (!save.empire) {
     const close = openModal(
       t('マインちゃんから', 'From Mine-chan'),
@@ -1156,20 +1156,57 @@ async function openEmpire(): Promise<void> {
     );
     return;
   }
-  openModal(
-    t('🏢 経営', '🏢 Company'),
-    ui.empireView(
-      save.empire,
-      (emp) => {
-        save.empire = emp;
-        writeSave(save);
+  // 経営画面は全画面（モーダルの重なりの一番下。デバッグパネルなどはその上に開く）
+  const prevBgm = sound.currentBgm();
+  let close = () => {};
+  const view = ui.empireView(
+    save.empire,
+    (emp) => {
+      save.empire = emp;
+      writeSave(save);
+    },
+    {
+      letterHero: empireLetterHero(),
+      heroName: (id) => customers.find((c) => c.id === id)?.name ?? heroById.get(id)?.name ?? '?',
+      heroImage: (id) => {
+        const hero = heroById.get(id);
+        return hero ? icon(hero.image, 'px', hero.name) : null;
       },
-      { letterHero: empireLetterHero(), heroName: (id) => customers.find((c) => c.id === id)?.name ?? '?' },
-    ),
-    [{ label: t('閉じる', 'Close') }],
-    'wide empire-modal',
+      mineImage: () => fileImg(staffFrames.mine[0].image, 'px'),
+      play: (k) => sound.play(k),
+      onClose: () => close(),
+      onTest: TEST_MODE ? () => void openTestPanel() : undefined,
+    },
   );
+  modalOpen++;
+  document.body.classList.add('ke-open');
+  modalRoot.prepend(view);
+  sound.playBgm('bgmCompany');
+  try {
+    sessionStorage.setItem(REOPEN_EMPIRE, '1');
+  } catch {
+    // 保存できなくても開ける
+  }
+  const entry = { wrap: view, cancel: () => close() };
+  close = () => {
+    if (!view.isConnected) return;
+    view.remove();
+    modalOpen--;
+    document.body.classList.remove('ke-open');
+    const i = modalStack.indexOf(entry);
+    if (i >= 0) modalStack.splice(i, 1);
+    try {
+      sessionStorage.removeItem(REOPEN_EMPIRE);
+    } catch {
+      // 何もしない
+    }
+    if (prevBgm) sound.playBgm(prevBgm);
+  };
+  modalStack.unshift(entry);
 }
+
+/** テストモードでデバッグパネルからセーブを変えると読み直すので、経営画面を開いていたら開き直す */
+const REOPEN_EMPIRE = 'mycryptoworkshop.reopenEmpire';
 
 /** この周回の営業時間（ミリ秒）。営業中ならその日の経過も足す（RTA の IGT） */
 function runBusinessMs(): number {
@@ -1933,4 +1970,12 @@ void preload([
   document.body.classList.add('loaded');
   showHome();
   requestAnimationFrame(frame);
+  // テストモード：経営画面を開いたままデバッグパネルで読み直したら、開き直す
+  let reopen = false;
+  try {
+    reopen = TEST_MODE && sessionStorage.getItem(REOPEN_EMPIRE) === '1';
+  } catch {
+    // 読めなければ開き直さない
+  }
+  if (reopen && save.empire) void openEmpire();
 });

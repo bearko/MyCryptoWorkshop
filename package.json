@@ -16,6 +16,7 @@
     "sim:empire": "node scripts/empire-sim.mjs",
     "i18n:check": "node scripts/i18n-check.mjs",
     "design:tokens": "node scripts/design-tokens.mjs",
+    "pixel:lint": "node scripts/pixel-lint.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },
   "repository": {

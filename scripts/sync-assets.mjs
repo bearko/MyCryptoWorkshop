@@ -13,6 +13,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pngjs from 'pngjs';
+import { buildEmpireAssets } from './pixel/build.mjs';
 
 const { PNG } = pngjs;
 
@@ -276,6 +277,7 @@ const audio = {
   bgmShop: use('Audio/BGM/pve.mp3'),
   bgmTree: use('Audio/BGM/land.mp3'),
   bgmRaid: use('Audio/BGM/raid.mp3'),
+  bgmCompany: use('Audio/BGM/pvp.mp3'),
   craft: use('Audio/SE/Actions/production.mp3'),
   rare: use('Audio/SE/Actions/open_treasure.mp3'),
   sale: use('Audio/SE/Actions/cp-mining-complete.mp3'),
@@ -292,6 +294,14 @@ const audio = {
 };
 
 const atlases = writeAtlases();
+
+// ---------------------------------------------------------------- 経営モードの絵（scripts/pixel/）
+// エクステンションにない物（地形・駅・物流センター・車）と、ドット絵にしたランドの背景
+const empire = buildEmpireAssets({ root, src, use });
+// 新しく取ってきた作業コピーには src/generated/ がまだ無い（目録より先に書くので、ここで作る）
+mkdirSync(join(root, 'src', 'generated'), { recursive: true });
+writeFileSync(join(root, 'src', 'generated', 'empire.json'), JSON.stringify(empire, null, 1));
+
 
 const catalog = {
   generatedFrom: 'https://github.com/bearko/mycryptoheroes',

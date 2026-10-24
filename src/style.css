@@ -3275,6 +3275,10 @@ button.test-badge {
   border: 0;
   cursor: pointer;
 }
+/* 経営画面では、TEST はヘッダーの中に出す（下の段のボタンと重ならないように） */
+body.ke-open .test-badge {
+  display: none;
+}
 .test-panel h3 {
   margin: 12px 0 6px;
   font-size: 14px;

@@ -365,7 +365,7 @@ function rivalStep(state: EmpireState, notes: Note[]): void {
   }
 }
 
-/** フェーズ 2 → 3：本拠エリアは地図の店をまとめ、残り 5 エリアを作る */
+/** フェーズ 2 → 3：本拠エリアは地図の店をまとめ、残り 10 エリアを作る */
 function openNation(state: EmpireState, rng: Rng): void {
   const own = state.stores;
   const avg = (f: (x: Store) => number) => (own.length ? own.reduce((a, x) => a + f(x), 0) / own.length : 250_000);
@@ -405,7 +405,7 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
   for (let i = 0; i < (d.training ?? 0); i++) if (pay(TRAINING_COST)) n.trainingCenters++;
   for (const ri of d.buildHub ?? []) {
     const r = n.regions[ri];
-    if (!r || r.hub) continue;
+    if (!r || r.hub || r.locked) continue;
     if (pay(HUB_COST)) {
       r.hub = true;
       notes.push({ kind: 'hubBuilt', region: ri });
@@ -441,7 +441,7 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
   let opened = 0;
   for (const x of d.expand ?? []) {
     const r = n.regions[x.region];
-    if (!r || x.count <= 0) continue;
+    if (!r || r.locked || x.count <= 0) continue;
     if (!r.hub && x.region !== 0) {
       notes.push({ kind: 'needHub', region: x.region });
       continue;
@@ -479,7 +479,7 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   }
   // ライバル：規制が緩いあいだは倍の速さで増える
   if (m % RIVAL_NATION.interval === 0) {
-    for (const r of n.regions) for (let k = 0; k < (n.eraStrict ? 1 : ERA.looseRival); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
+    for (const r of n.regions.filter((x) => !x.locked)) for (let k = 0; k < (n.eraStrict ? 1 : ERA.looseRival); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
   }
   // 地価：上がり方が鈍ってきたら予兆、天井を過ぎたら下がる。担保割れは返済を迫られる
   const monthsIn = m - n.landStart;
