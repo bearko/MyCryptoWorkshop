@@ -2,6 +2,7 @@
 import type { EmpireState, Note, PlotKind } from '../../empire/model';
 import { rivalOf } from '../../empire/rivals';
 import { STAKEHOLDERS, ULTIMATUM, type StakeholderId } from '../../empire/stakeholders';
+import { PLEDGE, type PromiseKind } from '../../empire/governance';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -118,6 +119,17 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'meetingSoon':
+      return e?.nation?.listed ? t(`来月（${monthLabel(n.month)}）は株主総会です。演説の原稿を用意しましょう`, `The shareholders' meeting is next month (${monthLabel(n.month)}). Prepare your speech`) : t(`来月（${monthLabel(n.month)}）は銀行との面談です。話すことを決めておきましょう`, `You meet the bank next month (${monthLabel(n.month)})`);
+    case 'meetingPostponed':
+      return t(`総会を${monthLabel(n.month)}に延ばしました。信任が下がり、次は通る線が上がります`, `Meeting postponed to ${monthLabel(n.month)}. Trust fell; the bar is higher next time`);
+    case 'meetingHeld':
+      if (!n.listed) return n.passed ? t(`銀行との面談：信任 ${n.approval}。貸し出しは今までどおり`, `Bank meeting: trust ${n.approval}. Credit unchanged`) : t(`銀行との面談：信任 ${n.approval}。貸し出しの枠が半分に絞られます`, `Bank meeting: trust ${n.approval}. Your credit line is halved`);
+      return n.passed
+        ? t(`株主総会：賛成 ${n.approval}% で可決${n.dividend > 0 ? `・配当 ${money(n.dividend)}` : ''}${n.amended ? '・定款を変えました' : ''}`, `Shareholders' meeting passed with ${n.approval}%${n.dividend > 0 ? ` · dividend ${money(n.dividend)}` : ''}${n.amended ? ' · articles amended' : ''}`) // i18n-ja
+        : t(`株主総会：賛成 ${n.approval}% で否決。銀行も貸し出しを絞ります`, `Shareholders' meeting rejected (${n.approval}%). Credit tightens`);
+    case 'pledgeResult':
+      return n.kept ? t(`去年の約束「${pledgeLabel(n.pledge)}」を守りました。信任が上がります`, `You kept last year's pledge: ${pledgeLabel(n.pledge)}`) : t(`去年の約束「${pledgeLabel(n.pledge)}」を果たせませんでした。信任が下がります`, `You broke last year's pledge: ${pledgeLabel(n.pledge)}`);
     case 'demand':
       return t(`${stakeName(n.who)}から要望：${demandText(n.who, e?.phase)}`, `${stakeName(n.who)} asks: ${demandText(n.who, e?.phase)}`);
     case 'demandMet':
@@ -192,4 +204,11 @@ export function ultimatumText(who: StakeholderId, months: number): string {
     case 'owners':
       return t('加盟オーナー会が当局に訴えました', 'The franchise owners went to the authorities');
   }
+}
+
+/** 総会での約束の呼び名 */
+export function pledgeLabel(k: PromiseKind): string {
+  if (k === 'revenue') return t(`売上を ${Math.round((PLEDGE.revenueGrowth - 1) * 100)}% 伸ばす`, `Grow sales ${Math.round((PLEDGE.revenueGrowth - 1) * 100)}%`);
+  if (k === 'stores') return t(`店を ${PLEDGE.stores} 店増やす`, `Open ${PLEDGE.stores} more stores`);
+  return t('赤字の月を出さない', 'No loss-making month');
 }

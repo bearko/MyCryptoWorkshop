@@ -3,6 +3,7 @@
 import type { Area } from './area';
 import { newNationExtras, STORE_TYPES, type Nation } from './nation';
 import { restoreStake, type Stake, type StakeholderId } from './stakeholders';
+import { restoreGovernance, type Governance, type PromiseKind } from './governance';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -94,7 +95,12 @@ export type Note =
   /** ステークホルダーの要望（期限つき）・取り下げ・最後通告（stakeholders.ts） */
   | { kind: 'demand'; who: StakeholderId; due: number }
   | { kind: 'demandMet'; who: StakeholderId }
-  | { kind: 'ultimatum'; who: StakeholderId; months: number };
+  | { kind: 'ultimatum'; who: StakeholderId; months: number }
+  /** 株主総会（governance.ts）：延期・開催・去年の約束の答え合わせ */
+  | { kind: 'meetingPostponed'; month: number }
+  | { kind: 'meetingHeld'; approval: number; passed: boolean; dividend: number; amended: boolean; listed: boolean }
+  | { kind: 'pledgeResult'; pledge: PromiseKind; kept: boolean }
+  | { kind: 'meetingSoon'; month: number };
 
 export interface MonthReport {
   month: number;
@@ -138,6 +144,8 @@ export interface EmpireState {
   nation: Nation | null;
   /** ステークホルダーの支持度・要望・最後通告（M8 から。無ければ最初の月に作る） */
   stake?: Stake;
+  /** フェーズ 3 から：役員会・株主総会・定款（無ければフェーズ 3 の最初の月に作る） */
+  gov?: Governance;
 }
 
 export const HISTORY = 24;
@@ -181,6 +189,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     pos: r.pos === true,
     nation: restoreNation(r.nation),
     stake: restoreStake(r.stake),
+    gov: restoreGovernance(r.gov),
   };
 }
 
