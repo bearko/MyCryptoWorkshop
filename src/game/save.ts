@@ -1,4 +1,5 @@
 import { customers, extensionById, heroById, series } from './catalog';
+import { saveKeys, TEST_MODE } from '../testMode';
 import type { Order } from './orders';
 import type { Daily } from './achievements';
 import { newPrestige, type Prestige } from './prestige';
@@ -321,9 +322,9 @@ export function importCode(code: string): SaveData {
 
 // ---------------------------------------------------------------- storage
 
-const KEY = 'mycryptoworkshop.save';
-const LEGACY_KEYS = ['mycryptoworkshop.save.v1'];
-const BACKUP_KEY = 'mycryptoworkshop.save.backup';
+// テストモード（?test=1）は本番と別のキーに保存し、本番のセーブ（と旧形式のキー）には触れない
+const { key: KEY, backup: BACKUP_KEY } = saveKeys(TEST_MODE);
+const LEGACY_KEYS = TEST_MODE ? [] : ['mycryptoworkshop.save.v1'];
 
 function storageGet(key: string): string | null {
   try {

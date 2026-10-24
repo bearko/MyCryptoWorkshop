@@ -29,8 +29,16 @@ import { abortRta, canPickAvatar, initPlatform, isChatAvailable, isRtaAvailable,
 import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
+import { exitTestUrl, TEST_MODE } from './testMode';
 
 const save = loadSave();
+// テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すと通常のページに戻る
+if (TEST_MODE) {
+  document.title = `[TEST] ${document.title}`;
+  document.body.append(
+    h('a.test-badge', { href: exitTestUrl(location.href), title: t('テストモード（本番と別のセーブ・記録は送らない）。押すと通常に戻る', 'Test mode (separate save, nothing is sent). Tap to leave') }, 'TEST'),
+  );
+}
 initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・アチーブメント・RTA）。SDK がなければ何もしない
 // アチーブメント（旧トロフィー）: いまのセーブで満たしているもの（前から遊んでいる人にも付く）。SDK が遅れて読まれたら、init（load で）のあとに
 reportTrophies(save);
