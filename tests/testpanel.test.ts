@@ -57,3 +57,14 @@ describe('デバッグパネル：経営モード', () => {
     expect(testActions.advanceMonths(testActions.foundEmpire(s0, 1), 12).empire?.funds).toBe(testActions.advanceMonths(s1, 12).empire?.funds);
   });
 });
+
+describe('デバッグパネル：マインちゃんの登場', () => {
+  it('登場条件を満たすと、会社があっても消えて誘いから始められる', async () => {
+    const { empireUnlocked } = await import('../src/empire/unlock');
+    const withCompany = testActions.foundEmpire(newSave(), 1);
+    expect(withCompany.empire).not.toBeNull();
+    const s = testActions.meetUnlock(withCompany);
+    expect(s.empire).toBeNull();
+    expect(empireUnlocked(s.prestige)).toBe(true);
+  });
+});
