@@ -1,7 +1,6 @@
 // テストモード（?test=1）のデバッグパネル。テスト用のセーブだけを書き換える（本番のセーブは読むだけ）。
-// フェーズへ飛ぶ道具は、フェーズ 2 以降ができてから足す。
 import { newEmpire, type EmpireState } from '../empire/model';
-import { advanceMonth } from '../empire/sim';
+import { advanceMonth, canPromote, plotsFor } from '../empire/sim';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -52,6 +51,14 @@ export const testActions = {
   /** 会社を消す（マインちゃんの誘いからやり直す） */
   dropEmpire(current: SaveData): SaveData {
     return { ...current, empire: null };
+  },
+  /** フェーズ 2（エリアチェーン）へ飛ぶ：3 店を出して条件を満たし、格上げしたところ（資金 1 億を残す） */
+  jumpPhase2(current: SaveData, seed = 1): SaveData {
+    let e = { ...newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.prestige.home ?? 'Ocean'), funds: 1e9 };
+    e = advanceMonth(e, { open: plotsFor(e).slice(0, 2) }).state;
+    for (let i = 0; i < 24 && !canPromote(e); i++) e = advanceMonth(e).state;
+    e = advanceMonth(e, { promote: true }).state;
+    return { ...current, empire: { ...e, funds: 1e8 } };
   },
   setSeed(current: SaveData, seed: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
@@ -124,6 +131,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('マインちゃんの登場からやり直す（会社を消す）', "Restart from Mine-chan's visit (removes the company)"), () => testActions.meetUnlock(save)),
       save.empire ? btn(t('会社を消す', 'Remove the company'), () => testActions.dropEmpire(save)) : null,
       btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
+      btn(t('フェーズ 2 へ飛ぶ', 'Jump to phase 2'), () => testActions.jumpPhase2(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
       btn(t('+12 か月', '+12 months'), () => testActions.advanceMonths(save, 12)),

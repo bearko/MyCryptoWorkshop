@@ -1,7 +1,31 @@
 // 経営モードの画面（docs/EMPIRE_DESIGN.md 3・4.1 章）。報告を読み、決め、月を進める。
 // テストモードのときだけ読む（main.ts から動的 import）。
 import { newEmpire, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store } from '../empire/model';
-import { advanceMonth, canPromote, expectedDemand, FC_OPEN_COST, FC_SHARE, letterFor, MAX_STAFF, MAX_STORES, OPEN_COST, ORDER_RANGE, plotsFor, RENOVATE_COST, STAFF_NEEDED, type Decisions } from '../empire/sim';
+import { cannibalMult, CENTER_RANGE, dist, inRange } from '../empire/area';
+import {
+  advanceMonth,
+  AREA_OPEN_COST,
+  areaMult,
+  canPromote,
+  CENTER_COST,
+  expectedDemand,
+  FC_OPEN_COST,
+  FC_SHARE,
+  letterFor,
+  logistics,
+  MAX_STAFF,
+  MAX_STORES,
+  MAX_SV,
+  OPEN_COST,
+  ORDER_RANGE,
+  ownCells,
+  plotsFor,
+  POS_COST,
+  RENOVATE_COST,
+  STAFF_NEEDED,
+  SV_SPAN,
+  type Decisions,
+} from '../empire/sim';
 import { rivalOf } from '../empire/rivals';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -114,6 +138,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   let last: MonthReport | null = initial.history.at(-1) ?? null;
   /** 出店候補を広げているか */
   let picking = false;
+  /** フェーズ 2：地図で選んでいる区画 */
+  let selected: number | null = null;
   const root = h('div.empire', {});
   const openCost = (p: Plot) => (p.owner !== null ? FC_OPEN_COST : OPEN_COST);
 
@@ -121,7 +147,27 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     draft = { ...draft, stores: { ...draft.stores, [id]: { ...draft.stores?.[id], ...patch } } };
     render();
   };
-  const reserved = () => (draft.renovate ?? []).reduce((a, r) => a + RENOVATE_COST[r.kind], 0) + (draft.open ?? []).reduce((a, p) => a + openCost(p), 0);
+  const reserved = () =>
+    (draft.renovate ?? []).reduce((a, r) => a + RENOVATE_COST[r.kind], 0) +
+    (draft.open ?? []).reduce((a, p) => a + openCost(p), 0) +
+    (draft.openAt ?? []).length * AREA_OPEN_COST +
+    (draft.buildCenter ?? []).length * CENTER_COST +
+    (draft.pos && !e.pos ? POS_COST : 0);
+  const toggleIn = (key: 'openAt' | 'buildCenter', cell: number) => {
+    const list = draft[key] ?? [];
+    draft = { ...draft, [key]: list.includes(cell) ? list.filter((c) => c !== cell) : [...list, cell] };
+    render();
+  };
+  const advance = (extra: Decisions = {}) => {
+    const r = advanceMonth(e, { ...draft, ...extra });
+    e = r.state;
+    last = r.report;
+    draft = {};
+    picking = false;
+    commit(e);
+    render();
+    root.scrollIntoView?.({ block: 'start' });
+  };
   const addOpen = (p: Plot) => {
     draft = { ...draft, open: [...(draft.open ?? []), p] };
     picking = false;
@@ -157,7 +203,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     return h(
       'div.empire-store',
       {},
-      h('div.empire-store-head', {}, h('b', {}, storeName(s.id)), h('span.muted', {}, t(`見込み日販 ${fmt(Math.round(expectedDemand(s, e.month)))}`, `Expected ${fmt(Math.round(expectedDemand(s, e.month)))}/day`))),
+      h('div.empire-store-head', {}, h('b', {}, storeName(s.id)), h('span.muted', {}, t(`見込み日販 ${fmt(Math.round(expectedDemand(s, e.month, areaMult(e, s))))}`, `Expected ${fmt(Math.round(expectedDemand(s, e.month, areaMult(e, s))))}/day`))),
       h(
         'div.empire-store-plot.muted',
         {},
@@ -245,14 +291,21 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
             ),
           )
         : null;
+    const next = companyTitle({ ...e, phase: Math.min(5, e.phase + 1) as EmpireState['phase'] });
     const ready = canPromote(e)
       ? h(
           'section.empire-ready',
           {},
-          h('b', {}, t(`条件達成！ ${companyTitle({ ...e, phase: 2 })}へ上がれます`, `Goal met! You can become ${companyTitle({ ...e, phase: 2 })}`)),
-          h('button.btn.small', { disabled: true }, t('次の格（エリアチェーン）は次の更新で開きます', 'The next stage (area chain) opens in the next update')),
+          h('b', {}, t(`条件達成！ ${next}へ上がれます`, `Goal met! You can become ${next}`)),
+          e.phase === 1
+            ? h('p.muted', {}, t('エリアの地図に店を広げていく「エリアチェーン」になります。ライバルも同じ区画を狙ってきます。', 'You become an area chain, spreading stores across an area map. A rival will go after the same plots.'))
+            : null,
+          e.phase === 1
+            ? h('button.btn.small.btn-primary', { onclick: () => advance({ promote: true }) }, t(`${next}になって月を進める`, `Become ${next} and go to next month`))
+            : h('button.btn.small', { disabled: true }, t('次の格（全国チェーン）は次の更新で開きます', 'The next stage (national chain) opens in the next update')),
         )
       : null;
+    const body = e.phase >= 2 && e.area ? areaBody() : [...(letterCard ? [letterCard] : []), h('section.empire-stores', {}, ...e.stores.map(storeCard)), openSection()];
     root.replaceChildren(
       h(
         'div.empire-head',
@@ -276,26 +329,144 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           )
         : h('p.empire-intro', {}, t('お店の設定を決めて「月を進める」を押すと、1 か月の結果が出ます。発注は多いと欠品が減って廃棄が増え、少ないとその逆です。', 'Set up the store and press "Next month" to see how a month goes. Ordering more means fewer stock-outs but more waste, and less means the opposite.')),
       ...(ready ? [ready] : []),
-      ...(letterCard ? [letterCard] : []),
-      h('section.empire-stores', {}, ...e.stores.map(storeCard)),
-      openSection(),
+      ...body,
+      h('button.btn.btn-primary.empire-advance', { onclick: () => advance() }, t('▶ 月を進める', '▶ Next month')),
+    );
+  };
+
+  /** フェーズ 2 から：地図・選んだ区画・本部の決定 */
+  const areaBody = (): HTMLElement[] => {
+    const area = e.area!;
+    const rival = rivalOf(e.land);
+    const rivalName = t(rival.company.ja, rival.company.en);
+    const own = ownCells(e);
+    const opens = draft.openAt ?? [];
+    const centers = draft.buildCenter ?? [];
+    const storeAt = (i: number) => e.stores.find((x) => x.cell === i);
+    const cap = MAX_STORES[e.phase];
+    const plan = area.rivalPlan;
+    const maxBase = Math.max(...area.cells.map((c) => c.base));
+    const minBase = Math.min(...area.cells.map((c) => c.base));
+    const cellButton = (i: number) => {
+      const st = storeAt(i);
+      const rivalHere = area.rivalStores.includes(i);
+      const centerHere = area.centers.includes(i);
+      const heat = (area.cells[i].base - minBase) / Math.max(1, maxBase - minBase);
+      const label = st ? String(st.id) : rivalHere ? [...rivalName][0] : centerHere ? '🏭' : opens.includes(i) ? '+' : centers.includes(i) ? '🏗' : '';
+      const cls = [
+        'empire-cell',
+        st ? 'own' : '',
+        rivalHere ? 'rival' : '',
+        centerHere ? 'center' : '',
+        opens.includes(i) || centers.includes(i) ? 'pending' : '',
+        plan?.cell === i ? 'rival-plan' : '',
+        inRange({ ...area, centers: [...area.centers, ...centers] }, i) ? 'in-range' : '',
+        selected === i ? 'selected' : '',
+      ].join(' ');
+      const what = st ? storeName(st.id) : rivalHere ? rivalName : centerHere ? t('物流センター', 'Distribution center') : t('空き区画', 'Vacant plot');
+      return h(
+        'button',
+        { class: cls, style: `background-color: hsl(36, 45%, ${16 + heat * 28}%)`, 'aria-label': `${cellName(area.w, i)} ${what}`, 'aria-pressed': String(selected === i), onclick: () => ((selected = selected === i ? null : i), render()) },
+        label,
+      );
+    };
+    const map = h('div.empire-map', { style: `grid-template-columns: repeat(${area.w}, 1fr)` }, ...area.cells.map((_, i) => cellButton(i)));
+    const legend = h(
+      'div.empire-legend.muted',
+      {},
+      t(`数字＝自店　赤い丸＝${rivalName}　🏭＝物流センター　！＝ライバルが狙う区画　明るいほど人通りが多い・枠＝配送圏`, `Number = your store · red = ${rivalName} · 🏭 = distribution center · ! = rival target · brighter = busier · outline = delivery range`),
+    );
+    const detail = (): HTMLElement | null => {
+      if (selected === null) return h('p.muted.empire-detail', {}, t('地図の区画を押すと、くわしく見て出店や物流センターを決められます。', 'Tap a plot on the map to see details and plan a store or a distribution center.'));
+      const i = selected;
+      const c = area.cells[i];
+      const st = storeAt(i);
+      const head = h('h3', {}, cellName(area.w, i));
+      if (st) {
+        const l = logistics(e, st);
+        return h(
+          'section.empire-detail',
+          {},
+          head,
+          h('p.muted', {}, t(`需要の倍率 ×${areaMult(e, st).toFixed(2)}（知名度・食い合い・SV）・配送費 ${fmt(l.delivery)}／月・原価率 ${Math.round(l.costRate * 100)}%`, `Demand ×${areaMult(e, st).toFixed(2)} (awareness, crowding, SV) · delivery ${fmt(l.delivery)}/month · cost rate ${Math.round(l.costRate * 100)}%`)),
+          storeCard(st),
+        );
+      }
+      if (area.rivalStores.includes(i)) return h('section.empire-detail', {}, head, h('p', {}, t(`${rivalName}（${opts.heroName(rival.hero)}）の店です。1 マス隣の店からお客さんを取っていきます。`, `A store of ${rivalName} (${opts.heroName(rival.hero)}). It takes customers from stores next to it.`)));
+      if (area.centers.includes(i)) return h('section.empire-detail', {}, head, h('p', {}, t(`物流センター。${CENTER_RANGE} マス以内の店は配送費と原価率が下がります。`, `Distribution center. Stores within ${CENTER_RANGE} plots pay less for delivery and goods.`)));
+      const nearOwn = own.filter((x) => dist(area, x, i) <= 1).length;
+      const nearRival = area.rivalStores.filter((x) => dist(area, x, i) <= 1).length;
+      const crowd = cannibalMult(area, i, [...own, ...opens.filter((x) => x !== i), i]);
+      const canOpen = e.stores.length + opens.length < cap || opens.includes(i);
+      return h(
+        'section.empire-detail',
+        {},
+        head,
+        h(
+          'div.stat-grid',
+          {},
+          h('div.stat-row', {}, h('span', {}, t('基礎日販', 'Base sales')), h('b', {}, fmt(c.base))),
+          h('div.stat-row', {}, h('span', {}, t('家賃', 'Rent')), h('b', {}, t(`${fmt(c.rent)}／月`, `${fmt(c.rent)}/mo`))),
+          h('div.stat-row', {}, h('span', {}, t('となりの自店・ライバル', 'Next to: yours / rival')), h('b', {}, `${nearOwn} / ${nearRival}`)),
+          h('div.stat-row', { class: `stat-row ${crowd < 0.85 ? 'bad' : ''}` }, h('span', {}, t('出したときの食い合い', 'Crowding if opened')), h('b', {}, `×${crowd.toFixed(2)}`)),
+        ),
+        plan?.cell === i ? h('p.bad', {}, t(`${rivalName}がこの区画を狙っています（${monthLabel(plan.month)}に出店の予定）。先に出せば防げます。`, `${rivalName} is after this plot (planned for ${monthLabel(plan.month)}). Opening here first blocks it.`)) : null,
+        h(
+          'div.empire-row',
+          {},
+          h('button.btn.small', { class: `btn small ${opens.includes(i) ? 'btn-primary' : ''}`, disabled: !canOpen || centers.includes(i), 'aria-pressed': String(opens.includes(i)), onclick: () => toggleIn('openAt', i) }, t(`ここに出店（${fmt(AREA_OPEN_COST)}）`, `Open here (${fmt(AREA_OPEN_COST)})`)),
+          h('button.btn.small', { class: `btn small ${centers.includes(i) ? 'btn-primary' : ''}`, disabled: opens.includes(i), 'aria-pressed': String(centers.includes(i)), onclick: () => toggleIn('buildCenter', i) }, t(`物流センター（${fmt(CENTER_COST)}）`, `Distribution center (${fmt(CENTER_COST)})`)),
+        ),
+      );
+    };
+    const all = draft.all ?? {};
+    const setAll = (patch: NonNullable<Decisions['all']>) => {
+      draft = { ...draft, all: { ...draft.all, ...patch } };
+      render();
+    };
+    const sv = draft.sv ?? e.sv;
+    const advised = Math.ceil(e.stores.length / SV_SPAN);
+    const hq = h(
+      'section.empire-hq',
+      {},
+      h('h3', {}, t('本部', 'Headquarters')),
       h(
-        'button.btn.btn-primary.empire-advance',
-        {
-          onclick: () => {
-            const r = advanceMonth(e, draft);
-            e = r.state;
-            last = r.report;
-            draft = {};
-            picking = false;
-            commit(e);
-            render();
-            root.scrollIntoView?.({ block: 'start' });
-          },
-        },
-        t('▶ 月を進める', '▶ Next month'),
+        'div.empire-row',
+        {},
+        h('span', {}, t('全店の発注', 'All: order')),
+        ...[1.0, 1.1, 1.2].map((o) => h('button.btn.small', { class: `btn small ${all.order === o ? 'btn-primary' : ''}`, onclick: () => setAll({ order: o }) }, `×${o.toFixed(1)}`)),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('全店の営業', 'All: hours')),
+        ...([16, 24] as const).map((hrs) => h('button.btn.small', { class: `btn small ${all.hours === hrs ? 'btn-primary' : ''}`, onclick: () => setAll({ hours: hrs, staff: STAFF_NEEDED[hrs] }) }, t(`${hrs}時間（${STAFF_NEEDED[hrs]}人）`, `${hrs}h (${STAFF_NEEDED[hrs]} staff)`))),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, 'SV'),
+        h('button.btn.small', { onclick: () => ((draft = { ...draft, sv: Math.max(0, sv - 1) }), render()), 'aria-label': t('減らす', 'Fewer') }, '−'),
+        h('b', { class: sv < advised ? 'bad' : '' }, t(`${sv}人`, `${sv}`)),
+        h('button.btn.small', { onclick: () => ((draft = { ...draft, sv: Math.min(MAX_SV, sv + 1) }), render()), 'aria-label': t('増やす', 'More') }, '+'),
+        h('span.muted', {}, t(`（1 人で ${SV_SPAN} 店。目安 ${advised} 人）`, `(${SV_SPAN} stores each · advised ${advised})`)),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, 'POS'),
+        e.pos
+          ? h('span.empire-done', {}, t('✓ 導入済み', '✓ Installed'))
+          : h('button.btn.small', { class: `btn small ${draft.pos ? 'btn-primary' : ''}`, 'aria-pressed': String(!!draft.pos), onclick: () => ((draft = { ...draft, pos: !draft.pos }), render()) }, t(`POS を入れる（${fmt(POS_COST)}）`, `Install POS (${fmt(POS_COST)})`)),
       ),
     );
+    return [
+      h('p.empire-rivalbar', {}, t(`${companyTitle(e)} ${e.stores.length} 店　対　${rivalName} ${area.rivalStores.length} 店`, `${companyTitle(e)} ${e.stores.length} vs ${rivalName} ${area.rivalStores.length}`), h('span.muted', {}, t(`（出店 ${e.stores.length + opens.length} / ${cap}）`, ` (planned ${e.stores.length + opens.length} / ${cap})`))),
+      map,
+      legend,
+      ...[detail()].filter((x): x is HTMLElement => !!x),
+      hq,
+    ];
   };
   render();
   return root;
