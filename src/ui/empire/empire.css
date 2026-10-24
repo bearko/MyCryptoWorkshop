@@ -1536,3 +1536,64 @@
   flex: 1;
   margin-left: calc(2.5em + var(--space-2));
 }
+
+/* ---------------------------------------------------------------- 支持度（絵馬掛けの上） */
+.ke-support {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ke-support-row {
+  display: grid;
+  grid-template-columns: 7.5em 1fr 2.5ch;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--type-caption);
+  color: var(--text-300);
+}
+.ke-support-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ke-support-row .ke-figure {
+  text-align: right;
+  color: var(--text-100);
+}
+.ke-support-row .ke-figure.ke-bad {
+  color: var(--rival-200);
+}
+.ke-support-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--night-800);
+}
+.ke-support-bar > span {
+  display: block;
+  height: 8px;
+  border-radius: 2px;
+}
+.ke-support-bar .is-good {
+  background: var(--ours-400);
+}
+.ke-support-bar .is-warn {
+  background: var(--lantern-400);
+}
+.ke-support-bar .is-bad {
+  background: var(--rival-400);
+}
+.ke-support-line {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 12px;
+  background: var(--text-300);
+}
+.ke-support-note {
+  grid-column: 1 / -1;
+  color: var(--rival-200);
+}

@@ -8,6 +8,7 @@ import { newEmpire, type EmpireState, type MonthReport } from '../../empire/mode
 import { regionStores } from '../../empire/nation';
 import { rivalOf } from '../../empire/rivals';
 import { advanceMonth, AREA_OPEN_COST, canPromote, letterFor, MAX_STORES, ownCells, phase1Done, plotsFor, storeCount, type Decisions } from '../../empire/sim';
+import { activeStakeholders, supportOf, SUPPORT } from '../../empire/stakeholders';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
 import { LandScene } from '../../render/map/land';
@@ -16,7 +17,7 @@ import { h } from '../dom';
 import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard, reserved, ringiItems, ringiList, storeCard, type Ctx, type SoundKey } from './cards';
 import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
-import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, svgIcon, type SheetState } from './parts';
+import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
 import { companyTitle, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
 
 export { companyTitle, monthLabel, noteText, plotLabel, cellName } from './text';
@@ -520,8 +521,9 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         play('win');
       } else if (!wasReady && canPromote(e)) play('unlock');
       else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
-      else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall'].includes(n.kind))) play('fail');
-      else if (r.report.notes.some((n) => ['fatigue', 'ownerUnrest', 'rivalPlan', 'landFalling'].includes(n.kind))) play('debuff');
+      else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall', 'ultimatum'].includes(n.kind))) play('fail');
+      else if (r.report.notes.some((n) => ['fatigue', 'ownerUnrest', 'rivalPlan', 'landFalling', 'demand'].includes(n.kind))) play('debuff');
+      else if (r.report.notes.some((n) => n.kind === 'demandMet')) play('clean');
       // 選んでいた物がもう無ければ外す
       if (selection?.kind === 'plot') selection = null;
       openPanel = null;
@@ -611,6 +613,17 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       h('div.ke-profit', {}, h('span', {}, t('利益', 'Profit')), h('b', { class: `ke-figure-lg ${last.profit < 0 ? 'ke-bad' : ''}` }, money(last.profit)), prev ? h('span', { class: delta >= 0 ? 'ke-good' : 'ke-bad' }, t(`先月より ${delta >= 0 ? '+' : ''}${money(delta)}`, `${delta >= 0 ? '+' : ''}${money(delta)} vs last month`)) : null),
       e.history.length > 1 ? profitBars(e.history) : null,
       race,
+    );
+  }
+
+  /** 支持度の一覧（いまのフェーズで顔を出しているステークホルダー） */
+  function supportView(): HTMLElement {
+    return supportMeters(
+      activeStakeholders(e).map((s) => {
+        const p = e.stake?.penalties.find((x) => x.who === s.id && e.month < x.until);
+        return { name: t(s.name.ja, s.name.en), value: supportOf(e, s.id), note: p ? t(`通告 あと ${p.until - e.month} か月`, `${p.until - e.month} mo`) : undefined };
+      }),
+      SUPPORT.demandBelow,
     );
   }
 
@@ -845,7 +858,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       case 'ledger':
         return ledgerView();
       case 'voices':
-        return h('div.ke-ema-list', {}, ...voicesView());
+        return h('div.ke-ema-list', {}, supportView(), ...voicesView());
       case 'commands':
         return h(
           'div.ke-cmd-list',
@@ -1006,7 +1019,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       folds.replaceChildren();
       sheetHost.replaceChildren();
       left.replaceChildren(ledgerView());
-      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
+      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), supportView(), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
       selCard.replaceChildren(
         sc
           ? h(

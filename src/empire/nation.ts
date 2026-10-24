@@ -175,6 +175,8 @@ export interface RegionMods {
   costCut?: number;
   /** 加盟店の売上の倍率（24 時間の強制） */
   fcBoost?: number;
+  /** 家賃の倍率（商店街の最後通告） */
+  rentMult?: number;
 }
 
 /** エリアの 1 か月（30 日、天気のぶれ ±swing） */
@@ -187,9 +189,10 @@ export function regionMonth(r: Region, quality: number, swing: number, mods: Reg
   const margin = 1 - (l.costRate - (mods.costCut ?? 0));
   const gross = perStoreRevenue * margin;
   const fcGross = fcRevenue * margin;
-  const direct = gross - DIRECT_LABOR - r.rent - l.delivery;
+  const rent = r.rent * (mods.rentMult ?? 1);
+  const direct = gross - DIRECT_LABOR - rent - l.delivery;
   const fcOwner = fcGross * ROYALTY.fcOwner - l.delivery;
-  const fcHq = fcGross * ROYALTY.fcHq - r.rent - l.delivery;
+  const fcHq = fcGross * ROYALTY.fcHq - rent - l.delivery;
   return {
     revenue: perStoreRevenue * r.direct + fcRevenue * (r.fcOwner + r.fcHq),
     profit: direct * r.direct + fcOwner * r.fcOwner + fcHq * r.fcHq,

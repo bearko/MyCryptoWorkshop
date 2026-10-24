@@ -1,6 +1,7 @@
 // 経営モードの言葉（会社の格、月、報告の一行、区画の呼び名）。画面の部品から使う。
 import type { EmpireState, Note, PlotKind } from '../../empire/model';
 import { rivalOf } from '../../empire/rivals';
+import { STAKEHOLDERS, ULTIMATUM, type StakeholderId } from '../../empire/stakeholders';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -54,7 +55,7 @@ export function shortMoney(v: number): string {
 export const cellName = (w: number, i: number) => `${String.fromCharCode(65 + (i % w))}${Math.floor(i / w) + 1}`;
 
 /** 報告の一行（予兆を含む）。ライバルの名前と区画の呼び名に会社の状態を使う */
-export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'nation'>): string {
+export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'nation'> & Partial<Pick<EmpireState, 'phase'>>): string {
   const rival = rivalOf(e?.land);
   const rivalName = t(rival.company.ja, rival.company.en);
   const cell = (i: number) => cellName(e?.area?.w ?? 8, i);
@@ -117,6 +118,12 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'demand':
+      return t(`${stakeName(n.who)}から要望：${demandText(n.who, e?.phase)}`, `${stakeName(n.who)} asks: ${demandText(n.who, e?.phase)}`);
+    case 'demandMet':
+      return t(`${stakeName(n.who)}の要望に応えました`, `You met ${stakeName(n.who)}'s request`);
+    case 'ultimatum':
+      return ultimatumText(n.who, n.months);
     case 'pbUp':
       return t(`PB（自社ブランド）を広げました（${n.level} 段目）。本店の工房の品が店に並びます`, `Private brand expanded (level ${n.level}). Goods from the main workshop hit the shelves`);
     case 'crowded':
@@ -141,5 +148,48 @@ export function plotLabel(kind: PlotKind): string {
       return t('郊外の幹線道路', 'Suburban highway');
     case 'liquor':
       return t('酒屋からの転換', 'Converted liquor store');
+  }
+}
+
+/** ステークホルダーの呼び名 */
+export function stakeName(who: StakeholderId): string {
+  const d = STAKEHOLDERS.find((x) => x.id === who)!;
+  return t(d.name.ja, d.name.en);
+}
+
+/** 要望の中身（支持度が下がった理由と、戻す手） */
+export function demandText(who: StakeholderId, phase = 1): string {
+  switch (who) {
+    case 'regulars':
+      if (phase >= 3) return t('急いで増やした店の品ぞろえと接客が荒れています。出店をゆるめるか、マニュアルを', 'Rushed stores have poor shelves and service. Slow down or write the manual');
+      return t('品切れや混雑が続いています。品ぞろえと接客を戻してほしい', 'Too many stock-outs and crowds. Bring back the shelves and service');
+    case 'wholesaler':
+      return t('売れ残りの廃棄が多すぎます。発注をしぼってほしい', 'Far too much is thrown away. Order less');
+    case 'shotengai':
+      return t('24 時間の店や、近すぎる出店をひかえてほしい', 'Fewer 24-hour stores, and stop opening so close together');
+    case 'staff':
+      return t('人が育つ前に店を増やさないでほしい', 'Stop opening stores faster than people can be trained');
+    case 'owners':
+      return t('24 時間の強制や近すぎる出店をやめてほしい', 'Stop forcing 24 hours and opening too close');
+    case 'shareholders':
+      return t('赤字が続いています。利益を戻してほしい', 'Losses keep coming. Get back to profit');
+  }
+}
+
+/** 最後通告（期限までに応えられなかったとき）。何が起きて、いつまで続くか */
+export function ultimatumText(who: StakeholderId, months: number): string {
+  switch (who) {
+    case 'regulars':
+      return t(`常連客が離れました。${months} か月、客足が ${Math.round((1 - ULTIMATUM.regulars.demand) * 100)}% 落ちます`, `Regulars walked away: ${Math.round((1 - ULTIMATUM.regulars.demand) * 100)}% fewer customers for ${months} months`);
+    case 'wholesaler':
+      return t(`問屋が卸値を上げました。${months} か月、原価が上がります`, `The wholesaler raised prices for ${months} months`);
+    case 'shotengai':
+      return t(`商店街の地主が家賃を ${Math.round((ULTIMATUM.shotengai.rent - 1) * 100)}% 上げました（${months} か月）`, `Landlords raised rent ${Math.round((ULTIMATUM.shotengai.rent - 1) * 100)}% for ${months} months`);
+    case 'staff':
+      return t('従業員がストライキ。今月は客足が落ちます', 'Staff on strike: fewer customers this month');
+    case 'shareholders':
+      return t(`銀行が貸し出しの枠を半分にしました（${months} か月）`, `The bank halved your credit line for ${months} months`);
+    case 'owners':
+      return t('加盟オーナー会が当局に訴えました', 'The franchise owners went to the authorities');
   }
 }
