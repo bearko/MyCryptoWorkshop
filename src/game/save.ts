@@ -15,6 +15,7 @@ import { costOf, skillById, type Levels } from './skills';
 import { grantTaught } from './skills7';
 import { setHomeLand } from './titles';
 import { t } from '../i18n';
+import { restoreEmpire, type EmpireState } from '../empire/model';
 
 export interface Totals {
   revenue: number;
@@ -98,6 +99,8 @@ export interface SaveData {
   infusion: Partial<Record<LineId, GemId>>;
   /** The worldwide leaderboards (opt-in). */
   ranking: Ranking;
+  /** 経営モードの会社（docs/EMPIRE_DESIGN.md）。まだ無ければ null。足すだけの項目なので版は上げていない */
+  empire: EmpireState | null;
 }
 
 export interface Ranking {
@@ -175,6 +178,7 @@ export function newSave(now = Date.now()): SaveData {
     bestEdition: {},
     infusion: {},
     ranking: newRanking(),
+    empire: null,
   };
 }
 
@@ -290,6 +294,7 @@ export function parseSave(json: string): SaveData {
   data.settings.seVolume = clampVolume(data.settings.seVolume);
   data.ranking = { ...base.ranking, ...(migrated.ranking as object) };
   if (!RANKING_ID.test(data.ranking.id)) data.ranking.id = base.ranking.id;
+  data.empire = restoreEmpire(migrated.empire);
   data.resources = { dust: res.dust ?? 0, gems: { ...emptyGems(), ...res.gems }, research: res.research ?? 0, emblem: res.emblem ?? 0 };
   sanitize(data);
   return data;
