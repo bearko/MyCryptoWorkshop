@@ -3,6 +3,22 @@
 import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store, type StoreReport } from './model';
 import { makeRng, type Rng } from './rng';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
+import {
+  generateNation,
+  HUB_COST,
+  HUB_UPKEEP,
+  MANUAL_COST,
+  MANUAL_UNLOCK,
+  nationStores,
+  OPEN_COSTS,
+  QUALITY,
+  RIVAL_NATION,
+  regionMonth,
+  trainees,
+  TRAINING_COST,
+  TRAINING_UPKEEP,
+  type StoreType,
+} from './nation';
 
 export const DAYS_PER_MONTH = 30;
 /** 月ごとの季節（0 = 1 月） */
@@ -39,7 +55,7 @@ export const PLOT_RANGES: Record<Exclude<PlotKind, 'home' | 'liquor'>, { base: [
 };
 export const LIQUOR_PLOT = { kind: 'liquor', base: 280_000, rent: 0 } as const;
 /** フェーズごとの店数の上限（フェーズ 1 は 3 店まで） */
-export const MAX_STORES: Record<EmpireState['phase'], number> = { 1: 3, 2: 30, 3: 200, 4: 1000, 5: 5000 };
+export const MAX_STORES: Record<EmpireState['phase'], number> = { 1: 3, 2: 30, 3: 400, 4: 1000, 5: 5000 };
 /** 予兆を出す線 */
 export const FATIGUE_WARN = 60;
 
@@ -77,6 +93,14 @@ export interface Decisions {
   sv?: number;
   /** POS を入れる */
   pos?: boolean;
+  /** フェーズ 3 から：エリアに店の形ごとに出店する（研修所で育った人数まで） */
+  expand?: { region: number; type: StoreType; count: number }[];
+  /** フェーズ 3 から：物流拠点を建てるエリア */
+  buildHub?: number[];
+  /** フェーズ 3 から：研修所を建てる数 */
+  training?: number;
+  /** フェーズ 3 から：マニュアルを整える */
+  manual?: boolean;
   renovate?: { store: number; kind: 'sign' | 'parking' }[];
   /** 新しい店（plotsFor の候補か、letterFor の加盟店） */
   open?: Plot[];
@@ -115,7 +139,18 @@ export function phase1Done(s: EmpireState): boolean {
   return s.stores.length >= 3 && last.length === 3 && last.every((r) => r.profit > 0);
 }
 
-export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s));
+/** フェーズ 3 を抜ける条件：本拠ランドで、直近 12 か月の売上がライバルを上回る */
+export function phase3Done(s: EmpireState): boolean {
+  if (!s.nation) return false;
+  const last = s.history.slice(-12);
+  if (last.length < 12 || last.some((r) => r.rivalRevenue === undefined)) return false;
+  return last.reduce((a, r) => a + r.revenue, 0) > last.reduce((a, r) => a + (r.rivalRevenue ?? 0), 0);
+}
+
+export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s)) || (s.phase === 3 && phase3Done(s));
+
+/** 店の数（フェーズ 3 からはエリアの合計） */
+export const storeCount = (s: EmpireState) => (s.nation ? nationStores(s.nation) : s.stores.length);
 
 /** 店のある区画（フェーズ 2 から） */
 export const ownCells = (s: EmpireState) => s.stores.map((x) => x.cell).filter((c): c is number => c !== null);
@@ -192,6 +227,7 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[], rng: Rn
     state.phase = (state.phase + 1) as EmpireState['phase'];
     notes.push({ kind: 'promoted', phase: state.phase });
     if (state.phase === 2) openArea(state, rng);
+    if (state.phase === 3) openNation(state, rng);
   }
   for (const s of state.stores) {
     const c = { ...d.all, ...d.stores?.[s.id] };
@@ -228,7 +264,7 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[], rng: Rn
     notes.push({ kind: 'opened', store: id });
   }
   const area = state.area;
-  if (!area) return;
+  if (!area || state.phase !== 2) return;
   if (d.sv !== undefined) state.sv = clamp(Math.round(d.sv), 0, MAX_SV);
   if (d.pos && !state.pos) {
     if (state.funds >= POS_COST) {
@@ -305,12 +341,94 @@ function rivalStep(state: EmpireState, notes: Note[]): void {
   }
 }
 
+/** フェーズ 2 → 3：本拠エリアは地図の店をまとめ、残り 5 エリアを作る */
+function openNation(state: EmpireState, rng: Rng): void {
+  const own = state.stores;
+  const avg = (f: (x: Store) => number) => (own.length ? own.reduce((a, x) => a + f(x), 0) / own.length : 250_000);
+  state.nation = generateNation(
+    { stores: own.length, fc: own.filter((x) => x.owner !== null).length, hub: (state.area?.centers.length ?? 0) > 0, rival: state.area?.rivalStores.length ?? 0, traffic: Math.round(avg((x) => x.base)), rent: Math.round(avg((x) => x.rent)) },
+    rng,
+  );
+}
+
+/** フェーズ 3 の決定：研修所・物流拠点・マニュアル・出店（研修所で育った人数まで、物流拠点のあるエリアだけ） */
+function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
+  const n = state.nation!;
+  const pay = (cost: number) => {
+    if (state.funds < cost) {
+      notes.push({ kind: 'shortOfFunds' });
+      return false;
+    }
+    state.funds -= cost;
+    return true;
+  };
+  for (let i = 0; i < (d.training ?? 0); i++) if (pay(TRAINING_COST)) n.trainingCenters++;
+  for (const ri of d.buildHub ?? []) {
+    const r = n.regions[ri];
+    if (!r || r.hub) continue;
+    if (pay(HUB_COST)) {
+      r.hub = true;
+      notes.push({ kind: 'hubBuilt', region: ri });
+    }
+  }
+  if (d.manual && !n.manual && n.quality < MANUAL_UNLOCK && pay(MANUAL_COST)) n.manual = true;
+  let people = trainees(n);
+  let opened = 0;
+  for (const x of d.expand ?? []) {
+    const r = n.regions[x.region];
+    if (!r || x.count <= 0) continue;
+    if (!r.hub && x.region !== 0) {
+      notes.push({ kind: 'needHub', region: x.region });
+      continue;
+    }
+    for (let i = 0; i < x.count; i++) {
+      if (people <= 0) {
+        notes.push({ kind: 'traineeLimit', trainees: trainees(n) });
+        break;
+      }
+      if (nationStores(n) >= MAX_STORES[state.phase] || !pay(OPEN_COSTS[x.type])) break;
+      r[x.type]++;
+      people--;
+      opened++;
+    }
+    if (people <= 0) break;
+  }
+  // 品質：急いで出すほど下がり（マニュアルがあると緩む）、毎月少しずつ戻る
+  const wasAbove = n.quality >= MANUAL_UNLOCK;
+  n.quality = Math.min(1, Math.max(QUALITY.min, n.quality + QUALITY.recover - opened * QUALITY.perOpen * (n.manual ? QUALITY.manualFactor : 1)));
+  if (n.quality < 0.95) notes.push({ kind: 'qualityWarn' });
+  if (wasAbove && n.quality < MANUAL_UNLOCK && !n.manual) notes.push({ kind: 'manualReady' });
+}
+
+/** フェーズ 3 の 1 か月：ライバルが増え、エリアごとに売上と利益を出す */
+function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng): MonthReport {
+  applyNationDecisions(state, d, notes);
+  const n = state.nation!;
+  if (state.month % RIVAL_NATION.interval === 0) for (const r of n.regions) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
+  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5));
+  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP;
+  const revenue = reps.reduce((a, r) => a + r.revenue, 0);
+  const profit = reps.reduce((a, r) => a + r.profit, 0) - overhead;
+  state.funds += profit;
+  if (state.funds < 0) notes.push({ kind: 'shortOfFunds' });
+  return { month: state.month, revenue, inflow: state.inflow, overhead, profit, funds: state.funds, stores: [], notes, rivalRevenue: reps.reduce((a, r) => a + r.rivalRevenue, 0) };
+}
+
 /** 月を 1 つ進める。新しい状態とその月の報告を返す */
 export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { state: EmpireState; report: MonthReport } {
   const state: EmpireState = structuredClone(prev);
   const notes: Note[] = [];
   const rng = makeRng(state.rng);
   applyDecisions(state, decisions, notes, rng);
+  if (state.phase >= 3 && state.nation) {
+    const report = nationMonth(state, decisions, notes, rng);
+    state.inflow = 0;
+    state.history = [...state.history, report].slice(-HISTORY);
+    if (canPromote(state)) notes.push({ kind: 'phaseReady' });
+    state.month++;
+    state.rng = rng.state;
+    return { state, report };
+  }
   rivalStep(state, notes);
   const reports: StoreReport[] = [];
   const env = state.stores.map((s) => ({ ...logistics(state, s), mult: areaMult(state, s), crowd: state.area && s.cell !== null ? cannibalMult(state.area, s.cell, ownCells(state)) : 1 }));

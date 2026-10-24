@@ -55,10 +55,14 @@ const money = (v: number) => `${v < 0 ? '−' : ''}${fmt(Math.abs(Math.round(v))
 export const cellName = (w: number, i: number) => `${String.fromCharCode(65 + (i % w))}${Math.floor(i / w) + 1}`;
 
 /** 報告の一行（予兆を含む）。ライバルの名前と区画の呼び名に会社の状態を使う */
-export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area'>): string {
+export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'nation'>): string {
   const rival = rivalOf(e?.land);
   const rivalName = t(rival.company.ja, rival.company.en);
   const cell = (i: number) => cellName(e?.area?.w ?? 8, i);
+  const region = (i: number) => {
+    const r = e?.nation?.regions[i];
+    return r ? t(r.name.ja, r.name.en) : '?';
+  };
   switch (n.kind) {
     case 'fatigue':
       return t(`${storeName(n.store)}の店主が眠そうです。人手が足りていません`, `The owner of ${storeName(n.store)} looks exhausted. The shifts are short-handed`);
@@ -82,6 +86,16 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area'>): strin
       return t(`${rivalName}が ${cell(n.cell)} に出店しました`, `${rivalName} opened a store at ${cell(n.cell)}`);
     case 'centerBuilt':
       return t(`${cell(n.cell)} に物流センターができました`, `A distribution center opened at ${cell(n.cell)}`);
+    case 'hubBuilt':
+      return t(`${region(n.region)}に物流拠点と工場ができました。ここから出店できます`, `A hub and factory opened in the ${region(n.region)}. You can open stores there now`);
+    case 'needHub':
+      return t(`${region(n.region)}には物流拠点がないので、出店できませんでした`, `No stores opened in the ${region(n.region)}: it has no hub yet`);
+    case 'traineeLimit':
+      return t(`研修所で育った店長・オーナーは月に ${n.trainees} 人まで。残りの出店は来月以降です`, `Only ${n.trainees} managers and owners finish training a month. The rest of the openings wait`);
+    case 'qualityWarn':
+      return t('「店によって品ぞろえや接客がまちまち」という声が届いています', 'Customers say the stores vary in stock and service');
+    case 'manualReady':
+      return t('品質が崩れてきました。いまならマニュアルにまとめられます', 'Quality is slipping. Now you know what to write in a manual');
     case 'crowded':
       return t(`${storeName(n.store)}は近くの店とお客さんを取り合っています`, `${storeName(n.store)} is competing for customers with nearby stores`);
   }
