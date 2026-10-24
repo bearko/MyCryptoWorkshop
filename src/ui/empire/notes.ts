@@ -4,10 +4,10 @@
 // - マインちゃんの助言（Advice）：今月いちばん大事な 1 つ
 import type { EmpireState, MonthReport, Note } from '../../empire/model';
 import type { Decisions } from '../../empire/sim';
-import { MAX_STAFF, ORDER_RANGE, STAFF_NEEDED } from '../../empire/sim';
+import { MAX_STAFF, OPEN_COST, ORDER_RANGE, STAFF_NEEDED } from '../../empire/sim';
 import { rivalOf } from '../../empire/rivals';
 import { t } from '../../i18n';
-import { monthLabel, noteText, storeName } from './text';
+import { money, monthLabel, noteText, storeName } from './text';
 
 export interface Voice {
   /** 誰の声か（常連客・問屋・店主・オーナー会・当局・銀行） */
@@ -170,10 +170,12 @@ export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean):
   if (has('stockout')) return t('品切れが出ています。発注を増やすと売上が伸びますよ。', 'You ran out of stock. Ordering more will lift sales.');
   if (has('waste')) return t('廃棄が多めです。発注を少し減らしてみませんか。', 'Lots of waste. Try ordering a little less.');
   if (r && r.profit < 0) return t('先月は赤字でした。お品書きで、どの費用が重いか見てみましょう。', 'Last month was in the red. Check the ledger for the heavy costs.');
-  if (e.phase === 1)
-    return e.stores.length < 3
-      ? t('「出店」を押すと、町に候補の区画が光ります。家賃と見込みの売上を比べて選びましょう。', 'Press "Open" to light up candidate plots on the map. Compare rent with expected sales.')
-      : t('3 店そろいました。3 か月続けて黒字なら、商会に上がれます。', 'Three stores! Three profitable months in a row and you move up.');
+  if (e.phase === 1) {
+    if (e.stores.length >= 3) return t('3 店そろいました。3 か月続けて黒字なら、商会に上がれます。', 'Three stores! Three profitable months in a row and you move up.');
+    if (e.funds < OPEN_COST)
+      return t(`2 号店には ${money(OPEN_COST)} かかります。それまでは 1 号店の発注と営業時間を整えて、黒字を積みましょう。点線の区画が出店の候補です。`, `A new store costs ${money(OPEN_COST)}. Until then, tune store 1's orders and hours. Dashed plots are candidates.`);
+    return t('点線の区画が出店の候補です（★がおすすめ）。押すと、家賃と見込みの利益を比べられます。', 'Dashed plots are candidates (★ is the best). Tap one to compare rent and expected profit.');
+  }
   if (e.phase === 2) return t('物流センターから 2 マスの配送圏に店を集めると、配送費が下がります。★はおすすめの区画です。', 'Cluster stores within 2 plots of a distribution center to cut delivery costs. ★ marks good plots.');
   if (e.phase === 3) return t('物流拠点を建てたエリアにだけ出店できます。研修所で育った人の数が、月に出せる店の数です。', 'You can only open where you built a hub. Trainees per month cap your openings.');
   return t('今月の稟議をそろえて、「月を進める」を押しましょう。', 'Line up this month’s plans and press "Next month".');

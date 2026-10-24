@@ -44,33 +44,38 @@ export function foundingTown(e: Pick<EmpireState, 'name' | 'land'>): Area {
   return generateArea(makeRng(seedOf(`${e.name}:${e.land}`)));
 }
 
-/** フェーズ 1 の店の区画：創業の 1 号店は駅の近く、2・3 号店はそのまわり */
-export function phase1Cells(a: Area, count: number): number[] {
-  const h = heats(a);
-  const order = h.map((v, i) => ({ v, i })).sort((x, y) => y.v - x.v);
-  // 1 号店は 2 番目に人通りの多い区画（いちばんは駅前）。2 号店からは 2 マス以上離す
-  const picks: number[] = [];
-  for (const { i } of order.slice(1)) {
-    if (picks.length >= count) break;
-    if (picks.every((p) => Math.max(Math.abs((p % a.w) - (i % a.w)), Math.abs(Math.floor(p / a.w) - Math.floor(i / a.w))) >= 2)) picks.push(i);
-  }
-  return picks;
-}
+const KIND_RANK: Record<string, number> = { home: 0.05, station: 0, office: 0.2, school: 0.45, liquor: 0.5, residential: 0.65, suburb: 0.85 };
 
-/** フェーズ 1 の出店候補を、町の区画に置く（駅前ほど人通りの多い区画） */
-export function plotCells(a: Area, plots: Plot[], taken: number[]): number[] {
+/**
+ * フェーズ 1 の店（や候補）の区画。区画の種類（駅前・オフィス街・郊外…）の人通りの順位で選ぶ。
+ * 店の並びと、その店の種類・日販だけで決まるので、候補として見せた区画と、出店したあとの区画が同じになる。
+ */
+export function p1Cell(a: Area, kind: string, base: number, taken: number[]): number {
   const h = heats(a);
   const free = h
     .map((v, i) => ({ v, i }))
-    .filter((x) => !taken.includes(x.i))
-    .sort((x, y) => y.v - x.v);
-  const rank: Record<string, number> = { station: 0, office: 0.2, school: 0.45, residential: 0.65, suburb: 0.85, liquor: 0.5, home: 0 };
+    .filter((x) => !taken.includes(x.i) && x.v < 1)
+    .sort((x, y) => y.v - x.v || x.i - y.i);
+  const jitter = ((base / 10_000) % 7) / 70;
+  const want = Math.min(free.length - 1, Math.max(0, Math.floor(((KIND_RANK[kind] ?? 0.5) + jitter) * (free.length - 1))));
+  return free[want].i;
+}
+
+/** フェーズ 1 の店の区画（店の順に、前の店の区画を避けて） */
+export function storeCells(a: Area, stores: { plot: string; base: number }[]): number[] {
+  const out: number[] = [];
+  for (const s of stores) out.push(p1Cell(a, s.plot, s.base, out));
+  return out;
+}
+
+/** フェーズ 1 の出店候補の区画。出店したら同じ区画に店が建つ（候補どうしが重なれば、あとの方をずらす） */
+export function plotCells(a: Area, plots: Plot[], storeAt: number[]): number[] {
   const used: number[] = [];
   return plots.map((p) => {
-    const want = Math.floor((rank[p.kind] ?? 0.5) * (free.length - 1));
-    const pick = free.slice(want).find((f) => !used.includes(f.i)) ?? free.find((f) => !used.includes(f.i))!;
-    used.push(pick.i);
-    return pick.i;
+    let c = p1Cell(a, p.kind, p.base, storeAt);
+    if (used.includes(c)) c = p1Cell(a, p.kind, p.base, [...storeAt, ...used]);
+    used.push(c);
+    return c;
   });
 }
 

@@ -220,11 +220,13 @@ export class MapView {
     const s = this.scene;
     if (!s) return;
     // 地図が画面より小さい向きは真ん中に、大きい向きは端まで
+    // 地図の外側も描くので、端の物が画面の端に貼りつかないよう半マス（32 ドット）まで外へ出られる
+    const m = 32;
     if (s.width <= this.viewW) this.camX = (s.width - this.viewW) / 2;
-    else this.camX = Math.max(0, Math.min(s.width - this.viewW, this.camX));
+    else this.camX = Math.max(-m, Math.min(s.width - this.viewW + m, this.camX));
     const vh = this.viewH - bottomPad;
     if (s.height <= vh) this.camY = (s.height - vh) / 2;
-    else this.camY = Math.max(0, Math.min(s.height - vh, this.camY));
+    else this.camY = Math.max(-m, Math.min(s.height - vh + m, this.camY));
   }
 
   private toArt(ev: PointerEvent): { x: number; y: number } {

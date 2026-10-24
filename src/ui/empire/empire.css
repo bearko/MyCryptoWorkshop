@@ -318,7 +318,65 @@
 /* ---------------------------------------------------------------- 絵馬・かわら版 */
 
 .ke-voices {
+  flex: 0 1 auto;
+}
+.ke-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ke-list-row {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ke-list-row:hover,
+.ke-list-row[aria-pressed='true'] {
+  background: var(--night-800);
+}
+.ke-list-name {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ke-list-row .ke-figure {
+  min-width: 3ch;
+  text-align: right;
+}
+.ke-list-hub {
+  min-width: 3ch;
+  font: var(--type-caption);
+  color: var(--ours-200);
+}
+.ke-list-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--night-800);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ke-list-bar span {
+  display: block;
+  height: 8px;
+}
+.ke-list-bar .is-good {
+  background: var(--ours-400);
+}
+.ke-list-bar .is-bad {
+  background: var(--rival-400);
 }
 .ke-ema-list {
   display: flex;
@@ -744,7 +802,7 @@
   gap: var(--space-2);
 }
 .ke-actions > * {
-  flex: 1 1 140px;
+  flex: 1 1 100%;
 }
 .ke-stepper {
   display: inline-flex;
@@ -875,12 +933,17 @@
 }
 .ke-expand-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 4px var(--space-2);
 }
 .ke-expand-name {
+  flex: 1 1 100%;
   font-weight: 700;
+}
+.ke-expand-row .ke-stepper {
+  margin-left: auto;
 }
 .ke-letter {
   display: flex;
@@ -1317,7 +1380,7 @@
   box-shadow: 0 -4px 0 #0004;
 }
 .ke-sheet.is-half {
-  height: 50%;
+  max-height: 52%;
 }
 .ke-sheet.is-full {
   height: calc(100% - var(--bar-header) - var(--bar-dock-phone) - 24px);
@@ -1361,8 +1424,33 @@
   background: none;
   border: 0;
 }
-.ke-sheet-body .ke-card-head {
+.ke-sheet-body .ke-card-title,
+.ke-sheet-body .ke-panel-title {
   display: none;
+}
+.ke-sheet-body .ke-card-head {
+  padding-right: 0;
+}
+.ke-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.ke-tab {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  color: var(--text-300) !important;
+  font: var(--type-heading) !important;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ke-tab[aria-selected='true'] {
+  background: var(--night-800);
+  color: var(--paper-100) !important;
 }
 
 /* ---------------------------------------------------------------- 会社を作る（マインちゃんの誘い） */
@@ -1394,4 +1482,20 @@
   .is-advancing .ke-month {
     animation: none;
   }
+}
+
+.ke-list-head {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font: var(--type-caption);
+  color: var(--paper-200);
+}
+.ke-list-head span:not(.ke-list-name):not(.ke-list-hub) {
+  min-width: 3ch;
+  text-align: right;
+}
+.ke-list-head .ke-list-name {
+  flex: 1;
+  margin-left: calc(2.5em + var(--space-2));
 }

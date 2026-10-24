@@ -14,7 +14,7 @@ import { LandScene } from '../../render/map/land';
 import { MapView, type MapTarget } from '../../render/map/view';
 import { h } from '../dom';
 import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard, reserved, ringiItems, ringiList, storeCard, type Ctx, type SoundKey } from './cards';
-import { foundingTown, gridIndex, heats, phase1Cells, plotCells, RAMEN, sectorGrid, storeExt, townGrid } from './maps';
+import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
 import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, svgIcon, type SheetState } from './parts';
 import { companyTitle, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
@@ -141,6 +141,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   let grid: GridScene | null = null;
   let land: LandScene | null = null;
   let sceneKey = '';
+  /** 詳しい情報のカードのために地図をずらした選択 */
+  let nudged = '';
   const view = new MapView({
     onHover: (target, x, y) => showTip(target, x, y),
     onSelect: (target) => select(target),
@@ -164,7 +166,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   /** フェーズ 1 の町の区画（飾りの町に、自社の店と候補を置く） */
   const p1 = () => {
     const area = foundingTown(e);
-    const cells = phase1Cells(area, 3);
+    const cells = storeCells(area, e.stores);
     const plots = e.stores.length + (draft.open ?? []).length >= MAX_STORES[1] && !(draft.open ?? []).length ? [] : plotsFor(e);
     const pc = plotCells(area, plots, cells);
     return { area, cells, plots, pc };
@@ -181,10 +183,10 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       key = `p1:${e.name}:${e.month}:${e.stores.map((s) => `${s.id}${s.sign ? 's' : ''}${s.parking ? 'p' : ''}`).join(',')}:${plots.length}`;
       if (key !== sceneKey) {
         data = townGrid(area, {
-          own: e.stores.slice(0, 3).map((s, k) => ({ cell: cells[k], ext: storeExt(s), id: s.id })),
+          own: e.stores.map((s, k) => ({ cell: cells[k], ext: storeExt(s), id: s.id })),
           rival: [],
           centers: [],
-          targetKind: (c) => (cells.slice(0, e.stores.length).includes(c) ? 'store' : pc.includes(c) ? 'plot' : null),
+          targetKind: (c) => (cells.includes(c) ? 'store' : pc.includes(c) ? 'plot' : null),
         });
         // 区画の番号 → 店の id・候補の番号
         data.cells.forEach((cell) => {
@@ -234,7 +236,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       land = null;
       const keep = sceneKey.split(':').slice(0, 2).join(':') === key.split(':').slice(0, 2).join(':');
       sceneKey = key;
-      view.setScene(grid, { focus, zoom: keep ? undefined : focus ? zoom : 'fit', keepCamera: keep, levels: phone() ? [0.5, 1, 2, 3] : [1, 2, 3] });
+      // スマホは原寸（1 倍）で、指でずらして見る（docs/design.md「スマホの規則」）。広いエリアだけ 0.5 倍まで引ける
+      view.setScene(grid, { focus, zoom: keep ? undefined : focus ? zoom : phone() ? 1 : 'fit', keepCamera: keep, levels: phone() ? [0.5, 1, 2, 3] : [1, 2, 3] });
     }
     if (grid) {
       grid.overlay = overlay;
@@ -254,7 +257,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     };
     if (e.phase === 1) {
       const { area, cells, plots, pc } = p1();
-      e.stores.slice(0, 3).forEach((s, k) => selection?.kind === 'store' && selection.id === s.id && (get(gridIndex(area, cells[k])).selected = true));
+      e.stores.forEach((s, k) => selection?.kind === 'store' && selection.id === s.id && (get(gridIndex(area, cells[k])).selected = true));
       const best = plots.length ? plots.map((p, k) => ({ k, v: plotProfit(p) })).sort((a, b) => b.v - a.v)[0].k : -1;
       plots.forEach((p, k) => {
         const gi = gridIndex(area, pc[k]);
@@ -345,6 +348,16 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         const cw = Math.min(320, W - 24);
         const ch = card.offsetHeight || 300;
         const x = b.x + 12 + cw < W - 8 ? b.x + 12 : a.x - 12 - cw >= 8 ? a.x - 12 - cw : Math.max(8, W - cw - 8);
+        // 横に置く場所がなく、選んだ物にかぶるなら、地図のほうを左へずらす（1 回だけ）
+        const key = `${selection.kind}:${selection.id}`;
+        if (x < b.x && x + cw > a.x && nudged !== key) {
+          nudged = key;
+          const dx = b.x - (W - cw - 20);
+          if (dx > 0) {
+            view.panBy(dx / view.artScaleCss, 0);
+            return;
+          }
+        }
         const y = Math.max(8, Math.min(H - ch - 8, a.y - 8));
         card.style.left = `${Math.round(x)}px`;
         card.style.top = `${Math.round(y)}px`;
@@ -628,6 +641,62 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     return out;
   }
 
+  /** 右の列：店の成績（フェーズ 1〜2）。利益の少ない店から並べ、押すと地図でその店を開く */
+  function storesPanel(): HTMLElement | null {
+    if (!last || !last.stores.length || e.phase > 2) return null;
+    const rows = [...last.stores].sort((a, b) => a.profit - b.profit).slice(0, 6);
+    return panel(
+      'ke-list-panel',
+      t('店の成績（先月）', 'Stores (last month)'),
+      h(
+        'ul.ke-list',
+        {},
+        ...rows.map((r) =>
+          h(
+            'li',
+            {},
+            h(
+              'button.ke-list-row',
+              { type: 'button', onclick: () => focusStore(r.id) },
+              h('span', {}, storeName(r.id)),
+              h('span.ke-list-bar', {}, h('span', { class: r.profit >= 0 ? 'is-good' : 'is-bad', style: `width:${Math.min(100, Math.round((Math.abs(r.profit) / Math.max(1, ...last!.stores.map((x) => Math.abs(x.profit)))) * 100))}%` })),
+              h('b', { class: `ke-figure ${r.profit < 0 ? 'ke-bad' : 'ke-good'}` }, shortMoney(r.profit)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** 右の列：エリアの一覧（フェーズ 3）。地図の板と同じものを、数字で比べられるように */
+  function regionsPanel(): HTMLElement | null {
+    if (!e.nation || regionView !== null) return null;
+    return panel(
+      'ke-list-panel',
+      t('エリア', 'Areas'),
+      h(
+        'ul.ke-list',
+        {},
+        h('li.ke-list-head', { 'aria-hidden': 'true' }, h('span.ke-list-name', {}, ''), h('span', {}, t('自社', 'Ours')), h('span', {}, t('他社', 'Rival')), h('span.ke-list-hub', {}, '')),
+        ...e.nation.regions.map((r, i) =>
+          h(
+            'li',
+            {},
+            h(
+              'button.ke-list-row',
+              { type: 'button', 'aria-pressed': String(selection?.kind === 'region' && selection.id === i), onclick: () => select({ kind: 'region', id: i, ...(land?.plateRect(i) ?? { x: 0, y: 0, w: 0, h: 0 }) }) },
+              h('span', { class: `ke-rar ke-rar-${r.rarity}` }, ['C', 'UC', 'R', 'E', 'L'][r.rarity]),
+              h('span.ke-list-name', {}, t(r.name.ja, r.name.en)),
+              h('span.ke-figure', { class: 'ke-figure ke-good' }, r.locked ? '—' : String(regionStores(r))),
+              h('span.ke-figure', { class: 'ke-figure ke-bad' }, String(r.rival)),
+              h('span.ke-list-hub', { title: t('物流拠点', 'Hub') }, r.hub || i === 0 ? t('拠点', 'hub') : ''),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   function focusStore(id: number): void {
     const s = e.stores.find((x) => x.id === id);
     if (!s) return;
@@ -795,7 +864,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), ringi: t('今月の稟議', "This month's plans"), news: t('かわら版', 'Kawaraban'), promote: t('次の格へ', 'Next stage'), ledger: t('お品書き', 'Ledger'), voices: t('絵馬掛け', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);
@@ -893,17 +962,36 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       );
       pop.replaceChildren();
       const body = sc ?? panelBody(openPanel);
-      const title = sc ? (selection?.kind === 'region' ? t('エリア', 'Area') : t('区画', 'Plot')) : panelTitle(openPanel);
+      const title = sc ? (sc.querySelector('.ke-card-title')?.textContent ?? t('区画', 'Plot')) : panelTitle(openPanel);
+      // 帳簿・声・稟議・かわら版は、シートの上のタブで切り替える（閉じずに 1 回で）
+      const tabbed: Panel[] = ['ledger', 'voices', 'ringi', 'news'];
+      const tabs =
+        !sc && tabbed.includes(openPanel)
+          ? tabbed.map((p) => ({
+              label: panelTitle(p),
+              active: p === openPanel,
+              on: () => {
+                openPanel = p;
+                render();
+              },
+            }))
+          : undefined;
       sheetHost.replaceChildren(
         body && sheetState !== 'closed'
-          ? sheet(title, body, sheetState, (s) => {
-              sheetState = s;
-              if (s === 'closed') {
-                selection = null;
-                openPanel = null;
-              }
-              render();
-            })
+          ? sheet(
+              title,
+              body,
+              sheetState,
+              (s) => {
+                sheetState = s;
+                if (s === 'closed') {
+                  selection = null;
+                  openPanel = null;
+                }
+                render();
+              },
+              tabs,
+            )
           : h('span', {}),
       );
     } else {
@@ -911,7 +999,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       folds.replaceChildren();
       sheetHost.replaceChildren();
       left.replaceChildren(ledgerView());
-      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), ...voices), ...(kawa ? [kawa] : []));
+      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
       selCard.replaceChildren(
         sc
           ? h(
@@ -981,6 +1069,22 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
 
   render();
   tuckAdvisor();
+  // テストモードだけ：撮影・自動テストから地図の物の位置を引けるように
+  if (opts.onTest) {
+    Object.assign(root, {
+      keDebug: {
+        /** kind・id の物の中心（画面の座標）。見えていなければ null */
+        point: (kind: string, id: number) => {
+          const r = targetRect({ kind: kind as NonNullable<Selection>['kind'], id });
+          if (!r) return null;
+          const p = view.toCss(r.x + r.w / 2, r.y + r.h / 2);
+          const c = view.canvas.getBoundingClientRect();
+          return { x: c.left + p.x, y: c.top + p.y };
+        },
+        state: () => ({ e, draft, selection, openPanel, sheetState }),
+      },
+    });
+  }
   return root;
 }
 

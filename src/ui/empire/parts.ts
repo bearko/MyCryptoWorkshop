@@ -175,7 +175,7 @@ export function bubble(face: HTMLElement, text: string, onClose: () => void): HT
 /** スマホの下から出るシート（3 段：閉じる・半分・全体） */
 export type SheetState = 'closed' | 'half' | 'full';
 
-export function sheet(title: string, body: HTMLElement, state: SheetState, onState: (s: SheetState) => void): HTMLElement {
+export function sheet(title: string, body: HTMLElement, state: SheetState, onState: (s: SheetState) => void, tabs?: { label: string; active: boolean; on: () => void }[]): HTMLElement {
   let startY = 0;
   let dragging = false;
   const grip = h('button.ke-sheet-grip', {
@@ -198,7 +198,14 @@ export function sheet(title: string, body: HTMLElement, state: SheetState, onSta
     'section.ke-sheet',
     { class: `ke-sheet is-${state}`, role: 'dialog', 'aria-label': title },
     grip,
-    h('div.ke-sheet-head', {}, h('h2.ke-sheet-title', {}, title), h('button.ke-icon-btn', { type: 'button', 'aria-label': t('閉じる', 'Close'), onclick: () => onState('closed') }, svgIcon('close'))),
+    h(
+      'div.ke-sheet-head',
+      {},
+      tabs
+        ? h('div.ke-tabs', { role: 'tablist', 'aria-label': title }, ...tabs.map((tb) => h('button.ke-tab', { type: 'button', role: 'tab', 'aria-selected': String(tb.active), onclick: tb.on }, tb.label)))
+        : h('h2.ke-sheet-title', {}, title),
+      h('button.ke-icon-btn', { type: 'button', 'aria-label': t('閉じる', 'Close'), onclick: () => onState('closed') }, svgIcon('close')),
+    ),
     h('div.ke-sheet-body', {}, body),
   );
 }

@@ -5,7 +5,7 @@ import { advanceMonth, AREA_OPEN_COST, CENTER_COST, plotsFor } from '../src/empi
 import { testActions } from '../src/ui/testPanel';
 import { newSave } from '../src/game/save';
 import { reserved, ringiItems } from '../src/ui/empire/cards';
-import { foundingTown, gridIndex, phase1Cells, plotCells, sectorGrid, storeExt, townGrid } from '../src/ui/empire/maps';
+import { foundingTown, gridIndex, plotCells, sectorGrid, storeCells, storeExt, townGrid } from '../src/ui/empire/maps';
 import { adviceOf, newsOf, voicesOf } from '../src/ui/empire/notes';
 import { money, shortMoney } from '../src/ui/empire/text';
 import { SECTOR_SIZE } from '../src/render/map/land';
@@ -38,11 +38,20 @@ describe('地図の組み立て', () => {
     const e = newEmpire('テスト', 1);
     const a = foundingTown(e);
     expect(foundingTown(e)).toEqual(a);
-    const cells = phase1Cells(a, 3);
-    expect(new Set(cells).size).toBe(3);
+    const cells = storeCells(a, e.stores);
     const pc = plotCells(a, plotsFor(e), cells);
     expect(pc.some((c) => cells.includes(c))).toBe(false);
     expect(new Set(pc).size).toBe(pc.length);
+  });
+
+  it('フェーズ 1：候補として見せた区画に、出店した店が建つ', () => {
+    const e = { ...newEmpire('テスト', 7), funds: 1e9 };
+    const a = foundingTown(e);
+    const plots = plotsFor(e);
+    const shown = plotCells(a, plots, storeCells(a, e.stores));
+    const next = advanceMonth(e, { open: [plots[0]] }).state;
+    const after = storeCells(a, next.stores);
+    expect(after[1]).toBe(shown[0]);
   });
 
   it('エリアの地図はレアリティの広さで、自社とライバルの店の数が区画に出る', () => {
