@@ -3254,3 +3254,20 @@ body.in-day {
   width: 16px;
   height: 16px;
 }
+
+/* ---------------------------------------------------------------- test mode (?test=1) */
+
+.test-badge {
+  position: fixed;
+  left: max(8px, env(safe-area-inset-left, 0px));
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #d9480f;
+  color: #fff7ec;
+  font: 700 12px/1.4 var(--font-pixel, sans-serif);
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  box-shadow: 0 2px 8px #0008;
+}

@@ -1,6 +1,7 @@
 import { newRanking, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { titleCode } from '../game/titles';
+import { TEST_MODE } from '../testMode';
 
 /**
  * The worldwide leaderboards (api/leaderboard.ts on the Cloudflare Worker, Upstash Redis behind it).
@@ -86,6 +87,8 @@ export class LeaderboardError extends Error {
 }
 
 async function call(method: string, query = '', body?: unknown): Promise<Record<string, unknown>> {
+  // テストモード（?test=1）では見るだけ。記録の送信・参加・退会はしない
+  if (TEST_MODE && method !== 'GET') throw new LeaderboardError('test-mode');
   let res: Response;
   try {
     res = await fetch(API_URL + query, {
@@ -155,6 +158,8 @@ export function errorText(e: unknown): string {
       return t('Google のログインを確認できませんでした。もう一度お試しください', "Couldn't verify the Google sign-in. Please try again");
     case 'google_off':
       return t('このサーバーでは Google ログインを使えません', "Google sign-in isn't available on this server");
+    case 'test-mode':
+      return t('テストモード（?test=1）では、ランキングに記録を送れません', "Records can't be sent to the leaderboards in test mode (?test=1)");
     case 'not_configured':
       return t('ランキングサーバーはまだ準備中です', 'The leaderboard server is not set up yet');
     default:

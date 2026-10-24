@@ -3,6 +3,7 @@
 // SDK（https://bearko.games/sdk/v1.js、index.html で読み込む）が読めない・通信に失敗しても何もしない。
 import type { SaveData } from '../game/save';
 import { computeStats } from '../game/stats';
+import { TEST_MODE } from '../testMode';
 
 type Result = { ok: boolean; error?: string };
 
@@ -24,8 +25,9 @@ interface BearkoGamesSdk {
   };
 }
 
+// テストモード（?test=1）では共通基盤に何も送らない（SDK が無いのと同じに扱う）
 const sdk = (): BearkoGamesSdk | undefined =>
-  typeof window === 'undefined' ? undefined : (window as unknown as { BearkoGames?: BearkoGamesSdk }).BearkoGames;
+  typeof window === 'undefined' || TEST_MODE ? undefined : (window as unknown as { BearkoGames?: BearkoGamesSdk }).BearkoGames;
 
 /** 共通基盤に送る成績（純関数）。day：30 日目に届いたことがあれば 30 以上、clearBest：最速クリア（営業日の秒数） */
 export function scoreMetrics(save: SaveData): { day: number; clearBest: number | null; total: number; run: number } {
