@@ -4,7 +4,20 @@ import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type 
 import { makeRng, type Rng } from './rng';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
 import {
+  borrowable,
+  collateral,
+  ERA,
+  FORCE24_BOOST,
   generateNation,
+  INVESTIGATION,
+  IPO,
+  LAND,
+  landIndexAt,
+  LOAN,
+  PB,
+  regionStores,
+  SATISFACTION,
+  SUPPORT_COST,
   HUB_COST,
   HUB_UPKEEP,
   MANUAL_COST,
@@ -101,6 +114,17 @@ export interface Decisions {
   training?: number;
   /** フェーズ 3 から：マニュアルを整える */
   manual?: boolean;
+  /** フェーズ 3 から：加盟店に 24 時間営業を求める／やめる */
+  force24?: boolean;
+  /** フェーズ 3 から：オーナー支援の手厚さ（0〜3） */
+  support?: number;
+  /** フェーズ 3 から：借りる・返す額 */
+  borrow?: number;
+  repay?: number;
+  /** フェーズ 3 から：上場する */
+  ipo?: boolean;
+  /** フェーズ 3 から：PB を 1 段開発する */
+  pb?: boolean;
   renovate?: { store: number; kind: 'sign' | 'parking' }[];
   /** 新しい店（plotsFor の候補か、letterFor の加盟店） */
   open?: Plot[];
@@ -348,8 +372,24 @@ function openNation(state: EmpireState, rng: Rng): void {
   state.nation = generateNation(
     { stores: own.length, fc: own.filter((x) => x.owner !== null).length, hub: (state.area?.centers.length ?? 0) > 0, rival: state.area?.rivalStores.length ?? 0, traffic: Math.round(avg((x) => x.base)), rent: Math.round(avg((x) => x.rent)) },
     rng,
+    state.month,
   );
 }
+
+/** 自店がエリアの入りきる目安のこの割合を超えると、オーナーの満足度が下がる */
+export const CROWDED_OWN = 0.8;
+
+/** 直近 12 か月（今月を除く）の売上と利益 */
+const trailing = (s: EmpireState) => {
+  const last = s.history.slice(-12);
+  return { revenue: last.reduce((a, r) => a + r.revenue, 0), profit: last.reduce((a, r) => a + r.profit, 0) };
+};
+
+/** 上場できるか（直近 12 か月の売上が条件を満たし、まだ上場していない） */
+export const canIpo = (s: EmpireState) => !!s.nation && !s.nation.listed && trailing(s).revenue >= IPO.minRevenue;
+
+/** 上場で集まる資金（直近 12 か月の利益 × 倍率 × 売り出す割合） */
+export const ipoRaise = (s: EmpireState) => Math.max(0, trailing(s).profit) * IPO.per * IPO.sell;
 
 /** フェーズ 3 の決定：研修所・物流拠点・マニュアル・出店（研修所で育った人数まで、物流拠点のあるエリアだけ） */
 function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
@@ -372,7 +412,32 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
     }
   }
   if (d.manual && !n.manual && n.quality < MANUAL_UNLOCK && pay(MANUAL_COST)) n.manual = true;
-  let people = trainees(n);
+  if (d.force24 !== undefined) n.force24 = d.force24;
+  if (d.support !== undefined) n.support = clamp(Math.round(d.support), 0, 3);
+  if (d.pb && n.pb < PB.max && pay(PB.cost)) {
+    n.pb++;
+    notes.push({ kind: 'pbUp', level: n.pb });
+  }
+  if (d.borrow && d.borrow > 0) {
+    const amount = Math.min(d.borrow, borrowable(n));
+    n.loans += amount;
+    state.funds += amount;
+  }
+  if (d.repay && d.repay > 0) {
+    const amount = Math.min(d.repay, n.loans, Math.max(0, state.funds));
+    n.loans -= amount;
+    state.funds -= amount;
+  }
+  if (d.ipo && canIpo(state)) {
+    const raised = ipoRaise(state);
+    state.funds += raised;
+    n.ownership *= 1 - IPO.sell;
+    n.listed = true;
+    notes.push({ kind: 'ipo', raised });
+  }
+  // 時代のルール：規制が厳しいあいだは、月の出店に上限がある
+  let people = n.eraStrict ? Math.min(trainees(n), ERA.strictCap) : trainees(n);
+  const capped = n.eraStrict && trainees(n) > ERA.strictCap;
   let opened = 0;
   for (const x of d.expand ?? []) {
     const r = n.regions[x.region];
@@ -383,10 +448,10 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
     }
     for (let i = 0; i < x.count; i++) {
       if (people <= 0) {
-        notes.push({ kind: 'traineeLimit', trainees: trainees(n) });
+        notes.push(capped ? { kind: 'eraCap', cap: ERA.strictCap } : { kind: 'traineeLimit', trainees: trainees(n) });
         break;
       }
-      if (nationStores(n) >= MAX_STORES[state.phase] || !pay(OPEN_COSTS[x.type])) break;
+      if (nationStores(n) >= MAX_STORES[state.phase] || !pay(OPEN_COSTS[x.type] * (n.eraStrict ? ERA.strictCost : 1))) break;
       r[x.type]++;
       people--;
       opened++;
@@ -404,9 +469,54 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
 function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng): MonthReport {
   applyNationDecisions(state, d, notes);
   const n = state.nation!;
-  if (state.month % RIVAL_NATION.interval === 0) for (const r of n.regions) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
-  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5));
-  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP;
+  const m = state.month;
+  // 時代のルール：変わる 3 か月前に予告し、その月に変わる
+  if (m + ERA.notice === n.eraChange) notes.push({ kind: 'eraSoon', strict: !n.eraStrict, month: n.eraChange });
+  if (m >= n.eraChange) {
+    n.eraStrict = !n.eraStrict;
+    n.eraChange = m + (n.eraStrict ? ERA.strict : ERA.loose);
+    notes.push({ kind: 'eraChanged', strict: n.eraStrict });
+  }
+  // ライバル：規制が緩いあいだは倍の速さで増える
+  if (m % RIVAL_NATION.interval === 0) {
+    for (const r of n.regions) for (let k = 0; k < (n.eraStrict ? 1 : ERA.looseRival); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
+  }
+  // 地価：上がり方が鈍ってきたら予兆、天井を過ぎたら下がる。担保割れは返済を迫られる
+  const monthsIn = m - n.landStart;
+  n.landIndex = landIndexAt(monthsIn);
+  if (monthsIn === LAND.riseMonths - LAND.notice && n.loans > 0) notes.push({ kind: 'landSlowing' });
+  if (monthsIn === LAND.riseMonths + 1) notes.push({ kind: 'landFalling' });
+  const limit = collateral(n) * LOAN.ratio;
+  if (n.loans > limit) {
+    const amount = n.loans - limit;
+    n.loans = limit;
+    state.funds -= amount;
+    notes.push({ kind: 'marginCall', amount });
+  }
+  // オーナーの満足度：24 時間の強制・混みすぎたエリアで下がり、支援で上がる。下がり続けると告発 → 調査
+  const fc = n.regions.reduce((a, r) => a + r.fcOwner + r.fcHq, 0);
+  if (fc > 0) {
+    // 自店を詰めこみすぎたエリア（ライバルの店は数えない。オーナーが怒るのは本部の出店のしかた）
+    const crowded = n.regions.filter((r) => regionStores(r) > r.capacity * CROWDED_OWN).length;
+    const delta = SATISFACTION.base + (n.force24 ? SATISFACTION.force24 : 0) + crowded * SATISFACTION.crowded + n.support * SATISFACTION.support;
+    n.satisfaction = clamp(n.satisfaction + delta, 0, 100);
+    if (n.satisfaction < SATISFACTION.warn) notes.push({ kind: 'ownerUnrest', satisfaction: Math.round(n.satisfaction) });
+    if (n.satisfaction < SATISFACTION.complaint && n.investigation === null) {
+      n.investigation = m + 2;
+      notes.push({ kind: 'investigationSoon' });
+    }
+  }
+  if (n.investigation !== null && m >= n.investigation) {
+    const fine = Math.max(INVESTIGATION.minFine, trailing(state).profit * INVESTIGATION.fineRate);
+    state.funds -= fine;
+    n.force24 = false;
+    n.satisfaction = Math.max(n.satisfaction, SATISFACTION.afterInvestigation);
+    n.investigation = null;
+    notes.push({ kind: 'investigation', fine });
+  }
+  const mods = { demand: 1 + n.pb * PB.demand, costCut: n.pb * PB.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1 };
+  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, mods));
+  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + n.loans * LOAN.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
   const profit = reps.reduce((a, r) => a + r.profit, 0) - overhead;
   state.funds += profit;

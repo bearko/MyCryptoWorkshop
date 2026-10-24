@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { freeCells } from '../src/empire/area';
 import { newEmpire, restoreEmpire, type EmpireState } from '../src/empire/model';
-import { HUB_COST, MANUAL_UNLOCK, nationStores, OPEN_COSTS, perStoreDaily, regionMonth, regionStores, trainees, TRAINING_COST } from '../src/empire/nation';
+import { ERA, HUB_COST, MANUAL_UNLOCK, nationStores, OPEN_COSTS, perStoreDaily, regionMonth, regionStores, trainees, TRAINING_COST } from '../src/empire/nation';
 import { advanceMonth, canPromote, ownCells, phase3Done, plotsFor, storeCount } from '../src/empire/sim';
 
 /** フェーズ 2 を抜けて、全国チェーンになったところ */
@@ -16,6 +16,9 @@ function phase3(seed = 3): EmpireState {
   expect(canPromote(s)).toBe(true);
   return advanceMonth(s, { promote: true }).state;
 }
+
+/** 規制の緩い時代にした全国チェーン（出店の上限を外して確かめるため） */
+const loose = (s: EmpireState): EmpireState => ({ ...s, nation: { ...s.nation!, eraStrict: false, eraChange: s.month + 100 } });
 
 describe('フェーズ 2 → 3', () => {
   it('格上げで 6 エリアができ、本拠エリアに地図の店とライバルがまとまる', () => {
@@ -42,11 +45,11 @@ describe('出店：物流拠点と研修所', () => {
     const ok = advanceMonth(s, { buildHub: [1], expand: [{ region: 1, type: 'direct', count: 1 }] });
     expect(ok.state.nation!.regions[1].hub).toBe(true);
     expect(ok.state.nation!.regions[1].direct).toBe(1);
-    expect(ok.state.funds).toBeCloseTo(s.funds - HUB_COST - OPEN_COSTS.direct + ok.report.profit);
+    expect(ok.state.funds).toBeCloseTo(s.funds - HUB_COST - OPEN_COSTS.direct * ERA.strictCost + ok.report.profit);
   });
 
   it('1 か月に出せるのは研修所で育った人数まで。研修所で増える', () => {
-    const s = phase3();
+    const s = loose(phase3());
     const before = nationStores(s.nation!);
     const r = advanceMonth(s, { expand: [{ region: 0, type: 'fcOwner', count: 20 }] });
     expect(nationStores(r.state.nation!) - before).toBe(trainees(s.nation!));
@@ -70,7 +73,7 @@ describe('店の形と品質', () => {
   });
 
   it('急いで出店すると品質が下がり、崩れてからマニュアルを整えられる', () => {
-    let s = phase3();
+    let s = loose(phase3());
     s = advanceMonth(s, { training: 4 }).state;
     expect(advanceMonth(s, { manual: true }).state.nation!.manual).toBe(false);
     let warned = false;
@@ -90,7 +93,7 @@ describe('店の形と品質', () => {
 
 describe('卒業と保存', () => {
   it('直近 12 か月の売上がライバルを上回ると条件を満たす', () => {
-    let s = phase3();
+    let s = loose(phase3());
     expect(phase3Done(s)).toBe(false);
     s = advanceMonth(s, { training: 5, buildHub: [1, 2, 3, 4, 5] }).state;
     for (let i = 0; i < 24 && !phase3Done(s); i++) {
@@ -103,5 +106,103 @@ describe('卒業と保存', () => {
   it('6 エリアごと JSON を通しても同じ', () => {
     const s = advanceMonth(phase3()).state;
     expect(restoreEmpire(JSON.parse(JSON.stringify(s)))).toEqual(s);
+  });
+});
+
+describe('フェーズ 3 の足かせ（予兆のあとに来る）', () => {
+  it('24 時間の強制は加盟店の売上を伸ばすが、満足度が下がり、予兆 → 予告 → 調査と制裁金になる', async () => {
+    const { SATISFACTION, INVESTIGATION } = await import('../src/empire/nation');
+    let s = loose(phase3());
+    s = advanceMonth(s, { expand: [{ region: 0, type: 'fcOwner', count: 2 }] }).state;
+    const without = advanceMonth(s).report.revenue;
+    const withForce = advanceMonth(s, { force24: true });
+    expect(withForce.report.revenue).toBeGreaterThan(without);
+    s = withForce.state;
+    const kinds: string[] = [];
+    let fined = 0;
+    for (let i = 0; i < 40 && !fined; i++) {
+      const r = advanceMonth(s);
+      s = r.state;
+      kinds.push(...r.report.notes.map((n) => n.kind));
+      for (const n of r.report.notes) if (n.kind === 'investigation') fined = n.fine;
+    }
+    expect(kinds.indexOf('ownerUnrest')).toBeGreaterThanOrEqual(0);
+    expect(kinds.indexOf('ownerUnrest')).toBeLessThan(kinds.indexOf('investigationSoon'));
+    expect(kinds.indexOf('investigationSoon')).toBeLessThan(kinds.indexOf('investigation'));
+    expect(fined).toBeGreaterThanOrEqual(INVESTIGATION.minFine);
+    expect(s.nation!.force24).toBe(false);
+    expect(s.nation!.satisfaction).toBeGreaterThanOrEqual(SATISFACTION.afterInvestigation);
+  });
+
+  it('オーナー支援で満足度が上がる', () => {
+    let s = loose(phase3());
+    s = advanceMonth(s, { expand: [{ region: 0, type: 'fcOwner', count: 2 }] }).state;
+    s = { ...s, nation: { ...s.nation!, satisfaction: 40 } };
+    expect(advanceMonth(s, { support: 3 }).state.nation!.satisfaction).toBeGreaterThan(advanceMonth(s).state.nation!.satisfaction);
+  });
+
+  it('時代のルール：変わる前に予告があり、規制が厳しいと月の出店に上限がある', async () => {
+    const { ERA } = await import('../src/empire/nation');
+    let s = phase3();
+    expect(s.nation!.eraStrict).toBe(true);
+    s = advanceMonth(s, { training: 4 }).state;
+    const capped = advanceMonth(s, { expand: [{ region: 0, type: 'fcOwner', count: 30 }] });
+    expect(nationStores(capped.state.nation!) - nationStores(s.nation!)).toBe(ERA.strictCap);
+    expect(capped.report.notes.some((n) => n.kind === 'eraCap')).toBe(true);
+    const kinds: string[] = [];
+    for (let i = 0; i < ERA.strict + 2; i++) {
+      const r = advanceMonth(s);
+      s = r.state;
+      kinds.push(...r.report.notes.map((n) => n.kind));
+    }
+    expect(kinds.indexOf('eraSoon')).toBeGreaterThanOrEqual(0);
+    expect(kinds.indexOf('eraSoon')).toBeLessThan(kinds.indexOf('eraChanged'));
+    expect(s.nation!.eraStrict).toBe(false);
+  });
+
+  it('地価は上がって天井を打って下がる。借入は担保まで、担保割れは返済を迫られる（予兆あり）', async () => {
+    const { landIndexAt, LAND, borrowable } = await import('../src/empire/nation');
+    expect(landIndexAt(LAND.riseMonths)).toBeGreaterThan(landIndexAt(10));
+    expect(landIndexAt(LAND.riseMonths + LAND.fallMonths)).toBeLessThan(landIndexAt(LAND.riseMonths));
+    let s = loose(phase3());
+    s = advanceMonth(s, { expand: [{ region: 0, type: 'direct', count: 2 }] }).state;
+    const room = borrowable(s.nation!);
+    expect(room).toBeGreaterThan(0);
+    const b = advanceMonth(s, { borrow: room * 10 });
+    expect(b.state.nation!.loans).toBeCloseTo(room);
+    s = b.state;
+    const kinds: string[] = [];
+    // 地価が上がるたびに借り増す（バブル）と、下がり始めて担保割れになる
+    for (let i = 0; i < LAND.riseMonths + 12; i++) {
+      const r = advanceMonth(s, { borrow: borrowable(s.nation!) });
+      s = r.state;
+      kinds.push(...r.report.notes.map((n) => n.kind));
+    }
+    expect(kinds).toContain('landSlowing');
+    expect(kinds).toContain('marginCall');
+    expect(kinds.indexOf('landSlowing')).toBeLessThan(kinds.indexOf('marginCall'));
+  });
+
+  it('上場は売上の条件を満たしてから。資金が入り、持分が薄まる', async () => {
+    const { IPO } = await import('../src/empire/nation');
+    const { canIpo } = await import('../src/empire/sim');
+    const s = loose(phase3());
+    expect(canIpo(s)).toBe(false);
+    expect(advanceMonth(s, { ipo: true }).state.nation!.listed).toBe(false);
+    const rich = { ...s, history: Array.from({ length: 12 }, (_, i) => ({ month: i, revenue: IPO.minRevenue / 12 + 1, inflow: 0, profit: 1e9, funds: 0, stores: [], notes: [] })) };
+    expect(canIpo(rich)).toBe(true);
+    const r = advanceMonth(rich, { ipo: true });
+    expect(r.state.nation!.listed).toBe(true);
+    expect(r.state.nation!.ownership).toBeCloseTo(1 - IPO.sell);
+    expect(r.report.notes.some((n) => n.kind === 'ipo')).toBe(true);
+  });
+
+  it('PB を広げると、同じ店でも利益が増える', async () => {
+    const { PB } = await import('../src/empire/nation');
+    const s = loose(phase3());
+    const up = advanceMonth(s, { pb: true });
+    expect(up.state.nation!.pb).toBe(1);
+    expect(up.state.funds).toBeCloseTo(s.funds - PB.cost + up.report.profit);
+    expect(up.report.profit).toBeGreaterThan(advanceMonth(s).report.profit);
   });
 });

@@ -32,6 +32,27 @@ export interface Nation {
   manual: boolean;
   /** 店の品質（0.5〜1）。急いで出店すると下がり、需要に効く */
   quality: number;
+  /** 加盟店オーナーの満足度（0〜100）。下がり続けると告発と当局の調査へ */
+  satisfaction: number;
+  /** 加盟店に 24 時間営業を求めているか（売上は伸びるが満足度が下がる） */
+  force24: boolean;
+  /** オーナー支援の手厚さ（0〜3） */
+  support: number;
+  /** 当局の調査が入る月（予告済み） */
+  investigation: number | null;
+  /** 時代のルール：出店規制が厳しいか、次に変わる月 */
+  eraStrict: boolean;
+  eraChange: number;
+  /** 地価の指数（1 が全国チェーンを始めたとき）と、その始まりの月 */
+  landIndex: number;
+  landStart: number;
+  /** 借入（直営店の土地が担保） */
+  loans: number;
+  /** 上場したか、創業者（プレイヤー）の持分 */
+  listed: boolean;
+  ownership: number;
+  /** PB（自社ブランド）の段階（0〜5）。本店の工房の品が店に並ぶ */
+  pb: number;
 }
 
 /** 6 エリアの名前（本拠エリアはフェーズ 2 の地図） */
@@ -66,6 +87,41 @@ export const QUALITY = { perOpen: 0.006, manualFactor: 0.3, recover: 0.02, min: 
 /** ライバル：何か月ごとに各エリアで 1 店増えるか、エリアの入りきる目安の何割まで */
 export const RIVAL_NATION = { interval: 3, share: 0.55 } as const;
 
+// ---- 足かせ（docs/EMPIRE_DESIGN.md 4.3）。どれも予兆を報告に出してから起きる
+/** 満足度：毎月の戻り、24 時間の強制、混みすぎたエリア 1 つごと、支援 1 段ごと */
+export const SATISFACTION = { start: 70, base: 1, force24: -3, crowded: -2, support: 1.5, warn: 50, complaint: 30, afterInvestigation: 55 } as const;
+/** 24 時間の強制で加盟店の売上が伸びる率 */
+export const FORCE24_BOOST = 1.12;
+/** オーナー支援：1 段ごと・加盟店 1 店あたりの月の費用 */
+export const SUPPORT_COST = 60_000;
+/** 当局の調査：制裁金（直近 12 か月の利益に対する割合、最低額） */
+export const INVESTIGATION = { fineRate: 0.1, minFine: 200_000_000 } as const;
+/** 時代のルール：規制の厳しい期間・緩い期間（月）、予告する月数、厳しいときの月の出店上限と出店費用の倍率、緩いときのライバルの伸び */
+export const ERA = { strict: 24, loose: 30, notice: 3, strictCap: 6, strictCost: 1.3, looseRival: 2 } as const;
+/** 地価：上がる月数と月の伸び、下がる月数と月の下げ、予兆の月数 */
+export const LAND = { riseMonths: 36, rise: 0.02, fallMonths: 18, fall: 0.03, notice: 3 } as const;
+/** 担保：直営店 1 店の土地の値打ち（指数 1 のとき）、借りられる割合、月の利息 */
+export const LOAN = { landPerStore: 30_000_000, ratio: 0.8, interest: 0.004 } as const;
+/** 上場：条件（直近 12 か月の売上）、株価の倍率（利益の何年分）、売り出す割合 */
+export const IPO = { minRevenue: 30_000_000_000, per: 20, sell: 0.25 } as const;
+/** PB：1 段の開発費、原価率の下がり方、需要の伸び */
+export const PB = { max: 5, cost: 50_000_000, costCut: 0.015, demand: 0.02 } as const;
+
+/** 地価の指数：全国チェーンを始めてからの月で決まる（上がって、天井を打って、下がって、落ち着く） */
+export function landIndexAt(monthsIn: number): number {
+  const up = Math.min(monthsIn, LAND.riseMonths);
+  const peak = (1 + LAND.rise) ** LAND.riseMonths;
+  if (monthsIn <= LAND.riseMonths) return (1 + LAND.rise) ** up;
+  const down = Math.min(monthsIn - LAND.riseMonths, LAND.fallMonths);
+  return peak * (1 - LAND.fall) ** down;
+}
+
+/** 担保の値打ちと、あといくら借りられるか */
+export function collateral(n: Nation): number {
+  return n.regions.reduce((a, r) => a + r.direct, 0) * LOAN.landPerStore * n.landIndex;
+}
+export const borrowable = (n: Nation) => Math.max(0, collateral(n) * LOAN.ratio - n.loans);
+
 export const regionStores = (r: Region) => r.direct + r.fcOwner + r.fcHq;
 export const nationStores = (n: Nation) => n.regions.reduce((a, r) => a + regionStores(r), 0);
 export const trainees = (n: Nation) => TRAINEES.base + TRAINEES.perCenter * n.trainingCenters;
@@ -91,17 +147,30 @@ export interface RegionReport {
   daily: number;
 }
 
+/** エリアの 1 か月にかかる会社全体の効き目（PB・24 時間の強制） */
+export interface RegionMods {
+  /** 需要の倍率（PB） */
+  demand?: number;
+  /** 原価率の下がり（PB） */
+  costCut?: number;
+  /** 加盟店の売上の倍率（24 時間の強制） */
+  fcBoost?: number;
+}
+
 /** エリアの 1 か月（30 日、天気のぶれ ±swing） */
-export function regionMonth(r: Region, quality: number, swing: number): RegionReport {
-  const daily = perStoreDaily(r, quality) * (1 + swing);
+export function regionMonth(r: Region, quality: number, swing: number, mods: RegionMods = {}): RegionReport {
+  const daily = perStoreDaily(r, quality) * (1 + swing) * (mods.demand ?? 1);
   const l = r.hub ? HUB_LOGISTICS.withHub : HUB_LOGISTICS.without;
   const perStoreRevenue = daily * 30;
-  const gross = perStoreRevenue * (1 - l.costRate);
+  const fcRevenue = perStoreRevenue * (mods.fcBoost ?? 1);
+  const margin = 1 - (l.costRate - (mods.costCut ?? 0));
+  const gross = perStoreRevenue * margin;
+  const fcGross = fcRevenue * margin;
   const direct = gross - DIRECT_LABOR - r.rent - l.delivery;
-  const fcOwner = gross * ROYALTY.fcOwner - l.delivery;
-  const fcHq = gross * ROYALTY.fcHq - r.rent - l.delivery;
+  const fcOwner = fcGross * ROYALTY.fcOwner - l.delivery;
+  const fcHq = fcGross * ROYALTY.fcHq - r.rent - l.delivery;
   return {
-    revenue: perStoreRevenue * regionStores(r),
+    revenue: perStoreRevenue * r.direct + fcRevenue * (r.fcOwner + r.fcHq),
     profit: direct * r.direct + fcOwner * r.fcOwner + fcHq * r.fcHq,
     rivalRevenue: rivalDaily(r) * (1 + swing) * 30 * r.rival,
     daily,
@@ -111,11 +180,33 @@ export function regionMonth(r: Region, quality: number, swing: number): RegionRe
 const round = (v: number) => Math.round(v / 10_000) * 10_000;
 
 /** フェーズ 2 → 3：本拠エリアはフェーズ 2 の地図をまとめたもの、残り 5 エリアは乱数で作る */
-export function generateNation(home: { stores: number; fc: number; hub: boolean; rival: number; traffic: number; rent: number }, rng: Rng): Nation {
+export function generateNation(home: { stores: number; fc: number; hub: boolean; rival: number; traffic: number; rent: number }, rng: Rng, month = 0): Nation {
   const regions: Region[] = REGION_NAMES.map((name, i) => {
     if (i === 0) return { name, capacity: 40, traffic: home.traffic, rent: home.rent, hub: home.hub, direct: home.stores - home.fc, fcOwner: home.fc, fcHq: 0, rival: home.rival };
     const traffic = round(220_000 + rng.next() * 160_000);
     return { name, capacity: 30 + Math.floor(rng.next() * 30), traffic, rent: round(traffic * 1.1 + rng.next() * 100_000), hub: false, direct: 0, fcOwner: 0, fcHq: 0, rival: 4 + Math.floor(rng.next() * 5) };
   });
-  return { regions, trainingCenters: 0, manual: false, quality: 1 };
+  return newNationExtras(regions, month);
+}
+
+/** 6 エリアから全国チェーンの状態を作る（足かせの初期値つき）。month は始まりの月 */
+export function newNationExtras(regions: Region[], month: number): Nation {
+  return {
+    regions,
+    trainingCenters: 0,
+    manual: false,
+    quality: 1,
+    satisfaction: SATISFACTION.start,
+    force24: false,
+    support: 0,
+    investigation: null,
+    eraStrict: true,
+    eraChange: month + ERA.strict,
+    landIndex: 1,
+    landStart: month,
+    loans: 0,
+    listed: false,
+    ownership: 1,
+    pb: 0,
+  };
 }
