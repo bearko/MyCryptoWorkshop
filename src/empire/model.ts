@@ -1,8 +1,27 @@
 // 経営モードの状態（docs/EMPIRE_DESIGN.md 9 章）。DOM に触れない。
 // 会社の資金の単位は GUM だが、工房の GUM とは別の財布（本店 → 会社の一方向）。
 
+/** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
+export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
+
+/** 出店できる区画 */
+export interface Plot {
+  kind: PlotKind;
+  /** 基礎日販（GUM/日） */
+  base: number;
+  /** 月の家賃（加盟店はオーナーの土地なので 0） */
+  rent: number;
+  /** 加盟店のオーナー（ヒーローの id）。直営は null */
+  owner: number | null;
+}
+
+export const HOME_PLOT: Plot = { kind: 'home', base: 300_000, rent: 400_000, owner: null };
+
 export interface Store {
   id: number;
+  plot: PlotKind;
+  /** 加盟店のオーナー（ヒーローの id）。直営は null。加盟店は粗利を本部とオーナーで分ける */
+  owner: number | null;
   /** 開いた月（EmpireState.month） */
   opened: number;
   /** 区画の基礎日販（GUM/日、16 時間営業・改装なし・平月） */
@@ -44,7 +63,9 @@ export type Note =
   | { kind: 'stockout'; store: number }
   | { kind: 'opened'; store: number }
   | { kind: 'shortOfFunds' }
-  | { kind: 'storeLimit' };
+  | { kind: 'storeLimit' }
+  | { kind: 'phaseReady' }
+  | { kind: 'promoted'; phase: number };
 
 export interface MonthReport {
   month: number;
@@ -78,8 +99,8 @@ export const HISTORY = 24;
 /** 創業時の資金（仮。本店からの送金の率は M2 で決める） */
 export const START_FUNDS = 10_000_000;
 
-export function newStore(id: number, opened: number, base = 300_000, rent = 400_000): Store {
-  return { id, opened, base, rent, order: 1.1, hours: 16, staff: 3, sign: false, parking: false, fatigue: 0 };
+export function newStore(id: number, opened: number, plot: Plot = HOME_PLOT): Store {
+  return { id, plot: plot.kind, owner: plot.owner, opened, base: plot.base, rent: plot.rent, order: 1.1, hours: 16, staff: 3, sign: false, parking: false, fatigue: 0 };
 }
 
 export function newEmpire(name: string, seed: number): EmpireState {
@@ -96,7 +117,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
   const base = newEmpire(typeof r.name === 'string' ? r.name : '', num(r.rng, 1));
   const stores = r.stores
     .filter((s): s is Store => !!s && typeof s === 'object' && typeof s.id === 'number')
-    .map((s) => ({ ...newStore(s.id, num(s.opened, 0)), ...s, hours: s.hours === 24 ? 24 : 16 }) as Store);
+    .map((s) => ({ ...newStore(s.id, num(s.opened, 0)), ...s, owner: typeof s.owner === 'number' ? s.owner : null, hours: s.hours === 24 ? 24 : 16 }) as Store);
   const phase = [1, 2, 3, 4, 5].includes(r.phase as number) ? (r.phase as EmpireState['phase']) : 1;
   return {
     ...base,

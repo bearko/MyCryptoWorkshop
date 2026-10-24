@@ -1,22 +1,27 @@
 // 経営モードのバランス測定（scripts/empire-sim.mjs から呼ぶ）。3 つの戦略のボットで、
 // フェーズごとの所要月数と資金の推移を測る。いまはフェーズ 1 の条件（3 店舗・3 か月連続の黒字）だけ。
 import { newEmpire, type EmpireState } from './model';
-import { advanceMonth, OPEN_COST, RENOVATE_COST, STAFF_NEEDED, type Decisions } from './sim';
+import { advanceMonth, letterFor, OPEN_COST, phase1Done, plotsFor, RENOVATE_COST, STAFF_NEEDED, type Decisions } from './sim';
 
 export interface Bot {
   name: string;
   decide(state: EmpireState): Decisions;
 }
 
-/** フェーズ 1 の候補区画（仮。M2 で区画の候補 3 つから選ぶ形にする） */
-const PLOT = { base: 260_000, rent: 350_000 };
+/** 候補のうち、家賃のわりに日販が高い区画（ボットの選び方） */
+const bestPlot = (s: EmpireState) => [...plotsFor(s)].sort((a, b) => b.base * 30 * 0.27 - b.rent - (a.base * 30 * 0.27 - a.rent))[0];
+/** 手紙が来ていれば加盟店を受ける（ボットは id 1 のヒーロー） */
+const withLetter = (s: EmpireState) => {
+  const l = letterFor(s, 1);
+  return l ? [l] : [];
+};
 
 export const BOTS: Bot[] = [
   {
     name: 'cautious',
     decide: (s) => ({
       stores: Object.fromEntries(s.stores.map((st) => [st.id, { order: 1.0, hours: 16, staff: STAFF_NEEDED[16] }])),
-      open: s.funds > OPEN_COST * 3 ? [PLOT] : [],
+      open: s.funds > OPEN_COST * 1.5 ? [bestPlot(s)] : withLetter(s),
     }),
   },
   {
@@ -24,7 +29,7 @@ export const BOTS: Bot[] = [
     decide: (s) => ({
       stores: Object.fromEntries(s.stores.map((st) => [st.id, { order: 1.08, hours: 16, staff: STAFF_NEEDED[16] }])),
       renovate: s.stores.filter((st) => !st.sign && s.funds > RENOVATE_COST.sign * 2).map((st) => ({ store: st.id, kind: 'sign' as const })),
-      open: s.funds > OPEN_COST * 1.5 ? [PLOT] : [],
+      open: s.funds > OPEN_COST * 1.1 ? [bestPlot(s)] : withLetter(s),
     }),
   },
   {
@@ -35,7 +40,7 @@ export const BOTS: Bot[] = [
         ...(!st.sign ? [{ store: st.id, kind: 'sign' as const }] : []),
         ...(!st.parking ? [{ store: st.id, kind: 'parking' as const }] : []),
       ]),
-      open: s.funds >= OPEN_COST ? [PLOT] : [],
+      open: s.funds >= OPEN_COST ? [bestPlot(s)] : withLetter(s),
     }),
   },
 ];
@@ -49,12 +54,6 @@ export interface BotResult {
   funds: number;
   /** 資金がマイナスで終わった月の数 */
   redMonths: number;
-}
-
-/** フェーズ 1 を抜ける条件：3 店舗・3 か月連続の黒字 */
-export function phase1Done(s: EmpireState): boolean {
-  const last = s.history.slice(-3);
-  return s.stores.length >= 3 && last.length === 3 && last.every((r) => r.profit > 0);
 }
 
 export function runBot(bot: Bot, seed: number, months: number): BotResult {

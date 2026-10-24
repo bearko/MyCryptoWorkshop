@@ -30,7 +30,7 @@ export const testActions = {
   },
   /** 会社を作る（もうあれば作り直す）。種を決めておくと同じ月が出る */
   foundEmpire(current: SaveData, seed = 1): SaveData {
-    return { ...current, empire: newEmpire(current.empire?.name || t('テスト商店', 'Test Store'), seed) };
+    return { ...current, empire: newEmpire(current.empire?.name || t('テスト', 'Test'), seed) };
   },
   addFunds(current: SaveData, amount: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, funds: e.funds + amount }));

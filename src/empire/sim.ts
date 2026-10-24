@@ -1,6 +1,6 @@
 // 経営モードの月次シミュレーション（docs/EMPIRE_DESIGN.md 9.1）。純関数：元の状態は変えない。
 // 数字はすべて仮の値。scripts/empire-sim.mjs で測って決める。
-import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Store, type StoreReport } from './model';
+import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store, type StoreReport } from './model';
 import { makeRng, type Rng } from './rng';
 
 export const DAYS_PER_MONTH = 30;
@@ -22,7 +22,21 @@ export const ORDER_RANGE = [0.8, 1.4] as const;
 export const WEATHER_SWING = 0.1;
 /** 改装と出店の費用（仮） */
 export const RENOVATE_COST = { sign: 1_500_000, parking: 4_000_000 } as const;
-export const OPEN_COST = 5_000_000;
+export const OPEN_COST = 25_000_000;
+/** 加盟店（オーナーの土地と店）：本部が払うのは研修と看板だけ。粗利のうち本部の取り分 */
+export const FC_OPEN_COST = 3_000_000;
+export const FC_SHARE = 0.45;
+/** 加盟したいヒーローから手紙が届く月（フェーズ 1、店に空きがあるとき） */
+export const LETTER_MONTHS = [8, 18];
+/** 出店候補の区画：基礎日販と家賃の幅（仮） */
+export const PLOT_RANGES: Record<Exclude<PlotKind, 'home' | 'liquor'>, { base: [number, number]; rent: [number, number] }> = {
+  station: { base: [380_000, 440_000], rent: [700_000, 900_000] },
+  office: { base: [330_000, 380_000], rent: [520_000, 650_000] },
+  school: { base: [280_000, 330_000], rent: [350_000, 430_000] },
+  residential: { base: [240_000, 300_000], rent: [280_000, 360_000] },
+  suburb: { base: [250_000, 320_000], rent: [220_000, 300_000] },
+};
+export const LIQUOR_PLOT = { kind: 'liquor', base: 280_000, rent: 0 } as const;
 /** フェーズごとの店数の上限（フェーズ 1 は 3 店まで） */
 export const MAX_STORES: Record<EmpireState['phase'], number> = { 1: 3, 2: 30, 3: 200, 4: 1000, 5: 5000 };
 /** 予兆を出す線 */
@@ -32,9 +46,39 @@ export const FATIGUE_WARN = 60;
 export interface Decisions {
   stores?: Record<number, Partial<Pick<Store, 'order' | 'hours' | 'staff'>>>;
   renovate?: { store: number; kind: 'sign' | 'parking' }[];
-  /** 新しい店（基礎日販と家賃は区画で決まる。フェーズ 1 は候補から選ぶ） */
-  open?: { base: number; rent: number }[];
+  /** 新しい店（plotsFor の候補か、letterFor の加盟店） */
+  open?: Plot[];
+  /** 次の格へ上がる（条件を満たしているときだけ） */
+  promote?: boolean;
 }
+
+const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
+
+/** この月の出店候補 3 つ（状態は変えない。月が進むと入れ替わる） */
+export function plotsFor(state: EmpireState): Plot[] {
+  const rng = makeRng((state.rng ^ 0x9e3779b9) >>> 0);
+  const kinds = Object.keys(PLOT_RANGES) as (keyof typeof PLOT_RANGES)[];
+  for (let i = kinds.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+  }
+  return kinds.slice(0, 3).map((kind) => ({ kind, base: pickIn(rng, PLOT_RANGES[kind].base), rent: pickIn(rng, PLOT_RANGES[kind].rent), owner: null }));
+}
+
+/** この月に加盟の手紙が届いているか（届いていれば、そのオーナーの区画） */
+export function letterFor(state: EmpireState, owner: number): Plot | null {
+  if (state.phase !== 1 || !LETTER_MONTHS.includes(state.month) || state.stores.length >= MAX_STORES[state.phase]) return null;
+  if (state.stores.some((s) => s.owner !== null && s.opened === state.month)) return null;
+  return { ...LIQUOR_PLOT, owner };
+}
+
+/** フェーズ 1 を抜ける条件：3 店舗・3 か月連続の黒字 */
+export function phase1Done(s: EmpireState): boolean {
+  const last = s.history.slice(-3);
+  return s.stores.length >= 3 && last.length === 3 && last.every((r) => r.profit > 0);
+}
+
+export const canPromote = (s: EmpireState) => s.phase === 1 && phase1Done(s);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -51,7 +95,9 @@ export function storeMonth(store: Store, month: number, costRate: number, rng: R
   const sold = Math.min(demand, stocked);
   const revenue = sold * DAYS_PER_MONTH;
   const purchases = stocked * DAYS_PER_MONTH * costRate;
-  const labor = store.staff * WAGE * (store.hours === 24 ? 1.5 : 1);
+  // 加盟店は人件費と家賃をオーナーが持ち、本部は粗利の FC_SHARE を受け取る
+  const fc = store.owner !== null;
+  const labor = fc ? 0 : store.staff * WAGE * (store.hours === 24 ? 1.5 : 1);
   const short = Math.max(0, STAFF_NEEDED[store.hours] - store.staff);
   const fatigue = clamp(store.fatigue + (short > 0 ? short * 12 : -15), 0, 100);
   const report: StoreReport = {
@@ -63,8 +109,8 @@ export function storeMonth(store: Store, month: number, costRate: number, rng: R
     waste: Math.max(0, stocked - sold) * DAYS_PER_MONTH,
     lost: Math.max(0, demand - stocked) * DAYS_PER_MONTH,
     labor,
-    rent: store.rent,
-    profit: revenue - purchases - labor - store.rent,
+    rent: fc ? 0 : store.rent,
+    profit: fc ? (revenue - purchases) * FC_SHARE : revenue - purchases - labor - store.rent,
     fatigue,
   };
   return { store: { ...store, fatigue }, report };
@@ -72,6 +118,10 @@ export function storeMonth(store: Store, month: number, costRate: number, rng: R
 
 /** 決定を当てる（範囲の外は丸める。お金が足りない改装・出店はしない） */
 function applyDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
+  if (d.promote && canPromote(state)) {
+    state.phase = (state.phase + 1) as EmpireState['phase'];
+    notes.push({ kind: 'promoted', phase: state.phase });
+  }
   for (const s of state.stores) {
     const c = d.stores?.[s.id];
     if (!c) continue;
@@ -94,13 +144,17 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
       notes.push({ kind: 'storeLimit' });
       continue;
     }
-    if (state.funds < OPEN_COST) {
+    const fc = o.owner !== null;
+    // 加盟店は手紙が届いた月にだけ
+    if (fc && !letterFor(state, o.owner!)) continue;
+    const cost = fc ? FC_OPEN_COST : OPEN_COST;
+    if (state.funds < cost) {
       notes.push({ kind: 'shortOfFunds' });
       continue;
     }
-    state.funds -= OPEN_COST;
+    state.funds -= cost;
     const id = state.nextStoreId++;
-    state.stores.push(newStore(id, state.month, o.base, o.rent));
+    state.stores.push(newStore(id, state.month, o));
     notes.push({ kind: 'opened', store: id });
   }
 }
@@ -129,6 +183,7 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   const report: MonthReport = { month: state.month, revenue, inflow: state.inflow, profit, funds: state.funds, stores: reports, notes };
   state.inflow = 0;
   state.history = [...state.history, report].slice(-HISTORY);
+  if (canPromote(state)) notes.push({ kind: 'phaseReady' });
   state.month++;
   state.rng = rng.state;
   return { state, report };

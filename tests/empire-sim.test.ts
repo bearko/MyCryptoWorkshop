@@ -64,8 +64,8 @@ describe('月を進める', () => {
   });
 
   it('改装と出店は資金から払い、3 店で共同仕入れの原価になる', () => {
-    const s0 = { ...newEmpire('a', 9), funds: 20_000_000 };
-    const { state, report } = advanceMonth(s0, { renovate: [{ store: 1, kind: 'sign' }], open: [{ base: 250_000, rent: 300_000 }, { base: 250_000, rent: 300_000 }] });
+    const s0 = { ...newEmpire('a', 9), funds: 70_000_000 };
+    const { state, report } = advanceMonth(s0, { renovate: [{ store: 1, kind: 'sign' }], open: [{ kind: 'residential' as const, base: 250_000, rent: 300_000, owner: null }, { kind: 'residential' as const, base: 250_000, rent: 300_000, owner: null }] });
     expect(state.stores).toHaveLength(3);
     expect(state.stores[0].sign).toBe(true);
     expect(state.funds).toBeCloseTo(s0.funds - RENOVATE_COST.sign - 2 * OPEN_COST + report.profit);
@@ -75,7 +75,7 @@ describe('月を進める', () => {
 
   it('資金が足りない出店はしない', () => {
     const s0 = { ...newEmpire('a', 1), funds: 100 };
-    const { state, report } = advanceMonth(s0, { open: [{ base: 1, rent: 1 }] });
+    const { state, report } = advanceMonth(s0, { open: [{ kind: 'residential' as const, base: 1, rent: 1, owner: null }] });
     expect(state.stores).toHaveLength(1);
     expect(report.notes.some((n) => n.kind === 'shortOfFunds')).toBe(true);
   });
@@ -119,5 +119,58 @@ describe('セーブとの関係', () => {
     relocate(save, 'ocean');
     expect(save.prestige.history[0].clearDay).toBe(12);
     expect(save.prestige.clearDay).toBeNull();
+  });
+});
+
+describe('フェーズ 1：区画・手紙・格上げ', () => {
+  it('出店候補は 3 つ・種類が別・状態を変えない・月で入れ替わる', async () => {
+    const { plotsFor } = await import('../src/empire/sim');
+    const s = newEmpire('a', 11);
+    const before = JSON.stringify(s);
+    const a = plotsFor(s);
+    expect(a).toHaveLength(3);
+    expect(new Set(a.map((p) => p.kind)).size).toBe(3);
+    expect(plotsFor(s)).toEqual(a);
+    expect(JSON.stringify(s)).toBe(before);
+    expect(plotsFor(advanceMonth(s).state)).not.toEqual(a);
+  });
+
+  it('加盟の手紙は決まった月だけ。加盟店は家賃・人件費なしで粗利の一部が本部へ', async () => {
+    const { letterFor, LETTER_MONTHS, FC_OPEN_COST, FC_SHARE } = await import('../src/empire/sim');
+    let s = newEmpire('a', 2);
+    expect(letterFor(s, 7)).toBeNull();
+    // 手紙の来ない月に加盟店を出そうとしても出ない
+    expect(advanceMonth(s, { open: [{ kind: 'liquor', base: 280_000, rent: 0, owner: 7 }] }).state.stores).toHaveLength(1);
+    while (s.month < LETTER_MONTHS[0]) s = advanceMonth(s).state;
+    const letter = letterFor(s, 7)!;
+    expect(letter.owner).toBe(7);
+    const { state, report } = advanceMonth(s, { open: [letter] });
+    const fc = state.stores.find((x) => x.owner === 7)!;
+    expect(fc).toBeTruthy();
+    const r = report.stores.find((x) => x.id === fc.id)!;
+    expect(r.rent).toBe(0);
+    expect(r.labor).toBe(0);
+    expect(r.profit).toBeCloseTo((r.revenue - r.purchases) * FC_SHARE);
+    expect(state.funds).toBeCloseTo(s.funds - FC_OPEN_COST + report.profit);
+    expect(letterFor(state, 8)).toBeNull();
+  });
+
+  it('3 店・3 か月連続の黒字で格上げでき、条件を満たさないうちは上がらない', async () => {
+    const { canPromote, plotsFor } = await import('../src/empire/sim');
+    let s = { ...newEmpire('a', 4), funds: 200_000_000 };
+    expect(advanceMonth(s, { promote: true }).state.phase).toBe(1);
+    s = advanceMonth(s, { open: plotsFor(s).slice(0, 2) }).state;
+    expect(s.stores).toHaveLength(3);
+    let ready = false;
+    for (let i = 0; i < 6 && !ready; i++) {
+      const r = advanceMonth(s);
+      s = r.state;
+      ready = r.report.notes.some((n) => n.kind === 'phaseReady');
+    }
+    expect(ready).toBe(true);
+    expect(canPromote(s)).toBe(true);
+    const up = advanceMonth(s, { promote: true });
+    expect(up.state.phase).toBe(2);
+    expect(up.report.notes.some((n) => n.kind === 'promoted')).toBe(true);
   });
 });
