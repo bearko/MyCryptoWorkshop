@@ -21,6 +21,9 @@ export const testActions = {
   addGum(current: SaveData, amount: number): SaveData {
     return { ...current, gum: current.gum + amount };
   },
+  addDust(current: SaveData, amount: number): SaveData {
+    return { ...current, resources: { ...current.resources, dust: current.resources.dust + amount } };
+  },
   /** 営業日を n 日進める（その日の始めから） */
   skipDays(current: SaveData, n: number): SaveData {
     return { ...current, day: Math.max(1, current.day + n) };
@@ -80,7 +83,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
   return h(
     'div.test-panel',
     {},
-    h('p', {}, t(`テスト用のセーブ：Day ${save.day}・${fmt(save.gum)} GUM・${save.prestige.runs + 1} 周目`, `Test save: Day ${save.day} · ${fmt(save.gum)} GUM · run ${save.prestige.runs + 1}`)),
+    h('p', {}, t(`テスト用のセーブ：Day ${save.day}・${fmt(save.gum)} GUM・ダスト ${fmt(save.resources.dust)}・${save.prestige.runs + 1} 周目`, `Test save: Day ${save.day} · ${fmt(save.gum)} GUM · ${fmt(save.resources.dust)} dust · run ${save.prestige.runs + 1}`)),
     h('p.test-panel-note', {}, t('ここで変えるのはテスト用のセーブだけです。本番のセーブ・ランキングには触れません。', 'Only the test save changes here. The production save and leaderboards are untouched.')),
     h('h3', {}, t('セーブ', 'Save')),
     h('div.test-panel-row', {}, btn(t('本番のセーブを写す', 'Copy the production save'), copy), btn(t('最初から', 'Start over'), () => testActions.reset(save))),
@@ -90,6 +93,8 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       {},
       btn('+1M GUM', () => testActions.addGum(save, 1e6)),
       btn('+1B GUM', () => testActions.addGum(save, 1e9)),
+      btn(t('+6,000億 GUM', '+600B GUM'), () => testActions.addGum(save, 6e11)),
+      btn(t('+10万 ダスト', '+100K dust'), () => testActions.addDust(save, 1e5)),
       btn(t('+1 日', '+1 day'), () => testActions.skipDays(save, 1)),
       btn(t('+7 日', '+7 days'), () => testActions.skipDays(save, 7)),
     ),

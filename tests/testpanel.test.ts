@@ -31,6 +31,10 @@ describe('デバッグパネルの操作', () => {
     const current = newSave();
     const richer = testActions.addGum(current, 1e6);
     expect(richer.gum).toBe(current.gum + 1e6);
+    expect(testActions.addGum(current, 6e11).gum).toBe(current.gum + 6e11);
+    const dusty = testActions.addDust(current, 1e5);
+    expect(dusty.resources.dust).toBe(current.resources.dust + 1e5);
+    expect(current.resources.dust).toBe(0);
     expect(testActions.skipDays(current, 7).day).toBe(current.day + 7);
     expect(testActions.skipDays(current, -99).day).toBe(1);
     expect(current.day).toBe(1);
