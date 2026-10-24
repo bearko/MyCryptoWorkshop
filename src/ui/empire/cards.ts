@@ -50,6 +50,7 @@ import { costButton, row, segmented, stepper, svgIcon } from './parts';
 import { cellName, monthLabel, money, plotLabel, pledgeLabel, storeName } from './text';
 import { articlesField } from './govern';
 import type { Articles } from '../../empire/governance';
+import { counterCost } from '../../empire/rivalai';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -527,6 +528,7 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
   if (d.board) out.push({ label: t(`役員会：${d.board.length} 席`, `Board: ${d.board.length} seats`), cost: 0, cancel: (x) => ({ ...x, board: undefined }) });
   if (d.meeting) out.push({ label: t(`総会の演説：${pledgeLabel(d.meeting.pledge)}`, `Speech: ${pledgeLabel(d.meeting.pledge)}`), cost: 0, cancel: (x) => ({ ...x, meeting: undefined }) });
   if (d.postpone) out.push({ label: t('総会を延期', 'Postpone the meeting'), cost: 0, cancel: (x) => ({ ...x, postpone: undefined }) });
+  if (d.counter && e.campaign && e.nation) out.push({ label: t('対抗セール', 'Counter-sale'), cost: counterCost(e.nation, e.campaign), cancel: (x) => ({ ...x, counter: undefined }) });
   return out;
 }
 

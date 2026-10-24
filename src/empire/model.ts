@@ -4,6 +4,8 @@ import type { Area } from './area';
 import { newNationExtras, STORE_TYPES, type Nation } from './nation';
 import { restoreStake, type Stake, type StakeholderId } from './stakeholders';
 import { restoreGovernance, type Governance, type PromiseKind } from './governance';
+import { restoreCrowns, type CrownId, type Crowns } from './crowns';
+import type { Campaign } from './rivalai';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -100,7 +102,16 @@ export type Note =
   | { kind: 'meetingPostponed'; month: number }
   | { kind: 'meetingHeld'; approval: number; passed: boolean; dividend: number; amended: boolean; listed: boolean }
   | { kind: 'pledgeResult'; pledge: PromiseKind; kept: boolean }
-  | { kind: 'meetingSoon'; month: number };
+  | { kind: 'meetingSoon'; month: number }
+  /** 3 冠と規制（crowns.ts）、ライバルのセール攻勢（rivalai.ts） */
+  | { kind: 'crown'; crown: CrownId; won: boolean }
+  | { kind: 'regulationWatch' }
+  | { kind: 'regulationFine'; fine: number }
+  | { kind: 'breakupWarning'; months: number }
+  | { kind: 'breakupCleared' }
+  | { kind: 'breakup'; stores: number }
+  | { kind: 'campaignSoon'; region: number; month: number }
+  | { kind: 'campaign'; region: number; until: number };
 
 export interface MonthReport {
   month: number;
@@ -146,6 +157,10 @@ export interface EmpireState {
   stake?: Stake;
   /** フェーズ 3 から：役員会・株主総会・定款（無ければフェーズ 3 の最初の月に作る） */
   gov?: Governance;
+  /** フェーズ 3 から：3 冠と規制 */
+  crowns?: Crowns;
+  /** フェーズ 3 から：ライバルのセール攻勢（予告ずみ・進行中） */
+  campaign?: Campaign | null;
 }
 
 export const HISTORY = 24;
@@ -190,7 +205,16 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     nation: restoreNation(r.nation),
     stake: restoreStake(r.stake),
     gov: restoreGovernance(r.gov),
+    crowns: restoreCrowns(r.crowns),
+    campaign: restoreCampaign(r.campaign),
   };
+}
+
+function restoreCampaign(raw: unknown): Campaign | null | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Partial<Campaign>;
+  return Number.isInteger(c.region) && typeof c.start === 'number' && typeof c.end === 'number' ? { region: c.region!, start: c.start, end: c.end } : null;
 }
 
 function restoreArea(raw: unknown): Area | null {

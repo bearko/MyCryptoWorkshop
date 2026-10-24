@@ -4,6 +4,7 @@
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
+import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
   advanceMonth,
@@ -88,7 +89,9 @@ function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decision
     funds -= HUB_COST;
   }
   if (n.manual === false && n.quality < 0.9) d.manual = true;
-  let people = trainees(n);
+  // 規制：シェアが分割の線に近づいたら、出店を止める（人のプレイヤーもメーターを見て止める）
+  const share = crownStats(s)?.share ?? 0;
+  let people = share >= REGULATION.breakup - 0.03 ? 0 : trainees(n);
   for (const [i, r] of n.regions.entries()) {
     if (!(r.hub || i === 0) && !d.buildHub?.includes(i)) continue;
     const room = Math.floor(r.capacity * 0.75) - regionStores(r);

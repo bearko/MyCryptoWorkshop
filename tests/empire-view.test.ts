@@ -151,3 +151,21 @@ describe('統治の画面（M8 後半）', () => {
     expect(adviceOf(null, e, false)).toContain('面談');
   });
 });
+
+describe('3 冠と規制の画面（M9）', () => {
+  it('セール攻勢のあいだは急ぎの絵馬になり、対抗セールが稟議に入る', () => {
+    const e = testActions.startCampaign(testActions.jumpPhase3(newSave(), 3)).empire as EmpireState;
+    const v = voicesOf(null, e).find((x) => x.key === 'campaign')!;
+    expect(v.urgent).toBe(true);
+    const d = v.fix!.apply({}, e);
+    expect(d.counter).toBe(true);
+    expect(ringiItems(e, d)[0].cost).toBeGreaterThan(0);
+  });
+
+  it('冠の入れ替わりと分割はかわら版に載る', () => {
+    const e = phase3();
+    const r = { month: 0, revenue: 0, inflow: 0, profit: 1, funds: 0, stores: [], notes: [{ kind: 'crown' as const, crown: 'brand' as const, won: true }, { kind: 'breakup' as const, stores: 5 }] };
+    const news = newsOf(r, e);
+    expect(news.map((n) => n.kind).sort()).toEqual(['company', 'era']);
+  });
+});

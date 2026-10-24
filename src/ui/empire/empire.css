@@ -1660,3 +1660,103 @@
   line-height: 1.25;
   padding: 4px 6px;
 }
+
+/* ---------------------------------------------------------------- 3 冠と規制 */
+.ke-crowns-chip {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.ke-crown {
+  color: var(--text-300);
+  opacity: 0.45;
+}
+.ke-crown.is-held {
+  color: var(--lantern-400);
+  opacity: 1;
+}
+.ke-crown.is-held path {
+  fill: var(--lantern-400);
+}
+.ke-crown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--type-caption);
+}
+.ke-crown-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-300);
+  padding: 2px 4px;
+}
+.ke-crown-table td {
+  padding: 4px;
+  border-top: 1px solid var(--night-800);
+}
+.ke-crown-table td.ke-figure {
+  text-align: right;
+}
+.ke-crown-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ke-reg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ke-reg-bar {
+  position: relative;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--night-800);
+}
+.ke-reg-bar > span {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+}
+.ke-reg-bar .is-0 {
+  background: var(--ours-400);
+}
+.ke-reg-bar .is-1 {
+  background: var(--lantern-400);
+}
+.ke-reg-bar .is-2,
+.ke-reg-bar .is-3 {
+  background: var(--rival-400);
+}
+.ke-reg-tick {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 18px;
+  background: var(--text-300);
+}
+.ke-reg-scale {
+  position: relative;
+  height: 16px;
+  font: var(--type-caption);
+  color: var(--text-300);
+}
+.ke-reg-scale span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.ke-crown-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ke-crown-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border-bottom: 1px solid var(--night-800);
+}

@@ -3,6 +3,8 @@
 import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store, type StoreReport } from './model';
 import { makeRng, type Rng } from './rng';
 import { stakeMods, stakeStep } from './stakeholders';
+import { crownStep } from './crowns';
+import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
 import {
@@ -139,6 +141,8 @@ export interface Decisions {
   postpone?: boolean;
   /** 上場するときの定款 */
   articles?: Articles;
+  /** ライバルのセール攻勢に対抗セールで応える（攻勢のあいだ、毎月） */
+  counter?: boolean;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -498,9 +502,14 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   // ライバル：規制が緩いあいだは倍の速さで増える
   // 総会でライバルを名指ししたあとしばらくは、緩い時代と同じ速さで増える
   const rush = !n.eraStrict || (state.gov?.rivalRushUntil ?? -1) >= m;
-  if (m % RIVAL_NATION.interval === 0) {
-    for (const r of n.regions.filter((x) => !x.locked)) for (let k = 0; k < (rush ? ERA.looseRival : 1); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
-  }
+  // ライバルの出店：プレイヤーが強いエリアほど狙う（rivalai.ts）
+  if (m % RIVAL_NATION.interval === 0) rivalExpand(n, rush ? ERA.looseRival : 1);
+  // セール攻勢：フェーズ 3 に入って CAMPAIGN.first か月目から、毎年 1 度。1 か月前に予告
+  const since = m - n.landStart;
+  if (since >= CAMPAIGN.first - CAMPAIGN.notice && (since - (CAMPAIGN.first - CAMPAIGN.notice)) % CAMPAIGN.every === 0 && !campaignActive(state.campaign, m)) state.campaign = planCampaign(n, m);
+  const countered = !!d.counter && campaignActive(state.campaign, m);
+  const hitDemand = campaignStep(n, state.campaign ?? null, m, countered, notes);
+  const counterSpend = countered && state.campaign ? counterCost(n, state.campaign) : 0;
   // 地価：上がり方が鈍ってきたら予兆、天井を過ぎたら下がる。担保割れは返済を迫られる
   const monthsIn = m - n.landStart;
   n.landIndex = landIndexAt(monthsIn);
@@ -539,8 +548,8 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   // 総会の 1 か月前に予告する
   if (state.gov && state.gov.nextMeeting === m + 1) notes.push({ kind: 'meetingSoon', month: m + 1 });
   const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand, costCut: n.pb * PB.costCut - sm.costRate + bm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent };
-  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, mods));
-  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
+  const reps = n.regions.map((r, i) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, i === state.campaign?.region && campaignActive(state.campaign, m) ? { ...mods, demand: mods.demand * hitDemand } : mods));
+  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + counterSpend + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
   const profit = reps.reduce((a, r) => a + r.profit, 0) - overhead;
   state.funds += profit;
@@ -565,6 +574,8 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     state.history = [...state.history, report].slice(-HISTORY);
     stakeStep(state, report, { renovated });
     boardMonth(state);
+    crownStep(state, notes, report.revenue);
+    report.funds = state.funds;
     if (canPromote(state)) notes.push({ kind: 'phaseReady' });
     state.month++;
     state.rng = rng.state;
