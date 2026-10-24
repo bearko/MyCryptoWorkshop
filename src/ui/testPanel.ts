@@ -1,5 +1,7 @@
 // テストモード（?test=1）のデバッグパネル。テスト用のセーブだけを書き換える（本番のセーブは読むだけ）。
-// 経営モードの道具（会社の資金・N か月進める・フェーズへ飛ぶ・乱数の種）は、モデルができてから足す。
+// フェーズへ飛ぶ道具は、フェーズ 2 以降ができてから足す。
+import { newEmpire, type EmpireState } from '../empire/model';
+import { advanceMonth } from '../empire/sim';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -23,7 +25,29 @@ export const testActions = {
   skipDays(current: SaveData, n: number): SaveData {
     return { ...current, day: Math.max(1, current.day + n) };
   },
+  /** 会社を作る（もうあれば作り直す）。種を決めておくと同じ月が出る */
+  foundEmpire(current: SaveData, seed = 1): SaveData {
+    return { ...current, empire: newEmpire(current.empire?.name || t('テスト商店', 'Test Store'), seed) };
+  },
+  addFunds(current: SaveData, amount: number): SaveData {
+    return withEmpire(current, (e) => ({ ...e, funds: e.funds + amount }));
+  },
+  /** 決定を変えずに n か月進める */
+  advanceMonths(current: SaveData, n: number): SaveData {
+    return withEmpire(current, (e) => {
+      for (let i = 0; i < n; i++) e = advanceMonth(e).state;
+      return e;
+    });
+  },
+  setSeed(current: SaveData, seed: number): SaveData {
+    return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
+  },
 };
+
+function withEmpire(current: SaveData, f: (e: EmpireState) => EmpireState): SaveData {
+  if (!current.empire) throw new Error(t('先に会社を作ってください', 'Found the company first'));
+  return { ...current, empire: f(current.empire) };
+}
 
 /** パネルの中身。`apply` はセーブを書いてページを読み直す */
 export function testPanelView(save: SaveData, apply: (data: SaveData) => void, exitUrl: string): HTMLElement {
@@ -37,7 +61,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
             const next = run();
             if (next) apply(next);
           } catch (err) {
-            msg.textContent = err instanceof SaveError ? err.message : String(err);
+            msg.textContent = err instanceof SaveError || err instanceof Error ? err.message : String(err);
             msg.className = 'save-msg error';
           }
         },
@@ -68,6 +92,23 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn('+1B GUM', () => testActions.addGum(save, 1e9)),
       btn(t('+1 日', '+1 day'), () => testActions.skipDays(save, 1)),
       btn(t('+7 日', '+7 days'), () => testActions.skipDays(save, 7)),
+    ),
+    h('h3', {}, t('経営モード', 'Management mode')),
+    h(
+      'p.test-panel-note',
+      {},
+      save.empire
+        ? t(`${save.empire.name}・${save.empire.month + 1} か月目・資金 ${fmt(save.empire.funds)}・${save.empire.stores.length} 店・乱数 ${save.empire.rng}`, `${save.empire.name} · month ${save.empire.month + 1} · funds ${fmt(save.empire.funds)} · ${save.empire.stores.length} store(s) · rng ${save.empire.rng}`)
+        : t('まだ会社がありません', 'No company yet'),
+    ),
+    h(
+      'div.test-panel-row',
+      {},
+      btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
+      btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
+      btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
+      btn(t('+12 か月', '+12 months'), () => testActions.advanceMonths(save, 12)),
+      btn(t('乱数の種を 1 に', 'Seed rng = 1'), () => testActions.setSeed(save, 1)),
     ),
     msg,
     h('p', {}, h('a', { href: exitUrl }, t('テストモードを抜ける（通常の画面へ）', 'Leave test mode'))),

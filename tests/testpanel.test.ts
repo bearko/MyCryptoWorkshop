@@ -36,3 +36,20 @@ describe('デバッグパネルの操作', () => {
     expect(current.day).toBe(1);
   });
 });
+
+describe('デバッグパネル：経営モード', () => {
+  it('会社を作り、資金を足し、月を進め、種を決める', () => {
+    const s0 = newSave();
+    expect(() => testActions.addFunds(s0, 1)).toThrow();
+    const s1 = testActions.foundEmpire(s0, 1);
+    expect(s1.empire?.month).toBe(0);
+    const s2 = testActions.addFunds(s1, 1e8);
+    expect(s2.empire!.funds).toBe(s1.empire!.funds + 1e8);
+    const s3 = testActions.advanceMonths(s2, 12);
+    expect(s3.empire?.month).toBe(12);
+    expect(s3.empire?.history).toHaveLength(12);
+    expect(testActions.setSeed(s3, 1).empire?.rng).toBe(1);
+    // 同じ種からは同じ結果
+    expect(testActions.advanceMonths(testActions.foundEmpire(s0, 1), 12).empire?.funds).toBe(testActions.advanceMonths(s1, 12).empire?.funds);
+  });
+});

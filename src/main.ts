@@ -30,7 +30,6 @@ import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 import { exitTestUrl, TEST_MODE } from './testMode';
-import { testPanelView } from './ui/testPanel';
 
 const save = loadSave();
 // テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すとデバッグパネル
@@ -956,8 +955,10 @@ function eraseSaveAndReload(): void {
   location.reload();
 }
 
-/** テストモードのデバッグパネル。変えたセーブを書いて読み直す（テスト用のセーブだけ） */
-function openTestPanel(): void {
+/** テストモードのデバッグパネル。変えたセーブを書いて読み直す（テスト用のセーブだけ）。
+ *  経営モードのコードを含むので、テストモードで開いたときだけ読む */
+async function openTestPanel(): Promise<void> {
+  const { testPanelView } = await import('./ui/testPanel');
   const apply = (data: SaveData) => {
     resetting = true;
     writeSave(data);

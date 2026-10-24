@@ -21,6 +21,8 @@ export interface RunRecord {
   /** Play time of the run, and when the golden extension was made (seconds into the run). */
   seconds: number;
   clearSeconds: number | null;
+  /** 黄金のエクステンションを作った営業日（記録する前の周回は null） */
+  clearDay?: number | null;
   revenue: number;
   cp: number;
 }
@@ -36,12 +38,14 @@ export interface Prestige {
   runStartSeconds: number;
   runStartRevenue: number;
   clearSeconds: number | null;
+  /** 黄金のエクステンションを作った営業日（経営モードの登場条件に使う） */
+  clearDay: number | null;
   /** Best single day across all runs. */
   bestDay: number;
   history: RunRecord[];
 }
 
-export const newPrestige = (): Prestige => ({ runs: 0, cp: 0, home: null, fame: 0, runStartSeconds: 0, runStartRevenue: 0, clearSeconds: null, bestDay: 0, history: [] });
+export const newPrestige = (): Prestige => ({ runs: 0, cp: 0, home: null, fame: 0, runStartSeconds: 0, runStartRevenue: 0, clearSeconds: null, clearDay: null, bestDay: 0, history: [] });
 
 /** GUM a new run starts with, by level of 移転資金. */
 export const START_GUM = [0, 1e3, 1e5, 1e7, 1e9];
@@ -78,6 +82,7 @@ export function relocate(save: SaveData, land: string): RunRecord {
     days: save.day - 1,
     seconds: save.meta.playSeconds - p.runStartSeconds,
     clearSeconds: p.clearSeconds,
+    clearDay: p.clearDay,
     revenue: runRevenue(save),
     cp,
   };
@@ -89,6 +94,7 @@ export function relocate(save: SaveData, land: string): RunRecord {
   p.runStartSeconds = save.meta.playSeconds;
   p.runStartRevenue = save.totals.revenue;
   p.clearSeconds = null;
+  p.clearDay = null;
   p.bestDay = Math.max(p.bestDay, save.bestDayRevenue);
 
   const levels: Record<string, number> = { root: 1 };
@@ -121,5 +127,8 @@ export function relocate(save: SaveData, land: string): RunRecord {
 
 /** Called when a node is bought: remembers when the run was cleared. */
 export function onBought(save: SaveData, node: SkillNode): void {
-  if (node.id === 'goldenExtension' && save.prestige.clearSeconds === null) save.prestige.clearSeconds = save.meta.playSeconds - save.prestige.runStartSeconds;
+  if (node.id === 'goldenExtension' && save.prestige.clearSeconds === null) {
+    save.prestige.clearSeconds = save.meta.playSeconds - save.prestige.runStartSeconds;
+    save.prestige.clearDay = save.day;
+  }
 }
