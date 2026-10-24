@@ -23,6 +23,8 @@ export const WEATHER_SWING = 0.1;
 /** 改装と出店の費用（仮） */
 export const RENOVATE_COST = { sign: 1_500_000, parking: 4_000_000 } as const;
 export const OPEN_COST = 5_000_000;
+/** フェーズごとの店数の上限（フェーズ 1 は 3 店まで） */
+export const MAX_STORES: Record<EmpireState['phase'], number> = { 1: 3, 2: 30, 3: 200, 4: 1000, 5: 5000 };
 /** 予兆を出す線 */
 export const FATIGUE_WARN = 60;
 
@@ -88,6 +90,10 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
     s[r.kind] = true;
   }
   for (const o of d.open ?? []) {
+    if (state.stores.length >= MAX_STORES[state.phase]) {
+      notes.push({ kind: 'storeLimit' });
+      continue;
+    }
     if (state.funds < OPEN_COST) {
       notes.push({ kind: 'shortOfFunds' });
       continue;
@@ -110,7 +116,8 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   state.stores = state.stores.map((s) => {
     const { store, report } = storeMonth(s, state.month, costRate, rng);
     reports.push(report);
-    if (report.fatigue >= FATIGUE_WARN) notes.push({ kind: 'fatigue', store: s.id });
+    // 予兆：疲れが積もり始めた月から知らせる（需要が大きく落ちる前に）
+    if (report.fatigue >= FATIGUE_WARN || report.fatigue > s.fatigue) notes.push({ kind: 'fatigue', store: s.id });
     if (report.waste > report.revenue * 0.15) notes.push({ kind: 'waste', store: s.id });
     if (report.lost > report.revenue * 0.1) notes.push({ kind: 'stockout', store: s.id });
     return store;
@@ -119,7 +126,8 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   const profit = reports.reduce((a, r) => a + r.profit, 0);
   state.funds += profit;
   if (state.funds < 0) notes.push({ kind: 'shortOfFunds' });
-  const report: MonthReport = { month: state.month, revenue, profit, funds: state.funds, stores: reports, notes };
+  const report: MonthReport = { month: state.month, revenue, inflow: state.inflow, profit, funds: state.funds, stores: reports, notes };
+  state.inflow = 0;
   state.history = [...state.history, report].slice(-HISTORY);
   state.month++;
   state.rng = rng.state;

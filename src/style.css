@@ -3288,3 +3288,118 @@ button.test-badge {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* 経営モード（テストモードだけ） */
+.empire-modal .modal {
+  max-width: 720px;
+}
+.empire {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+.empire-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.empire-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.empire-funds {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.empire-funds b {
+  font-size: 20px;
+}
+.empire-report h3,
+.empire-found h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.empire-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.empire .good {
+  color: #8fdc7a;
+}
+.empire .bad {
+  color: #ff8a7a;
+}
+.empire-stores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.empire-store {
+  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.empire-store-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.empire-store-last {
+  font-size: 13px;
+}
+.empire-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.empire-row > span:first-child {
+  min-width: 4.5em;
+}
+.empire-row input[type='range'] {
+  flex: 1;
+  min-width: 100px;
+}
+.empire-row meter {
+  flex: 1;
+}
+.empire-done {
+  font-size: 13px;
+  color: #8fdc7a;
+}
+.empire-advance {
+  align-self: center;
+  min-width: 200px;
+}
+.empire-found {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.empire-found-mine {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.empire-mine {
+  width: 72px;
+  height: auto;
+  image-rendering: pixelated;
+  flex: none;
+}
+.empire-name {
+  flex: 1;
+  font-size: 16px;
+  padding: 4px 8px;
+}

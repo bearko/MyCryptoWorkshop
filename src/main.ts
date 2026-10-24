@@ -30,6 +30,7 @@ import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 import { exitTestUrl, TEST_MODE } from './testMode';
+import { empireUnlocked, transferFor } from './empire/unlock';
 
 const save = loadSave();
 // テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すとデバッグパネル
@@ -711,6 +712,7 @@ function openMenu(fromHome = false): void {
       h('button.btn.small', { onclick: () => openStats() }, t('📊 統計・周回の記録', '📊 Statistics & runs')),
       fromHome ? null : h('button.btn.small', { onclick: () => openRanking() }, t('🏆 ランキング', '🏆 Leaderboards')),
       !fromHome && computeStats(save.levels).cleared > 0 ? h('button.btn.small', { onclick: () => openRelocate() }, t('🧭 ランド移転', '🧭 Relocate')) : null,
+      empireAvailable() ? h('button.btn.small', { onclick: () => (closeMenu(), void openEmpire()) }, t('🏢 経営', '🏢 Company')) : null,
     ),
     h('p', {}, t('累計成績', 'Lifetime stats')),
     h(
@@ -893,6 +895,7 @@ function showHome(): void {
         { 'aria-label': t('ホーム', 'Home') },
         button(t('▶ プレイする', '▶ Play'), playFromHome, '.btn-primary.home-play'),
         hasProgress ? h('p.home-save', {}, t(`Day ${save.day}・所持 ${fmt(save.gum)} GUM`, `Day ${save.day} · ${fmt(save.gum)} GUM`)) : null,
+        empireAvailable() ? button(t('🏢 経営', '🏢 Company'), () => void openEmpire()) : null,
         button(t('⚙ 設定', '⚙ Settings'), () => openMenu(true)),
         button(t('🏆 ランキング', '🏆 Leaderboards'), () => openRanking()),
         isRtaAvailable() ? button(t('⏱ RTA で始める', '⏱ Start an RTA run'), () => openRtaStart()) : null,
@@ -1113,6 +1116,48 @@ function showTree(): void {
   sound.playBgm('bgmTree');
   updateTopbar();
   syncChat();
+  maybeInviteEmpire();
+}
+
+/** 経営モードを開けるか（公開まではテストモードだけ） */
+const empireAvailable = () => TEST_MODE && (!!save.empire || empireUnlocked(save.prestige));
+let empireInvited = false;
+
+/** 登場条件を満たしたら、マインちゃんが一度だけ誘いに来る（断っても、メニューの「経営」からいつでも） */
+function maybeInviteEmpire(): void {
+  if (empireInvited || save.empire || !empireAvailable() || modalOpen > 0) return;
+  empireInvited = true;
+  void openEmpire();
+}
+
+/** 経営画面（会社がまだ無ければ、マインちゃんの誘いと屋号の入力） */
+async function openEmpire(): Promise<void> {
+  if (!empireAvailable()) return;
+  const ui = await import('./ui/empire');
+  if (!save.empire) {
+    const close = openModal(
+      t('マインちゃんから', 'From Mine-chan'),
+      ui.foundView((emp) => {
+        save.empire = emp;
+        writeSave(save);
+        close();
+        sound.play('helper');
+        void openEmpire();
+      }, fileImg(staffFrames.mine[0].image, 'px empire-mine')),
+      [{ label: t('あとで', 'Later') }],
+      'wide',
+    );
+    return;
+  }
+  openModal(
+    t('🏢 経営', '🏢 Company'),
+    ui.empireView(save.empire, (emp) => {
+      save.empire = emp;
+      writeSave(save);
+    }),
+    [{ label: t('閉じる', 'Close') }],
+    'wide empire-modal',
+  );
 }
 
 /** この周回の営業時間（ミリ秒）。営業中ならその日の経過も足す（RTA の IGT） */
@@ -1575,6 +1620,12 @@ function onShopEvent(e: ShopEvent): void {
     case 'dayEnd':
       sound.play('win');
       save.meta.playSeconds += Math.round(shop?.elapsed ?? 0);
+      // 経営モード：本店の売上の一部が会社の資金へ（一方向）
+      if (save.empire) {
+        const add = transferFor(e.report.revenue, save.empire.phase);
+        save.empire.funds += add;
+        save.empire.inflow += add;
+      }
       {
         const auto = autoBuy(save);
         writeSave(save);
