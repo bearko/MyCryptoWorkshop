@@ -1,6 +1,7 @@
 // テストモード（?test=1）のデバッグパネル。テスト用のセーブだけを書き換える（本番のセーブは読むだけ）。
 import { newEmpire, type EmpireState } from '../empire/model';
-import { advanceMonth, canPromote, plotsFor } from '../empire/sim';
+import { freeCells } from '../empire/area';
+import { advanceMonth, canPromote, ownCells, plotsFor } from '../empire/sim';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -59,6 +60,15 @@ export const testActions = {
     for (let i = 0; i < 24 && !canPromote(e); i++) e = advanceMonth(e).state;
     e = advanceMonth(e, { promote: true }).state;
     return { ...current, empire: { ...e, funds: 1e8 } };
+  },
+  /** フェーズ 3（全国チェーン）へ飛ぶ：フェーズ 2 の条件（12 店・センター）を満たして格上げしたところ（資金 10 億を残す） */
+  jumpPhase3(current: SaveData, seed = 1): SaveData {
+    let e = { ...testActions.jumpPhase2(current, seed).empire!, funds: 1e10 };
+    const free = freeCells(e.area!, new Set(ownCells(e)));
+    e = advanceMonth(e, { buildCenter: [free[0]], openAt: free.slice(1, 10) }).state;
+    for (let i = 0; i < 12 && !canPromote(e); i++) e = advanceMonth(e).state;
+    e = advanceMonth(e, { promote: true }).state;
+    return { ...current, empire: { ...e, funds: 1e9 } };
   },
   setSeed(current: SaveData, seed: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
@@ -132,6 +142,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       save.empire ? btn(t('会社を消す', 'Remove the company'), () => testActions.dropEmpire(save)) : null,
       btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
       btn(t('フェーズ 2 へ飛ぶ', 'Jump to phase 2'), () => testActions.jumpPhase2(save)),
+      btn(t('フェーズ 3 へ飛ぶ', 'Jump to phase 3'), () => testActions.jumpPhase3(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
       btn(t('+12 か月', '+12 months'), () => testActions.advanceMonths(save, 12)),

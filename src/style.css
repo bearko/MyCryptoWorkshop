@@ -3534,3 +3534,45 @@ button.test-badge {
   background: transparent;
   padding: 0;
 }
+.empire-race {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #3d2f1a;
+}
+.empire-race .empire-row {
+  justify-content: space-between;
+}
+.empire-regions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+.empire-region {
+  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.empire-fill {
+  height: 6px;
+  border-radius: 3px;
+  background: #0006;
+  overflow: hidden;
+}
+.empire-fill > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-2), #ff8a7a);
+}
+.empire-expand .empire-row > span:first-child {
+  min-width: 9.5em;
+  font-size: 13px;
+}
+.empire-expand .muted {
+  font-size: 11px;
+}
