@@ -2,6 +2,7 @@
 // テストモードのときだけ読む（main.ts から動的 import）。
 import { newEmpire, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store } from '../empire/model';
 import { advanceMonth, canPromote, expectedDemand, FC_OPEN_COST, FC_SHARE, letterFor, MAX_STAFF, MAX_STORES, OPEN_COST, ORDER_RANGE, plotsFor, RENOVATE_COST, STAFF_NEEDED, type Decisions } from '../empire/sim';
+import { rivalOf } from '../empire/rivals';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
 
@@ -26,8 +27,14 @@ export const monthLabel = (month: number) => t(`${Math.floor(month / 12) + 1}年
 const storeName = (id: number) => t(`${id}号店`, `Store ${id}`);
 const money = (v: number) => `${v < 0 ? '−' : ''}${fmt(Math.abs(Math.round(v)))}`;
 
-/** 報告の一行（予兆を含む） */
-export function noteText(n: Note): string {
+/** 地図の区画の呼び名（A1〜H6） */
+export const cellName = (w: number, i: number) => `${String.fromCharCode(65 + (i % w))}${Math.floor(i / w) + 1}`;
+
+/** 報告の一行（予兆を含む）。ライバルの名前と区画の呼び名に会社の状態を使う */
+export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area'>): string {
+  const rival = rivalOf(e?.land);
+  const rivalName = t(rival.company.ja, rival.company.en);
+  const cell = (i: number) => cellName(e?.area?.w ?? 8, i);
   switch (n.kind) {
     case 'fatigue':
       return t(`${storeName(n.store)}の店主が眠そうです。人手が足りていません`, `The owner of ${storeName(n.store)} looks exhausted. The shifts are short-handed`);
@@ -45,6 +52,14 @@ export function noteText(n: Note): string {
       return t('3 店舗で 3 か月続けて黒字！ 次の格へ上がる条件を満たしました', 'Three stores in the black for three months running: ready for the next stage!');
     case 'promoted':
       return t('会社の格が上がりました！', 'The company moved up a stage!');
+    case 'rivalPlan':
+      return t(`${rivalName}が ${cell(n.cell)} に出店を計画しているようです`, `${rivalName} seems to be planning a store at ${cell(n.cell)}`);
+    case 'rivalOpened':
+      return t(`${rivalName}が ${cell(n.cell)} に出店しました`, `${rivalName} opened a store at ${cell(n.cell)}`);
+    case 'centerBuilt':
+      return t(`${cell(n.cell)} に物流センターができました`, `A distribution center opened at ${cell(n.cell)}`);
+    case 'crowded':
+      return t(`${storeName(n.store)}は近くの店とお客さんを取り合っています`, `${storeName(n.store)} is competing for customers with nearby stores`);
   }
 }
 
@@ -257,7 +272,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
               h('div.stat-row', { class: `stat-row ${last.profit < 0 ? 'bad' : ''}` }, h('span', {}, t('利益', 'Profit')), h('b', {}, money(last.profit))),
               h('div.stat-row', {}, h('span', {}, t('本店からの送金', 'From the main shop')), h('b', {}, money(last.inflow ?? 0))),
             ),
-            last.notes.length ? h('ul.empire-notes', {}, ...last.notes.map((n) => h('li', { class: n.kind === 'opened' ? 'good' : '' }, noteText(n)))) : null,
+            last.notes.length ? h('ul.empire-notes', {}, ...last.notes.map((n) => h('li', { class: n.kind === 'opened' ? 'good' : '' }, noteText(n, e)))) : null,
           )
         : h('p.empire-intro', {}, t('お店の設定を決めて「月を進める」を押すと、1 か月の結果が出ます。発注は多いと欠品が減って廃棄が増え、少ないとその逆です。', 'Set up the store and press "Next month" to see how a month goes. Ordering more means fewer stock-outs but more waste, and less means the opposite.')),
       ...(ready ? [ready] : []),
@@ -287,7 +302,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
 }
 
 /** マインちゃんの誘い：屋号を決めて会社を作る */
-export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement): HTMLElement {
+export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement, land: string | null): HTMLElement {
   const input = h('input.empire-name', { type: 'text', maxlength: 12, value: t('マイクリ', 'MyCrypto'), 'aria-label': t('屋号', 'Company name') }) as HTMLInputElement;
   const seed = () => {
     const b = new Uint32Array(1);
@@ -300,6 +315,6 @@ export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElemen
     h('div.empire-found-mine', {}, mineImg, h('p', {}, t('店主さん、2 週間もかからずに黄金のエクステンションまで行けるなんて、もう立派な商売人です！ そろそろ、新しいお店を出してみませんか？ この工房は「本店」として、これまでどおり続けられます。', "Owner, you reach the golden extension in under two weeks. You're a real merchant now! How about opening a new store? This workshop carries on as the main shop, just as before."))),
     h('label.empire-row', {}, h('span', {}, t('屋号', 'Company name')), input),
     h('p.muted', {}, t('本店の売上の一部が、営業日を終えるたびに会社の資金になります（会社のお金で工房は強くなりません）。', "Part of the main shop's sales goes into the company's funds after each business day (company money doesn't power up the workshop).")),
-    h('button.btn.btn-primary', { onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed())) }, t('お店を出す', 'Open a store')),
+    h('button.btn.btn-primary', { onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed(), land ?? 'Ocean')) }, t('お店を出す', 'Open a store')),
   );
 }

@@ -1150,7 +1150,7 @@ async function openEmpire(): Promise<void> {
         close();
         sound.play('helper');
         void openEmpire();
-      }, fileImg(staffFrames.mine[0].image, 'px empire-mine')),
+      }, fileImg(staffFrames.mine[0].image, 'px empire-mine'), save.prestige.home),
       [{ label: t('あとで', 'Later') }],
       'wide',
     );
