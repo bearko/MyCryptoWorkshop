@@ -15,6 +15,18 @@ export function empireUnlocked(p: Prestige): boolean {
   return p.history.some((r) => (r.clearDay ?? null) !== null ? r.clearDay! < UNLOCK_CLEAR_DAY : r.clearSeconds !== null && r.days < UNLOCK_CLEAR_DAY);
 }
 
+/** 経営モードを一般公開したか（v2.0.0 で true にする）。それまではテストモードだけ */
+export const EMPIRE_RELEASED = false;
+
+/**
+ * 経営モードの入口を出すか。テストモードでは、マインちゃんの登場から確かめやすいように
+ * 登場条件を最初から満たしている扱いにする。
+ */
+export function empireOpen(o: { test: boolean; hasCompany: boolean; prestige: Prestige }): boolean {
+  if (!o.test && !EMPIRE_RELEASED) return false;
+  return o.hasCompany || o.test || empireUnlocked(o.prestige);
+}
+
 /** 本店からの送金：営業日の売上の 1%、1 日あたりの上限はフェーズごと（仮の値） */
 export const TRANSFER_RATE = 0.01;
 export const TRANSFER_CAP: Record<EmpireState['phase'], number> = { 1: 300_000, 2: 3_000_000, 3: 30_000_000, 4: 300_000_000, 5: 3_000_000_000 };
