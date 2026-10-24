@@ -362,6 +362,12 @@ export function loadSave(): SaveData {
   }
 }
 
+/** 本番のセーブを読む（テストモードのデバッグパネルが写すため。本番には書き込まない）。無ければ null */
+export function readProductionSave(): SaveData | null {
+  const raw = storageGet(saveKeys(false).key);
+  return raw ? parseSave(raw) : null;
+}
+
 export function writeSave(data: SaveData): void {
   data.meta.savedAt = Date.now();
   storageSet(KEY, JSON.stringify(data));

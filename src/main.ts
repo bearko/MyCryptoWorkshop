@@ -9,7 +9,7 @@ import { catalog, customers, getExtension, icons, lands, pests, setColorAssist, 
 import { COUNTER, FLOOR_Y, HERO_PX, POT, SCENE_H, setSceneHeight, SHELF_TOP, SHELF_X0, slotPos, WORKSHOP_CROP, WORKSHOP_H } from './game/layout';
 import { LINES, type LineId } from './game/lines';
 import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
-import { exportCode, importCode, loadSave, newSave, SaveError, writeSave } from './game/save';
+import { exportCode, importCode, loadSave, newSave, SaveError, writeSave, type SaveData } from './game/save';
 import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent } from './game/shop';
 import { autoBuy, buy } from './game/purchase';
 import { relocate } from './game/prestige';
@@ -30,13 +30,14 @@ import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 import { exitTestUrl, TEST_MODE } from './testMode';
+import { testPanelView } from './ui/testPanel';
 
 const save = loadSave();
-// テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すと通常のページに戻る
+// テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すとデバッグパネル
 if (TEST_MODE) {
   document.title = `[TEST] ${document.title}`;
   document.body.append(
-    h('a.test-badge', { href: exitTestUrl(location.href), title: t('テストモード（本番と別のセーブ・記録は送らない）。押すと通常に戻る', 'Test mode (separate save, nothing is sent). Tap to leave') }, 'TEST'),
+    h('button.test-badge', { type: 'button', title: t('テストモード（本番と別のセーブ・記録は送らない）。押すとデバッグパネル', 'Test mode (separate save, nothing is sent). Tap for the debug panel'), onclick: () => openTestPanel() }, 'TEST'),
   );
 }
 initPlatform(__APP_VERSION__); // bearko.games 共通基盤（総合スコア・アチーブメント・RTA）。SDK がなければ何もしない
@@ -953,6 +954,16 @@ function eraseSaveAndReload(): void {
   fresh.ranking = { ...save.ranking, day30: null };
   writeSave(fresh);
   location.reload();
+}
+
+/** テストモードのデバッグパネル。変えたセーブを書いて読み直す（テスト用のセーブだけ） */
+function openTestPanel(): void {
+  const apply = (data: SaveData) => {
+    resetting = true;
+    writeSave(data);
+    location.reload();
+  };
+  openModal(t('🧪 テストモード', '🧪 Test mode'), testPanelView(save, apply, exitTestUrl(location.href)), [{ label: t('閉じる', 'Close') }]);
 }
 
 /** RTA（bearko.games の共通基盤）: erases the save like リセット, then the timer starts when Day 1 opens. */
