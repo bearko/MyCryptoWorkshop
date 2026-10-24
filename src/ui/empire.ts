@@ -24,8 +24,30 @@ import {
   RENOVATE_COST,
   STAFF_NEEDED,
   SV_SPAN,
+  canIpo,
+  ipoRaise,
+  storeCount,
   type Decisions,
 } from '../empire/sim';
+import {
+  borrowable,
+  collateral,
+  ERA,
+  HUB_COST,
+  MANUAL_COST,
+  MANUAL_UNLOCK,
+  OPEN_COSTS,
+  PB,
+  perStoreDaily,
+  regionStores,
+  ROYALTY,
+  SATISFACTION,
+  SUPPORT_COST,
+  TRAINEES,
+  trainees,
+  TRAINING_COST,
+  type StoreType,
+} from '../empire/nation';
 import { rivalOf } from '../empire/rivals';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -190,7 +212,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     (draft.open ?? []).reduce((a, p) => a + openCost(p), 0) +
     (draft.openAt ?? []).length * AREA_OPEN_COST +
     (draft.buildCenter ?? []).length * CENTER_COST +
-    (draft.pos && !e.pos ? POS_COST : 0);
+    (draft.pos && !e.pos ? POS_COST : 0) +
+    (draft.expand ?? []).reduce((a, x) => a + x.count * OPEN_COSTS[x.type] * (e.nation?.eraStrict ? ERA.strictCost : 1), 0) +
+    (draft.buildHub ?? []).length * HUB_COST +
+    (draft.training ?? 0) * TRAINING_COST +
+    (draft.manual && !e.nation?.manual ? MANUAL_COST : 0) +
+    (draft.pb ? PB.cost : 0);
   const toggleIn = (key: 'openAt' | 'buildCenter', cell: number) => {
     const list = draft[key] ?? [];
     draft = { ...draft, [key]: list.includes(cell) ? list.filter((c) => c !== cell) : [...list, cell] };
@@ -337,18 +364,20 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           h('b', {}, t(`条件達成！ ${next}へ上がれます`, `Goal met! You can become ${next}`)),
           e.phase === 1
             ? h('p.muted', {}, t('エリアの地図に店を広げていく「エリアチェーン」になります。ライバルも同じ区画を狙ってきます。', 'You become an area chain, spreading stores across an area map. A rival will go after the same plots.'))
-            : null,
-          e.phase === 1
+            : e.phase === 2
+              ? h('p.muted', {}, t('本拠ランドの 6 エリアへ広げる「全国チェーン」になります。物流拠点を先に建て、研修所で育てた人の数だけ出店します。', 'You become a national chain across the six areas of your home land. Build hubs first, and open as many stores as your training centers can staff.'))
+              : null,
+          e.phase <= 2
             ? h('button.btn.small.btn-primary', { onclick: () => advance({ promote: true }) }, t(`${next}になって月を進める`, `Become ${next} and go to next month`))
-            : h('button.btn.small', { disabled: true }, t('次の格（全国チェーン）は次の更新で開きます', 'The next stage (national chain) opens in the next update')),
+            : h('button.btn.small', { disabled: true }, t('次の格（世界展開）は次の更新で開きます', 'The next stage (going global) opens in the next update')),
         )
       : null;
-    const body = e.phase >= 2 && e.area ? areaBody() : [...(letterCard ? [letterCard] : []), h('section.empire-stores', {}, ...e.stores.map(storeCard)), openSection()];
+    const body = e.phase >= 3 && e.nation ? nationBody() : e.phase >= 2 && e.area ? areaBody() : [...(letterCard ? [letterCard] : []), h('section.empire-stores', {}, ...e.stores.map(storeCard)), openSection()];
     root.replaceChildren(
       h(
         'div.empire-head',
         {},
-        h('div', {}, h('div.empire-title', {}, companyTitle(e)), h('div.muted', {}, t(`${monthLabel(e.month)}・${e.stores.length} 店`, `${monthLabel(e.month)} · ${e.stores.length} store(s)`))),
+        h('div', {}, h('div.empire-title', {}, companyTitle(e)), h('div.muted', {}, t(`${monthLabel(e.month)}・${storeCount(e)} 店`, `${monthLabel(e.month)} · ${storeCount(e)} store(s)`))),
         h('div.empire-funds', {}, h('span.muted', {}, t('資金', 'Funds')), h('b', {}, money(e.funds)), reserved() > 0 ? h('small.muted', {}, t(`（予定の支払い ${fmt(reserved())}）`, `(planned ${fmt(reserved())})`)) : null),
       ),
       last
@@ -506,6 +535,183 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       hq,
     ];
   };
+  /** フェーズ 3 から：6 エリアの一覧と、本部の決定 */
+  const nationBody = (): HTMLElement[] => {
+    const n = e.nation!;
+    const rival = rivalOf(e.land);
+    const rivalName = t(rival.company.ja, rival.company.en);
+    const expand = draft.expand ?? [];
+    const hubs = draft.buildHub ?? [];
+    // 今月建てる研修所の人も、今月から出店に回せる（sim と同じ）
+    const staff = trainees(n) + (draft.training ?? 0) * TRAINEES.perCenter;
+    const people = n.eraStrict ? Math.min(staff, ERA.strictCap) : staff;
+    const used = expand.reduce((a, x) => a + x.count, 0);
+    const planned = (ri: number, type: StoreType) => expand.find((x) => x.region === ri && x.type === type)?.count ?? 0;
+    const setPlan = (ri: number, type: StoreType, count: number) => {
+      const rest = expand.filter((x) => !(x.region === ri && x.type === type));
+      draft = { ...draft, expand: count > 0 ? [...rest, { region: ri, type, count }] : rest };
+      render();
+    };
+    const typeLabel: Record<StoreType, string> = {
+      direct: t('直営', 'Company-run'),
+      fcOwner: t('加盟（オーナーの土地）', 'Franchise (owner land)'),
+      fcHq: t('加盟（本部の土地）', 'Franchise (HQ land)'),
+    };
+    const typeNote: Record<StoreType, string> = {
+      direct: t('利益まるごと・人件費と家賃も本部', 'All profit; HQ pays staff and rent'),
+      fcOwner: t(`粗利の ${Math.round(ROYALTY.fcOwner * 100)}%`, `${Math.round(ROYALTY.fcOwner * 100)}% of margin`),
+      fcHq: t(`粗利の ${Math.round(ROYALTY.fcHq * 100)}%・家賃は本部`, `${Math.round(ROYALTY.fcHq * 100)}% of margin; HQ pays rent`),
+    };
+    const cost = (type: StoreType) => OPEN_COSTS[type] * (n.eraStrict ? ERA.strictCost : 1);
+    // 全国チェーンになってからの月だけで比べる（ライバルの売上はそこから記録している）
+    const last12 = e.history.slice(-12).filter((r) => r.rivalRevenue !== undefined);
+    const own12 = last12.reduce((a, r) => a + r.revenue, 0);
+    const rival12 = last12.reduce((a, r) => a + (r.rivalRevenue ?? 0), 0);
+    const regionCard = (r: (typeof n.regions)[number], ri: number) => {
+      const own = regionStores(r);
+      const plannedHere = (['direct', 'fcOwner', 'fcHq'] as const).reduce((a, k) => a + planned(ri, k), 0);
+      const canOpen = r.hub || ri === 0 || hubs.includes(ri);
+      const fill = Math.min(100, Math.round(((own + plannedHere + r.rival) / r.capacity) * 100));
+      return h(
+        'div.empire-region',
+        {},
+        h('div.empire-store-head', {}, h('b', {}, t(r.name.ja, r.name.en)), h('span.muted', {}, t(`1 店の日販 ${fmt(Math.round(perStoreDaily(r, n.quality)))}`, `${fmt(Math.round(perStoreDaily(r, n.quality)))}/day per store`))),
+        h(
+          'div.empire-row',
+          {},
+          h('span', {}, t('店', 'Stores')),
+          h('b', {}, plannedHere ? t(`自社 ${own}（+${plannedHere}）`, `Yours ${own} (+${plannedHere})`) : t(`自社 ${own}`, `Yours ${own}`)),
+          h('span.bad', {}, t(`${rivalName} ${r.rival}`, `${rivalName} ${r.rival}`)),
+          h('span.muted', {}, t(`入りきる目安 ${r.capacity}`, `room ~${r.capacity}`)),
+        ),
+        h('div.empire-fill', { title: `${fill}%` }, h('span', { style: `width:${fill}%` })),
+        r.hub || ri === 0
+          ? null
+          : h(
+              'button.btn.small',
+              { class: `btn small ${hubs.includes(ri) ? 'btn-primary' : ''}`, 'aria-pressed': String(hubs.includes(ri)), onclick: () => ((draft = { ...draft, buildHub: hubs.includes(ri) ? hubs.filter((x) => x !== ri) : [...hubs, ri] }), render()) },
+              t(`物流拠点と工場を建てる（${fmt(HUB_COST)}）`, `Build a hub and factory (${fmt(HUB_COST)})`),
+            ),
+        canOpen
+          ? h(
+              'div.empire-expand',
+              {},
+              ...(['direct', 'fcOwner', 'fcHq'] as const).map((type) =>
+                h(
+                  'div.empire-row',
+                  {},
+                  h('span', { title: typeNote[type] }, typeLabel[type]),
+                  h('button.btn.small', { onclick: () => setPlan(ri, type, Math.max(0, planned(ri, type) - 1)), 'aria-label': t('減らす', 'Fewer') }, '−'),
+                  h('b', {}, String(planned(ri, type))),
+                  h('button.btn.small', { disabled: used >= people, onclick: () => setPlan(ri, type, planned(ri, type) + 1), 'aria-label': t('増やす', 'More') }, '+'),
+                  h('span.muted', {}, t(`${fmt(cost(type))}・${typeNote[type]}`, `${fmt(cost(type))} · ${typeNote[type]}`)),
+                ),
+              ),
+            )
+          : h('p.muted', {}, t('物流拠点を建てると出店できます', 'Build a hub to open stores here')),
+      );
+    };
+    const support = draft.support ?? n.support;
+    const force24 = draft.force24 ?? n.force24;
+    const fcCount = n.regions.reduce((a, r) => a + r.fcOwner + r.fcHq, 0);
+    const room = borrowable(n);
+    const addCenters = draft.training ? ` +${draft.training}` : '';
+    const hq = h(
+      'section.empire-hq',
+      {},
+      h('h3', {}, t('本部', 'Headquarters')),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('研修', 'Training')),
+        h('b', { class: used >= people ? 'bad' : '' }, t(`今月の出店 ${used} / ${people} 人`, `Openings ${used} / ${people} staff`)),
+        h('span.muted', {}, t(`（研修所 ${n.trainingCenters}${addCenters}・1 つで ${TRAINEES.perCenter} 人）`, `(centers ${n.trainingCenters}${addCenters}, ${TRAINEES.perCenter} each)`)),
+        h('button.btn.small', { onclick: () => ((draft = { ...draft, training: (draft.training ?? 0) + 1 }), render()) }, t(`研修所を建てる（${fmt(TRAINING_COST)}）`, `Build a center (${fmt(TRAINING_COST)})`)),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('品質', 'Quality')),
+        h('meter', { min: 0.5, max: 1, low: 0.85, high: 0.95, optimum: 1, value: n.quality }),
+        h('b', {}, `${Math.round(n.quality * 100)}%`),
+        n.manual
+          ? h('span.empire-done', {}, t('✓ マニュアル', '✓ Manual'))
+          : h(
+              'button.btn.small',
+              { class: `btn small ${draft.manual ? 'btn-primary' : ''}`, disabled: n.quality >= MANUAL_UNLOCK, title: t('品質が崩れてからでないと、何を書けばよいか分かりません', "You can't know what to write until quality slips"), onclick: () => ((draft = { ...draft, manual: !draft.manual }), render()) },
+              t(`マニュアルを整える（${fmt(MANUAL_COST)}）`, `Write a manual (${fmt(MANUAL_COST)})`),
+            ),
+      ),
+      fcCount > 0
+        ? h(
+            'div.empire-row',
+            {},
+            h('span', {}, t('オーナー', 'Owners')),
+            h('meter', { min: 0, max: 100, low: SATISFACTION.complaint, high: SATISFACTION.warn, optimum: 100, value: n.satisfaction }),
+            h('b', { class: n.satisfaction < SATISFACTION.warn ? 'bad' : '' }, t(`満足度 ${Math.round(n.satisfaction)}`, `Satisfaction ${Math.round(n.satisfaction)}`)),
+            n.investigation !== null ? h('span.bad', {}, t(`${monthLabel(n.investigation)}に調査`, `Investigation in ${monthLabel(n.investigation)}`)) : null,
+          )
+        : null,
+      fcCount > 0
+        ? h(
+            'div.empire-row',
+            {},
+            h('span', {}, t('加盟店へ', 'Franchises')),
+            h('button.btn.small', { class: `btn small ${force24 ? 'btn-primary' : ''}`, 'aria-pressed': String(force24), onclick: () => ((draft = { ...draft, force24: !force24 }), render()) }, t('24 時間営業を求める', 'Require 24-hour opening')),
+            h('span', {}, t('支援', 'Support')),
+            ...[0, 1, 2, 3].map((lv) => h('button.btn.small', { class: `btn small ${support === lv ? 'btn-primary' : ''}`, onclick: () => ((draft = { ...draft, support: lv }), render()) }, String(lv))),
+            h('span.muted', {}, t(`（1 段で加盟店 1 店 ${fmt(SUPPORT_COST)}／月）`, `(${fmt(SUPPORT_COST)}/store/month per level)`)),
+          )
+        : null,
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('時代', 'Era')),
+        h('b', { class: n.eraStrict ? 'bad' : 'good' }, n.eraStrict ? t(`出店規制が厳しい（月 ${ERA.strictCap} 店・費用 ${ERA.strictCost} 倍）`, `Strict rules (${ERA.strictCap}/month, cost ×${ERA.strictCost})`) : t('出店規制が緩い（ライバルも速い）', 'Loose rules (rivals are fast too)')),
+        h('span.muted', {}, t(`${monthLabel(n.eraChange)}まで`, `until ${monthLabel(n.eraChange)}`)),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('借入', 'Loans')),
+        h('b', {}, fmt(Math.round(n.loans))),
+        h('span.muted', {}, t(`（担保 ${fmt(Math.round(collateral(n)))}・地価 ×${n.landIndex.toFixed(2)}・あと ${fmt(Math.round(room))} まで）`, `(collateral ${fmt(Math.round(collateral(n)))} · land ×${n.landIndex.toFixed(2)} · ${fmt(Math.round(room))} more)`)),
+        h('button.btn.small', { disabled: room <= 0, onclick: () => ((draft = { ...draft, borrow: room }), render()) }, draft.borrow ? t(`借りる予定 ${fmt(Math.round(draft.borrow))}`, `Borrowing ${fmt(Math.round(draft.borrow))}`) : t('上限まで借りる', 'Borrow the max')),
+        h('button.btn.small', { disabled: n.loans <= 0, onclick: () => ((draft = { ...draft, repay: n.loans }), render()) }, draft.repay ? t('全額返す予定', 'Repaying all') : t('全額返す', 'Repay all')),
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, 'PB'),
+        h('b', {}, t(`${n.pb} / ${PB.max} 段`, `${n.pb} / ${PB.max}`)),
+        h('span.muted', {}, t('本店の工房の品を自社ブランドに', 'Main-workshop goods as your own brand')),
+        n.pb < PB.max ? h('button.btn.small', { class: `btn small ${draft.pb ? 'btn-primary' : ''}`, onclick: () => ((draft = { ...draft, pb: !draft.pb }), render()) }, t(`広げる（${fmt(PB.cost)}）`, `Expand (${fmt(PB.cost)})`)) : null,
+      ),
+      h(
+        'div.empire-row',
+        {},
+        h('span', {}, t('上場', 'IPO')),
+        n.listed
+          ? h('span.empire-done', {}, t(`✓ 上場済み（持分 ${Math.round(n.ownership * 100)}%）`, `✓ Listed (stake ${Math.round(n.ownership * 100)}%)`))
+          : canIpo(e)
+            ? h('button.btn.small', { class: `btn small ${draft.ipo ? 'btn-primary' : ''}`, onclick: () => ((draft = { ...draft, ipo: !draft.ipo }), render()) }, t(`上場する（約 ${fmt(Math.round(ipoRaise(e)))} を集める・持分が薄まる）`, `Go public (raise ~${fmt(Math.round(ipoRaise(e)))}, dilutes your stake)`))
+            : h('span.muted', {}, t('直近 12 か月の売上 300 億から', 'From 30B sales in the last 12 months')),
+      ),
+    );
+    return [
+      h(
+        'section.empire-race',
+        {},
+        h('b', {}, t('本拠ランドの売上（直近 12 か月）', 'Home-land sales (last 12 months)')),
+        h('div.empire-row', {}, h('span', {}, companyTitle(e)), h('b', {}, money(own12))),
+        h('div.empire-row', {}, h('span', {}, rivalName), h('b', { class: 'bad' }, money(rival12))),
+        last12.length < 12 ? h('span.muted', {}, t(`全国チェーンになって ${last12.length} か月（12 か月そろったら比べます）`, `${last12.length} months as a national chain (compared once there are 12)`)) : null,
+      ),
+      h('section.empire-regions', {}, ...n.regions.map(regionCard)),
+      hq,
+    ];
+  };
+
   render();
   return root;
 }
