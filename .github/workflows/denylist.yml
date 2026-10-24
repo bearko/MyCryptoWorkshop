@@ -1,0 +1,30 @@
+name: Denylist
+
+# PR の差分・ファイル名・タイトルと本文・コミットメッセージに、
+# secrets.DENYLIST の語（1 行に 1 語）が入っていないかを調べる。
+# 一致した語はログに出さず、場所だけを出す（scripts/denylist-check.mjs）。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denylist-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 禁止語の検査
+        env:
+          DENYLIST: ${{ secrets.DENYLIST }}
+        run: node scripts/denylist-check.mjs "origin/${{ github.base_ref }}"
