@@ -13,6 +13,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pngjs from 'pngjs';
+import { buildEmpireAssets } from './pixel/build.mjs';
 
 const { PNG } = pngjs;
 
@@ -292,6 +293,12 @@ const audio = {
 };
 
 const atlases = writeAtlases();
+
+// ---------------------------------------------------------------- 経営モードの絵（scripts/pixel/）
+// エクステンションにない物（地形・駅・物流センター・車）と、ドット絵にしたランドの背景
+const empire = buildEmpireAssets({ root, src, use });
+writeFileSync(join(root, 'src', 'generated', 'empire.json'), JSON.stringify(empire, null, 1));
+
 
 const catalog = {
   generatedFrom: 'https://github.com/bearko/mycryptoheroes',

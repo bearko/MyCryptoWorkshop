@@ -30,6 +30,7 @@ jobs:
       - run: npm ci
       # sync-assets（素材の同期）は pretest・prebuild で走る。typecheck は生成カタログを読むので test のあとに
       - run: npm test
+      - run: npm run pixel:lint
       - run: npm run typecheck
       - run: npm run i18n:check
       - run: npm run build
