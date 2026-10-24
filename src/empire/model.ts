@@ -1,5 +1,6 @@
 // 経営モードの状態（docs/EMPIRE_DESIGN.md 9 章）。DOM に触れない。
 // 会社の資金の単位は GUM だが、工房の GUM とは別の財布（本店 → 会社の一方向）。
+import type { Area } from './area';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -22,6 +23,8 @@ export interface Store {
   plot: PlotKind;
   /** 加盟店のオーナー（ヒーローの id）。直営は null。加盟店は粗利を本部とオーナーで分ける */
   owner: number | null;
+  /** エリアの地図の区画（フェーズ 2 から。フェーズ 1 は null） */
+  cell: number | null;
   /** 開いた月（EmpireState.month） */
   opened: number;
   /** 区画の基礎日販（GUM/日、16 時間営業・改装なし・平月） */
@@ -65,13 +68,19 @@ export type Note =
   | { kind: 'shortOfFunds' }
   | { kind: 'storeLimit' }
   | { kind: 'phaseReady' }
-  | { kind: 'promoted'; phase: number };
+  | { kind: 'promoted'; phase: number }
+  | { kind: 'rivalPlan'; cell: number }
+  | { kind: 'rivalOpened'; cell: number }
+  | { kind: 'centerBuilt'; cell: number }
+  | { kind: 'crowded'; store: number };
 
 export interface MonthReport {
   month: number;
   revenue: number;
   /** この月に本店から届いた送金 */
   inflow: number;
+  /** 本部の費用（SV・物流センター）。利益からは引いてある */
+  overhead?: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -93,6 +102,14 @@ export interface EmpireState {
   inflow: number;
   /** 直近の報告（新しいものが後ろ、最大 HISTORY 件） */
   history: MonthReport[];
+  /** 本拠のランド（ライバルが決まる。catalog の lands[].key） */
+  land: string;
+  /** エリアの地図（フェーズ 2 から） */
+  area: Area | null;
+  /** SV（巡回指導員）の人数 */
+  sv: number;
+  /** POS を入れたか */
+  pos: boolean;
 }
 
 export const HISTORY = 24;
@@ -100,11 +117,11 @@ export const HISTORY = 24;
 export const START_FUNDS = 10_000_000;
 
 export function newStore(id: number, opened: number, plot: Plot = HOME_PLOT): Store {
-  return { id, plot: plot.kind, owner: plot.owner, opened, base: plot.base, rent: plot.rent, order: 1.1, hours: 16, staff: 3, sign: false, parking: false, fatigue: 0 };
+  return { id, plot: plot.kind, owner: plot.owner, cell: null, opened, base: plot.base, rent: plot.rent, order: 1.1, hours: 16, staff: 3, sign: false, parking: false, fatigue: 0 };
 }
 
-export function newEmpire(name: string, seed: number): EmpireState {
-  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [] };
+export function newEmpire(name: string, seed: number, land = 'Ocean'): EmpireState {
+  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [], land, area: null, sv: 0, pos: false };
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -117,7 +134,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
   const base = newEmpire(typeof r.name === 'string' ? r.name : '', num(r.rng, 1));
   const stores = r.stores
     .filter((s): s is Store => !!s && typeof s === 'object' && typeof s.id === 'number')
-    .map((s) => ({ ...newStore(s.id, num(s.opened, 0)), ...s, owner: typeof s.owner === 'number' ? s.owner : null, hours: s.hours === 24 ? 24 : 16 }) as Store);
+    .map((s) => ({ ...newStore(s.id, num(s.opened, 0)), ...s, owner: typeof s.owner === 'number' ? s.owner : null, cell: typeof s.cell === 'number' ? s.cell : null, hours: s.hours === 24 ? 24 : 16 }) as Store);
   const phase = [1, 2, 3, 4, 5].includes(r.phase as number) ? (r.phase as EmpireState['phase']) : 1;
   return {
     ...base,
@@ -128,5 +145,18 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     stores,
     nextStoreId: Math.max(num(r.nextStoreId, 1), ...stores.map((s) => s.id + 1)),
     history: Array.isArray(r.history) ? r.history.slice(-HISTORY) : [],
+    land: typeof r.land === 'string' ? r.land : base.land,
+    area: restoreArea(r.area),
+    sv: Math.max(0, Math.floor(num(r.sv, 0))),
+    pos: r.pos === true,
   };
+}
+
+function restoreArea(raw: unknown): Area | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = raw as Partial<Area>;
+  if (typeof a.w !== 'number' || typeof a.h !== 'number' || !Array.isArray(a.cells) || a.cells.length !== a.w * a.h) return null;
+  const ints = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x >= 0 && x < a.w! * a.h!) : []);
+  const plan = a.rivalPlan && typeof a.rivalPlan === 'object' && Number.isInteger(a.rivalPlan.cell) && typeof a.rivalPlan.month === 'number' ? a.rivalPlan : null;
+  return { w: a.w, h: a.h, cells: a.cells.map((c) => ({ base: num(c?.base, 0), rent: num(c?.rent, 0) })), centers: ints(a.centers), rivalStores: ints(a.rivalStores), rivalPlan: plan };
 }
