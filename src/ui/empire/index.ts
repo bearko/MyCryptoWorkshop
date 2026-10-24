@@ -10,6 +10,7 @@ import { rivalOf } from '../../empire/rivals';
 import { advanceMonth, AREA_OPEN_COST, canPromote, letterFor, MAX_STORES, ownCells, phase1Done, plotsFor, storeCount, type Decisions } from '../../empire/sim';
 import { activeStakeholders, supportOf, SUPPORT } from '../../empire/stakeholders';
 import { BOARD_SEATS, meetingNow } from '../../empire/governance';
+import { CROWNS, crownStats, FISCAL_MONTH, REGULATION, regulationLevel } from '../../empire/crowns';
 import { boardCard, meetingCard, type BoardCandidate } from './govern';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
@@ -20,7 +21,7 @@ import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard
 import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
 import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
-import { companyTitle, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
+import { companyTitle, crownName, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
 
 export { companyTitle, monthLabel, noteText, plotLabel, cellName } from './text';
 
@@ -526,6 +527,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       } else if (!wasReady && canPromote(e)) play('unlock');
       else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
       else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall', 'ultimatum'].includes(n.kind) || (n.kind === 'meetingHeld' && !n.passed))) play('fail');
+      else if (r.report.notes.some((n) => n.kind === 'breakup' || (n.kind === 'crown' && !n.won))) play('fail');
+      else if (r.report.notes.some((n) => n.kind === 'crown' && n.won)) play('rare');
       else if (r.report.notes.some((n) => n.kind === 'meetingHeld' || (n.kind === 'pledgeResult' && n.kept))) play('buff');
       else if (r.report.notes.some((n) => ['fatigue', 'ownerUnrest', 'rivalPlan', 'landFalling', 'demand'].includes(n.kind))) play('debuff');
       else if (r.report.notes.some((n) => n.kind === 'demandMet')) play('clean');
@@ -553,6 +556,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       funds,
       chip(t('店', 'Stores'), String(storeCount(e)), 'ours'),
       g.label ? chip(g.label, g.value, g.done ? 'ours' : 'paper') : null,
+      crownChip(),
     ].filter((x): x is HTMLElement => !!x);
     const test = opts.onTest ? h('button.ke-test', { type: 'button', title: t('テストモードのデバッグパネル', 'Test-mode debug panel'), onclick: () => opts.onTest?.() }, 'TEST') : null;
     const close = h('button.ke-icon-btn.ke-close', { type: 'button', 'aria-label': t('経営画面を閉じる', 'Close the company screen'), onclick: () => opts.onClose?.() }, svgIcon('close'));
@@ -571,6 +575,74 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     }
     chipsRow.hidden = true;
     return [h('h1.ke-title', {}, companyTitle(e)), h('span.ke-pill', {}, t(`フェーズ${e.phase}　${PHASE_NAME()[e.phase]}`, `Phase ${e.phase} · ${PHASE_NAME()[e.phase]}`)), h('span.ke-spacer', {}), h('div.ke-chips', {}, ...chips), test, close].filter((x): x is HTMLElement => !!x);
+  }
+
+  /** ヘッダーの 3 冠（持っている冠が金色） */
+  function crownChip(): HTMLElement | null {
+    if (!e.nation || !e.crowns) return null;
+    const held = e.crowns.held;
+    const names = CROWNS.map((c) => held[c] ? t(`${crownName(c)} 1 位`, `${crownName(c)} 1st`) : t(`${crownName(c)} 2 位`, `${crownName(c)} 2nd`)).join(t('・', ' · '));
+    return h(
+      'span.ke-chip',
+      { class: 'ke-chip ke-tone-plain', title: names, role: 'img', 'aria-label': t(`3 冠：${names}`, `Crowns: ${names}`) },
+      h('span.ke-chip-label', {}, t('3 冠', 'Crowns')),
+      h('span.ke-crowns-chip', {}, ...CROWNS.map((c) => {
+        const ic = svgIcon('crown', 18);
+        ic.classList.add('ke-crown');
+        if (held[c]) ic.classList.add('is-held');
+        return ic;
+      })),
+    );
+  }
+
+  /** 3 冠の表と規制のメーター（フェーズ 3 から） */
+  function crownsPanel(): HTMLElement | null {
+    const st = crownStats(e);
+    if (!st) return null;
+    const held = e.crowns?.held;
+    const fmt = (c: (typeof CROWNS)[number], v: number) => (c === 'scale' ? shortMoney(v) : String(v));
+    const when = { scale: t(`${FISCAL_MONTH + 1}月の決算`, `FY end (month ${FISCAL_MONTH + 1})`), brand: t('3月・9月', 'Mar · Sep'), influence: t('毎月', 'Monthly') };
+    const lv = regulationLevel(st.share);
+    const pctOf = (v: number) => `${Math.round(v * 100)}%`;
+    const pos = (v: number) => `${Math.min(100, (v / 0.6) * 100)}%`;
+    const over = e.crowns?.overMonths ?? 0;
+    const status = [
+      t('当局は気にしていません', 'No concern from the authorities'),
+      t('当局が注視しています', 'The authorities are watching'),
+      t('24 時間の強制や混みすぎたエリアに制裁金がかかります', 'Forcing 24h or crowding areas draws fines'),
+      t(`分割の審査中：あと ${Math.max(0, REGULATION.breakupMonths - over)} か月で店の一部を売らされます`, `Break-up review: ${Math.max(0, REGULATION.breakupMonths - over)} months left`),
+    ][lv];
+    return panel(
+      'ke-crowns',
+      t('3 冠', 'Three crowns'),
+      h(
+        'ul.ke-crown-list',
+        {},
+        ...CROWNS.map((c) => {
+          const ic = svgIcon('crown', 16);
+          ic.classList.add('ke-crown');
+          if (held?.[c]) ic.classList.add('is-held');
+          const win = st.ours[c] > st.rival[c];
+          return h(
+            'li.ke-crown-row',
+            { title: when[c] },
+            h('span.ke-crown-name', {}, ic, crownName(c)),
+            h('b', { class: `ke-figure ${win ? 'ke-good' : ''}` }, fmt(c, st.ours[c])),
+            h('span.ke-hint', {}, t('対', 'vs')),
+            h('b', { class: 'ke-figure ke-bad' }, fmt(c, st.rival[c])),
+          );
+        }),
+      ),
+      h('p.ke-hint', {}, t(`売上規模は ${FISCAL_MONTH + 1} 月の決算、ブランド力は 3 月と 9 月、影響力は毎月決まります`, `Scale is decided at the fiscal year end, brand in Mar and Sep, influence every month`)),
+      h(
+        'div.ke-reg',
+        { title: t(`市場のシェア ${pctOf(st.marketShare)}＋影響力の重み`, `Market share ${pctOf(st.marketShare)} + influence`) },
+        h('span.ke-field-label', {}, t(`規制のメーター ${pctOf(st.share)}`, `Regulation ${pctOf(st.share)}`)),
+        h('div.ke-reg-bar', {}, h('span', { class: `is-${lv}`, style: `width:${pos(st.share)}` }), ...[REGULATION.watch, REGULATION.fines, REGULATION.breakup].map((v) => h('i.ke-reg-tick', { style: `left:${pos(v)}` }))),
+        h('div.ke-reg-scale', { 'aria-hidden': 'true' }, ...[REGULATION.watch, REGULATION.breakup].map((v) => h('span', { style: `left:${pos(v)}` }, pctOf(v)))),
+        h('span', { class: `ke-hint ${lv >= 2 ? 'ke-bad' : ''}` }, status),
+      ),
+    );
   }
 
   function ledgerView(): HTMLElement {
@@ -594,8 +666,9 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     if (last.overhead) rows.push(row(t('本部の費用', 'Head office'), money(-last.overhead)));
     if (last.inflow) rows.push(row(t('本店からの送金', 'From the main shop'), money(last.inflow), 'good'));
     const delta = prev ? last.profit - prev.profit : 0;
+    // 本拠ランドの売上の比べ合いは、3 冠の「売上規模」と同じなので、3 冠の表が出てからは省く
     const race = (() => {
-      if (!e.nation) return null;
+      if (!e.nation || e.crowns) return null;
       const l12 = e.history.slice(-12).filter((r) => r.rivalRevenue !== undefined);
       const own = l12.reduce((a, r) => a + r.revenue, 0);
       const rival = l12.reduce((a, r) => a + (r.rivalRevenue ?? 0), 0);
@@ -873,7 +946,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       case 'meeting':
         return e.gov ? meetingCard(c) : null;
       case 'ledger':
-        return ledgerView();
+        return h('div.ke-ema-list', {}, ledgerView(), ...[crownsPanel()].filter((x): x is HTMLElement => !!x));
       case 'voices':
         return h('div.ke-ema-list', {}, supportView(), ...voicesView());
       case 'commands':
@@ -1039,7 +1112,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       strip.replaceChildren();
       folds.replaceChildren();
       sheetHost.replaceChildren();
-      left.replaceChildren(ledgerView());
+      left.replaceChildren(ledgerView(), ...[crownsPanel()].filter((x): x is HTMLElement => !!x));
       right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), supportView(), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
       selCard.replaceChildren(
         sc

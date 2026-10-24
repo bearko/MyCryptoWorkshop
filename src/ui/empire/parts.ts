@@ -8,7 +8,7 @@ import { monthLabel, money } from './text';
 type Child = Node | string | null | undefined | false;
 
 /** 2px の線の SVG アイコン（操作の記号だけ。物は MCH のスプライトで示す） */
-export function svgIcon(name: 'close' | 'chevron-down' | 'chevron-right' | 'chevron-up' | 'plus' | 'minus' | 'layers' | 'stamp' | 'back' | 'zoom-in' | 'zoom-out', size = 20): SVGSVGElement {
+export function svgIcon(name: 'close' | 'chevron-down' | 'chevron-right' | 'chevron-up' | 'plus' | 'minus' | 'layers' | 'stamp' | 'back' | 'zoom-in' | 'zoom-out' | 'crown', size = 20): SVGSVGElement {
   const paths: Record<string, string> = {
     close: 'M6 6l12 12M18 6L6 18',
     'chevron-down': 'M6 9l6 6 6-6',
@@ -21,6 +21,7 @@ export function svgIcon(name: 'close' | 'chevron-down' | 'chevron-right' | 'chev
     layers: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4',
     stamp: 'M9 4h6v6l3 3v3H6v-3l3-3zM5 20h14',
     back: 'M15 6l-6 6 6 6',
+    crown: 'M4 18h16M5 15L4 7l5 4 3-6 3 6 5-4-1 8z',
   };
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   s.setAttribute('width', String(size));

@@ -9,6 +9,8 @@ import { rivalOf } from '../../empire/rivals';
 import { t } from '../../i18n';
 import { penalized, supportOf, type StakeholderId } from '../../empire/stakeholders';
 import { meetingNow, pledgeKept, trustOf } from '../../empire/governance';
+import { campaignActive, CAMPAIGN, counterCost } from '../../empire/rivalai';
+import { REGULATION } from '../../empire/crowns';
 import { pledgeProgress } from './govern';
 import { demandText, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
 
@@ -87,9 +89,39 @@ function pledgeVoice(e: EmpireState): Voice[] {
   ];
 }
 
+/** ライバルのセール攻勢（予告から終わりまで）と、分割の審査 */
+function rivalVoices(e: EmpireState): Voice[] {
+  const out: Voice[] = [];
+  const c = e.campaign;
+  const n = e.nation;
+  if (c && n && e.month < c.end) {
+    const r = n.regions[c.region];
+    const name = r ? t(r.name.ja, r.name.en) : '?';
+    const active = campaignActive(c, e.month);
+    out.push({
+      key: 'campaign',
+      who: t(`${name}の店長たち`, `Managers in ${name}`),
+      text: active ? t(`ライバルの値下げで、お客さんが ${Math.round((1 - CAMPAIGN.demand) * 100)}% 減っています`, `The rival's price cuts took ${Math.round((1 - CAMPAIGN.demand) * 100)}% of our customers`) : t('来月からライバルが値下げしてくるそうです', 'The rival cuts prices here from next month'),
+      due: t(`${monthLabel(c.end - 1)}まで`, `Until ${monthLabel(c.end - 1)}`),
+      urgent: active,
+      fix: active ? { label: t(`対抗セール（月 ${money(counterCost(n, c))}）`, `Counter-sale (${money(counterCost(n, c))}/mo)`), apply: (d) => ({ ...d, counter: true }) } : undefined,
+    });
+  }
+  const over = e.crowns?.overMonths ?? 0;
+  if (over > 0)
+    out.push({
+      key: 'breakup',
+      who: t('当局', 'Authorities'),
+      text: t('市場のシェアが 5 割を超えています。下がらなければ、店の一部を売るよう命じます', 'Your share is over half. Unless it falls, we will order a break-up'),
+      due: t(`あと ${Math.max(1, REGULATION.breakupMonths - over)} か月`, `${Math.max(1, REGULATION.breakupMonths - over)} months left`),
+      urgent: true,
+    });
+  return out;
+}
+
 export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
-  if (!r) return [...demandVoices(e), ...pledgeVoice(e)];
-  const out: Voice[] = [...demandVoices(e), ...pledgeVoice(e)];
+  if (!r) return [...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
+  const out: Voice[] = [...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
   const seen = new Set<string>();
   const add = (v: Voice) => {
     if (seen.has(v.key)) return;
@@ -193,6 +225,18 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'ultimatum':
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
         break;
+      case 'campaignSoon':
+      case 'campaign':
+        out.push({ head: noteText(n, e), hero: rival.hero, kind: 'rival' });
+        break;
+      case 'breakup':
+      case 'breakupWarning':
+      case 'regulationFine':
+      case 'regulationWatch':
+      case 'breakupCleared':
+        out.push({ head: noteText(n, e), hero: null, kind: 'era' });
+        break;
+      case 'crown':
       case 'demandMet':
       case 'meetingHeld':
       case 'meetingPostponed':
@@ -221,6 +265,8 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
 export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean): string {
   const has = (k: Note['kind']) => r?.notes.find((n) => n.kind === k);
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
+  if ((e.crowns?.overMonths ?? 0) > 0) return t('シェアが 5 割を超え、当局が分割の審査を始めました。出店を止めるか、加盟店を手放してシェアを下げましょう。', 'Over half the market: a break-up review began. Stop opening or shed stores.');
+  if (e.campaign && campaignActive(e.campaign, e.month)) return t('ライバルの値下げ攻勢です。絵馬の「対抗セール」で客足を守れます（費用がかかります）。', 'A rival price war. Use the counter-sale on the plaque to keep customers (it costs money).');
   if (meetingNow(e)) return e.nation?.listed ? t('今月は株主総会です。下の「株主総会」で、たたえる相手・ライバル・来年の約束を決めましょう。', "It's the shareholders' meeting this month. Choose your speech under \"Shareholders\".") : t('今月は銀行との面談です。下の「銀行と面談」で、話すことを決めましょう。', 'You meet the bank this month. Choose what to say under "Bank meeting".');
   const last = (e.stake?.demands ?? []).find((d) => monthsLeft(e, d.due) <= 1);
   if (last) return t(`${stakeName(last.who)}の要望の期限は今月です。絵馬の手を打たないと、最後通告になります。`, `${stakeName(last.who)}'s request is due this month. Act on the plaque or face an ultimatum.`);
