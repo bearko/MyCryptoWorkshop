@@ -2,6 +2,7 @@
 import { newEmpire, type EmpireState } from '../empire/model';
 import { freeCells } from '../empire/area';
 import { advanceMonth, canPromote, ownCells, plotsFor } from '../empire/sim';
+import { newStake } from '../empire/stakeholders';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -34,6 +35,14 @@ export const testActions = {
   },
   addFunds(current: SaveData, amount: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, funds: e.funds + amount }));
+  },
+  /** ステークホルダーの要望を出す（支持度を 35 に下げ、期限は 2 か月後）。M8 の絵馬と最後通告を試す */
+  stakeDemand(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      const who = e.phase >= 3 ? 'staff' : 'wholesaler';
+      const stake = e.stake ?? newStake();
+      return { ...e, stake: { ...stake, support: { ...stake.support, [who]: 35 }, demands: [...stake.demands.filter((d) => d.who !== who), { who, since: e.month, due: e.month + 1 }] } };
+    });
   },
   /** 決定を変えずに n か月進める */
   advanceMonths(current: SaveData, n: number): SaveData {
@@ -144,6 +153,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('フェーズ 2 へ飛ぶ', 'Jump to phase 2'), () => testActions.jumpPhase2(save)),
       btn(t('フェーズ 3 へ飛ぶ', 'Jump to phase 3'), () => testActions.jumpPhase3(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
+      btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
       btn(t('+12 か月', '+12 months'), () => testActions.advanceMonths(save, 12)),
       btn(t('乱数の種を 1 に', 'Seed rng = 1'), () => testActions.setSeed(save, 1)),

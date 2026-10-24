@@ -34,6 +34,8 @@ try {
       '店数（中央値）': median(rs.map((r) => r.stores)),
       '資金（中央値）': median(rs.map((r) => r.funds)).toLocaleString('ja-JP'),
       '赤字月（合計）': rs.reduce((a, r) => a + r.redMonths, 0),
+      '要望（1 社あたり）': (rs.reduce((a, r) => a + r.demands, 0) / seeds).toFixed(1),
+      '最後通告（1 社あたり）': (rs.reduce((a, r) => a + r.ultimatums, 0) / seeds).toFixed(1),
     };
   });
   console.log(`${months} か月・種 ${seeds} 個`);

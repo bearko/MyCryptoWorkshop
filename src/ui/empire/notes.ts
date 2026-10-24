@@ -7,7 +7,8 @@ import type { Decisions } from '../../empire/sim';
 import { MAX_STAFF, OPEN_COST, ORDER_RANGE, STAFF_NEEDED } from '../../empire/sim';
 import { rivalOf } from '../../empire/rivals';
 import { t } from '../../i18n';
-import { money, monthLabel, noteText, storeName } from './text';
+import { penalized, supportOf, type StakeholderId } from '../../empire/stakeholders';
+import { demandText, money, monthLabel, noteText, stakeName, storeName } from './text';
 
 export interface Voice {
   /** 誰の声か（常連客・問屋・店主・オーナー会・当局・銀行） */
@@ -37,9 +38,40 @@ const storeDecision = (d: Decisions, id: number, patch: NonNullable<Decisions['s
   stores: { ...d.stores, [id]: { ...d.stores?.[id], ...patch } },
 });
 
+/** 期限までの残り（今月を含む） */
+export const monthsLeft = (e: Pick<EmpireState, 'month'>, due: number) => Math.max(1, due - e.month + 1);
+
+/** 要望の絵馬に付ける「その場で直す」手（決まった手が 1 つあるものだけ） */
+function demandFix(who: StakeholderId, e: EmpireState): Voice['fix'] {
+  const each = (patch: (s: EmpireState['stores'][number]) => NonNullable<Decisions['stores']>[number]) => (d: Decisions) => ({ ...d, stores: Object.fromEntries(e.stores.map((s) => [s.id, { ...d.stores?.[s.id], ...patch(s) }])) });
+  if (e.phase <= 2) {
+    if (who === 'wholesaler') return { label: t('全店の発注を減らす', 'Order less everywhere'), apply: each((s) => ({ order: Math.max(ORDER_RANGE[0], +(s.order - 0.1).toFixed(2)) })) };
+    if (who === 'regulars') return { label: t('全店の発注と人手を足す', 'More stock and staff'), apply: each((s) => ({ order: Math.min(ORDER_RANGE[1], +(s.order + 0.1).toFixed(2)), staff: Math.max(s.staff, STAFF_NEEDED[s.hours]) })) };
+    if (who === 'shotengai' && e.stores.some((s) => s.hours === 24)) return { label: t('24 時間をやめる', 'Stop 24-hour stores'), apply: each((s) => ({ hours: 16, staff: Math.max(s.staff, STAFF_NEEDED[16]) })) };
+    return undefined;
+  }
+  if (who === 'staff' || who === 'regulars' || who === 'shotengai') return { label: t('今月の出店を半分に', 'Halve this month’s openings'), apply: (d) => ({ ...d, expand: (d.expand ?? []).map((x) => ({ ...x, count: Math.ceil(x.count / 2) })), ...(who === 'shotengai' ? { force24: false } : {}) }) };
+  return undefined;
+}
+
+/** 出ている要望（期限つき）。報告が無い月も出し続ける */
+function demandVoices(e: EmpireState): Voice[] {
+  return (e.stake?.demands ?? []).map((d) => {
+    const left = monthsLeft(e, d.due);
+    return {
+      key: `demand-${d.who}`,
+      who: t(`${stakeName(d.who)}（支持度 ${Math.round(supportOf(e, d.who))}）`, `${stakeName(d.who)} (support ${Math.round(supportOf(e, d.who))})`),
+      text: demandText(d.who, e.phase),
+      due: left <= 1 ? t('期限は今月', 'Due this month') : t(`期限まであと ${left} か月`, `${left} months left`),
+      urgent: true,
+      fix: demandFix(d.who, e),
+    };
+  });
+}
+
 export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
-  if (!r) return [];
-  const out: Voice[] = [];
+  if (!r) return demandVoices(e);
+  const out: Voice[] = [...demandVoices(e)];
   const seen = new Set<string>();
   const add = (v: Voice) => {
     if (seen.has(v.key)) return;
@@ -47,6 +79,7 @@ export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
     out.push(v);
   };
   const store = (id: number) => e.stores.find((s) => s.id === id);
+  for (const v of out) seen.add(v.key);
   for (const n of r.notes) {
     switch (n.kind) {
       case 'stockout': {
@@ -139,7 +172,11 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'eraSoon':
       case 'eraChanged':
       case 'investigation':
+      case 'ultimatum':
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
+        break;
+      case 'demandMet':
+        out.push({ head: noteText(n, e), hero: null, kind: 'company' });
         break;
       case 'opened':
       case 'centerBuilt':
@@ -162,6 +199,10 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
 export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean): string {
   const has = (k: Note['kind']) => r?.notes.find((n) => n.kind === k);
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
+  const last = (e.stake?.demands ?? []).find((d) => monthsLeft(e, d.due) <= 1);
+  if (last) return t(`${stakeName(last.who)}の要望の期限は今月です。絵馬の手を打たないと、最後通告になります。`, `${stakeName(last.who)}'s request is due this month. Act on the plaque or face an ultimatum.`);
+  const hit = (['regulars', 'wholesaler', 'shotengai', 'staff', 'shareholders'] as const).find((w) => penalized(e, w));
+  if (hit && r?.notes.some((n) => n.kind === 'ultimatum')) return t(`${stakeName(hit)}の最後通告がしばらく効きます。同じことを繰り返さないようにしましょう。`, `${stakeName(hit)}'s ultimatum will bite for a while. Don't repeat it.`);
   const fatigue = has('fatigue');
   if (fatigue && 'store' in fatigue) return t(`${storeName(fatigue.store)}の店主が限界です。絵馬の「シフトを増やす」を押してください。`, `${storeName(fatigue.store)}'s owner is worn out. Press "Staff" on the plaque.`);
   if (has('investigationSoon')) return t('当局の調査が来ます。オーナーへの支援を厚くするか、24 時間の強制をやめましょう。', 'An investigation is coming. Support the owners or stop forcing 24 hours.');

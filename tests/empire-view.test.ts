@@ -112,3 +112,26 @@ describe('金額の書き方', () => {
     expect(shortMoney(1_240_000_000_00)).toBe('1,240億');
   });
 });
+
+describe('ステークホルダーの絵馬（M8）', () => {
+  it('出ている要望は期限つきの急ぎの絵馬になり、問屋には全店の発注を減らす手が付く', () => {
+    const e = testActions.stakeDemand(testActions.foundEmpire(newSave(), 1)).empire as EmpireState;
+    const v = voicesOf(null, e).find((x) => x.key === 'demand-wholesaler')!;
+    expect(v.urgent).toBe(true);
+    expect(v.due).toBeTruthy();
+    const d = v.fix!.apply({}, e);
+    expect(d.stores?.[1]?.order).toBeCloseTo(e.stores[0].order - 0.1);
+  });
+
+  it('期限が今月なら、マインちゃんの助言はその要望を先に言う', () => {
+    const e = testActions.stakeDemand(testActions.foundEmpire(newSave(), 1)).empire as EmpireState;
+    const r = { month: 0, revenue: 0, inflow: 0, profit: 1, funds: 0, stores: [], notes: [] };
+    expect(adviceOf(r, { ...e, month: e.stake!.demands[0].due }, false)).toContain('期限');
+  });
+
+  it('最後通告はかわら版に載る', () => {
+    const e = newEmpire('テスト', 1);
+    const r = { month: 0, revenue: 0, inflow: 0, profit: 1, funds: 0, stores: [], notes: [{ kind: 'ultimatum' as const, who: 'wholesaler' as const, months: 3 }] };
+    expect(newsOf(r, e)[0].kind).toBe('era');
+  });
+});

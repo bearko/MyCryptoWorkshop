@@ -2,6 +2,7 @@
 // 会社の資金の単位は GUM だが、工房の GUM とは別の財布（本店 → 会社の一方向）。
 import type { Area } from './area';
 import { newNationExtras, STORE_TYPES, type Nation } from './nation';
+import { restoreStake, type Stake, type StakeholderId } from './stakeholders';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -89,7 +90,11 @@ export type Note =
   | { kind: 'landFalling' }
   | { kind: 'marginCall'; amount: number }
   | { kind: 'ipo'; raised: number }
-  | { kind: 'pbUp'; level: number };
+  | { kind: 'pbUp'; level: number }
+  /** ステークホルダーの要望（期限つき）・取り下げ・最後通告（stakeholders.ts） */
+  | { kind: 'demand'; who: StakeholderId; due: number }
+  | { kind: 'demandMet'; who: StakeholderId }
+  | { kind: 'ultimatum'; who: StakeholderId; months: number };
 
 export interface MonthReport {
   month: number;
@@ -131,6 +136,8 @@ export interface EmpireState {
   pos: boolean;
   /** フェーズ 3 から：本拠ランドの 11 エリア（古いセーブは 6 エリア） */
   nation: Nation | null;
+  /** ステークホルダーの支持度・要望・最後通告（M8 から。無ければ最初の月に作る） */
+  stake?: Stake;
 }
 
 export const HISTORY = 24;
@@ -173,6 +180,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     sv: Math.max(0, Math.floor(num(r.sv, 0))),
     pos: r.pos === true,
     nation: restoreNation(r.nation),
+    stake: restoreStake(r.stake),
   };
 }
 
