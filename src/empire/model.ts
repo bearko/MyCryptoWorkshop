@@ -1,7 +1,7 @@
 // 経営モードの状態（docs/EMPIRE_DESIGN.md 9 章）。DOM に触れない。
 // 会社の資金の単位は GUM だが、工房の GUM とは別の財布（本店 → 会社の一方向）。
 import type { Area } from './area';
-import { STORE_TYPES, type Nation } from './nation';
+import { newNationExtras, STORE_TYPES, type Nation } from './nation';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -78,7 +78,18 @@ export type Note =
   | { kind: 'needHub'; region: number }
   | { kind: 'traineeLimit'; trainees: number }
   | { kind: 'qualityWarn' }
-  | { kind: 'manualReady' };
+  | { kind: 'manualReady' }
+  | { kind: 'ownerUnrest'; satisfaction: number }
+  | { kind: 'investigationSoon' }
+  | { kind: 'investigation'; fine: number }
+  | { kind: 'eraSoon'; strict: boolean; month: number }
+  | { kind: 'eraChanged'; strict: boolean }
+  | { kind: 'eraCap'; cap: number }
+  | { kind: 'landSlowing' }
+  | { kind: 'landFalling' }
+  | { kind: 'marginCall'; amount: number }
+  | { kind: 'ipo'; raised: number }
+  | { kind: 'pbUp'; level: number };
 
 export interface MonthReport {
   month: number;
@@ -177,7 +188,21 @@ function restoreNation(raw: unknown): Nation | null {
   const n = raw as Partial<Nation>;
   if (!Array.isArray(n.regions) || n.regions.length === 0) return null;
   const int = (v: unknown) => Math.max(0, Math.floor(num(v, 0)));
+  const d = newNationExtras([], 0);
   return {
+    ...d,
+    satisfaction: Math.min(100, Math.max(0, num(n.satisfaction, d.satisfaction))),
+    force24: n.force24 === true,
+    support: Math.min(3, int(n.support)),
+    investigation: typeof n.investigation === 'number' ? n.investigation : null,
+    eraStrict: n.eraStrict !== false,
+    eraChange: num(n.eraChange, d.eraChange),
+    landIndex: num(n.landIndex, 1),
+    landStart: num(n.landStart, 0),
+    loans: Math.max(0, num(n.loans, 0)),
+    listed: n.listed === true,
+    ownership: Math.min(1, Math.max(0, num(n.ownership, 1))),
+    pb: Math.min(5, int(n.pb)),
     regions: n.regions.map((r) => ({
       name: { ja: String(r?.name?.ja ?? ''), en: String(r?.name?.en ?? '') },
       capacity: Math.max(1, num(r?.capacity, 30)),

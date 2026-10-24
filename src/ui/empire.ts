@@ -96,6 +96,30 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t('「店によって品ぞろえや接客がまちまち」という声が届いています', 'Customers say the stores vary in stock and service');
     case 'manualReady':
       return t('品質が崩れてきました。いまならマニュアルにまとめられます', 'Quality is slipping. Now you know what to write in a manual');
+    case 'ownerUnrest':
+      return t(`加盟店のオーナーたちの不満が高まっています（満足度 ${n.satisfaction}）。24 時間の強制や近すぎる出店を見直しましょう`, `Franchise owners are growing unhappy (satisfaction ${n.satisfaction}). Rethink forced 24-hour opening and crowded openings`);
+    case 'investigationSoon':
+      return t('オーナーの会が当局に訴えました。2 か月後に調査が入ります', 'The owners took their case to the authorities. An investigation starts in two months');
+    case 'investigation':
+      return t(`当局の調査で、制裁金 ${fmt(Math.round(n.fine))} を払いました。24 時間の強制はやめさせられました`, `The investigation ended with a fine of ${fmt(Math.round(n.fine))}. Forced 24-hour opening had to stop`);
+    case 'eraSoon':
+      return n.strict
+        ? t(`${monthLabel(n.month)}から、大きな店の出店規制がまた厳しくなるようです`, `From ${monthLabel(n.month)}, store-opening rules look set to tighten again`)
+        : t(`外からの圧力で、${monthLabel(n.month)}から出店規制が緩むようです。ライバルも勢いづきます`, `Under outside pressure, store-opening rules loosen from ${monthLabel(n.month)}. Rivals will speed up too`);
+    case 'eraChanged':
+      return n.strict ? t('出店規制が厳しくなりました（月の出店に上限・費用が 3 割増し）', 'Opening rules tightened (a monthly cap, and openings cost 30% more)') : t('出店規制が緩みました。ライバルも出店を急いでいます', 'Opening rules loosened. Rivals are opening faster too');
+    case 'eraCap':
+      return t(`出店規制で、今月の出店は ${n.cap} 店までです`, `Opening rules cap this month at ${n.cap} stores`);
+    case 'landSlowing':
+      return t('地価の上がり方が鈍ってきました。土地を担保にした借入には気をつけましょう', 'Land prices are rising more slowly. Be careful with land-backed loans');
+    case 'landFalling':
+      return t('地価が下がり始めました。担保の値打ちが減っていきます', 'Land prices have started to fall. Your collateral is shrinking');
+    case 'marginCall':
+      return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
+    case 'ipo':
+      return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'pbUp':
+      return t(`PB（自社ブランド）を広げました（${n.level} 段目）。本店の工房の品が店に並びます`, `Private brand expanded (level ${n.level}). Goods from the main workshop hit the shelves`);
     case 'crowded':
       return t(`${storeName(n.store)}は近くの店とお客さんを取り合っています`, `${storeName(n.store)} is competing for customers with nearby stores`);
   }
