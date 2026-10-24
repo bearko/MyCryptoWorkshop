@@ -68,3 +68,12 @@ describe('デバッグパネル：マインちゃんの登場', () => {
     expect(empireUnlocked(s.prestige)).toBe(true);
   });
 });
+
+describe('デバッグパネル：フェーズへ飛ぶ', () => {
+  it('フェーズ 2 へ飛ぶと、地図のある商会になる', () => {
+    const s = testActions.jumpPhase2(newSave());
+    expect(s.empire?.phase).toBe(2);
+    expect(s.empire?.area).not.toBeNull();
+    expect(s.empire?.funds).toBe(1e8);
+  });
+});
