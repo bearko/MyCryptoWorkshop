@@ -3403,3 +3403,62 @@ button.test-badge {
   font-size: 16px;
   padding: 4px 8px;
 }
+.empire-store-plot {
+  font-size: 12px;
+}
+.empire-plots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.empire-plots > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+}
+.empire-plot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--gold-2);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.empire-plot:hover,
+.empire-plot:focus-visible {
+  outline: 2px solid var(--gold);
+}
+.empire-pending {
+  margin-top: 6px;
+}
+.empire-letter,
+.empire-ready {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border-radius: 10px;
+  background: #3d2f1a;
+  border: 1px solid var(--gold-2);
+}
+.empire-ready {
+  flex-direction: column;
+}
+.empire-letter p {
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+.empire-hero {
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  flex: none;
+}

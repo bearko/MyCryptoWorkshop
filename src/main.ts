@@ -1130,6 +1130,13 @@ function maybeInviteEmpire(): void {
   void openEmpire();
 }
 
+/** 加盟の手紙をくれるヒーロー：いちばん多く買ってくれた常連（まだ加盟していない人） */
+function empireLetterHero(): { id: number; name: string; image: HTMLElement } | null {
+  const owners = new Set(save.empire?.stores.map((s) => s.owner));
+  const best = customers.filter((c) => (save.heroes[c.id] ?? 0) > 0 && !owners.has(c.id)).sort((a, b) => (save.heroes[b.id] ?? 0) - (save.heroes[a.id] ?? 0))[0] ?? customers.find((c) => !owners.has(c.id));
+  return best ? { id: best.id, name: best.name, image: icon(best.image, 'px empire-hero') } : null;
+}
+
 /** 経営画面（会社がまだ無ければ、マインちゃんの誘いと屋号の入力） */
 async function openEmpire(): Promise<void> {
   if (!empireAvailable()) return;
@@ -1151,10 +1158,14 @@ async function openEmpire(): Promise<void> {
   }
   openModal(
     t('🏢 経営', '🏢 Company'),
-    ui.empireView(save.empire, (emp) => {
-      save.empire = emp;
-      writeSave(save);
-    }),
+    ui.empireView(
+      save.empire,
+      (emp) => {
+        save.empire = emp;
+        writeSave(save);
+      },
+      { letterHero: empireLetterHero(), heroName: (id) => customers.find((c) => c.id === id)?.name ?? '?' },
+    ),
     [{ label: t('閉じる', 'Close') }],
     'wide empire-modal',
   );
