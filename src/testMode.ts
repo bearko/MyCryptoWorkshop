@@ -1,4 +1,4 @@
-// テストモード（docs/EMPIRE_DESIGN.md「?test=1 の開発環境」）。
+// テストモード（docs/EMPIRE_DESIGN.md 8 章）。
 // 本番の workshop.bearko.games に開発中の機能を載せたまま、URL に ?test=1 を付けたときだけ見せる。
 // テストモードでは本番と別のセーブを使い、ランキング・総合スコア・アチーブメント・RTA に何も送らない。
 
