@@ -79,7 +79,7 @@ function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decision
     d.training = 1;
     funds -= TRAINING_COST;
   }
-  const noHub = n.regions.map((r, i) => ({ r, i })).filter((x) => !x.r.hub && x.i !== 0).sort((a, b) => b.r.traffic - a.r.traffic);
+  const noHub = n.regions.map((r, i) => ({ r, i })).filter((x) => !x.r.hub && !x.r.locked && x.i !== 0).sort((a, b) => b.r.traffic - a.r.traffic);
   const open = n.regions.filter((r, i) => (r.hub || i === 0) && regionStores(r) < r.capacity * 0.75);
   if (noHub.length && (open.length === 0 || funds > HUB_COST * 1.5 * reserve)) {
     d.buildHub = [noHub[0].i];
