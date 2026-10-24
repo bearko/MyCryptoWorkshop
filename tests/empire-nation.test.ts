@@ -1,5 +1,6 @@
 // 経営モードのフェーズ 3（全国チェーン、docs/EMPIRE_DESIGN.md 4.3）
 import { describe, expect, it } from 'vitest';
+import { crownStats } from '../src/empire/crowns';
 import { freeCells } from '../src/empire/area';
 import { newEmpire, restoreEmpire, type EmpireState } from '../src/empire/model';
 import { ERA, HUB_COST, MANUAL_UNLOCK, nationStores, OPEN_COSTS, perStoreDaily, regionMonth, regionStores, trainees, TRAINING_COST } from '../src/empire/nation';
@@ -97,8 +98,10 @@ describe('卒業と保存', () => {
     expect(phase3Done(s)).toBe(false);
     const open = [1, 2, 3, 4, 5, 6, 7, 8, 9];
     s = advanceMonth(s, { training: 8, buildHub: open }).state;
-    for (let i = 0; i < 36 && !phase3Done(s); i++) {
-      s = advanceMonth(s, { expand: [0, ...open].map((region) => ({ region, type: 'fcOwner' as const, count: 4 })) }).state;
+    for (let i = 0; i < 48 && !phase3Done(s); i++) {
+      // 分割の線（シェア 5 割）に近づいたら出店を止める
+      const near = (crownStats(s)?.share ?? 0) >= 0.47;
+      s = advanceMonth(s, { expand: near ? [] : [0, ...open].map((region) => ({ region, type: 'fcOwner' as const, count: 2 })), manual: true, training: 0 }).state;
     }
     expect(phase3Done(s)).toBe(true);
     expect(canPromote(s)).toBe(true);

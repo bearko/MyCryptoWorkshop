@@ -3,6 +3,7 @@ import type { EmpireState, Note, PlotKind } from '../../empire/model';
 import { rivalOf } from '../../empire/rivals';
 import { STAKEHOLDERS, ULTIMATUM, type StakeholderId } from '../../empire/stakeholders';
 import { PLEDGE, type PromiseKind } from '../../empire/governance';
+import type { CrownId } from '../../empire/crowns';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -60,6 +61,10 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
   const rival = rivalOf(e?.land);
   const rivalName = t(rival.company.ja, rival.company.en);
   const cell = (i: number) => cellName(e?.area?.w ?? 8, i);
+  const regionName = (i: number) => {
+    const r = e?.nation?.regions[i];
+    return r ? t(r.name.ja, r.name.en) : '?';
+  };
   const region = (i: number) => {
     const r = e?.nation?.regions[i];
     return r ? t(r.name.ja, r.name.en) : '?';
@@ -119,6 +124,22 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'crown':
+      return n.won ? t(`${crownName(n.crown)}で${rivalName}を抜き、1 位になりました`, `You took first place in ${crownName(n.crown)} from ${rivalName}`) : t(`${crownName(n.crown)}の 1 位を${rivalName}に奪われました`, `${rivalName} took first place in ${crownName(n.crown)}`);
+    case 'regulationWatch':
+      return t('当局が、市場のシェアの高まりを注視しています', 'The authorities are watching your market share');
+    case 'regulationFine':
+      return t(`シェアの高い会社の悪い取引として、制裁金 ${money(n.fine)}`, `Fined ${money(n.fine)} for unfair practices at a high share`);
+    case 'breakupWarning':
+      return t(`シェアが 5 割を超えました。このまま ${n.months} か月続くと、当局が店の一部を売るよう命じます`, `Your share is over 50%. In ${n.months} months the authorities will order a break-up`);
+    case 'breakupCleared':
+      return t('シェアが 5 割を下回り、分割の審査が止まりました', 'Your share fell below 50%; the break-up review stopped');
+    case 'breakup':
+      return t(`当局の命令で、${n.stores} 店をライバルに売りました`, `By order of the authorities, ${n.stores} stores were sold to the rival`);
+    case 'campaignSoon':
+      return t(`${rivalName}が来月から${regionName(n.region)}で値下げ攻勢をかけるそうです`, `${rivalName} plans a price war in ${regionName(n.region)} from next month`);
+    case 'campaign':
+      return t(`${rivalName}が${regionName(n.region)}で値下げ攻勢（${monthLabel(n.until - 1)}まで）`, `${rivalName}'s price war in ${regionName(n.region)} until ${monthLabel(n.until - 1)}`);
     case 'meetingSoon':
       return e?.nation?.listed ? t(`来月（${monthLabel(n.month)}）は株主総会です。演説の原稿を用意しましょう`, `The shareholders' meeting is next month (${monthLabel(n.month)}). Prepare your speech`) : t(`来月（${monthLabel(n.month)}）は銀行との面談です。話すことを決めておきましょう`, `You meet the bank next month (${monthLabel(n.month)})`);
     case 'meetingPostponed':
@@ -211,4 +232,9 @@ export function pledgeLabel(k: PromiseKind): string {
   if (k === 'revenue') return t(`売上を ${Math.round((PLEDGE.revenueGrowth - 1) * 100)}% 伸ばす`, `Grow sales ${Math.round((PLEDGE.revenueGrowth - 1) * 100)}%`);
   if (k === 'stores') return t(`店を ${PLEDGE.stores} 店増やす`, `Open ${PLEDGE.stores} more stores`);
   return t('赤字の月を出さない', 'No loss-making month');
+}
+
+/** 3 冠の呼び名 */
+export function crownName(c: CrownId): string {
+  return { scale: t('売上規模', 'Scale'), brand: t('ブランド力', 'Brand'), influence: t('影響力', 'Influence') }[c];
 }
