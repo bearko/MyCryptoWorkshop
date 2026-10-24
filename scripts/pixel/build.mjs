@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import pngjs from 'pngjs';
 import { Canvas } from './core.mjs';
 import { LAND_BACKGROUNDS, landBackground } from './backgrounds.mjs';
+import { OUTLINE, PAL } from './palette.mjs';
 import { sprites } from './sprites.mjs';
 
 const { PNG } = pngjs;
@@ -61,5 +62,7 @@ export function buildEmpireAssets({ root, src, use }) {
     sprites: Object.fromEntries(placed.map((p) => [p.name, { x: p.x, y: p.y, w: p.canvas.w, h: p.canvas.h, kind: p.kind }])),
     backgrounds,
     sectors,
+    // 地図をキャンバスに描くときの色（区画の舗装・縁・道）。src/render/map が使う
+    palette: { outline: OUTLINE, ...PAL },
   };
 }
