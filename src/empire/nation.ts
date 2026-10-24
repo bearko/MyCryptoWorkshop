@@ -1,5 +1,5 @@
-// フェーズ 3 の全国チェーン（docs/EMPIRE_DESIGN.md 4.3）。本拠ランドの 6 エリアを、1 店ずつではなく
-// エリアごとの店の数で動かす。純関数だけ。
+// フェーズ 3 の全国チェーン（docs/EMPIRE_DESIGN.md 4.3・10.1）。本拠ランドの 11 エリア（ランドセクタ）を、
+// 1 店ずつではなくエリアごとの店の数で動かす。エリアの広さ（入りきる目安）はレアリティで決まる。純関数だけ。
 // 新しいエリアには物流拠点を先に建て、研修所で育てた店長・オーナーの数だけ一度に出店できる。
 import type { Rng } from './rng';
 
@@ -22,6 +22,10 @@ export interface Region {
   fcHq: number;
   /** ライバルの店の数 */
   rival: number;
+  /** レアリティ（0 Common 〜 4 Legendary）。広さと人通りが決まる */
+  rarity: number;
+  /** まだ入れないエリア（Legendary はフェーズ 5 で開く）。売上もライバルの増加もない */
+  locked: boolean;
 }
 
 export interface Nation {
@@ -55,15 +59,31 @@ export interface Nation {
   pb: number;
 }
 
-/** 6 エリアの名前（本拠エリアはフェーズ 2 の地図） */
+/** 11 エリアの名前とレアリティ（本拠エリアはフェーズ 2 の地図。docs/EMPIRE_DESIGN.md 10.1） */
 export const REGION_NAMES = [
-  { ja: '本拠エリア', en: 'Home area' }, // i18n-ja
-  { ja: '北エリア', en: 'North area' }, // i18n-ja
-  { ja: '東エリア', en: 'East area' }, // i18n-ja
-  { ja: '南エリア', en: 'South area' }, // i18n-ja
-  { ja: '西エリア', en: 'West area' }, // i18n-ja
-  { ja: '中央エリア', en: 'Central area' }, // i18n-ja
+  { ja: '駅前の町（本拠）', en: 'Station town (home)', rarity: 0 }, // i18n-ja
+  { ja: '港町', en: 'Harbor town', rarity: 0 }, // i18n-ja
+  { ja: '南町', en: 'South town', rarity: 0 }, // i18n-ja
+  { ja: '坂の上', en: 'Hilltop', rarity: 0 }, // i18n-ja
+  { ja: '北の港', en: 'North port', rarity: 1 }, // i18n-ja
+  { ja: '川向こう', en: 'Across the river', rarity: 1 }, // i18n-ja
+  { ja: '新市街', en: 'New town', rarity: 1 }, // i18n-ja
+  { ja: '旧市街', en: 'Old town', rarity: 2 }, // i18n-ja
+  { ja: '湾岸', en: 'Bayside', rarity: 2 }, // i18n-ja
+  { ja: '中央区', en: 'Central ward', rarity: 3 }, // i18n-ja
+  { ja: '大市場', en: 'Grand market', rarity: 4 }, // i18n-ja
 ];
+
+/** レアリティごとのエリアの広さ（入りきる目安）・人通り・最初のライバルの店の数 */
+export const RARITY_AREA = [
+  { capacity: 20, traffic: [200_000, 280_000], rival: [2, 3] },
+  { capacity: 30, traffic: [240_000, 320_000], rival: [3, 5] },
+  { capacity: 45, traffic: [280_000, 360_000], rival: [5, 7] },
+  { capacity: 65, traffic: [320_000, 400_000], rival: [8, 10] },
+  { capacity: 100, traffic: [380_000, 460_000], rival: [14, 18] },
+] as const;
+/** このレアリティから先はフェーズ 5 まで開かない */
+export const LOCKED_RARITY = 4;
 
 export const HUB_COST = 150_000_000;
 export const HUB_UPKEEP = 3_000_000;
@@ -159,6 +179,7 @@ export interface RegionMods {
 
 /** エリアの 1 か月（30 日、天気のぶれ ±swing） */
 export function regionMonth(r: Region, quality: number, swing: number, mods: RegionMods = {}): RegionReport {
+  if (r.locked) return { revenue: 0, profit: 0, rivalRevenue: 0, daily: 0 };
   const daily = perStoreDaily(r, quality) * (1 + swing) * (mods.demand ?? 1);
   const l = r.hub ? HUB_LOGISTICS.withHub : HUB_LOGISTICS.without;
   const perStoreRevenue = daily * 30;
@@ -179,17 +200,20 @@ export function regionMonth(r: Region, quality: number, swing: number, mods: Reg
 
 const round = (v: number) => Math.round(v / 10_000) * 10_000;
 
-/** フェーズ 2 → 3：本拠エリアはフェーズ 2 の地図をまとめたもの、残り 5 エリアは乱数で作る */
+/** フェーズ 2 → 3：本拠エリアはフェーズ 2 の地図をまとめたもの、残り 10 エリアはレアリティごとに乱数で作る */
 export function generateNation(home: { stores: number; fc: number; hub: boolean; rival: number; traffic: number; rent: number }, rng: Rng, month = 0): Nation {
-  const regions: Region[] = REGION_NAMES.map((name, i) => {
-    if (i === 0) return { name, capacity: 40, traffic: home.traffic, rent: home.rent, hub: home.hub, direct: home.stores - home.fc, fcOwner: home.fc, fcHq: 0, rival: home.rival };
-    const traffic = round(220_000 + rng.next() * 160_000);
-    return { name, capacity: 30 + Math.floor(rng.next() * 30), traffic, rent: round(traffic * 1.1 + rng.next() * 100_000), hub: false, direct: 0, fcOwner: 0, fcHq: 0, rival: 4 + Math.floor(rng.next() * 5) };
+  const regions: Region[] = REGION_NAMES.map(({ ja, en, rarity }, i) => {
+    const name = { ja, en };
+    if (i === 0) return { name, capacity: 40, traffic: home.traffic, rent: home.rent, hub: home.hub, direct: home.stores - home.fc, fcOwner: home.fc, fcHq: 0, rival: home.rival, rarity, locked: false };
+    const p = RARITY_AREA[rarity];
+    const traffic = round(p.traffic[0] + rng.next() * (p.traffic[1] - p.traffic[0]));
+    const rival = p.rival[0] + Math.floor(rng.next() * (p.rival[1] - p.rival[0] + 1));
+    return { name, capacity: p.capacity, traffic, rent: round(traffic * 1.1 + rng.next() * 100_000), hub: false, direct: 0, fcOwner: 0, fcHq: 0, rival, rarity, locked: rarity >= LOCKED_RARITY };
   });
   return newNationExtras(regions, month);
 }
 
-/** 6 エリアから全国チェーンの状態を作る（足かせの初期値つき）。month は始まりの月 */
+/** エリアから全国チェーンの状態を作る（足かせの初期値つき）。month は始まりの月 */
 export function newNationExtras(regions: Region[], month: number): Nation {
   return {
     regions,

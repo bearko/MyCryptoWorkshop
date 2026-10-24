@@ -129,11 +129,13 @@ export interface EmpireState {
   sv: number;
   /** POS を入れたか */
   pos: boolean;
-  /** フェーズ 3 から：本拠ランドの 6 エリア */
+  /** フェーズ 3 から：本拠ランドの 11 エリア（古いセーブは 6 エリア） */
   nation: Nation | null;
 }
 
 export const HISTORY = 24;
+/** 6 エリアだったころの並びのレアリティ */
+const OLD_RARITY = [0, 0, 1, 1, 2, 3];
 /** 創業時の資金（仮。本店からの送金の率は M2 で決める） */
 export const START_FUNDS = 10_000_000;
 
@@ -203,8 +205,11 @@ function restoreNation(raw: unknown): Nation | null {
     listed: n.listed === true,
     ownership: Math.min(1, Math.max(0, num(n.ownership, 1))),
     pb: Math.min(5, int(n.pb)),
-    regions: n.regions.map((r) => ({
+    regions: n.regions.map((r, i) => ({
       name: { ja: String(r?.name?.ja ?? ''), en: String(r?.name?.en ?? '') },
+      // 6 エリアだったころのセーブは、並びからレアリティを決める（Legendary は無い）
+      rarity: Math.min(4, Math.max(0, Math.floor(num(r?.rarity, OLD_RARITY[i] ?? 0)))),
+      locked: r?.locked === true,
       capacity: Math.max(1, num(r?.capacity, 30)),
       traffic: num(r?.traffic, 250_000),
       rent: num(r?.rent, 300_000),

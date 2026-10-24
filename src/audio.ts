@@ -2,7 +2,7 @@ import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
 type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
-type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid';
+type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany';
 
 /** Loudness of each sound at the 100% setting (the final volume is this × the setting). */
 const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5, clean: 0.4, zap: 0.5 };
@@ -25,6 +25,11 @@ export class Sound {
     if (this.unlocked) return;
     this.unlocked = true;
     if (this.bgmKey) this.playBgm(this.bgmKey, true);
+  }
+
+  /** いま流している（流すはずの）BGM */
+  currentBgm(): Bgm | null {
+    return this.bgmKey;
   }
 
   playBgm(key: Bgm, force = false): void {

@@ -77,10 +77,10 @@ describe('デバッグパネル：フェーズへ飛ぶ', () => {
     expect(s.empire?.funds).toBe(1e8);
   });
 
-  it('フェーズ 3 へ飛ぶと、6 エリアの全国チェーンになる', () => {
+  it('フェーズ 3 へ飛ぶと、11 エリアの全国チェーンになる', () => {
     const s = testActions.jumpPhase3(newSave());
     expect(s.empire?.phase).toBe(3);
-    expect(s.empire?.nation?.regions).toHaveLength(6);
+    expect(s.empire?.nation?.regions).toHaveLength(11);
     expect(s.empire?.funds).toBe(1e9);
   });
 });
