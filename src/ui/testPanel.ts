@@ -110,6 +110,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('+7 日', '+7 days'), () => testActions.skipDays(save, 7)),
     ),
     h('h3', {}, t('経営モード', 'Management mode')),
+    h('p.test-panel-note', {}, t('テストモードでは、マインちゃんの登場条件（14 日未満のクリア）を最初から満たしている扱いです。会社が無ければ、スキルツリーへ移ったときかホームの「🏢 経営」でマインちゃんが誘いに来ます。', "In test mode the unlock condition (a clear in under 14 days) counts as met. Without a company, Mine-chan visits when you open the skill tree or press 🏢 Company on the home screen.")),
     h(
       'p.test-panel-note',
       {},
@@ -120,7 +121,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
     h(
       'div.test-panel-row',
       {},
-      btn(t('登場条件を満たす（会社も消す）', 'Meet the unlock condition (removes the company)'), () => testActions.meetUnlock(save)),
+      btn(t('マインちゃんの登場からやり直す（会社を消す）', "Restart from Mine-chan's visit (removes the company)"), () => testActions.meetUnlock(save)),
       save.empire ? btn(t('会社を消す', 'Remove the company'), () => testActions.dropEmpire(save)) : null,
       btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),

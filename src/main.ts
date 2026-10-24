@@ -30,7 +30,7 @@ import { isEn, lang, setLang, t } from './i18n';
 import { relocateView, statsView } from './ui/prestige';
 import { Tutorial, type Box, type Place } from './ui/tutorial';
 import { exitTestUrl, TEST_MODE } from './testMode';
-import { empireUnlocked, transferFor } from './empire/unlock';
+import { empireOpen, transferFor } from './empire/unlock';
 
 const save = loadSave();
 // テストモード（?test=1）：本番と別のセーブで、外に何も送らない。押すとデバッグパネル
@@ -1119,8 +1119,8 @@ function showTree(): void {
   maybeInviteEmpire();
 }
 
-/** 経営モードを開けるか（公開まではテストモードだけ） */
-const empireAvailable = () => TEST_MODE && (!!save.empire || empireUnlocked(save.prestige));
+/** 経営モードを開けるか（公開まではテストモードだけ。テストモードでは登場条件を満たしている扱い） */
+const empireAvailable = () => empireOpen({ test: TEST_MODE, hasCompany: !!save.empire, prestige: save.prestige });
 let empireInvited = false;
 
 /** 登場条件を満たしたら、マインちゃんが一度だけ誘いに来る（断っても、メニューの「経営」からいつでも） */
