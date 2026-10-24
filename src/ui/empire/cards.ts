@@ -47,7 +47,9 @@ import {
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
-import { cellName, monthLabel, money, plotLabel, storeName } from './text';
+import { cellName, monthLabel, money, plotLabel, pledgeLabel, storeName } from './text';
+import { articlesField } from './govern';
+import type { Articles } from '../../empire/governance';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -61,6 +63,9 @@ export interface Ctx {
   fundsLeft(): number;
   heroName(id: number): string;
 }
+
+/** 上場のときの定款の初期値（いまの 24 時間の方針を引き継ぐ） */
+const defaultArticles = (force24: boolean): Articles => ({ force24, mix: 'balanced', dividend: 1 });
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const storeDecision = (d: Decisions, id: number, patch: NonNullable<Decisions['stores']>[number]): Decisions => ({ ...d, stores: { ...d.stores, [id]: { ...d.stores?.[id], ...patch } } });
@@ -93,7 +98,7 @@ export function reserved(e: EmpireState, d: Decisions): number {
 /** 足りないときの理由（押せないボタンの下に出す） */
 const lack = (ctx: Ctx, cost: number) => (ctx.fundsLeft() < cost ? t(`資金があと ${money(cost - ctx.fundsLeft())} 足りません`, `${money(cost - ctx.fundsLeft())} short`) : null);
 
-function card(title: string, sub: string | null, ...children: (Node | null | false)[]): HTMLElement {
+export function card(title: string, sub: string | null, ...children: (Node | null | false)[]): HTMLElement {
   return h('div.ke-card', {}, h('div.ke-card-head', {}, h('h3.ke-card-title', {}, title), sub ? h('span.ke-card-sub', {}, sub) : null), ...children.filter((c): c is Node => !!c));
 }
 
@@ -470,6 +475,8 @@ export function hqCard3(ctx: Ctx): HTMLElement {
       n.listed
         ? h('span.ke-done', {}, t(`✓ 上場済み（持分 ${pct(n.ownership)}）`, `✓ Listed (stake ${pct(n.ownership)})`))
         : costButton(t(`上場する（約 ${money(ipoRaise(e))} を集める・持分が薄まる）`, `Go public (raise ~${money(ipoRaise(e))}, dilutes your stake)`), null, () => ctx.set((d) => ({ ...d, ipo: !d.ipo })), { pressed: !!draft.ipo, disabled: canIpo(e) ? null : t('直近 12 か月の売上 300 億から', 'From 30B sales in the last 12 months') }),
+      // 上場するなら、定款の 3 つの方針もここで決める
+      draft.ipo && !n.listed ? articlesField(draft.articles ?? defaultArticles(n.force24), {}, (p) => ctx.set((d) => ({ ...d, articles: { ...(d.articles ?? defaultArticles(n.force24)), ...p } }))) : null,
     ),
   );
 }
@@ -516,7 +523,10 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
   if (d.borrow) out.push({ label: t(`借入 ${money(d.borrow)}`, `Borrow ${money(d.borrow)}`), cost: -d.borrow, cancel: (x) => ({ ...x, borrow: undefined }) });
   if (d.repay) out.push({ label: t(`返済 ${money(d.repay)}`, `Repay ${money(d.repay)}`), cost: d.repay, cancel: (x) => ({ ...x, repay: undefined }) });
   if (d.pb) out.push({ label: t('PB を広げる', 'Expand PB'), cost: PB.cost, cancel: (x) => ({ ...x, pb: undefined }) });
-  if (d.ipo) out.push({ label: t('上場', 'IPO'), cost: 0, cancel: (x) => ({ ...x, ipo: undefined }) });
+  if (d.ipo) out.push({ label: t('上場', 'IPO'), cost: 0, cancel: (x) => ({ ...x, ipo: undefined, articles: undefined }) });
+  if (d.board) out.push({ label: t(`役員会：${d.board.length} 席`, `Board: ${d.board.length} seats`), cost: 0, cancel: (x) => ({ ...x, board: undefined }) });
+  if (d.meeting) out.push({ label: t(`総会の演説：${pledgeLabel(d.meeting.pledge)}`, `Speech: ${pledgeLabel(d.meeting.pledge)}`), cost: 0, cancel: (x) => ({ ...x, meeting: undefined }) });
+  if (d.postpone) out.push({ label: t('総会を延期', 'Postpone the meeting'), cost: 0, cancel: (x) => ({ ...x, postpone: undefined }) });
   return out;
 }
 

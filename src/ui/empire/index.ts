@@ -9,6 +9,8 @@ import { regionStores } from '../../empire/nation';
 import { rivalOf } from '../../empire/rivals';
 import { advanceMonth, AREA_OPEN_COST, canPromote, letterFor, MAX_STORES, ownCells, phase1Done, plotsFor, storeCount, type Decisions } from '../../empire/sim';
 import { activeStakeholders, supportOf, SUPPORT } from '../../empire/stakeholders';
+import { BOARD_SEATS, meetingNow } from '../../empire/governance';
+import { boardCard, meetingCard, type BoardCandidate } from './govern';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
 import { LandScene } from '../../render/map/land';
@@ -38,6 +40,8 @@ export interface EmpireViewOptions {
   heroImage?: (id: number) => HTMLElement | null;
   /** マインちゃんの絵（助言の顔） */
   mineImage?: () => HTMLElement;
+  /** 役員会に迎えられる英雄（工房でスカウトした英雄） */
+  boardCandidates?: () => BoardCandidate[];
   /** 効果音 */
   play?: (key: SoundKey) => void;
   /** 画面を閉じる */
@@ -46,7 +50,7 @@ export interface EmpireViewOptions {
   onTest?: () => void;
 }
 
-type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | null;
+type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | null;
 type Selection = { kind: 'store' | 'plot' | 'lot' | 'region'; id: number } | null;
 
 const PHASE_NAME = () => ['', t('店主', 'Owner'), t('エリア', 'Area chain'), t('全国', 'National'), t('世界', 'Global'), t('グループ', 'Group')];
@@ -521,7 +525,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         play('win');
       } else if (!wasReady && canPromote(e)) play('unlock');
       else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
-      else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall', 'ultimatum'].includes(n.kind))) play('fail');
+      else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall', 'ultimatum'].includes(n.kind) || (n.kind === 'meetingHeld' && !n.passed))) play('fail');
+      else if (r.report.notes.some((n) => n.kind === 'meetingHeld' || (n.kind === 'pledgeResult' && n.kept))) play('buff');
       else if (r.report.notes.some((n) => ['fatigue', 'ownerUnrest', 'rivalPlan', 'landFalling', 'demand'].includes(n.kind))) play('debuff');
       else if (r.report.notes.some((n) => n.kind === 'demandMet')) play('clean');
       // 選んでいた物がもう無ければ外す
@@ -822,6 +827,14 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       }
       if (regionView !== null) cmds.push({ label: t('国へ戻る', 'Back to land'), sub: t('11 エリア', '11 areas'), band: 'ours', on: () => ((regionView = null), (selection = null), render()) });
       cmds.push({ label: t('本部', 'Head office'), sub: t(`研修所 ${e.nation.trainingCenters}・品質 ${Math.round(e.nation.quality * 100)}%`, `Centers ${e.nation.trainingCenters} · quality ${Math.round(e.nation.quality * 100)}%`), band: 'ours', on: toggle('hq'), pressed: openPanel === 'hq' });
+      const seated = (draft.board ?? e.gov?.board ?? []).length;
+      cmds.push({ label: t('役員会', 'Board'), sub: t(`${seated} / ${BOARD_SEATS} 席`, `${seated} / ${BOARD_SEATS} seats`), band: 'ours', on: toggle('board'), pressed: openPanel === 'board' });
+      // 株主総会（上場前は銀行との面談）：その月と、前の月だけ出す
+      if (e.gov && (meetingNow(e) || e.gov.nextMeeting === e.month + 1)) {
+        const now = meetingNow(e);
+        const name = e.nation.listed ? t('株主総会', 'Shareholders') : t('銀行と面談', 'Bank meeting');
+        cmds.push({ label: name, sub: now ? (draft.meeting ? t('✓ 原稿あり', '✓ Speech ready') : draft.postpone ? t('延期する', 'Postponing') : t('今月・原稿を決める', 'This month: speech')) : t('来月', 'Next month'), band: now ? 'lantern' : 'ours', on: () => (toggle('meeting')(), openPanel === 'meeting' && phone() && ((sheetState = 'full'), render())), pressed: openPanel === 'meeting' });
+      }
     }
     if (canPromote(e)) cmds.push({ label: t('次の格へ', 'Next stage'), sub: companyTitle({ ...e, phase: Math.min(5, e.phase + 1) as EmpireState['phase'] }), band: 'lantern', on: toggle('promote'), pressed: openPanel === 'promote' });
     return cmds;
@@ -855,6 +868,10 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         return newsList();
       case 'promote':
         return promoteCard();
+      case 'board':
+        return boardCard(c, opts.boardCandidates?.() ?? []);
+      case 'meeting':
+        return e.gov ? meetingCard(c) : null;
       case 'ledger':
         return ledgerView();
       case 'voices':
@@ -884,7 +901,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);
@@ -892,7 +909,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       'button.ke-month',
       { type: 'button', disabled: busy, onclick: () => advance() },
       h('span.ke-month-label', {}, t('月を進める', 'Next month')),
-      items.length ? h('span.ke-month-sub', {}, t(`稟議 ${items.length} 件に判子`, `Stamp ${items.length} plan(s)`)) : null,
+      meetingNow(e) && !draft.meeting && !draft.postpone
+        ? h('span.ke-month-sub', {}, t('総会の原稿がまだです', 'No speech yet'))
+        : items.length
+          ? h('span.ke-month-sub', {}, t(`稟議 ${items.length} 件に判子`, `Stamp ${items.length} plan(s)`))
+          : null,
     );
   }
 

@@ -8,7 +8,9 @@ import { MAX_STAFF, OPEN_COST, ORDER_RANGE, STAFF_NEEDED } from '../../empire/si
 import { rivalOf } from '../../empire/rivals';
 import { t } from '../../i18n';
 import { penalized, supportOf, type StakeholderId } from '../../empire/stakeholders';
-import { demandText, money, monthLabel, noteText, stakeName, storeName } from './text';
+import { meetingNow, pledgeKept, trustOf } from '../../empire/governance';
+import { pledgeProgress } from './govern';
+import { demandText, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
 
 export interface Voice {
   /** 誰の声か（常連客・問屋・店主・オーナー会・当局・銀行） */
@@ -69,9 +71,25 @@ function demandVoices(e: EmpireState): Voice[] {
   });
 }
 
+/** 総会での約束（1 年後の答え合わせまで、絵馬に貼っておく） */
+function pledgeVoice(e: EmpireState): Voice[] {
+  const p = e.gov?.pledge;
+  if (!p) return [];
+  const kept = pledgeKept(e, p);
+  return [
+    {
+      key: 'pledge',
+      who: e.nation?.listed ? t(`株主（信任 ${Math.round(trustOf(e))}）`, `Shareholders (trust ${Math.round(trustOf(e))})`) : t(`銀行（信任 ${Math.round(trustOf(e))}）`, `Bank (trust ${Math.round(trustOf(e))})`),
+      text: t(`約束：${pledgeLabel(p.kind)}。${pledgeProgress(e) ?? ''}`, `Pledge: ${pledgeLabel(p.kind)}. ${pledgeProgress(e) ?? ''}`),
+      due: t(`${monthLabel(p.due)}の総会で答え合わせ`, `Checked at the ${monthLabel(p.due)} meeting`),
+      urgent: !kept && p.due - e.month <= 3,
+    },
+  ];
+}
+
 export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
-  if (!r) return demandVoices(e);
-  const out: Voice[] = [...demandVoices(e)];
+  if (!r) return [...demandVoices(e), ...pledgeVoice(e)];
+  const out: Voice[] = [...demandVoices(e), ...pledgeVoice(e)];
   const seen = new Set<string>();
   const add = (v: Voice) => {
     if (seen.has(v.key)) return;
@@ -176,6 +194,10 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
         break;
       case 'demandMet':
+      case 'meetingHeld':
+      case 'meetingPostponed':
+      case 'pledgeResult':
+      case 'meetingSoon':
         out.push({ head: noteText(n, e), hero: null, kind: 'company' });
         break;
       case 'opened':
@@ -199,6 +221,7 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
 export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean): string {
   const has = (k: Note['kind']) => r?.notes.find((n) => n.kind === k);
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
+  if (meetingNow(e)) return e.nation?.listed ? t('今月は株主総会です。下の「株主総会」で、たたえる相手・ライバル・来年の約束を決めましょう。', "It's the shareholders' meeting this month. Choose your speech under \"Shareholders\".") : t('今月は銀行との面談です。下の「銀行と面談」で、話すことを決めましょう。', 'You meet the bank this month. Choose what to say under "Bank meeting".');
   const last = (e.stake?.demands ?? []).find((d) => monthsLeft(e, d.due) <= 1);
   if (last) return t(`${stakeName(last.who)}の要望の期限は今月です。絵馬の手を打たないと、最後通告になります。`, `${stakeName(last.who)}'s request is due this month. Act on the plaque or face an ultimatum.`);
   const hit = (['regulars', 'wholesaler', 'shotengai', 'staff', 'shareholders'] as const).find((w) => penalized(e, w));

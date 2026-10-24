@@ -3,6 +3,7 @@ import { newEmpire, type EmpireState } from '../empire/model';
 import { freeCells } from '../empire/area';
 import { advanceMonth, canPromote, ownCells, plotsFor } from '../empire/sim';
 import { newStake } from '../empire/stakeholders';
+import { PARTY_ROSTER, scoutId } from '../game/party';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -42,6 +43,21 @@ export const testActions = {
       const who = e.phase >= 3 ? 'staff' : 'wholesaler';
       const stake = e.stake ?? newStake();
       return { ...e, stake: { ...stake, support: { ...stake.support, [who]: 35 }, demands: [...stake.demands.filter((d) => d.who !== who), { who, since: e.month, due: e.month + 1 }] } };
+    });
+  },
+  /** 英雄の酒場の最初の 6 人をスカウト済みにする（役員会を試す） */
+  scoutSome(current: SaveData): SaveData {
+    const levels = { ...current.levels };
+    for (const d of PARTY_ROSTER.slice(0, 6)) levels[scoutId(d.id)] = Math.max(levels[scoutId(d.id)] ?? 0, 2);
+    return { ...current, levels };
+  },
+  /** 次の株主総会（面談）の月まで進める */
+  toMeeting(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      if (e.phase < 3) return e;
+      if (!e.gov) e = advanceMonth(e).state;
+      for (let i = 0; i < 24 && e.gov && e.month < e.gov.nextMeeting; i++) e = advanceMonth(e).state;
+      return e;
     });
   },
   /** 決定を変えずに n か月進める */
@@ -154,6 +170,8 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('フェーズ 3 へ飛ぶ', 'Jump to phase 3'), () => testActions.jumpPhase3(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
+      btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),
+      btn(t('次の総会の月まで進める', 'Advance to the next meeting'), () => testActions.toMeeting(save)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
       btn(t('+12 か月', '+12 months'), () => testActions.advanceMonths(save, 12)),
       btn(t('乱数の種を 1 に', 'Seed rng = 1'), () => testActions.setSeed(save, 1)),

@@ -135,3 +135,19 @@ describe('ステークホルダーの絵馬（M8）', () => {
     expect(newsOf(r, e)[0].kind).toBe('era');
   });
 });
+
+describe('統治の画面（M8 後半）', () => {
+  it('総会の約束は絵馬に貼られ、演説と延期は稟議に並ぶ', () => {
+    const save = testActions.toMeeting(testActions.jumpPhase3(newSave(), 3));
+    let e = save.empire as EmpireState;
+    expect(ringiItems(e, { meeting: { praise: 'staff', rival: 'none', pledge: 'stores' } })[0].label).toContain('総会');
+    expect(ringiItems(e, { postpone: true })[0].label).toContain('延期');
+    e = advanceMonth(e, { meeting: { praise: 'staff', rival: 'none', pledge: 'stores' } }).state;
+    expect(voicesOf(null, e).some((v) => v.key === 'pledge')).toBe(true);
+  });
+
+  it('総会の月は、マインちゃんが演説を決めるよう言う', () => {
+    const e = testActions.toMeeting(testActions.jumpPhase3(newSave(), 3)).empire as EmpireState;
+    expect(adviceOf(null, e, false)).toContain('面談');
+  });
+});

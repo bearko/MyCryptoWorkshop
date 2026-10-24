@@ -1597,3 +1597,66 @@
   grid-column: 1 / -1;
   color: var(--rival-200);
 }
+
+/* ---------------------------------------------------------------- 役員会の席 */
+.ke-seats {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ke-seats.is-candidates {
+  padding-top: var(--space-2);
+  border-top: 2px dashed var(--night-800);
+}
+.ke-seat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 48px;
+  padding: 2px var(--space-2) 2px 2px;
+  border-radius: var(--radius-sm);
+  background: var(--night-800);
+}
+.ke-seat.is-empty {
+  min-height: 36px;
+  padding-left: var(--space-2);
+  background: transparent;
+  border: 2px dashed var(--night-800);
+}
+.ke-seat-face,
+.ke-face-empty {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.ke-seat-face > * {
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+}
+.ke-seat-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ke-seat-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 選択肢の長い 3 択（総会・定款）は、名前の下に全幅で */
+.ke-field-stack > .ke-seg {
+  flex: 1 1 100%;
+}
+.ke-field-stack .ke-seg-btn {
+  font: var(--type-caption) !important;
+  line-height: 1.25;
+  padding: 4px 6px;
+}
