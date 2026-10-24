@@ -506,6 +506,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       if (grid) grid.rush = 0;
       coins.replaceChildren();
       const wasPhase = e.phase;
+      const wasReady = canPromote(e);
       e = r.state;
       last = r.report;
       draft = {};
@@ -517,7 +518,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         selection = null;
         regionView = null;
         play('win');
-      } else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
+      } else if (!wasReady && canPromote(e)) play('unlock');
+      else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
       else if (r.report.notes.some((n) => ['shortOfFunds', 'investigationSoon', 'marginCall'].includes(n.kind))) play('fail');
       else if (r.report.notes.some((n) => ['fatigue', 'ownerUnrest', 'rivalPlan', 'landFalling'].includes(n.kind))) play('debuff');
       // 選んでいた物がもう無ければ外す

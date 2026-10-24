@@ -1462,6 +1462,9 @@
 .ke-sheet-body .ke-panel-title {
   display: none;
 }
+.ke-sheet-body .ke-panel-sub {
+  margin-top: 4px;
+}
 .ke-sheet-body .ke-card-head {
   padding-right: 0;
 }
