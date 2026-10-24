@@ -330,7 +330,7 @@
 }
 .ke-list-row {
   width: 100%;
-  min-height: 36px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -507,9 +507,10 @@
 .ke-map-canvas {
   display: block;
 }
+/* 地図の道具は右上（右下はマインちゃん、左下は国の全図の本拠） */
 .ke-tools {
   position: absolute;
-  bottom: var(--space-2);
+  top: var(--space-2);
   right: var(--space-2);
   display: flex;
   gap: 6px;
@@ -627,15 +628,17 @@
   top: 2px;
   right: 2px;
 }
+/* 右下に置く（国の全図では左下に本拠の板があり、そこを隠さないため。スマホと同じ側） */
 .ke-advisor-host {
   position: absolute;
-  left: var(--space-2);
+  right: var(--space-2);
   bottom: var(--space-2);
   max-width: min(380px, calc(100% - 16px));
   z-index: 1;
 }
 .ke-advisor {
   display: flex;
+  flex-direction: row-reverse;
   align-items: flex-end;
   gap: var(--space-2);
 }
@@ -776,14 +779,36 @@
 .ke-paper .ke-bad {
   color: var(--alert-ink);
 }
+/* 名前（と小さな説明）を左、操作を右に。1 行に収め、カードを縦に伸ばさない */
 .ke-field {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
 }
 .ke-field-label {
+  display: flex;
+  flex-direction: column;
   font: var(--type-label);
   color: var(--paper-100);
+}
+.ke-field > .ke-field-label {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+.ke-field > .ke-seg,
+.ke-field > .ke-stepper {
+  flex: 0 0 auto;
+}
+.ke-field > meter,
+.ke-field > .ke-actions {
+  flex: 1 1 100%;
+}
+.ke-phone .ke-paper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-4);
 }
 .ke-field-inline {
   display: flex;
@@ -1182,12 +1207,20 @@
   display: none;
 }
 
+/* 狭い机（1024〜1279px）：左右の列を細くして、地図（国の全図は 640 ドット）を広く */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .ke-desk {
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
+  }
+}
+
 /* ---------------------------------------------------------------- タブレット（600〜1023px） */
 
 @media (max-width: 1023px) {
+  /* 右の列（絵馬・一覧・かわら版）は、帳簿の下に重ねる（どちらも中で送れる） */
   .ke-desk {
     grid-template-columns: minmax(0, 1fr) 280px;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
   .ke-left {
     grid-column: 2;
@@ -1195,10 +1228,11 @@
   }
   .ke-center {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 1 / 3;
   }
   .ke-right {
-    display: none;
+    grid-column: 2;
+    grid-row: 2;
   }
   .ke-chips .ke-chip:nth-child(3) {
     display: none;

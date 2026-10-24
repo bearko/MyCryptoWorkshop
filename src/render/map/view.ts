@@ -59,6 +59,7 @@ export class MapView {
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean; id: number } | null = null;
   private ro: ResizeObserver | null = null;
   private dirty = true;
+  private fitMode = false;
 
   /** 倍率の段（1 は画面の 1 CSS ピクセル＝絵の 1 ドット。0.5 は高精細な画面でだけ縮む） */
   private levels: number[] = [1, 2, 3];
@@ -87,7 +88,19 @@ export class MapView {
       { passive: false },
     );
     if (typeof ResizeObserver !== 'undefined') {
-      this.ro = new ResizeObserver(() => this.layout());
+      this.ro = new ResizeObserver(() => {
+        // 「収まる倍率」で開いた地図は、大きさが決まった・変わったときに倍率も選び直す（手で倍率を変えたら、それを保つ）
+        if (this.fitMode && this.scene) {
+          const z = this.fitZoom(this.scene);
+          if (z !== this.zoom) {
+            this.zoom = z;
+            this.layout();
+            this.centerOn(this.scene.width / 2, this.scene.height / 2);
+            return;
+          }
+        }
+        this.layout();
+      });
       this.ro.observe(this.el);
     }
   }
@@ -98,6 +111,7 @@ export class MapView {
     this.scene = scene;
     this.staticLayer = null;
     if (opts.levels) this.levels = opts.levels;
+    this.fitMode = opts.zoom === 'fit' || (opts.zoom === undefined && this.fitMode);
     if (opts.zoom === 'fit') this.zoom = this.fitZoom(scene);
     else if (opts.zoom) this.zoom = this.clampZoom(opts.zoom);
     else this.zoom = this.clampZoom(this.zoom);
@@ -140,6 +154,7 @@ export class MapView {
   }
 
   setZoom(z: number): void {
+    this.fitMode = false;
     const nz = this.clampZoom(z);
     if (nz === this.zoom || !this.scene) return;
     const cx = this.camX + this.viewW / 2;
@@ -212,6 +227,8 @@ export class MapView {
     this.viewW = f.viewW;
     this.viewH = f.viewH;
     this.clampCamera();
+    // 大きさが変わると画面の座標も変わるので、地図の上の札（DOM）も置き直してもらう
+    this.events.onCamera?.();
     this.dirty = true;
     this.loop();
   }

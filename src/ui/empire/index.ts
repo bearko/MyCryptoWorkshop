@@ -195,8 +195,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           if (cell.target.kind === 'store') cell.target = { kind: 'store', id: e.stores[cells.indexOf(c)].id };
           else cell.target = { kind: 'plot', id: pc.indexOf(c) };
         });
-        const f = gridIndex(area, cells[0]);
-        focus = { x: ((f % (area.w + 2)) + 0.5) * 64, y: (Math.floor(f / (area.w + 2)) + 0.5) * 64 };
+        // 店と候補がまとめて見えるよう、その外接矩形の真ん中に寄せる
+        const gs = [...cells, ...pc].map((c) => gridIndex(area, c));
+        const xs = gs.map((g) => g % (area.w + 2));
+        const ys = gs.map((g) => Math.floor(g / (area.w + 2)));
+        focus = { x: ((Math.min(...xs) + Math.max(...xs)) / 2 + 0.5) * 64, y: ((Math.min(...ys) + Math.max(...ys)) / 2 + 0.5) * 64 };
         zoom = phone() ? 1 : 2;
       }
     } else if (e.phase === 2 && e.area) {
@@ -220,7 +223,9 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           );
           grid = null;
           sceneKey = key;
-          view.setScene(land, { zoom: phone() ? 0.5 : 'fit', levels: phone() ? [0.5, 1, 2] : [1, 2] });
+          // 国の全図（640 ドット）が入らない幅でも、画素が 2 倍以上の画面なら 0.5 倍（1 ドット＝1 画素）まで引いて全体を見せる
+          const hiDpi = typeof devicePixelRatio !== 'undefined' && devicePixelRatio >= 2;
+          view.setScene(land, { zoom: phone() ? 0.5 : 'fit', levels: phone() || hiDpi ? [0.5, 1, 2] : [1, 2] });
         }
         if (land) land.selected = selection?.kind === 'region' ? selection.id : null;
         placeOverlays();
@@ -317,7 +322,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         const pr = land!.plateRect(i);
         const p = view.toCss(pr.x, pr.y + pr.h + 4);
         const share = Math.round((regionStores(r) / Math.max(1, r.capacity)) * 100);
-        const short = phone() && view.currentZoom < 1;
+        const short = view.currentZoom < 1;
         const tag = h(
           'span.ke-tag',
           { class: `ke-tag ${r.locked ? 'is-locked' : ''} ${r.rarity === 4 ? 'is-legend' : ''}`, style: `left:${Math.round(p.x)}px;top:${Math.round(p.y)}px` },
