@@ -3,6 +3,7 @@
 import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type Plot, type PlotKind, type Store, type StoreReport } from './model';
 import { makeRng, type Rng } from './rng';
 import { stakeMods, stakeStep } from './stakeholders';
+import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
 import {
   borrowable,
@@ -131,6 +132,13 @@ export interface Decisions {
   open?: Plot[];
   /** 次の格へ上がる（条件を満たしているときだけ） */
   promote?: boolean;
+  /** フェーズ 3 から：役員会の顔ぶれ（5 席まで。渡せば入れ替える） */
+  board?: BoardMember[];
+  /** 株主総会の月：演説と議題。延期するなら postpone */
+  meeting?: MeetingChoice;
+  postpone?: boolean;
+  /** 上場するときの定款 */
+  articles?: Articles;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -398,6 +406,9 @@ export const ipoRaise = (s: EmpireState) => Math.max(0, trailing(s).profit) * IP
 /** フェーズ 3 の決定：研修所・物流拠点・マニュアル・出店（研修所で育った人数まで、物流拠点のあるエリアだけ） */
 function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): void {
   const n = state.nation!;
+  const g = (state.gov ??= newGovernance(state.month));
+  if (d.board) g.board = seatBoard(d.board);
+  holdMeeting(state, d.meeting, !!d.postpone, notes);
   const pay = (cost: number) => {
     if (state.funds < cost) {
       notes.push({ kind: 'shortOfFunds' });
@@ -416,7 +427,8 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
     }
   }
   if (d.manual && !n.manual && n.quality < MANUAL_UNLOCK && pay(MANUAL_COST)) n.manual = true;
-  if (d.force24 !== undefined) n.force24 = d.force24;
+  // 定款で 24 時間の強制を認めていなければ、求められない（変えるには総会の決議）
+  if (d.force24 !== undefined) n.force24 = d.force24 && (g.articles?.force24 ?? true);
   if (d.support !== undefined) n.support = clamp(Math.round(d.support), 0, 3);
   if (d.pb && n.pb < PB.max && pay(PB.cost)) {
     n.pb++;
@@ -437,13 +449,15 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
     state.funds += raised;
     n.ownership *= 1 - IPO.sell;
     n.listed = true;
+    g.articles = d.articles ?? { force24: n.force24, mix: 'balanced', dividend: 1 };
+    if (!g.articles.force24) n.force24 = false;
     notes.push({ kind: 'ipo', raised });
   }
   // 時代のルール：規制が厳しいあいだは、月の出店に上限がある
   let people = n.eraStrict ? Math.min(trainees(n), ERA.strictCap) : trainees(n);
   const capped = n.eraStrict && trainees(n) > ERA.strictCap;
   let opened = 0;
-  for (const x of d.expand ?? []) {
+  for (const x of capByArticles(d.expand ?? [], g.articles)) {
     const r = n.regions[x.region];
     if (!r || r.locked || x.count <= 0) continue;
     if (!r.hub && x.region !== 0) {
@@ -464,7 +478,7 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
   }
   // 品質：急いで出すほど下がり（マニュアルがあると緩む）、毎月少しずつ戻る
   const wasAbove = n.quality >= MANUAL_UNLOCK;
-  n.quality = Math.min(1, Math.max(QUALITY.min, n.quality + QUALITY.recover - opened * QUALITY.perOpen * (n.manual ? QUALITY.manualFactor : 1)));
+  n.quality = Math.min(1, Math.max(QUALITY.min, n.quality + QUALITY.recover + boardMods(g).quality - opened * QUALITY.perOpen * (n.manual ? QUALITY.manualFactor : 1)));
   if (n.quality < 0.95) notes.push({ kind: 'qualityWarn' });
   if (wasAbove && n.quality < MANUAL_UNLOCK && !n.manual) notes.push({ kind: 'manualReady' });
 }
@@ -482,8 +496,10 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
     notes.push({ kind: 'eraChanged', strict: n.eraStrict });
   }
   // ライバル：規制が緩いあいだは倍の速さで増える
+  // 総会でライバルを名指ししたあとしばらくは、緩い時代と同じ速さで増える
+  const rush = !n.eraStrict || (state.gov?.rivalRushUntil ?? -1) >= m;
   if (m % RIVAL_NATION.interval === 0) {
-    for (const r of n.regions.filter((x) => !x.locked)) for (let k = 0; k < (n.eraStrict ? 1 : ERA.looseRival); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
+    for (const r of n.regions.filter((x) => !x.locked)) for (let k = 0; k < (rush ? ERA.looseRival : 1); k++) if (r.rival < Math.floor(r.capacity * RIVAL_NATION.share)) r.rival++;
   }
   // 地価：上がり方が鈍ってきたら予兆、天井を過ぎたら下がる。担保割れは返済を迫られる
   const monthsIn = m - n.landStart;
@@ -511,7 +527,7 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
     }
   }
   if (n.investigation !== null && m >= n.investigation) {
-    const fine = Math.max(INVESTIGATION.minFine, trailing(state).profit * INVESTIGATION.fineRate);
+    const fine = Math.max(INVESTIGATION.minFine, trailing(state).profit * INVESTIGATION.fineRate) * boardMods(state.gov).fine;
     state.funds -= fine;
     n.force24 = false;
     n.satisfaction = Math.max(n.satisfaction, SATISFACTION.afterInvestigation);
@@ -519,9 +535,12 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
     notes.push({ kind: 'investigation', fine });
   }
   const sm = stakeMods(state);
-  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand, costCut: n.pb * PB.costCut - sm.costRate, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent };
+  const bm = boardMods(state.gov);
+  // 総会の 1 か月前に予告する
+  if (state.gov && state.gov.nextMeeting === m + 1) notes.push({ kind: 'meetingSoon', month: m + 1 });
+  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand, costCut: n.pb * PB.costCut - sm.costRate + bm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent };
   const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, mods));
-  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + n.loans * LOAN.interest + n.support * fc * SUPPORT_COST;
+  const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
   const profit = reps.reduce((a, r) => a + r.profit, 0) - overhead;
   state.funds += profit;
@@ -545,6 +564,7 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     state.inflow = 0;
     state.history = [...state.history, report].slice(-HISTORY);
     stakeStep(state, report, { renovated });
+    boardMonth(state);
     if (canPromote(state)) notes.push({ kind: 'phaseReady' });
     state.month++;
     state.rng = rng.state;

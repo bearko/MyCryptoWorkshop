@@ -23,7 +23,7 @@ import { TreeView } from './ui/tree';
 import { dailiesList, ordersList } from './ui/dayInfo';
 import { rankingView } from './ui/ranking';
 import { partyStrip, partyView } from './ui/party';
-import { partyDef, partyHero, taughtSeries } from './game/party';
+import { partyDef, partyHero, scoutedHeroes, scoutId, SKILL_KIND_NAME, taughtSeries, TIER_POWER } from './game/party';
 import { submit as submitRanking } from './net/leaderboard';
 import { abortRta, canPickAvatar, initPlatform, isChatAvailable, isRtaAvailable, isTrophyMoment, mountChat, openAvatarPicker, setChatVisible, reportRtaProgress, reportScore, reportTrophies, setRtaPending, startRtaIfPending } from './net/platform';
 import { isEn, lang, setLang, t } from './i18n';
@@ -1173,6 +1173,14 @@ async function openEmpire(): Promise<void> {
         return hero ? icon(hero.image, 'px', hero.name) : null;
       },
       mineImage: () => fileImg(staffFrames.mine[0].image, 'px'),
+      // 役員会の候補：工房でスカウトした英雄（強さ ＝ 酒場の格 × スカウトの段）
+      boardCandidates: () =>
+        scoutedHeroes(save.levels).flatMap((d) => {
+          const hero = heroById.get(d.id);
+          if (!hero) return [];
+          const lv = save.levels[scoutId(d.id)] ?? 1;
+          return [{ id: d.id, name: hero.name, kind: d.kind, kindName: SKILL_KIND_NAME[d.kind], power: +(TIER_POWER[d.tier] * (1 + 0.25 * (lv - 1))).toFixed(2), image: () => icon(hero.image, 'px', hero.name) }];
+        }),
       play: (k) => sound.play(k),
       onClose: () => close(),
       onTest: TEST_MODE ? () => void openTestPanel() : undefined,

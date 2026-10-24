@@ -58,6 +58,8 @@ export const SUPPORT = {
   clearAbove: 50,
   /** 最後通告のあとの支持度 */
   afterUltimatum: 45,
+  /** 喜ぶ出来事で上がる上限 */
+  delightCap: 80,
 } as const;
 
 /** 不満の出来事 1 回あたりの下がり方（1 か月の下がり幅には上限がある） */
@@ -168,7 +170,8 @@ export function stakeStep(e: EmpireState, r: MonthReport, extra: { renovated: nu
       // 何もなかった月は、ふだんの値へ戻る（喜ぶ出来事はその上に足す）
       const step = st.demands.some((x) => x.who === s.id) && d === 0 ? SUPPORT.driftAnswered : SUPPORT.drift;
       v = v < SUPPORT.rest ? Math.min(SUPPORT.rest, v + step) : v;
-      v += d;
+      // 喜ぶ出来事で上がるのは DELIGHT_CAP まで（その上は総会や役員会でしか上がらない）
+      if (d > 0) v = Math.max(v, Math.min(SUPPORT.delightCap, v + d));
     }
     st.support[s.id] = clamp(Math.round(v), 0, 100);
   }

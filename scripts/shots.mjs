@@ -66,6 +66,16 @@ function audit(phone) {
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) continue;
+    // スクロールする列の見えている範囲の外（送れば見える）は、隠れているとは数えない
+    let clipped = false;
+    for (let p = b.parentElement; p && p !== ke; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if (o !== 'auto' && o !== 'scroll') continue;
+      const pr = p.getBoundingClientRect();
+      if (cy < pr.top || cy > pr.bottom) clipped = true;
+      break;
+    }
+    if (clipped) continue;
     const top = document.elementFromPoint(cx, cy);
     if (top && top !== b && !b.contains(top) && !top.closest('.ke-tip')) issues.push(`covered: "${(b.textContent || b.getAttribute('aria-label') || '').trim().slice(0, 20)}" under .${top.className?.baseVal ?? top.className}`.slice(0, 120));
     if (phone && (r.width < 43.5 || r.height < 43.5) && !b.classList.contains('ke-sheet-grip') && !b.closest('.ke-strip')) issues.push(`tap: "${(b.textContent || b.getAttribute('aria-label') || '').trim().slice(0, 16)}" ${Math.round(r.width)}×${Math.round(r.height)}`);

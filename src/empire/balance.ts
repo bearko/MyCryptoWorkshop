@@ -3,6 +3,7 @@
 // フェーズ 2（12 店・ライバルより多い・物流センター）とフェーズ 3（本拠ランドで売上 1 位）。
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
+import { meetingNow } from './governance';
 import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
   advanceMonth,
@@ -73,7 +74,8 @@ function phase2Moves(s: EmpireState, reserve: number): Decisions {
 /** フェーズ 3 の手：研修所を建て、人通りの多いエリアから物流拠点、育った人数ぶん出店 */
 function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decisions {
   const n = s.nation!;
-  const d: Decisions = { expand: [] };
+  // 株主総会：従業員をたたえ、ライバルは遠回しに、約束は「赤字を出さない」
+  const d: Decisions = { expand: [], ...(meetingNow(s) ? { meeting: { praise: 'staff', rival: 'hint', pledge: 'noLoss' } as const } : {}) };
   let funds = s.funds;
   if (n.trainingCenters < 4 && funds > TRAINING_COST * 2 * reserve) {
     d.training = 1;
