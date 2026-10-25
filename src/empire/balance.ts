@@ -6,7 +6,7 @@ import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
 import { landProfile, type WorldLand, type Focus } from './lands';
 import { KINGS } from './court';
-import { entryCost, OPEN_LANDS, phase4Done, routeCost, type BranchDecision } from './world';
+import { entryCost, OPEN_LANDS, phase4Done, routeCost, RUBY, rubyOpen, type BranchDecision } from './world';
 import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, legendIndex, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import { biddable, bidPrice, landsOf, type Bid } from './group';
@@ -142,7 +142,9 @@ function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   const w = s.world!;
   const branches: NonNullable<Decisions['branches']> = {};
   let funds = s.funds - reserved4(d);
-  const next = OPEN_LANDS.filter((k) => k !== s.land && !w.branches.some((b) => b.land === k));
+  // Ruby は掲示板に書き込んで、団員とのつながりができてから
+  const next = OPEN_LANDS.filter((k) => k !== s.land && !w.branches.some((b) => b.land === k) && (k !== 'Ruby' || rubyOpen(s)));
+  const postRuby = !rubyOpen(s) && !w.branches.some((b) => b.land === 'Ruby') && s.funds > RUBY.postCost * 20;
   const lastEntry = Math.max(-99, ...w.branches.map((b) => b.opened));
   if (next.length && (s.phase >= 5 || s.month - lastEntry >= 12) && funds > (routeCost(s) + entryCost('jv')) * 2) {
     d.enter = { land: next[0], mode: 'jv' };
@@ -176,7 +178,7 @@ function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decision
     }
     branches[b.land] = bd;
   }
-  return { ...d, branches };
+  return { ...d, branches, ...(postRuby ? { post: true } : {}) };
 }
 
 /** フェーズ 5 の手：フェーズ 4 と同じに加えて、地主会で強気に区画を取り、会議卓にシナジーの線がつながる順にカードを置く */

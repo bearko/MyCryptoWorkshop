@@ -9,11 +9,11 @@ import type { EmpireState, Note } from './model';
 import { landProfile, type WorldLand } from './lands';
 import { regionStores } from './nation';
 
-export type Offering = 'pledge' | 'sweets' | 'talent' | 'wine' | 'tech' | 'ice' | 'radio' | 'ship' | 'gold';
-export const OFFERINGS: Offering[] = ['pledge', 'sweets', 'talent', 'wine', 'tech', 'ice', 'radio', 'ship', 'gold'];
+export type Offering = 'pledge' | 'sweets' | 'talent' | 'wine' | 'tech' | 'ice' | 'radio' | 'ship' | 'intel' | 'gold';
+export const OFFERINGS: Offering[] = ['pledge', 'sweets', 'talent', 'wine', 'tech', 'ice', 'radio', 'ship', 'intel', 'gold'];
 
-export type Privilege = 'harbor' | 'underground' | 'purveyor' | 'housing' | 'craft' | 'g9' | 'airwaves' | 'searoute';
-export const PRIVILEGES: Privilege[] = ['harbor', 'underground', 'purveyor', 'housing', 'craft', 'g9', 'airwaves', 'searoute'];
+export type Privilege = 'harbor' | 'underground' | 'purveyor' | 'housing' | 'craft' | 'g9' | 'airwaves' | 'searoute' | 'network';
+export const PRIVILEGES: Privilege[] = ['harbor', 'underground', 'purveyor', 'housing', 'craft', 'g9', 'airwaves', 'searoute', 'network'];
 
 export interface Court {
   /** 注目度（0〜100） */
@@ -49,6 +49,7 @@ export const KINGS: Record<WorldLand, { likes: Offering; privilege: Privilege }>
   Grape: { likes: 'ice', privilege: 'g9' },
   Sage: { likes: 'radio', privilege: 'airwaves' },
   Blueberry: { likes: 'ship', privilege: 'searoute' },
+  Ruby: { likes: 'intel', privilege: 'network' },
 };
 
 /** 特権の効き目 */
@@ -98,6 +99,8 @@ export function kingFit(e: EmpireState): number {
   if (k === 'Grape') return (focus === 'leisure' || focus === 'sweets' ? 0.5 : 0) + (n && stores > n.regions.reduce((a, r) => a + r.rival, 0) ? 0.5 : 0);
   if (k === 'Sage') return (focus === 'imports' ? 0.5 : 0) + (n && stores > 0 && n.regions.reduce((a, r) => a + r.fcOwner, 0) / stores >= 0.3 ? 0.5 : 0);
   if (k === 'Blueberry') return (focus === 'imports' || focus === 'sweets' ? 0.5 : 0) + ((n?.regions.filter((r) => r.hub).length ?? 0) >= 2 ? 0.5 : 0);
+  // 団長：大会での好成績（このランドの 3 冠のかわり＝売上・店の数・物流拠点 3 つ以上のうち 2 つ）と、情報（役員会に 3 人以上）
+  if (k === 'Ruby') return (Object.values(e.crowns?.held ?? {}).filter(Boolean).length >= 2 ? 0.5 : 0) + ((e.gov?.board.length ?? 0) >= 3 ? 0.5 : 0);
   // Ocean と、創業できないランド（古いセーブ）
   const all = sup ? Object.entries(sup).filter(([w]) => w !== 'owners').map(([, v]) => v) : [60];
   const owners = e.nation?.satisfaction ?? 60;
@@ -114,6 +117,7 @@ export function kingWants(e: Pick<EmpireState, 'land'>): { ja: string; en: strin
   if (k === 'Grape') return { ja: '品ぞろえを娯楽かスイーツに、このランドでライバルより多くの店を（勢いのある商い）', en: 'Sell leisure or sweets; outnumber the rival here (business with drive)' }; // i18n-ja
   if (k === 'Sage') return { ja: '品ぞろえを輸入品に、加盟店（オーナーの土地）を店の 3 割以上に（新しく来た人を支える）', en: 'Sell imports; owner-land franchises at 30%+ of stores (support newcomers)' }; // i18n-ja
   if (k === 'Blueberry') return { ja: '品ぞろえを輸入品かスイーツに、物流拠点を 2 つ以上（島と島をつなぐ港）', en: 'Sell imports or sweets; two or more hubs (ports linking the islets)' }; // i18n-ja
+  if (k === 'Ruby') return { ja: 'このランドで売上・店の数・物流拠点 3 つ以上のうち 2 つ（大会での好成績）、役員会に 3 人以上（情報）', en: 'Here, beat the rival on two of sales, store count and 3+ hubs (tournament showings); three or more on the board (information)' }; // i18n-ja
   return { ja: 'どのステークホルダーの支持度も 50 以上に保つ（かたよらない商い）', en: 'Keep every stakeholder at 50+ support (balanced business)' }; // i18n-ja
 }
 

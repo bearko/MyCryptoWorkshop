@@ -1,9 +1,9 @@
 // ランドの個性（docs/EMPIRE_DESIGN.md 10.10）。DOM に触れない。
 //
 // 経営モードで創業できるのは 4 ランド（Ocean・Strawberry・Tangerine・Lime）。
-// フェーズ 4 からは、さらに 4 ランド（Graphite・Grape・Sage・Blueberry）へも渡れる（10.16）。
+// フェーズ 4 からは、さらに 5 ランド（Graphite・Grape・Sage・Blueberry・Ruby）へも渡れる（10.16・10.17）。
+// Ruby はふだん入国できず、掲示板に書き込んで団員とのつながりを作った会社だけが入れる（world.ts）。
 // ランドごとに文化・地形・特産品・守り神・キングが違い、当たる品ぞろえ（Focus）と、ライバルの入り方が変わる。
-// Ruby は、まだ名前だけ。
 
 /** 会社の品ぞろえ（当たるビジネス）。店の客足に、ランドの文化との合い方が掛かる */
 export type Focus = 'daily' | 'sweets' | 'imports' | 'luxury' | 'leisure';
@@ -12,8 +12,8 @@ export const FOCUSES: Focus[] = ['daily', 'sweets', 'imports', 'luxury', 'leisur
 export type FoundingLand = 'Ocean' | 'Strawberry' | 'Tangerine' | 'Lime';
 export const FOUNDING_LANDS: FoundingLand[] = ['Ocean', 'Strawberry', 'Tangerine', 'Lime'];
 /** 渡れるランド（創業できる 4 ランドと、フェーズ 4 から渡れる 4 ランド） */
-export type WorldLand = FoundingLand | 'Graphite' | 'Grape' | 'Sage' | 'Blueberry';
-export const LATER_LANDS: WorldLand[] = ['Graphite', 'Grape', 'Sage', 'Blueberry'];
+export type WorldLand = FoundingLand | 'Graphite' | 'Grape' | 'Sage' | 'Blueberry' | 'Ruby';
+export const LATER_LANDS: WorldLand[] = ['Graphite', 'Grape', 'Sage', 'Blueberry', 'Ruby'];
 
 /** 町の地図の地形：海に囲まれる・城下町・何もない野原・住宅街の広がる平地 */
 export type Terrain = 'sea' | 'castle' | 'open' | 'suburb';
@@ -172,11 +172,28 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
     ],
     specialty: { series: 45, name: L('ブルーベリー', 'Blueberry') }, // i18n-ja
     guardian: { series: 27, name: L('犬（ドッグ）', 'Dog') }, // i18n-ja
-    king: { name: L('海賊団の頭領', 'Pirate chief'), likes: L('海の向こうの品と、島と島をつなぐ港', 'Goods from across the sea, and ports that link the islets') }, // i18n-ja
+    king: { name: L('船長', 'the Captain'), likes: L('海の向こうの品と、島と島をつなぐ港', 'Goods from across the sea, and ports that link the islets') }, // i18n-ja
     terrain: 'sea',
     fit: { daily: 0.95, sweets: 1.1, imports: 1.12, luxury: 0.98, leisure: 1 },
     population: 0.7,
     rent: 0.9,
+    rivalFrom: 0,
+  },
+  Ruby: {
+    key: 'Ruby',
+    kind: L('謎多き国', 'Land of mysteries'), // i18n-ja
+    lines: [
+      L('謎の多い国。通称「流星街」。ふだんは入国できず、所属する国民（団員）とつながりのある者だけが入れる', 'A land of mysteries, known as Meteor Town. Closed to outsiders: only those with ties to its members may enter'), // i18n-ja
+      L('キングの猿王は「団長」と呼ばれ、団員すら姿を見たことがない。指示は掲示板で出し、団員は書き込みで団長に声を届ける。特産品はルビー', 'King Monkey, called "the Chief", has never been seen even by members. Orders come by message board; members reply by posting. Specialty: rubies'), // i18n-ja
+      L('団長は企画好きで、独自の大会で好成績を収めると認知されやすい。他国の動きも独自の情報網で見ているらしい。「悪魔金魚」が街を徘徊する伝説や、巨大ロボの研究の噂もささやかれる', "The Chief loves events: shine at its tournaments to be noticed. Its own network watches other lands. Rumors tell of a demon goldfish roaming the streets, and of a giant robot in the works"), // i18n-ja
+    ],
+    specialty: { series: 46, name: L('ルビー', 'Ruby') }, // i18n-ja
+    guardian: { series: 25, name: L('猿（モンキー）', 'Monkey') }, // i18n-ja
+    king: { name: L('猿王（団長）', 'King Monkey (the Chief)'), likes: L('大会での好成績と、情報', 'Strong showings at its tournaments, and information') }, // i18n-ja
+    terrain: 'castle',
+    fit: { daily: 0.95, sweets: 1, imports: 1.05, luxury: 1.1, leisure: 1.12 },
+    population: 0.9,
+    rent: 1.1,
     rivalFrom: 0,
   },
 };

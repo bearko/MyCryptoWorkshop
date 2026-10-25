@@ -24,7 +24,7 @@ describe('テスト用の飛び先', () => {
     expect(e.world?.branches).toEqual([]);
     expect(isleStatus(e, e.land)).toBe('home');
     expect(isleStatus(e, 'Graphite')).toBe('open');
-    expect(isleStatus(e, 'Ruby')).toBe('closed');
+    expect(isleStatus(e, 'Ruby')).toBe('open');
   });
 });
 
