@@ -4,7 +4,8 @@ import { rivalOf } from '../../empire/rivals';
 import { STAKEHOLDERS, ULTIMATUM, type StakeholderId } from '../../empire/stakeholders';
 import { PLEDGE, type PromiseKind } from '../../empire/governance';
 import type { CrownId } from '../../empire/crowns';
-import type { Focus } from '../../empire/lands';
+import { landProfile, type Focus } from '../../empire/lands';
+import type { Offering, Privilege } from '../../empire/court';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -125,6 +126,12 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'attention':
+      return n.stage === 1 ? t('政府が、あなたの会社に目を留めはじめました', 'The government has started to notice your company') : t(`大臣から声がかかりました。${kingName(e?.land)}の耳にも届いているようです`, `A minister reached out. Word has reached ${kingName(e?.land)}`);
+    case 'audienceInvite':
+      return t(`${kingName(e?.land)}から謁見の招待が届きました。献上の品を選んで臨みましょう`, `${kingName(e?.land)} invites you to an audience. Choose an offering`);
+    case 'audience':
+      return n.success ? t(`${kingName(e?.land)}との謁見が成りました。特権「${privilegeLabel(n.privilege)}」を授かりました`, `Your audience with ${kingName(e?.land)} went well. Privilege granted: ${privilegeLabel(n.privilege)}`) : t(`${kingName(e?.land)}は「${offeringLabel(n.offering)}」がお気に召さなかったようです。注目度が下がりました`, `${kingName(e?.land)} was not pleased with ${offeringLabel(n.offering)}. Attention fell`);
     case 'focusChanged':
       return t(`品ぞろえを「${focusLabel(n.focus)}」に変えました`, `Switched the range to ${focusLabel(n.focus)}`);
     case 'crown':
@@ -250,4 +257,20 @@ export function focusLabel(f: Focus): string {
 /** 文化との合い方の印（◎ ○ △ ×）と倍率 */
 export function fitMark(v: number): string {
   return v >= 1.1 ? '◎' : v >= 1.03 ? '○' : v >= 0.97 ? '-' : '△';
+}
+
+/** ランドのキングの呼び名 */
+export function kingName(land: string | null | undefined): string {
+  const k = landProfile(land).king.name;
+  return t(k.ja, k.en);
+}
+
+/** 献上の品の呼び名 */
+export function offeringLabel(o: Offering): string {
+  return { pledge: t('町への約束', 'A pledge to the towns'), sweets: t('特産の菓子', 'Local sweets'), talent: t('逸材の推薦', 'A gifted recruit'), wine: t('上等なワイン', 'Fine wine'), gold: t('献金（資金の 5%）', 'Gold (5% of funds)') }[o];
+}
+
+/** 特権の呼び名と効き目 */
+export function privilegeLabel(p: Privilege): string {
+  return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)') }[p];
 }

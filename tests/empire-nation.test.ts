@@ -94,7 +94,7 @@ describe('店の形と品質', () => {
 });
 
 describe('卒業と保存', () => {
-  it('直近 12 か月の売上がライバルを上回ると条件を満たす', () => {
+  it('直近 12 か月の売上がライバルを上回ると 1 位（卒業には謁見も要る）', () => {
     let s = loose(phase3());
     expect(phase3Done(s)).toBe(false);
     const open = [1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -105,7 +105,8 @@ describe('卒業と保存', () => {
       s = advanceMonth(s, { expand: near ? [] : [0, ...open].map((region) => ({ region, type: 'fcOwner' as const, count: 2 })), manual: true, training: 0 }).state;
     }
     expect(phase3Done(s)).toBe(true);
-    expect(canPromote(s)).toBe(true);
+    // 卒業はキングとの謁見（売上 1 位は招待の条件の 1 つ）
+    expect(canPromote(s)).toBe(false);
   });
 
   it('11 エリアごと JSON を通しても同じ', () => {

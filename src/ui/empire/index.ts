@@ -13,7 +13,7 @@ import { BOARD_SEATS, meetingNow } from '../../empire/governance';
 import { CROWNS, crownStats, FISCAL_MONTH, REGULATION, regulationLevel } from '../../empire/crowns';
 import { bestFocus, FOUNDING_LANDS, LAND_PROFILES, landProfile, type FoundingLand, type Focus } from '../../empire/lands';
 import { boardCard, meetingCard, type BoardCandidate } from './govern';
-import { focusCard, focusPicker, landDetail, landPickCard } from './landui';
+import { courtCard, focusCard, focusPicker, landDetail, landPickCard } from './landui';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
 import { LandScene } from '../../render/map/land';
@@ -23,7 +23,7 @@ import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard
 import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
 import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
-import { companyTitle, crownName, fitMark, focusLabel, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
+import { companyTitle, crownName, fitMark, focusLabel, kingName, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
 
 export { companyTitle, monthLabel, noteText, plotLabel, cellName } from './text';
 
@@ -45,6 +45,8 @@ export interface EmpireViewOptions {
   mineImage?: () => HTMLElement;
   /** 役員会に迎えられる英雄（工房でスカウトした英雄） */
   boardCandidates?: () => BoardCandidate[];
+  /** ランドの守り神の絵（キングの札に使う） */
+  landImage?: (key: string) => HTMLElement | null;
   /** 効果音 */
   play?: (key: SoundKey) => void;
   /** 画面を閉じる */
@@ -53,7 +55,7 @@ export interface EmpireViewOptions {
   onTest?: () => void;
 }
 
-type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | null;
+type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | 'court' | null;
 type Selection = { kind: 'store' | 'plot' | 'lot' | 'region'; id: number } | null;
 
 const PHASE_NAME = () => ['', t('店主', 'Owner'), t('エリア', 'Area chain'), t('全国', 'National'), t('世界', 'Global'), t('グループ', 'Group')];
@@ -82,7 +84,9 @@ function goal(e: EmpireState): { label: string; value: string; done: boolean } {
     const last12 = e.history.slice(-12).filter((r) => r.rivalRevenue !== undefined);
     const own = last12.reduce((a, r) => a + r.revenue, 0);
     const rival = last12.reduce((a, r) => a + (r.rivalRevenue ?? 0), 0);
-    return { label: t('売上 対 ライバル', 'Sales vs rival'), value: `${shortMoney(own)} : ${shortMoney(rival)}`, done: canPromote(e) };
+    // フェーズ 3 の目標：売上 1 位と、政府の注目度（100 で謁見の招待）
+    const att = Math.round(e.court?.attention ?? 0);
+    return { label: t('売上', 'Sales'), value: t(`${shortMoney(own)}:${shortMoney(rival)}・注目 ${att}`, `${shortMoney(own)}:${shortMoney(rival)} · attn ${att}`), done: canPromote(e) };
   }
   return { label: '', value: '', done: false };
 }
@@ -524,7 +528,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       advisor = true;
       tuckAdvisor();
       busy = false;
-      if (e.phase !== wasPhase) {
+      if (r.report.notes.some((n) => n.kind === 'audience' && n.success)) play('win');
+      else if (e.phase !== wasPhase) {
         selection = null;
         regionView = null;
         play('win');
@@ -589,7 +594,6 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     return h(
       'span.ke-chip',
       { class: 'ke-chip ke-tone-plain', title: names, role: 'img', 'aria-label': t(`3 冠：${names}`, `Crowns: ${names}`) },
-      h('span.ke-chip-label', {}, t('3 冠', 'Crowns')),
       h('span.ke-crowns-chip', {}, ...CROWNS.map((c) => {
         const ic = svgIcon('crown', 18);
         ic.classList.add('ke-crown');
@@ -904,6 +908,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       }
       if (regionView !== null) cmds.push({ label: t('国へ戻る', 'Back to land'), sub: t('11 エリア', '11 areas'), band: 'ours', on: () => ((regionView = null), (selection = null), render()) });
       cmds.push({ label: t('本部', 'Head office'), sub: t(`研修所 ${e.nation.trainingCenters}・品質 ${Math.round(e.nation.quality * 100)}%`, `Centers ${e.nation.trainingCenters} · quality ${Math.round(e.nation.quality * 100)}%`), band: 'ours', on: toggle('hq'), pressed: openPanel === 'hq' });
+      // 政府とキング：注目度、招待が来たら光る
+      {
+        const c = e.court;
+        const sub = c?.audience ? t('謁見済み', 'Audience held') : c?.invited ? (draft.offering ? t('✓ 献上の品あり', '✓ Offering ready') : t('招待が届いています', 'You are invited')) : t(`注目度 ${Math.round(c?.attention ?? 0)}`, `Attention ${Math.round(c?.attention ?? 0)}`);
+        cmds.push({ label: kingName(e.land), sub, band: c?.invited && !c.audience ? 'lantern' : 'ours', on: toggle('court'), pressed: openPanel === 'court' });
+      }
       const seated = (draft.board ?? e.gov?.board ?? []).length;
       cmds.push({ label: t('役員会', 'Board'), sub: t(`${seated} / ${BOARD_SEATS} 席`, `${seated} / ${BOARD_SEATS} seats`), band: 'ours', on: toggle('board'), pressed: openPanel === 'board' });
       // 株主総会（上場前は銀行との面談）：その月と、前の月だけ出す
@@ -913,8 +923,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         cmds.push({ label: name, sub: now ? (draft.meeting ? t('✓ 原稿あり', '✓ Speech ready') : draft.postpone ? t('延期する', 'Postponing') : t('今月・原稿を決める', 'This month: speech')) : t('来月', 'Next month'), band: now ? 'lantern' : 'ours', on: () => (toggle('meeting')(), openPanel === 'meeting' && phone() && ((sheetState = 'full'), render())), pressed: openPanel === 'meeting' });
       }
     }
-    // 品ぞろえ（どのフェーズでも）：いまの品ぞろえと、ランドの文化との合い方の印
-    {
+    // 品ぞろえ（フェーズ 1〜2。フェーズ 3 は指示が多いので、本部のカードの中で変える）
+    if (e.phase <= 2) {
       const f = draft.focus ?? e.focus ?? 'daily';
       cmds.push({ label: t('品ぞろえ', 'Range'), sub: `${fitMark(landProfile(e.land).fit[f])} ${focusLabel(f)}`, band: 'ours', on: toggle('focus'), pressed: openPanel === 'focus' });
     }
@@ -954,6 +964,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         return boardCard(c, opts.boardCandidates?.() ?? []);
       case 'focus':
         return focusCard(c);
+      case 'court':
+        return courtCard(c, opts.landImage?.(landProfile(e.land).key) ?? null);
       case 'meeting':
         return e.gov ? meetingCard(c) : null;
       case 'ledger':
@@ -985,7 +997,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), court: kingName(e.land), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);

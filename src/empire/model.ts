@@ -7,6 +7,7 @@ import { restoreGovernance, type Governance, type PromiseKind } from './governan
 import { restoreCrowns, type CrownId, type Crowns } from './crowns';
 import type { Campaign } from './rivalai';
 import { FOCUSES, type Focus } from './lands';
+import { restoreCourt, type Court, type Offering, type Privilege } from './court';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -113,7 +114,11 @@ export type Note =
   | { kind: 'breakup'; stores: number }
   | { kind: 'campaignSoon'; region: number; month: number }
   | { kind: 'campaign'; region: number; until: number }
-  | { kind: 'focusChanged'; focus: Focus };
+  | { kind: 'focusChanged'; focus: Focus }
+  /** 政府の注目とキングとの謁見（court.ts） */
+  | { kind: 'attention'; stage: number }
+  | { kind: 'audienceInvite' }
+  | { kind: 'audience'; offering: Offering; success: boolean; privilege: Privilege };
 
 export interface MonthReport {
   month: number;
@@ -165,6 +170,8 @@ export interface EmpireState {
   campaign?: Campaign | null;
   /** 会社の品ぞろえ（当たるビジネス）。ランドの文化との合い方が客足に掛かる（無ければ日用品） */
   focus?: Focus;
+  /** フェーズ 3 から：政府の注目度とキングとの謁見、特権 */
+  court?: Court;
 }
 
 export const HISTORY = 24;
@@ -211,6 +218,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     gov: restoreGovernance(r.gov),
     crowns: restoreCrowns(r.crowns),
     campaign: restoreCampaign(r.campaign),
+    court: restoreCourt(r.court),
     ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
 }

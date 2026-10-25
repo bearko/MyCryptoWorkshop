@@ -4,7 +4,8 @@
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
-import type { Focus } from './lands';
+import { landProfile, type FoundingLand, type Focus } from './lands';
+import { KINGS } from './court';
 import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
@@ -17,7 +18,6 @@ import {
   ownCells,
   phase1Done,
   phase2Done,
-  phase3Done,
   plotsFor,
   POS_COST,
   RENOVATE_COST,
@@ -77,7 +77,9 @@ function phase2Moves(s: EmpireState, reserve: number): Decisions {
 function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decisions {
   const n = s.nation!;
   // 株主総会：従業員をたたえ、ライバルは遠回しに、約束は「赤字を出さない」
-  const d: Decisions = { expand: [], ...(meetingNow(s) ? { meeting: { praise: 'staff', rival: 'hint', pledge: 'noLoss' } as const } : {}) };
+  // 謁見に招かれたら、キングの好む品を献上する（人のプレイヤーも、謁見の画面でキングの好みを見て選ぶ）
+  const offering = s.court?.invited ? KINGS[landProfile(s.land).key as FoundingLand]?.likes : undefined;
+  const d: Decisions = { expand: [], ...(offering ? { offering } : {}), ...(meetingNow(s) ? { meeting: { praise: 'staff', rival: 'hint', pledge: 'noLoss' } as const } : {}) };
   let funds = s.funds;
   if (n.trainingCenters < 4 && funds > TRAINING_COST * 2 * reserve) {
     d.training = 1;
@@ -202,7 +204,7 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
     if (s.funds < 0) redMonths++;
     if (phase1Month === null && phase1Done(s)) phase1Month = s.month;
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
-    if (phase3Month === null && s.phase === 3 && phase3Done(s)) phase3Month = s.month;
+    if (phase3Month === null && s.phase === 3 && s.court?.audience) phase3Month = s.month;
   }
   return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
 }

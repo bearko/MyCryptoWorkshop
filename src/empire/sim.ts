@@ -5,6 +5,7 @@ import { makeRng, type Rng } from './rng';
 import { stakeMods, stakeStep } from './stakeholders';
 import { crownStep } from './crowns';
 import { FOCUS_CHANGE_PER_STORE, focusFit, landProfile, type Focus } from './lands';
+import { courtStep, holdAudience, privilegeMods, type Offering } from './court';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
@@ -146,6 +147,8 @@ export interface Decisions {
   counter?: boolean;
   /** 品ぞろえを変える（フェーズ 2 からは店の数に応じた費用） */
   focus?: Focus;
+  /** キングとの謁見で献上する品（招待が来ている月） */
+  offering?: Offering;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -187,7 +190,8 @@ export function phase3Done(s: EmpireState): boolean {
   return last.reduce((a, r) => a + r.revenue, 0) > last.reduce((a, r) => a + (r.rivalRevenue ?? 0), 0);
 }
 
-export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s)) || (s.phase === 3 && phase3Done(s));
+/** フェーズ 3 の卒業はキングとの謁見（招待には売上 1 位と政府の注目が要る。court.ts） */
+export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s)) || (s.phase === 3 && !!s.court?.audience);
 
 /** 店の数（フェーズ 3 からはエリアの合計） */
 export const storeCount = (s: EmpireState) => (s.nation ? nationStores(s.nation) : s.stores.length);
@@ -437,6 +441,7 @@ function applyNationDecisions(state: EmpireState, d: Decisions, notes: Note[]): 
   const g = (state.gov ??= newGovernance(state.month));
   if (d.board) g.board = seatBoard(d.board);
   holdMeeting(state, d.meeting, !!d.postpone, notes);
+  holdAudience(state, d.offering, notes);
   const pay = (cost: number) => {
     if (state.funds < cost) {
       notes.push({ kind: 'shortOfFunds' });
@@ -571,7 +576,8 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   const bm = boardMods(state.gov);
   // 総会の 1 か月前に予告する
   if (state.gov && state.gov.nextMeeting === m + 1) notes.push({ kind: 'meetingSoon', month: m + 1 });
-  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand * landDemand(state), costCut: n.pb * PB.costCut - sm.costRate + bm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent * landProfile(state.land).rent };
+  const pm = privilegeMods(state);
+  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand * landDemand(state), costCut: n.pb * PB.costCut - sm.costRate + bm.costCut + pm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent * landProfile(state.land).rent * pm.rent };
   const reps = n.regions.map((r, i) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, i === state.campaign?.region && campaignActive(state.campaign, m) ? { ...mods, demand: mods.demand * hitDemand } : mods));
   const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + counterSpend + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
@@ -599,6 +605,7 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     stakeStep(state, report, { renovated });
     boardMonth(state);
     crownStep(state, notes, report.revenue);
+    courtStep(state, notes);
     report.funds = state.funds;
     if (canPromote(state)) notes.push({ kind: 'phaseReady' });
     state.month++;

@@ -1185,6 +1185,10 @@ async function openEmpire(): Promise<void> {
           const lv = save.levels[scoutId(d.id)] ?? 1;
           return [{ id: d.id, name: hero.name, kind: d.kind, kindName: SKILL_KIND_NAME[d.kind], power: +(TIER_POWER[d.tier] * (1 + 0.25 * (lv - 1))).toFixed(2), image: () => icon(hero.image, 'px', hero.name) }];
         }),
+      landImage: (k) => {
+        const l = lands.find((x) => x.key === k);
+        return l ? fileImg(l.cryptid, 'px') : null;
+      },
       play: (k) => sound.play(k),
       onClose: () => close(),
       onTest: TEST_MODE ? () => void openTestPanel() : undefined,
