@@ -4,6 +4,7 @@
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
+import type { Focus } from './lands';
 import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
@@ -185,8 +186,8 @@ export interface BotResult {
   demands: number;
 }
 
-export function runBot(bot: Bot, seed: number, months: number): BotResult {
-  let s = newEmpire(bot.name, seed);
+export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', focus?: Focus): BotResult {
+  let s = newEmpire(bot.name, seed, land, focus);
   let phase1Month: number | null = null;
   let phase2Month: number | null = null;
   let phase3Month: number | null = null;

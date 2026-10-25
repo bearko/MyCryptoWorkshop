@@ -92,12 +92,12 @@ describe('規制', () => {
 describe('ライバル AI', () => {
   it('プレイヤーの店が多いエリアほど、ライバルが多く出す', () => {
     const e = phase3();
-    const make = (ours: number) => ({ ...e.nation!, regions: e.nation!.regions.map((r, i) => ({ ...r, rival: 0, direct: i === 3 ? Math.round(r.capacity * ours) : 0, fcOwner: 0, fcHq: 0 })) });
+    const make = (ours: number) => ({ ...e.nation!, regions: e.nation!.regions.map((r, i) => ({ ...r, rival: 0, direct: i === 4 ? Math.round(r.capacity * ours) : 0, fcOwner: 0, fcHq: 0 })) });
     const quiet = make(0);
     const strong = make(0.6);
     rivalExpand(quiet, 1);
     rivalExpand(strong, 1);
-    expect(strong.regions[3].rival).toBeGreaterThan(quiet.regions[3].rival);
+    expect(strong.regions[4].rival).toBeGreaterThan(quiet.regions[4].rival);
     // 1 回の手で出す店の合計は変わらない
     const sum = (n: typeof quiet) => n.regions.reduce((a, r) => a + r.rival, 0);
     expect(sum(strong)).toBe(sum(quiet));

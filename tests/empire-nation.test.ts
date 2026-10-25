@@ -1,6 +1,7 @@
 // 経営モードのフェーズ 3（全国チェーン、docs/EMPIRE_DESIGN.md 4.3）
 import { describe, expect, it } from 'vitest';
 import { crownStats } from '../src/empire/crowns';
+import { landProfile } from '../src/empire/lands';
 import { freeCells } from '../src/empire/area';
 import { newEmpire, restoreEmpire, type EmpireState } from '../src/empire/model';
 import { ERA, HUB_COST, MANUAL_UNLOCK, nationStores, OPEN_COSTS, perStoreDaily, regionMonth, regionStores, trainees, TRAINING_COST } from '../src/empire/nation';
@@ -118,7 +119,8 @@ describe('11 エリアとレアリティ', () => {
     const { RARITY_AREA } = await import('../src/empire/nation');
     const n = phase3().nation!;
     expect(n.regions.map((r) => r.rarity)).toEqual([0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4]);
-    for (const r of n.regions.slice(1)) expect(r.capacity).toBe(RARITY_AREA[r.rarity].capacity);
+    // 人の多いランドほど広い（本拠は Ocean：1.15 倍）
+    for (const r of n.regions.slice(1)) expect(r.capacity).toBe(Math.round(RARITY_AREA[r.rarity].capacity * landProfile('Ocean').population));
     const legendary = n.regions[10];
     expect(legendary.locked).toBe(true);
     const s = advanceMonth({ ...phase3(), funds: 1e10 }, { buildHub: [10], expand: [{ region: 10, type: 'direct', count: 3 }] });

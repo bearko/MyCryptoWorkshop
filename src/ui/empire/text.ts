@@ -4,6 +4,7 @@ import { rivalOf } from '../../empire/rivals';
 import { STAKEHOLDERS, ULTIMATUM, type StakeholderId } from '../../empire/stakeholders';
 import { PLEDGE, type PromiseKind } from '../../empire/governance';
 import type { CrownId } from '../../empire/crowns';
+import type { Focus } from '../../empire/lands';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -124,6 +125,8 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'focusChanged':
+      return t(`品ぞろえを「${focusLabel(n.focus)}」に変えました`, `Switched the range to ${focusLabel(n.focus)}`);
     case 'crown':
       return n.won ? t(`${crownName(n.crown)}で${rivalName}を抜き、1 位になりました`, `You took first place in ${crownName(n.crown)} from ${rivalName}`) : t(`${crownName(n.crown)}の 1 位を${rivalName}に奪われました`, `${rivalName} took first place in ${crownName(n.crown)}`);
     case 'regulationWatch':
@@ -237,4 +240,14 @@ export function pledgeLabel(k: PromiseKind): string {
 /** 3 冠の呼び名 */
 export function crownName(c: CrownId): string {
   return { scale: t('売上規模', 'Scale'), brand: t('ブランド力', 'Brand'), influence: t('影響力', 'Influence') }[c];
+}
+
+/** 品ぞろえの呼び名 */
+export function focusLabel(f: Focus): string {
+  return { daily: t('日用品', 'Daily goods'), sweets: t('スイーツ・果物', 'Sweets & fruit'), imports: t('よそのランドの特産品', 'Goods from other lands'), luxury: t('高級品（ワインなど）', 'Fine goods (wine…)'), leisure: t('娯楽', 'Leisure') }[f];
+}
+
+/** 文化との合い方の印（◎ ○ △ ×）と倍率 */
+export function fitMark(v: number): string {
+  return v >= 1.1 ? '◎' : v >= 1.03 ? '○' : v >= 0.97 ? '-' : '△';
 }

@@ -4,6 +4,7 @@ import { HISTORY, newStore, type EmpireState, type MonthReport, type Note, type 
 import { makeRng, type Rng } from './rng';
 import { stakeMods, stakeStep } from './stakeholders';
 import { crownStep } from './crowns';
+import { FOCUS_CHANGE_PER_STORE, focusFit, landProfile, type Focus } from './lands';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
@@ -143,6 +144,8 @@ export interface Decisions {
   articles?: Articles;
   /** ライバルのセール攻勢に対抗セールで応える（攻勢のあいだ、毎月） */
   counter?: boolean;
+  /** 品ぞろえを変える（フェーズ 2 からは店の数に応じた費用） */
+  focus?: Focus;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -262,7 +265,21 @@ export function storeMonth(store: Store, month: number, env: StoreEnv | number, 
 }
 
 /** 決定を当てる（範囲の外は丸める。お金が足りない改装・出店はしない） */
+/** ランドの文化と品ぞろえの合い方（客足の倍率）。人の多さはフェーズ 3 のエリアの広さに効く */
+export const landDemand = (s: Pick<EmpireState, 'land' | 'focus'>) => focusFit(s.land, s.focus);
+
+/** 品ぞろえを変える費用（フェーズ 1 は無料） */
+export const focusChangeCost = (s: EmpireState) => (s.phase === 1 ? 0 : storeCount(s) * FOCUS_CHANGE_PER_STORE);
+
 function applyDecisions(state: EmpireState, d: Decisions, notes: Note[], rng: Rng): void {
+  if (d.focus && d.focus !== (state.focus ?? 'daily')) {
+    const cost = focusChangeCost(state);
+    if (state.funds >= cost) {
+      state.funds -= cost;
+      state.focus = d.focus;
+      notes.push({ kind: 'focusChanged', focus: d.focus });
+    } else notes.push({ kind: 'shortOfFunds' });
+  }
   if (d.promote && canPromote(state)) {
     state.phase = (state.phase + 1) as EmpireState['phase'];
     notes.push({ kind: 'promoted', phase: state.phase });
@@ -343,18 +360,20 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[], rng: Rn
 /** フェーズ 1 → 2：エリアの地図を作り、いまの店を真ん中あたりに並べ、ライバルを置く */
 function openArea(state: EmpireState, rng: Rng): void {
   const area: Area = generateArea(rng);
+  const late = landProfile(state.land).rivalFrom > state.month;
   // いまの店は、食い合わない程度に離して真ん中あたりへ（2 マスずつ空ける）
   const cx = Math.floor(area.w / 2) - 1;
   const cy = Math.floor(area.h / 2) - 1;
   const spots = [cy * area.w + cx - 1, cy * area.w + cx + 1, (cy + 2) * area.w + cx, (cy - 1) * area.w + cx + 3].filter((i) => i >= 0 && i < area.cells.length);
   state.stores.forEach((s, i) => (s.cell = spots[i] ?? null));
   state.area = area;
-  for (let i = 0; i < RIVAL.start; i++) {
+  // まだどこの会社も入っていないランド（Tangerine）は、ライバルが来るのは rivalFrom の月から
+  for (let i = 0; i < (late ? 0 : RIVAL.start); i++) {
     const c = rivalTarget(area, ownCells(state));
     if (c !== null) area.rivalStores.push(c);
   }
   const next = rivalTarget(area, ownCells(state));
-  area.rivalPlan = next === null ? null : { cell: next, month: state.month + RIVAL.interval };
+  area.rivalPlan = next === null ? null : { cell: next, month: Math.max(state.month + RIVAL.interval, late ? landProfile(state.land).rivalFrom : 0) };
 }
 
 /** ライバルの一手：予告した月に出店し（先に取られていたら次の候補へ）、次の出店を予告する */
@@ -390,6 +409,11 @@ function openNation(state: EmpireState, rng: Rng): void {
     rng,
     state.month,
   );
+  // まだ会社の少ないランド（Tangerine）は、ほかのエリアのライバルも少ない
+  if (landProfile(state.land).rivalFrom > state.month - 12) for (const r of state.nation.regions.slice(1)) r.rival = Math.floor(r.rival / 2);
+  // 人の多いランド（Ocean）ほど、エリアに入りきる店が多い
+  const pop = landProfile(state.land).population;
+  for (const r of state.nation.regions.slice(1)) r.capacity = Math.round(r.capacity * pop);
 }
 
 /** 自店がエリアの入りきる目安のこの割合を超えると、オーナーの満足度が下がる */
@@ -547,7 +571,7 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   const bm = boardMods(state.gov);
   // 総会の 1 か月前に予告する
   if (state.gov && state.gov.nextMeeting === m + 1) notes.push({ kind: 'meetingSoon', month: m + 1 });
-  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand, costCut: n.pb * PB.costCut - sm.costRate + bm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent };
+  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand * landDemand(state), costCut: n.pb * PB.costCut - sm.costRate + bm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent * landProfile(state.land).rent };
   const reps = n.regions.map((r, i) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, i === state.campaign?.region && campaignActive(state.campaign, m) ? { ...mods, demand: mods.demand * hitDemand } : mods));
   const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP + counterSpend + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
@@ -585,12 +609,14 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   const reports: StoreReport[] = [];
   // 最後通告の重し（客離れ・問屋の値上げ・地主の値上げ）
   const sm = stakeMods(state);
+  const ld = landDemand(state);
+  const lr = landProfile(state.land).rent;
   const env = state.stores.map((s) => {
     const l = logistics(state, s);
-    return { delivery: l.delivery, costRate: l.costRate + sm.costRate, mult: areaMult(state, s) * sm.demand, crowd: state.area && s.cell !== null ? cannibalMult(state.area, s.cell, ownCells(state)) : 1 };
+    return { delivery: l.delivery, costRate: l.costRate + sm.costRate, mult: areaMult(state, s) * sm.demand * ld, crowd: state.area && s.cell !== null ? cannibalMult(state.area, s.cell, ownCells(state)) : 1 };
   });
   state.stores = state.stores.map((s, i) => {
-    const { store, report } = storeMonth(s, state.month, { costRate: env[i].costRate, delivery: env[i].delivery, mult: env[i].mult, pos: state.pos, rentMult: sm.rent }, rng);
+    const { store, report } = storeMonth(s, state.month, { costRate: env[i].costRate, delivery: env[i].delivery, mult: env[i].mult, pos: state.pos, rentMult: sm.rent * lr }, rng);
     if (env[i].crowd < CROWDED_WARN) notes.push({ kind: 'crowded', store: s.id });
     reports.push(report);
     // 予兆：疲れが積もり始めた月から知らせる（需要が大きく落ちる前に）

@@ -11,7 +11,9 @@ import { advanceMonth, AREA_OPEN_COST, canPromote, letterFor, MAX_STORES, ownCel
 import { activeStakeholders, supportOf, SUPPORT } from '../../empire/stakeholders';
 import { BOARD_SEATS, meetingNow } from '../../empire/governance';
 import { CROWNS, crownStats, FISCAL_MONTH, REGULATION, regulationLevel } from '../../empire/crowns';
+import { bestFocus, FOUNDING_LANDS, LAND_PROFILES, landProfile, type FoundingLand, type Focus } from '../../empire/lands';
 import { boardCard, meetingCard, type BoardCandidate } from './govern';
+import { focusCard, focusPicker, landDetail, landPickCard } from './landui';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
 import { LandScene } from '../../render/map/land';
@@ -21,7 +23,7 @@ import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard
 import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
 import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
-import { companyTitle, crownName, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
+import { companyTitle, crownName, fitMark, focusLabel, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
 
 export { companyTitle, monthLabel, noteText, plotLabel, cellName } from './text';
 
@@ -51,7 +53,7 @@ export interface EmpireViewOptions {
   onTest?: () => void;
 }
 
-type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | null;
+type Panel = 'hq' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | null;
 type Selection = { kind: 'store' | 'plot' | 'lot' | 'region'; id: number } | null;
 
 const PHASE_NAME = () => ['', t('店主', 'Owner'), t('エリア', 'Area chain'), t('全国', 'National'), t('世界', 'Global'), t('グループ', 'Group')];
@@ -193,6 +195,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           rival: [],
           centers: [],
           targetKind: (c) => (cells.includes(c) ? 'store' : pc.includes(c) ? 'plot' : null),
+          land: landProfile(e.land),
         });
         // 区画の番号 → 店の id・候補の番号
         data.cells.forEach((cell) => {
@@ -217,6 +220,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           rival: a.rivalStores,
           centers: a.centers,
           targetKind: () => 'lot',
+          land: landProfile(e.land),
         });
       }
     } else if (e.nation) {
@@ -240,7 +244,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       }
       const r = e.nation.regions[regionView];
       key = `p3:area:${regionView}:${regionStores(r)}/${r.rival}/${r.hub}`;
-      if (key !== sceneKey) data = regionView === 0 && e.area ? townGrid(e.area, { own: e.stores.filter((s) => s.cell !== null).map((s) => ({ cell: s.cell!, ext: storeExt(s), id: s.id })), rival: e.area.rivalStores, centers: e.area.centers, targetKind: () => null }) : sectorGrid(r, regionView + 1);
+      if (key !== sceneKey) data = regionView === 0 && e.area ? townGrid(e.area, { own: e.stores.filter((s) => s.cell !== null).map((s) => ({ cell: s.cell!, ext: storeExt(s), id: s.id })), rival: e.area.rivalStores, centers: e.area.centers, targetKind: () => null, land: landProfile(e.land) }) : sectorGrid(r, regionView + 1, landProfile(e.land));
     }
     if (data) {
       grid = new GridScene(data);
@@ -269,7 +273,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     if (e.phase === 1) {
       const { area, cells, plots, pc } = p1();
       e.stores.forEach((s, k) => selection?.kind === 'store' && selection.id === s.id && (get(gridIndex(area, cells[k])).selected = true));
-      const best = plots.length ? plots.map((p, k) => ({ k, v: plotProfit(p) })).sort((a, b) => b.v - a.v)[0].k : -1;
+      const best = plots.length ? plots.map((p, k) => ({ k, v: plotProfit(p, e) })).sort((a, b) => b.v - a.v)[0].k : -1;
       plots.forEach((p, k) => {
         const gi = gridIndex(area, pc[k]);
         const v = get(gi);
@@ -406,7 +410,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     }
     if (target.kind === 'plot') {
       const p = p1().plots[target.id];
-      return p ? [t(`空き区画：${plotLabel(p.kind)}`, `Vacant: ${plotLabel(p.kind)}`), t(`日販 ${money(p.base)}・家賃 ${money(p.rent)}`, `${money(p.base)}/day · rent ${money(p.rent)}`), t(`月の利益の見込み ${money(plotProfit(p))}`, `Est. ${money(plotProfit(p))}/mo`)] : [];
+      return p ? [t(`空き区画：${plotLabel(p.kind)}`, `Vacant: ${plotLabel(p.kind)}`), t(`日販 ${money(p.base)}・家賃 ${money(p.rent)}`, `${money(p.base)}/day · rent ${money(p.rent)}`), t(`月の利益の見込み ${money(plotProfit(p, e))}`, `Est. ${money(plotProfit(p, e))}/mo`)] : [];
     }
     if (target.kind === 'lot' && e.area) {
       const a = e.area;
@@ -574,7 +578,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       ].filter((x): x is HTMLElement => !!x);
     }
     chipsRow.hidden = true;
-    return [h('h1.ke-title', {}, companyTitle(e)), h('span.ke-pill', {}, t(`フェーズ${e.phase}　${PHASE_NAME()[e.phase]}`, `Phase ${e.phase} · ${PHASE_NAME()[e.phase]}`)), h('span.ke-spacer', {}), h('div.ke-chips', {}, ...chips), test, close].filter((x): x is HTMLElement => !!x);
+    return [h('h1.ke-title', {}, companyTitle(e)), h('span.ke-pill', { title: t(`${landProfile(e.land).key}（${landProfile(e.land).kind.ja}）`, `${landProfile(e.land).key} (${landProfile(e.land).kind.en})`) }, t(`フェーズ${e.phase}　${PHASE_NAME()[e.phase]}・${e.land}`, `Phase ${e.phase} · ${PHASE_NAME()[e.phase]} · ${e.land}`)), h('span.ke-spacer', {}), h('div.ke-chips', {}, ...chips), test, close].filter((x): x is HTMLElement => !!x);
   }
 
   /** ヘッダーの 3 冠（持っている冠が金色） */
@@ -826,7 +830,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       cmds.push({ label: t('店の設定', 'Store'), sub: s1 ? t(`発注 ×${s1.order.toFixed(2)}・${s1.hours} 時間`, `×${s1.order.toFixed(2)} · ${s1.hours}h`) : '', band: 'ours', on: () => focusStore(e.stores[0].id), pressed: selection?.kind === 'store' });
       const plots = p1().plots;
       if (plots.length) {
-        const best = plots.map((p, k) => ({ k, v: plotProfit(p) })).sort((a, b) => b.v - a.v)[0].k;
+        const best = plots.map((p, k) => ({ k, v: plotProfit(p, e) })).sort((a, b) => b.v - a.v)[0].k;
         cmds.push({
           label: t('出店', 'Open'),
           sub: t(`${e.stores.length + (draft.open ?? []).length} / 3 店`, `${e.stores.length + (draft.open ?? []).length} / 3`),
@@ -909,6 +913,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         cmds.push({ label: name, sub: now ? (draft.meeting ? t('✓ 原稿あり', '✓ Speech ready') : draft.postpone ? t('延期する', 'Postponing') : t('今月・原稿を決める', 'This month: speech')) : t('来月', 'Next month'), band: now ? 'lantern' : 'ours', on: () => (toggle('meeting')(), openPanel === 'meeting' && phone() && ((sheetState = 'full'), render())), pressed: openPanel === 'meeting' });
       }
     }
+    // 品ぞろえ（どのフェーズでも）：いまの品ぞろえと、ランドの文化との合い方の印
+    {
+      const f = draft.focus ?? e.focus ?? 'daily';
+      cmds.push({ label: t('品ぞろえ', 'Range'), sub: `${fitMark(landProfile(e.land).fit[f])} ${focusLabel(f)}`, band: 'ours', on: toggle('focus'), pressed: openPanel === 'focus' });
+    }
     if (canPromote(e)) cmds.push({ label: t('次の格へ', 'Next stage'), sub: companyTitle({ ...e, phase: Math.min(5, e.phase + 1) as EmpireState['phase'] }), band: 'lantern', on: toggle('promote'), pressed: openPanel === 'promote' });
     return cmds;
   }
@@ -943,6 +952,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         return promoteCard();
       case 'board':
         return boardCard(c, opts.boardCandidates?.() ?? []);
+      case 'focus':
+        return focusCard(c);
       case 'meeting':
         return e.gov ? meetingCard(c) : null;
       case 'ledger':
@@ -974,7 +985,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);
@@ -1203,7 +1214,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
 }
 
 /** マインちゃんの誘い：屋号を決めて会社を作る */
-export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement, land: string | null): HTMLElement {
+export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement, land: string | null, landImage?: (key: string) => HTMLElement | null): HTMLElement {
   ensureFonts();
   const input = h('input.ke-input', { type: 'text', maxlength: 12, value: t('マイクリ', 'MyCrypto'), 'aria-label': t('屋号', 'Company name') }) as HTMLInputElement;
   const seed = () => {
@@ -1211,6 +1222,18 @@ export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElemen
     crypto.getRandomValues(b);
     return b[0];
   };
+  // 本拠のランド：工房のランドが創業できる 4 ランドのどれかなら、それを選んでおく
+  let picked: FoundingLand = FOUNDING_LANDS.find((k) => k.toLowerCase() === (land ?? '').toLowerCase()) ?? 'Ocean';
+  let focus: Focus = bestFocus(picked);
+  const lands = h('div.ke-land-pick', { role: 'radiogroup', 'aria-label': t('本拠のランド', 'Home land') });
+  const detail = h('div.ke-land-detail-host');
+  const focusRow = h('div.ke-focus-pick');
+  const draw = () => {
+    lands.replaceChildren(...FOUNDING_LANDS.map((k) => landPickCard(LAND_PROFILES[k], landImage?.(k) ?? null, k === picked, () => ((picked = k), (focus = bestFocus(k)), draw()))));
+    detail.replaceChildren(landDetail(LAND_PROFILES[picked]));
+    focusRow.replaceChildren(focusPicker(picked, focus, (f) => ((focus = f), draw())));
+  };
+  draw();
   return h(
     'div.ke.ke-found',
     {},
@@ -1218,10 +1241,16 @@ export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElemen
       'div.ke-advisor.ke-advisor-static',
       {},
       h('div.ke-advisor-face', {}, mineImg),
-      h('p.ke-advisor-text', {}, t('店主さん、2 週間もかからずに黄金のエクステンションまで行けるなんて、もう立派な商売人です！ そろそろ、新しいお店を出してみませんか？ この工房は「本店」として、これまでどおり続けられます。', "Owner, you reach the golden extension in under two weeks. You're a real merchant now! How about opening a new store? This workshop carries on as the main shop, just as before.")),
+      h('p.ke-advisor-text', {}, t('店主さん、もう立派な商売人です！ 新しいお店を出してみませんか？ どのランドで始めるかで、当たる商売が変わりますよ。', "Owner, you're a real merchant now! How about opening a new store? What sells depends on the land you start in.")),
     ),
-    h('label.ke-field', {}, h('span.ke-field-label', {}, t('屋号', 'Company name')), input),
-    h('p.ke-note', {}, t('本店の売上の一部が、営業日を終えるたびに会社の資金になります（会社のお金で工房は強くなりません）。', "Part of the main shop's sales goes into the company's funds after each business day (company money doesn't power up the workshop).")),
-    h('button.ke-btn.ke-btn-primary', { type: 'button', onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed(), land ?? 'Ocean')) }, t('お店を出す', 'Open a store')),
+    h('div.ke-field.ke-field-stack', {}, h('span.ke-field-label', {}, t('本拠のランド', 'Home land'), h('span.ke-hint', {}, t('文化・地形・特産品・キングがランドごとに違います', 'Culture, terrain, specialty and king differ by land'))), lands, detail),
+    h('div.ke-field.ke-field-stack', {}, h('span.ke-field-label', {}, t('品ぞろえ', 'Product range'), h('span.ke-hint', {}, t('◎ ほど、このランドで当たります（あとで変えられます）', '◎ sells best in this land (you can change it later)'))), focusRow),
+    h(
+      'div.ke-found-go',
+      {},
+      h('label.ke-found-name', {}, h('span.ke-field-label', {}, t('屋号', 'Company name')), input),
+      h('button.ke-btn.ke-btn-primary', { type: 'button', onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed(), picked, focus)) }, t('お店を出す', 'Open a store')),
+    ),
+    h('p.ke-hint', {}, t('本店の売上の一部が、営業日を終えるたびに会社の資金になります（会社のお金で工房は強くなりません）。', "Part of the main shop's sales goes into the company's funds after each business day (company money doesn't power up the workshop).")),
   );
 }

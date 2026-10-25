@@ -1760,3 +1760,155 @@
   min-height: 28px;
   border-bottom: 1px solid var(--night-800);
 }
+
+/* ---------------------------------------------------------------- ランド選びと品ぞろえ */
+.ke-land-pick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.ke-land-card {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  grid-template-areas: 'face head';
+  align-items: center;
+  gap: 4px var(--space-2);
+  padding: var(--space-2);
+  text-align: left;
+  border: var(--border-panel) solid var(--night-800);
+  border-radius: var(--radius-md);
+  background: var(--plum-600);
+  color: var(--text-100);
+  cursor: pointer;
+}
+.ke-land-card[aria-checked='true'] {
+  background: var(--paper-100);
+  color: var(--night-800);
+  border-color: var(--lantern-400);
+}
+.ke-land-card[aria-checked='true'] .ke-hint,
+.ke-land-card[aria-checked='true'] .ke-land-meta {
+  color: var(--night-800);
+}
+.ke-land-face {
+  grid-area: face;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.ke-land-face > * {
+  max-width: 48px;
+  max-height: 48px;
+  image-rendering: pixelated;
+}
+.ke-land-head {
+  grid-area: head;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  font: var(--type-heading);
+}
+.ke-land-lines {
+  grid-area: lines;
+  margin: 0;
+  padding-left: 1.1em;
+  font: var(--type-caption);
+}
+.ke-land-meta {
+  grid-area: meta;
+  font: var(--type-caption);
+  color: var(--text-300);
+}
+.ke-focus-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ke-focus-btn {
+  min-height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-3);
+  border: 2px solid var(--night-800);
+  border-radius: var(--radius-pill);
+  background: var(--night-800);
+  color: var(--text-100);
+  font: var(--type-body);
+  cursor: pointer;
+}
+.ke-focus-btn[aria-checked='true'] {
+  background: var(--paper-100);
+  color: var(--night-800);
+}
+.ke-fit {
+  font: var(--type-figure);
+}
+.ke-fit.is-best {
+  color: var(--lantern-400);
+}
+.ke-focus-btn[aria-checked='true'] .ke-fit.is-best {
+  color: var(--alert-ink);
+}
+.ke-fit.is-bad {
+  color: var(--rival-200);
+}
+.ke-found .ke-land-pick {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 599px) {
+  .ke-found .ke-land-pick {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.ke-land-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-sm);
+  background: var(--paper-100);
+  color: var(--night-800);
+}
+.ke-land-detail .ke-land-meta {
+  color: var(--night-800);
+}
+.ke-found-go {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.ke-found-name {
+  flex: 1 1 12em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ke-field-stack > .ke-land-pick,
+.ke-field-stack > .ke-focus-pick {
+  flex: 1 1 100%;
+}
+.ke-field-stack > .ke-land-detail-host {
+  flex: 1 1 100%;
+}
+.ke-land-head {
+  min-width: 0;
+}
+.ke-land-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 599px) {
+  .ke-found .ke-advisor-face {
+    width: 48px;
+    height: 72px;
+  }
+  .ke-found .ke-focus-btn {
+    min-height: 40px;
+    padding: 0 var(--space-2);
+    font: var(--type-caption);
+  }
+}

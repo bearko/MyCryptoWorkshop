@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const [months = 36, seeds = 20] = process.argv.slice(2).map(Number);
+const [months = 36, seeds = 20] = process.argv.slice(2, 4).map(Number);
+// ランドと品ぞろえ（省けば Ocean・日用品）
+const [land = 'Ocean', focus] = process.argv.slice(4);
 
 const server = await createServer({ root, logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
 try {
@@ -19,7 +21,7 @@ try {
     return s.length ? s[Math.floor(s.length / 2)] : null;
   };
   const table = BOTS.map((bot) => {
-    const rs = Array.from({ length: seeds }, (_, i) => runBot(bot, i + 1, months));
+    const rs = Array.from({ length: seeds }, (_, i) => runBot(bot, i + 1, months, land, focus));
     const done = rs.filter((r) => r.phase1Month !== null).map((r) => r.phase1Month);
     const done2 = rs.filter((r) => r.phase2Month !== null).map((r) => r.phase2Month - r.phase1Month);
     const done3 = rs.filter((r) => r.phase3Month !== null).map((r) => r.phase3Month - r.phase2Month);
@@ -38,7 +40,7 @@ try {
       '最後通告（1 社あたり）': (rs.reduce((a, r) => a + r.ultimatums, 0) / seeds).toFixed(1),
     };
   });
-  console.log(`${months} か月・種 ${seeds} 個`);
+  console.log(`${months} か月・種 ${seeds} 個・${land}${focus ? `・${focus}` : ''}`);
   console.table(table);
 } finally {
   await server.close();

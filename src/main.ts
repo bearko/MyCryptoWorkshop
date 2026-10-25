@@ -1150,7 +1150,11 @@ async function openEmpire(): Promise<void> {
         close();
         sound.play('helper');
         void openEmpire();
-      }, fileImg(staffFrames.mine[0].image, 'px empire-mine'), save.prestige.home),
+      }, fileImg(staffFrames.mine[0].image, 'px empire-mine'), save.prestige.home, (k) => {
+        // 守り神（クリプタイド）の絵
+        const l = lands.find((x) => x.key === k);
+        return l ? fileImg(l.cryptid, 'px') : null;
+      }),
       [{ label: t('あとで', 'Later') }],
       'wide',
     );
