@@ -9,6 +9,8 @@ import type { Campaign } from './rivalai';
 import { FOCUSES, type Focus } from './lands';
 import { restoreCourt, type Court, type Offering, type Privilege } from './court';
 import { ENTRY_MODES, type Branch, type EntryMode, type World } from './world';
+import { restoreGroup, type Group } from './group';
+import type { Business } from './business';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -125,7 +127,13 @@ export type Note =
   | { kind: 'exited'; land: string; stores: number }
   | { kind: 'jvBuyout'; land: string }
   | { kind: 'licenseWarning'; land: string; month: number }
-  | { kind: 'licenseBroke'; land: string; stores: number };
+  | { kind: 'licenseBroke'; land: string; stores: number }
+  /** フェーズ 5 企業グループ（group.ts・business.ts） */
+  | { kind: 'auctionSoon'; month: number }
+  | { kind: 'auction'; land: string; won: number; wanted: number; paid: number; rivalWon: number }
+  | { kind: 'legendCrown'; land: string; crown: CrownId; won: boolean }
+  | { kind: 'tableChanged'; added: Business[]; removed: Business[] }
+  | { kind: 'ending' };
 
 export interface MonthReport {
   month: number;
@@ -138,6 +146,8 @@ export interface MonthReport {
   rivalRevenue?: number;
   /** フェーズ 4 から：本拠の外のランドの売上（revenue に含む） */
   foreignRevenue?: number;
+  /** フェーズ 5 から：会議卓の事業の利益（profit に含む） */
+  groupProfit?: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -183,6 +193,8 @@ export interface EmpireState {
   court?: Court;
   /** フェーズ 4 から：渡ったランドと、ほかの会社の進み具合 */
   world?: World;
+  /** フェーズ 5 から：会議卓・地主会・Legendary の番付・エンディング */
+  group?: Group;
 }
 
 export const HISTORY = 24;
@@ -231,6 +243,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     campaign: restoreCampaign(r.campaign),
     court: restoreCourt(r.court),
     world: restoreWorld(r.world),
+    group: restoreGroup(r.group),
     ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
 }
@@ -307,6 +320,7 @@ function restoreNation(raw: unknown): Nation | null {
       hub: r?.hub === true,
       ...Object.fromEntries(STORE_TYPES.map((k) => [k, int(r?.[k])])),
       rival: int(r?.rival),
+      ...(typeof r?.plots === 'number' ? { plots: int(r.plots), rivalPlots: int(r.rivalPlots ?? r.rival) } : {}),
     })) as Nation['regions'],
     trainingCenters: int(n.trainingCenters),
     manual: n.manual === true,

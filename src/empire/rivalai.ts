@@ -42,14 +42,17 @@ function score(r: Region): number {
  * ライバルの出店（RIVAL_NATION.interval か月ごとに呼ぶ）。rounds は緩い時代やライバルを名指ししたあとで 2。
  * 開いているエリアだけ、エリアの入りきる目安の RIVAL_NATION.share まで。
  */
+/** ライバルが店を出せる上限（Legendary は落札した区画まで） */
+const capOf = (r: Nation['regions'][number]) => Math.min(Math.floor(r.capacity * RIVAL_NATION.share), r.rivalPlots ?? Infinity);
+
 export function rivalExpand(n: Nation, rounds: number): void {
   for (let k = 0; k < rounds; k++) {
     const order = n.regions
       .map((r, i) => ({ r, i }))
-      .filter((x) => !x.r.locked && x.r.rival < Math.floor(x.r.capacity * RIVAL_NATION.share))
+      .filter((x) => !x.r.locked && x.r.rival < capOf(x.r))
       .sort((a, b) => score(b.r) - score(a.r) || a.i - b.i);
     order.forEach((x, j) => {
-      const cap = Math.floor(x.r.capacity * RIVAL_NATION.share);
+      const cap = capOf(x.r);
       x.r.rival = Math.min(cap, x.r.rival + (SPREAD[j] ?? 0));
     });
   }
@@ -79,7 +82,7 @@ export function campaignStep(n: Nation, c: Campaign | null, month: number, count
   if (!campaignActive(c, month)) return 1;
   const r = n.regions[c.region];
   if (month === c.start) {
-    r.rival = Math.min(Math.floor(r.capacity * RIVAL_NATION.share) + CAMPAIGN.stores, r.rival + CAMPAIGN.stores);
+    r.rival = Math.min(Math.floor(r.capacity * RIVAL_NATION.share) + CAMPAIGN.stores, r.rivalPlots ?? Infinity, r.rival + CAMPAIGN.stores);
     notes.push({ kind: 'campaign', region: c.region, until: c.end });
   }
   return countered ? 1 : CAMPAIGN.demand;

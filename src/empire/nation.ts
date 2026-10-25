@@ -26,6 +26,9 @@ export interface Region {
   rarity: number;
   /** まだ入れないエリア（Legendary はフェーズ 5 で開く）。売上もライバルの増加もない */
   locked: boolean;
+  /** Legendary だけ：地主会で落札した区画（自社・ライバル）。店はこの数までしか出せない */
+  plots?: number;
+  rivalPlots?: number;
 }
 
 export interface Nation {
@@ -141,6 +144,25 @@ export function collateral(n: Nation): number {
   return n.regions.reduce((a, r) => a + r.direct, 0) * LOAN.landPerStore * n.landIndex;
 }
 export const borrowable = (n: Nation) => Math.max(0, collateral(n) * LOAN.ratio - n.loans);
+
+/** そのエリアが Legendary か */
+export const isLegend = (r: Region) => r.rarity >= LOCKED_RARITY;
+export const legendIndex = (n: Pick<Nation, 'regions'>) => n.regions.findIndex(isLegend);
+
+/** Legendary エリアを開く（フェーズ 5 になったとき、フェーズ 5 で渡ったとき）。ライバルの今の店がライバルの区画になる */
+export function unlockLegend(n: Pick<Nation, 'regions'>): void {
+  for (const r of n.regions) {
+    if (!isLegend(r) || !r.locked) continue;
+    r.locked = false;
+    r.plots = r.plots ?? 0;
+    // ライバルも、エリアの区画の 5 割までしか持てない
+    r.rivalPlots = Math.min(r.rivalPlots ?? r.rival, Math.floor(r.capacity / 2));
+    r.rival = Math.min(r.rival, r.rivalPlots);
+  }
+}
+
+/** Legendary エリアに、あと何店出せるか（落札した区画まで）。ほかのエリアは区画の縛りなし */
+export const plotRoom = (r: Region) => (isLegend(r) ? Math.max(0, (r.plots ?? 0) - regionStores(r)) : Infinity);
 
 export const regionStores = (r: Region) => r.direct + r.fcOwner + r.fcHq;
 export const nationStores = (n: Nation) => n.regions.reduce((a, r) => a + regionStores(r), 0);

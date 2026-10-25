@@ -8,7 +8,9 @@ import { landProfile, type FoundingLand, type Focus } from './lands';
 import { KINGS } from './court';
 import { entryCost, OPEN_LANDS, phase4Done, routeCost, type BranchDecision } from './world';
 import { crownStats, REGULATION } from './crowns';
-import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
+import { HUB_COST, legendIndex, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
+import { biddable, bidPrice, landsOf, type Bid } from './group';
+import { BUSINESS, type Business } from './business';
 import {
   advanceMonth,
   AREA_OPEN_COST,
@@ -141,7 +143,7 @@ function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   let funds = s.funds - reserved4(d);
   const next = OPEN_LANDS.filter((k) => k !== s.land && !w.branches.some((b) => b.land === k));
   const lastEntry = Math.max(-99, ...w.branches.map((b) => b.opened));
-  if (next.length && s.month - lastEntry >= 12 && funds > (routeCost(s) + entryCost('jv')) * 2) {
+  if (next.length && (s.phase >= 5 || s.month - lastEntry >= 12) && funds > (routeCost(s) + entryCost('jv')) * 2) {
     d.enter = { land: next[0], mode: 'jv' };
     funds -= routeCost(s) + entryCost('jv');
   }
@@ -176,14 +178,54 @@ function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   return { ...d, branches };
 }
 
+/** フェーズ 5 の手：フェーズ 4 と同じに加えて、地主会で強気に区画を取り、会議卓にシナジーの線がつながる順にカードを置く */
+const LAYOUT: [number, Business][] = [
+  [1, 'freight'],
+  [3, 'tavern'],
+  [5, 'factory'],
+  [7, 'bank'],
+  [6, 'media'],
+  [8, 'estate'],
+  [2, 'power'],
+  [0, 'trade'],
+];
+function phase5Moves(s: EmpireState, reserve: number, type: StoreType): Decisions {
+  const g = s.group!;
+  // 会議卓のカードを先に（番付の決め手になるので、出店より先に資金を回す）
+  const next = LAYOUT.find(([slot]) => !g.table[slot]);
+  const card = next && s.funds > BUSINESS[next[1]].cost * 1.5 * reserve ? next : null;
+  const cardCost = card ? BUSINESS[card[1]].cost : 0;
+  const d = phase4Moves({ ...s, funds: s.funds - cardCost }, reserve, type);
+  if (card) {
+    const table = [...g.table];
+    table[card[0]] = card[1];
+    d.table = table;
+  }
+  let funds = s.funds - cardCost - reserved4(d);
+  if (s.month === g.nextAuction) {
+    const bids: Record<string, Bid> = {};
+    for (const { land, nation } of landsOf(s)) {
+      const r = nation.regions[legendIndex(nation)];
+      if (!r || r.locked) continue;
+      const plots = Math.min(biddable(r), Math.floor(funds / bidPrice('high')));
+      if (plots > 0) {
+        bids[land] = { plots, level: 'high' };
+        funds -= plots * bidPrice('high');
+      }
+    }
+    d.bids = bids;
+  }
+  return d;
+}
+
 /** 本拠の決定でおよそ使う資金（フェーズ 4 のボットの資金繰り） */
 const reserved4 = (d: Decisions) => (d.training ?? 0) * TRAINING_COST + (d.buildHub?.length ?? 0) * HUB_COST + (d.expand ?? []).reduce((a, x) => a + x.count * OPEN_COSTS[x.type], 0);
 
 /** フェーズごとに手を変えるボット */
 const staged = (p1: (s: EmpireState) => Decisions, reserve: number, type: StoreType) => (s: EmpireState): Decisions => {
-  if (canPromote(s) && s.phase < 4) return { promote: true };
+  if (canPromote(s) && s.phase < 5) return { promote: true };
   if (s.phase === 1) return heedDemands(s, p1(s));
-  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : s.phase === 3 ? phase3Moves(s, reserve, type) : phase4Moves(s, reserve, type));
+  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : s.phase === 3 ? phase3Moves(s, reserve, type) : s.phase === 4 ? phase4Moves(s, reserve, type) : phase5Moves(s, reserve, type));
 };
 
 const BOTS_P1: Bot[] = [
@@ -228,6 +270,10 @@ export interface BotResult {
   phase3Month: number | null;
   /** フェーズ 4 の条件を満たした月 */
   phase4Month: number | null;
+  /** エンディングの月 */
+  endingMonth: number | null;
+  /** Legendary の番付の冠（最後の月） */
+  legend: number;
   stores: number;
   funds: number;
   /** 資金がマイナスで終わった月の数 */
@@ -243,6 +289,7 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
   let phase2Month: number | null = null;
   let phase3Month: number | null = null;
   let phase4Month: number | null = null;
+  let endingMonth: number | null = null;
   let redMonths = 0;
   let ultimatums = 0;
   let demands = 0;
@@ -256,6 +303,8 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
     if (phase3Month === null && s.phase === 3 && s.court?.audience) phase3Month = s.month;
     if (phase4Month === null && s.phase === 4 && phase4Done(s)) phase4Month = s.month;
+    if (endingMonth === null && s.group?.ended != null) endingMonth = s.month;
   }
-  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, phase4Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
+  const legend = Object.values(s.group?.legend ?? {}).reduce((a, r) => a + Object.values(r.held).filter(Boolean).length, 0);
+  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, phase4Month, endingMonth, legend, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
 }

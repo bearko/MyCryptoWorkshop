@@ -44,6 +44,7 @@ const STEPS = [
   ['p2', 'フェーズ 2 へ飛ぶ'],
   ['p3', 'フェーズ 3 へ飛ぶ'],
   ['p4', 'フェーズ 4 へ飛ぶ'],
+  ['p5', 'フェーズ 5 へ飛ぶ'],
 ];
 
 /** ページの中で見た目を検査する（文字列の配列を返す） */
@@ -58,6 +59,7 @@ function audit(phone) {
     if (Math.abs(s - Math.round(s)) > 0.02 && s > 0.98) issues.push(`scale: img ${im.alt || im.src.split('/').pop()} ×${s.toFixed(2)}`);
   }
   for (const c of ke.querySelectorAll('canvas')) {
+    if (!c.offsetWidth) continue; // 隠れている地図（フェーズ 5 の会議卓のあいだ）
     const s = Number(c.dataset.artScale);
     if (!Number.isInteger(s)) issues.push(`scale: canvas ×${c.dataset.artScale}`);
   }
