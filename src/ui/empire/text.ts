@@ -6,6 +6,7 @@ import { PLEDGE, type PromiseKind } from '../../empire/governance';
 import type { CrownId } from '../../empire/crowns';
 import { landProfile, type Focus } from '../../empire/lands';
 import type { Offering, Privilege } from '../../empire/court';
+import type { EntryMode } from '../../empire/world';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
@@ -126,12 +127,22 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`担保割れで、借入 ${fmt(Math.round(n.amount))} を返すよう求められました`, `Collateral fell short: you had to repay ${fmt(Math.round(n.amount))} of loans`);
     case 'ipo':
       return t(`上場しました！ ${fmt(Math.round(n.raised))} を集めました（持分は薄まります）`, `You went public and raised ${fmt(Math.round(n.raised))} (your stake is diluted)`);
+    case 'entered':
+      return t(`${n.land}に渡りました（${entryLabel(n.mode)}）。まずは小さく始めます`, `You crossed to ${n.land} (${entryLabel(n.mode)}). Start small`);
+    case 'exited':
+      return t(`${n.land}から引き上げました（${n.stores} 店を売却）。現地の知見は残ります`, `You left ${n.land} (${n.stores} stores sold). The local know-how stays`);
+    case 'jvBuyout':
+      return t(`${n.land}の提携先の持分を買い取りました`, `You bought out your partner in ${n.land}`);
+    case 'licenseWarning':
+      return t(`${n.land}の提携先が、${monthLabel(n.month)}に独立したいと言っています。買い取らなければ、店ごとライバルになります`, `Your licensee in ${n.land} wants independence in ${monthLabel(n.month)}. Buy them out or they become a rival`);
+    case 'licenseBroke':
+      return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
-      return n.stage === 1 ? t('政府が、あなたの会社に目を留めはじめました', 'The government has started to notice your company') : t(`大臣から声がかかりました。${kingName(e?.land)}の耳にも届いているようです`, `A minister reached out. Word has reached ${kingName(e?.land)}`);
+      return n.stage === 1 ? t('政府が、あなたの会社に目を留めはじめました', 'The government has started to notice your company') : t(`大臣から声がかかりました。${kingName(n.land ?? e?.land)}の耳にも届いているようです`, `A minister reached out. Word has reached ${kingName(n.land ?? e?.land)}`);
     case 'audienceInvite':
-      return t(`${kingName(e?.land)}から謁見の招待が届きました。献上の品を選んで臨みましょう`, `${kingName(e?.land)} invites you to an audience. Choose an offering`);
+      return t(`${kingName(n.land ?? e?.land)}から謁見の招待が届きました。献上の品を選んで臨みましょう`, `${kingName(n.land ?? e?.land)} invites you to an audience. Choose an offering`);
     case 'audience':
-      return n.success ? t(`${kingName(e?.land)}との謁見が成りました。特権「${privilegeLabel(n.privilege)}」を授かりました`, `Your audience with ${kingName(e?.land)} went well. Privilege granted: ${privilegeLabel(n.privilege)}`) : t(`${kingName(e?.land)}は「${offeringLabel(n.offering)}」がお気に召さなかったようです。注目度が下がりました`, `${kingName(e?.land)} was not pleased with ${offeringLabel(n.offering)}. Attention fell`);
+      return n.success ? t(`${kingName(n.land ?? e?.land)}との謁見が成りました。特権「${privilegeLabel(n.privilege)}」を授かりました`, `Your audience with ${kingName(n.land ?? e?.land)} went well. Privilege granted: ${privilegeLabel(n.privilege)}`) : t(`${kingName(n.land ?? e?.land)}は「${offeringLabel(n.offering)}」がお気に召さなかったようです。注目度が下がりました`, `${kingName(n.land ?? e?.land)} was not pleased with ${offeringLabel(n.offering)}. Attention fell`);
     case 'focusChanged':
       return t(`品ぞろえを「${focusLabel(n.focus)}」に変えました`, `Switched the range to ${focusLabel(n.focus)}`);
     case 'crown':
@@ -273,4 +284,9 @@ export function offeringLabel(o: Offering): string {
 /** 特権の呼び名と効き目 */
 export function privilegeLabel(p: Privilege): string {
   return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)') }[p];
+}
+
+/** 参入方式の呼び名 */
+export function entryLabel(m: EntryMode): string {
+  return { direct: t('直営', 'Direct'), license: t('ライセンス', 'License'), jv: t('合弁', 'Joint venture'), acquire: t('買収', 'Acquisition') }[m];
 }

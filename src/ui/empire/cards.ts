@@ -49,12 +49,13 @@ import {
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
-import { cellName, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
+import { cellName, entryLabel, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
 import { articlesField } from './govern';
 import type { Articles } from '../../empire/governance';
 import { FOCUS_CHANGE_PER_STORE, landProfile } from '../../empire/lands';
 import { focusPicker } from './landui';
 import { counterCost } from '../../empire/rivalai';
+import { branchDecisionCost, branchOf, buyoutCost, ENTRY, entryCost, exitValue, routeCost } from '../../empire/world';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -96,7 +97,9 @@ export function reserved(e: EmpireState, d: Decisions): number {
     (d.buildHub ?? []).length * HUB_COST +
     (d.training ?? 0) * TRAINING_COST +
     (d.manual && !e.nation?.manual ? MANUAL_COST : 0) +
-    (d.pb ? PB.cost : 0)
+    (d.pb ? PB.cost : 0) +
+    (d.enter ? routeCost(e) + entryCost(d.enter.mode) : 0) +
+    Object.entries(d.branches ?? {}).reduce((a, [land, bd]) => a + branchDecisionCost(e, land, bd), 0)
   );
 }
 
@@ -545,6 +548,26 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
   if (d.postpone) out.push({ label: t('総会を延期', 'Postpone the meeting'), cost: 0, cancel: (x) => ({ ...x, postpone: undefined }) });
   if (d.offering) out.push({ label: t(`謁見の献上：${offeringLabel(d.offering)}`, `Offering: ${offeringLabel(d.offering)}`), cost: 0, cancel: (x) => ({ ...x, offering: undefined }) });
   if (d.focus && d.focus !== (e.focus ?? 'daily')) out.push({ label: t(`品ぞろえ：${focusLabel(d.focus)}`, `Range: ${focusLabel(d.focus)}`), cost: focusChangeCost(e), cancel: (x) => ({ ...x, focus: undefined }) });
+  if (d.enter) out.push({ label: t(`${d.enter.land}へ渡る（${entryLabel(d.enter.mode)}）`, `Cross to ${d.enter.land} (${entryLabel(d.enter.mode)})`), cost: routeCost(e) + entryCost(d.enter.mode), cancel: (x) => ({ ...x, enter: undefined }) });
+  for (const [land, bd] of Object.entries(d.branches ?? {})) {
+    const b = branchOf(e, land);
+    if (!b) continue;
+    const name = (ri: number) => {
+      const r = b.nation.regions[ri];
+      return r ? t(r.name.ja, r.name.en) : '?';
+    };
+    const drop = (patch: Partial<typeof bd>) => (x: Decisions): Decisions => ({ ...x, branches: { ...x.branches, [land]: { ...x.branches?.[land], ...patch } } });
+    for (const x of bd.expand ?? []) {
+      const kind = { direct: t('直営', 'company-run'), fcOwner: t('加盟', 'franchise'), fcHq: t('加盟（本部の土地）', 'franchise (HQ land)') }[x.type];
+      out.push({ label: t(`${land}・${name(x.region)}：${kind} +${x.count}`, `${land} · ${name(x.region)}: ${kind} +${x.count}`), cost: x.count * OPEN_COSTS[x.type], cancel: (y) => drop({ expand: (y.branches?.[land]?.expand ?? []).filter((z) => !(z.region === x.region && z.type === x.type)) })(y) });
+    }
+    for (const ri of bd.buildHub ?? []) out.push({ label: t(`${land}・${name(ri)}：物流拠点`, `${land} · ${name(ri)}: hub`), cost: HUB_COST, cancel: (y) => drop({ buildHub: (y.branches?.[land]?.buildHub ?? []).filter((z) => z !== ri) })(y) });
+    if (bd.training) out.push({ label: t(`${land}：研修所 +${bd.training}`, `${land}: training center +${bd.training}`), cost: bd.training * TRAINING_COST, cancel: drop({ training: undefined }) });
+    if (bd.localize) out.push({ label: t(`${land}：現地化`, `${land}: localize`), cost: ENTRY.localizeCost, cancel: drop({ localize: undefined }) });
+    if (bd.buyout) out.push({ label: t(`${land}：提携先の買い取り`, `${land}: buy out the partner`), cost: buyoutCost(b, e.month), cancel: drop({ buyout: undefined }) });
+    if (bd.offering) out.push({ label: t(`${land}・謁見の献上：${offeringLabel(bd.offering)}`, `${land} · offering: ${offeringLabel(bd.offering)}`), cost: 0, cancel: drop({ offering: undefined }) });
+    if (bd.exit) out.push({ label: t(`${land}から撤退`, `Leave ${land}`), cost: -exitValue(b), cancel: drop({ exit: undefined }) });
+  }
   if (d.counter && e.campaign && e.nation) out.push({ label: t('対抗セール', 'Counter-sale'), cost: counterCost(e.nation, e.campaign), cancel: (x) => ({ ...x, counter: undefined }) });
   return out;
 }

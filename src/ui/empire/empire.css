@@ -1933,3 +1933,58 @@
 .ke-phone .ke-paper.is-wide {
   grid-template-columns: 1fr;
 }
+
+/* ---------------------------------------------------------------- 世界の海図（フェーズ 4） */
+.ke-entry-list {
+  display: grid;
+  gap: 6px;
+}
+.ke-entry {
+  display: grid;
+  gap: 2px;
+  min-height: var(--touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--night-800);
+  border-radius: var(--radius-sm);
+  background: var(--night-800);
+  color: var(--text-100);
+  font: var(--type-body);
+  text-align: left;
+  cursor: pointer;
+}
+.ke-entry[aria-checked='true'] {
+  background: var(--paper-100);
+  color: var(--night-800);
+}
+.ke-entry[aria-checked='true'] .ke-hint {
+  color: var(--night-800);
+}
+.ke-entry:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ke-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.ke-isle-dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--night-800);
+  background: var(--neutral-400);
+}
+.ke-isle-dot.is-home {
+  background: var(--ours-400);
+}
+.ke-isle-dot.is-branch {
+  background: var(--paper-100);
+}
+.ke-isle-dot.is-open {
+  background: var(--ours-200);
+}
+.ke-isle-tag.is-closed {
+  color: var(--text-300);
+}

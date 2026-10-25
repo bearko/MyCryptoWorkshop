@@ -6,7 +6,8 @@ import { newStake } from '../empire/stakeholders';
 import { PARTY_ROSTER, scoutId } from '../game/party';
 import { planCampaign } from '../empire/rivalai';
 import { bestFocus, FOUNDING_LANDS } from '../empire/lands';
-import { newCourt } from '../empire/court';
+import { KINGS, newCourt } from '../empire/court';
+import { landProfile, type FoundingLand } from '../empire/lands';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -88,7 +89,15 @@ export const testActions = {
   },
   /** キングから謁見の招待を出す（注目度 100。フェーズ 3 から） */
   inviteAudience(current: SaveData): SaveData {
-    return withEmpire(current, (e) => (e.phase >= 3 ? { ...e, court: { ...(e.court ?? newCourt()), attention: 100, stage: 2, invited: true, audience: false } } : e));
+    return withEmpire(current, (e) => {
+      if (e.phase < 3) return e;
+      // フェーズ 4 で本拠の謁見が済んでいれば、渡ったランドのキングから
+      if (e.phase >= 4 && e.court?.audience && e.world?.branches.length) {
+        const invite = (c: NonNullable<EmpireState['court']>) => (c.audience ? c : { ...c, attention: 100, stage: 2, invited: true });
+        return { ...e, world: { ...e.world, branches: e.world.branches.map((b) => ({ ...b, court: invite(b.court) })) } };
+      }
+      return { ...e, court: { ...(e.court ?? newCourt()), attention: 100, stage: 2, invited: true, audience: false } };
+    });
   },
   /** 決定を変えずに n か月進める */
   advanceMonths(current: SaveData, n: number): SaveData {
@@ -125,6 +134,14 @@ export const testActions = {
     for (let i = 0; i < 12 && !canPromote(e); i++) e = advanceMonth(e).state;
     e = advanceMonth(e, { promote: true }).state;
     return { ...current, empire: { ...e, funds: 1e9 } };
+  },
+  /** フェーズ 4（世界展開）へ飛ぶ：フェーズ 3 の卒業（本拠のキングとの謁見）を済ませて格上げしたところ（資金 50 億を残す） */
+  jumpPhase4(current: SaveData, seed = 1): SaveData {
+    let e = testActions.jumpPhase3(current, seed).empire!;
+    const king = KINGS[landProfile(e.land).key as FoundingLand] ?? KINGS.Ocean;
+    e = { ...e, court: { ...(e.court ?? newCourt()), attention: 100, stage: 2, invited: false, audience: true, privileges: [king.privilege] } };
+    e = advanceMonth(e, { promote: true }).state;
+    return { ...current, empire: { ...e, funds: 5e9 } };
   },
   setSeed(current: SaveData, seed: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
@@ -199,6 +216,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(save.empire ? t('会社を作り直す（種 1）', 'Refound (seed 1)') : t('会社を作る（種 1）', 'Found (seed 1)'), () => testActions.foundEmpire(save, 1)),
       btn(t('フェーズ 2 へ飛ぶ', 'Jump to phase 2'), () => testActions.jumpPhase2(save)),
       btn(t('フェーズ 3 へ飛ぶ', 'Jump to phase 3'), () => testActions.jumpPhase3(save)),
+      btn(t('フェーズ 4 へ飛ぶ', 'Jump to phase 4'), () => testActions.jumpPhase4(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
       btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),

@@ -271,6 +271,11 @@ export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean):
   if ((e.crowns?.overMonths ?? 0) > 0) return t('シェアが 5 割を超え、当局が分割の審査を始めました。出店を止めるか、加盟店を手放してシェアを下げましょう。', 'Over half the market: a break-up review began. Stop opening or shed stores.');
   if (e.campaign && campaignActive(e.campaign, e.month)) return t('ライバルの値下げ攻勢です。絵馬の「対抗セール」で客足を守れます（費用がかかります）。', 'A rival price war. Use the counter-sale on the plaque to keep customers (it costs money).');
   if (e.court?.invited && !e.court.audience) return t(`${kingName(e.land)}から謁見の招待です！ 下の「${kingName(e.land)}」で献上の品を選んでから、月を進めましょう。`, `${kingName(e.land)} invites you! Pick an offering under "${kingName(e.land)}", then advance.`);
+  // 渡ったランドのキングからの招待と、ライセンスの独立
+  const invitedAbroad = e.world?.branches.find((b) => b.court.invited && !b.court.audience);
+  if (invitedAbroad) return t(`${invitedAbroad.land}の${kingName(invitedAbroad.land)}から謁見の招待です！ 海図から${invitedAbroad.land}を開き、「${kingName(invitedAbroad.land)}」で献上の品を選びましょう。`, `${kingName(invitedAbroad.land)} of ${invitedAbroad.land} invites you! Open ${invitedAbroad.land} from the chart and pick an offering.`);
+  const lic = has('licenseWarning');
+  if (lic && 'land' in lic) return t(`${lic.land}の提携先が独立を言い出しそうです。その月に支社の「買い取る」を選ばないと、店ごとライバルになります。`, `Your licensee in ${lic.land} wants out. Buy them out from the branch that month, or they become a rival.`);
   if (meetingNow(e)) return e.nation?.listed ? t('今月は株主総会です。下の「株主総会」で、たたえる相手・ライバル・来年の約束を決めましょう。', "It's the shareholders' meeting this month. Choose your speech under \"Shareholders\".") : t('今月は銀行との面談です。下の「銀行と面談」で、話すことを決めましょう。', 'You meet the bank this month. Choose what to say under "Bank meeting".');
   const last = (e.stake?.demands ?? []).find((d) => monthsLeft(e, d.due) <= 1);
   if (last) return t(`${stakeName(last.who)}の要望の期限は今月です。絵馬の手を打たないと、最後通告になります。`, `${stakeName(last.who)}'s request is due this month. Act on the plaque or face an ultimatum.`);
@@ -291,6 +296,10 @@ export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean):
     return t('点線の区画が出店の候補です（★がおすすめ）。押すと、家賃と見込みの利益を比べられます。', 'Dashed plots are candidates (★ is the best). Tap one to compare rent and expected profit.');
   }
   if (e.phase === 2) return t('物流センターから 2 マスの配送圏に店を集めると、配送費が下がります。★はおすすめの区画です。', 'Cluster stores within 2 plots of a distribution center to cut delivery costs. ★ marks good plots.');
+  if (e.phase >= 4 && e.world) {
+    if (!e.world.branches.length) return t('海図の島を押すと、渡り方と費用が出ます。遅れて渡るほど、ほかの会社の店が増えていますよ。', 'Tap an island on the chart to see how to enter and what it costs. The longer you wait, the more rivals there are.');
+    return t('渡ったランドでは、研修所を建てて店長を育て、Common のエリアから広げます。そのランドのキングの好みに合わせると、注目が集まります。', 'In a new land, build a training center and grow from the Common area. Suit the local king to draw attention.');
+  }
   if (e.phase === 3) return t('物流拠点を建てたエリアにだけ出店できます。研修所で育った人の数が、月に出せる店の数です。', 'You can only open where you built a hub. Trainees per month cap your openings.');
   return t('今月の稟議をそろえて、「月を進める」を押しましょう。', 'Line up this month’s plans and press "Next month".');
 }
