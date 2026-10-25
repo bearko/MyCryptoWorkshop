@@ -147,9 +147,24 @@ function crisisVoices(e: EmpireState): Voice[] {
   return out;
 }
 
+/** 大陸ホールディングスの買い集め（防衛策を選ぶまで） */
+function raidVoices(e: EmpireState): Voice[] {
+  const r = e.mna?.raid;
+  if (!r || r.defense) return [];
+  return [
+    {
+      key: 'raid',
+      who: t('大陸ホールディングス', 'Continental Holdings'),
+      text: r.tobAt !== null ? t(`${monthLabel(r.tobAt)}に公開買付けをかけます。指示の「M&A」で防衛策を選んでください`, `A tender offer comes in ${monthLabel(r.tobAt)}. Choose a defense under "M&A"`) : t(`御社の株を ${Math.round(r.stake * 100)}% 持ちました。まだ買い集めます`, `We now hold ${Math.round(r.stake * 100)}% of your company, and we are buying more`),
+      due: r.tobAt !== null ? t(`あと ${monthsLeft(e, r.tobAt)} か月`, `${monthsLeft(e, r.tobAt)} months left`) : undefined,
+      urgent: r.tobAt !== null,
+    },
+  ];
+}
+
 export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
-  if (!r) return [...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
-  const out: Voice[] = [...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
+  if (!r) return [...raidVoices(e), ...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
+  const out: Voice[] = [...raidVoices(e), ...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
   const seen = new Set<string>();
   const add = (v: Voice) => {
     if (seen.has(v.key)) return;
@@ -282,7 +297,18 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'licenseWarning':
       case 'licenseBroke':
       case 'crisis':
+      case 'raidDisclosed':
+      case 'raidTob':
+      case 'impairment':
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
+        break;
+      case 'mnaDisclosed':
+      case 'tobFailed':
+      case 'tobDone':
+      case 'integrated':
+      case 'raidDefense':
+      case 'raidOver':
+        out.push({ head: noteText(n, e), hero: null, kind: 'company' });
         break;
       case 'crisisAction':
       case 'auctionSoon':
@@ -313,6 +339,7 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
 export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean): string {
   const has = (k: Note['kind']) => r?.notes.find((n) => n.kind === k);
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
+  if (e.mna?.raid?.tobAt != null && !e.mna.raid.defense) return t('大陸ホールディングスが公開買付けを予告してきました！ 指示の「M&A」で防衛策を選びましょう。', 'Continental Holdings announced a tender offer! Pick a defense under "M&A".');
   const sign = CRISES.find((id) => (e.crisis?.meters[id] ?? 0) >= CRISIS.sign && crisisUntil(e, id) === null);
   if (sign) return t(`${crisisName(sign)}の予兆です！ 絵馬掛けのボタンで、起きる前に手を打っておきましょう。`, `Signs of a ${crisisName(sign).toLowerCase()}! Use the button on the plaque before it strikes.`);
   if ((e.crowns?.overMonths ?? 0) > 0) return t('シェアが 5 割を超え、当局が分割の審査を始めました。出店を止めるか、加盟店を手放してシェアを下げましょう。', 'Over half the market: a break-up review began. Stop opening or shed stores.');

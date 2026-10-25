@@ -11,6 +11,7 @@ import { groupMonth, landsOf, newGroup, type Bid } from './group';
 import { groupMods, type Table } from './business';
 import { plotRoom, unlockLegend } from './nation';
 import { allStores, applyCrisisDecisions, crisisMods, crisisStep } from './crisis';
+import { controlled, mnaStep, type MnaDecision } from './mna';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
@@ -165,6 +166,8 @@ export interface Decisions {
   /** フェーズ 3 から：危機の備え（品質点検・仕入れ先を分ける） */
   inspect?: boolean;
   diversify?: boolean;
+  /** フェーズ 4 から：ライバル会社の株を買う・公開買付け・統合・買収の防衛 */
+  mna?: MnaDecision;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -556,10 +559,12 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   // 総会でライバルを名指ししたあとしばらくは、緩い時代と同じ速さで増える
   const rush = !n.eraStrict || (state.gov?.rivalRushUntil ?? -1) >= m;
   // ライバルの出店：プレイヤーが強いエリアほど狙う（rivalai.ts）
-  if (m % RIVAL_NATION.interval === 0) rivalExpand(n, rush ? ERA.looseRival : 1);
+  // 傘下にしたライバルは、もう出店しない（値下げ攻勢も仕掛けない）
+  const tamed = controlled(state, state.land);
+  if (m % RIVAL_NATION.interval === 0 && !tamed) rivalExpand(n, rush ? ERA.looseRival : 1);
   // セール攻勢：フェーズ 3 に入って CAMPAIGN.first か月目から、毎年 1 度。1 か月前に予告
   const since = m - n.landStart;
-  if (since >= CAMPAIGN.first - CAMPAIGN.notice && (since - (CAMPAIGN.first - CAMPAIGN.notice)) % CAMPAIGN.every === 0 && !campaignActive(state.campaign, m)) state.campaign = planCampaign(n, m);
+  if (!tamed && since >= CAMPAIGN.first - CAMPAIGN.notice && (since - (CAMPAIGN.first - CAMPAIGN.notice)) % CAMPAIGN.every === 0 && !campaignActive(state.campaign, m)) state.campaign = planCampaign(n, m);
   const countered = !!d.counter && campaignActive(state.campaign, m);
   const hitDemand = campaignStep(n, state.campaign ?? null, m, countered, notes);
   const counterSpend = countered && state.campaign ? counterCost(n, state.campaign) : 0;
@@ -645,6 +650,15 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     }
     // フェーズ 5：会議卓・地主会・Legendary の番付・エンディング
     if (state.phase >= 5) groupMonth(state, decisions, report, rng, notes);
+    // M&A：傘下の会社からの配当、買収の防衛
+    if (state.phase >= 4) {
+      const div = mnaStep(state, decisions.mna, notes);
+      if (div) {
+        state.funds += div;
+        report.profit += div;
+        report.mnaDividend = div;
+      }
+    }
     // 危機：この月に増えた店の数で、食の事故と拡大しすぎが積もる
     crisisStep(state, Math.max(0, allStores(state) - storesBefore), notes);
     state.inflow = 0;

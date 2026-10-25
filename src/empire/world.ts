@@ -15,6 +15,7 @@ import { focusFit, landProfile, LAND_PROFILES, type FoundingLand } from './lands
 import type { EmpireState, Note } from './model';
 import { groupMods } from './business';
 import { crisisMods } from './crisis';
+import { controlled } from './mna';
 import { plotRoom, unlockLegend } from './nation';
 import { RIVAL_NATION } from './nation';
 import { generateNation, HUB_COST, nationStores, OPEN_COSTS, regionMonth, regionStores, trainees, TRAINING_COST, TRAINING_UPKEEP, HUB_UPKEEP, type Nation, type StoreType } from './nation';
@@ -234,7 +235,7 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
     }
   }
   // ライバル（そのランドの会社）
-  if (e.month % 3 === 0) rivalExpand(n, 1);
+  if (e.month % 3 === 0 && !controlled(e, b.land)) rivalExpand(n, 1);
   // 現地化：月ごとに慣れる
   const gm = groupMods(e);
   b.local = Math.min(1, b.local + ENTRY.localMonthly + gm.localize);

@@ -13,6 +13,7 @@ import { isLegend, legendIndex, perStoreDaily, plotRoom, regionStores, rivalDail
 export { isLegend, legendIndex, plotRoom, unlockLegend };
 import type { Rng } from './rng';
 import { OPEN_LANDS } from './world';
+import { controlled } from './mna';
 
 export type BidLevel = 'low' | 'market' | 'high';
 export const BID_LEVELS: BidLevel[] = ['low', 'market', 'high'];
@@ -120,8 +121,10 @@ export function holdAuction(e: EmpireState, bids: Record<string, Bid> | undefine
     const bid = bids?.[land];
     const offered = Math.min(AUCTION.offered, Math.max(0, r.capacity - (r.plots ?? 0) - (r.rivalPlots ?? r.rival)));
     const rivalPrice = AUCTION.price * (AUCTION.rivalPrice[0] + rng.next() * (AUCTION.rivalPrice[1] - AUCTION.rivalPrice[0])) * (1 + AUCTION.rivalGrowth * Math.min(g.auctions, AUCTION.rivalGrowthMax));
-    const rivalWant = Math.min(AUCTION.rivalWant[0] + Math.floor(rng.next() * (AUCTION.rivalWant[1] - AUCTION.rivalWant[0] + 1)) + g.auctions, Math.max(0, plotCap(r) - (r.rivalPlots ?? r.rival)));
+    let rivalWant = Math.min(AUCTION.rivalWant[0] + Math.floor(rng.next() * (AUCTION.rivalWant[1] - AUCTION.rivalWant[0] + 1)) + g.auctions, Math.max(0, plotCap(r) - (r.rivalPlots ?? r.rival)));
     const want = bid ? Math.max(0, Math.min(Math.floor(bid.plots), biddable(r))) : 0;
+    // 傘下のライバルは控えめ（欲しがる区画が半分）
+    if (controlled(e, land)) rivalWant = Math.floor(rivalWant / 2);
     const price = bid ? bidPrice(bid.level) : 0;
     let won = 0;
     let rivalWon = 0;
