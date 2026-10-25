@@ -1912,3 +1912,24 @@
     font: var(--type-caption);
   }
 }
+
+/* ---------------------------------------------------------------- 政府とキング */
+.ke-court-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.ke-court-meter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ke-court-meter meter {
+  width: 100%;
+  height: 10px;
+}
+.ke-phone .ke-paper.is-wide {
+  grid-template-columns: 1fr;
+}

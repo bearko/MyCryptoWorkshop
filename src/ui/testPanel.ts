@@ -6,6 +6,7 @@ import { newStake } from '../empire/stakeholders';
 import { PARTY_ROSTER, scoutId } from '../game/party';
 import { planCampaign } from '../empire/rivalai';
 import { bestFocus, FOUNDING_LANDS } from '../empire/lands';
+import { newCourt } from '../empire/court';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -84,6 +85,10 @@ export const testActions = {
       const land = FOUNDING_LANDS[(i + 1) % FOUNDING_LANDS.length];
       return { ...e, land, focus: bestFocus(land) };
     });
+  },
+  /** キングから謁見の招待を出す（注目度 100。フェーズ 3 から） */
+  inviteAudience(current: SaveData): SaveData {
+    return withEmpire(current, (e) => (e.phase >= 3 ? { ...e, court: { ...(e.court ?? newCourt()), attention: 100, stage: 2, invited: true, audience: false } } : e));
   },
   /** 決定を変えずに n か月進める */
   advanceMonths(current: SaveData, n: number): SaveData {
@@ -199,6 +204,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),
       btn(t('次の総会の月まで進める', 'Advance to the next meeting'), () => testActions.toMeeting(save)),
       btn(t('本拠のランドを切り替える', 'Switch home land'), () => testActions.nextLand(save)),
+      btn(t('謁見の招待を出す', 'Send an audience invitation'), () => testActions.inviteAudience(save)),
       btn(t('ライバルのセール攻勢を起こす', 'Start a rival price war'), () => testActions.startCampaign(save)),
       btn(t('シェアを 5 割超えに', 'Push share over 50%'), () => testActions.overShare(save)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),

@@ -12,7 +12,7 @@ import { meetingNow, pledgeKept, trustOf } from '../../empire/governance';
 import { campaignActive, CAMPAIGN, counterCost } from '../../empire/rivalai';
 import { REGULATION } from '../../empire/crowns';
 import { pledgeProgress } from './govern';
-import { demandText, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
+import { demandText, kingName, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
 
 export interface Voice {
   /** 誰の声か（常連客・問屋・店主・オーナー会・当局・銀行） */
@@ -236,6 +236,9 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'breakupCleared':
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
         break;
+      case 'attention':
+      case 'audienceInvite':
+      case 'audience':
       case 'crown':
       case 'demandMet':
       case 'meetingHeld':
@@ -267,6 +270,7 @@ export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean):
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
   if ((e.crowns?.overMonths ?? 0) > 0) return t('シェアが 5 割を超え、当局が分割の審査を始めました。出店を止めるか、加盟店を手放してシェアを下げましょう。', 'Over half the market: a break-up review began. Stop opening or shed stores.');
   if (e.campaign && campaignActive(e.campaign, e.month)) return t('ライバルの値下げ攻勢です。絵馬の「対抗セール」で客足を守れます（費用がかかります）。', 'A rival price war. Use the counter-sale on the plaque to keep customers (it costs money).');
+  if (e.court?.invited && !e.court.audience) return t(`${kingName(e.land)}から謁見の招待です！ 下の「${kingName(e.land)}」で献上の品を選んでから、月を進めましょう。`, `${kingName(e.land)} invites you! Pick an offering under "${kingName(e.land)}", then advance.`);
   if (meetingNow(e)) return e.nation?.listed ? t('今月は株主総会です。下の「株主総会」で、たたえる相手・ライバル・来年の約束を決めましょう。', "It's the shareholders' meeting this month. Choose your speech under \"Shareholders\".") : t('今月は銀行との面談です。下の「銀行と面談」で、話すことを決めましょう。', 'You meet the bank this month. Choose what to say under "Bank meeting".');
   const last = (e.stake?.demands ?? []).find((d) => monthsLeft(e, d.due) <= 1);
   if (last) return t(`${stakeName(last.who)}の要望の期限は今月です。絵馬の手を打たないと、最後通告になります。`, `${stakeName(last.who)}'s request is due this month. Act on the plaque or face an ultimatum.`);
