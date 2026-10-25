@@ -125,7 +125,9 @@ export const testActions = {
   /** フェーズ 2（エリアチェーン）へ飛ぶ：3 店を出して条件を満たし、格上げしたところ（資金 1 億を残す） */
   jumpPhase2(current: SaveData, seed = 1): SaveData {
     // いまの会社のランドと品ぞろえのまま（会社がなければ工房のランド）
-    let e = { ...newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.empire?.land ?? current.prestige.home ?? 'Ocean', current.empire?.focus), funds: 1e9 };
+    let e: EmpireState = { ...newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.empire?.land ?? current.prestige.home ?? 'Ocean', current.empire?.focus), funds: 1e9 };
+    // 創業のときに選んだ Common の土地も引き継ぐ
+    if (current.empire?.homeSector !== undefined) e = { ...e, homeSector: current.empire.homeSector };
     e = advanceMonth(e, { open: plotsFor(e).slice(0, 2) }).state;
     for (let i = 0; i < 24 && !canPromote(e); i++) e = advanceMonth(e).state;
     e = advanceMonth(e, { promote: true }).state;

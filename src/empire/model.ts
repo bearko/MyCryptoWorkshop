@@ -191,6 +191,8 @@ export interface EmpireState {
   history: MonthReport[];
   /** 本拠のランド（ライバルが決まる。catalog の lands[].key） */
   land: string;
+  /** 創業のときに選んだ Common の土地（ランドの 11 エリアの並びの番号 0〜3）。フェーズ 3 でここが本拠になる */
+  homeSector?: number;
   /** エリアの地図（フェーズ 2 から） */
   area: Area | null;
   /** SV（巡回指導員）の人数 */
@@ -257,6 +259,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     nextStoreId: Math.max(num(r.nextStoreId, 1), ...stores.map((s) => s.id + 1)),
     history: Array.isArray(r.history) ? r.history.slice(-HISTORY) : [],
     land: typeof r.land === 'string' ? r.land : base.land,
+    ...(typeof r.homeSector === 'number' && r.homeSector >= 0 && r.homeSector <= 3 ? { homeSector: Math.floor(r.homeSector) } : {}),
     area: restoreArea(r.area),
     sv: Math.max(0, Math.floor(num(r.sv, 0))),
     pos: r.pos === true,

@@ -32,25 +32,39 @@ const CROP: [number, number] = [128, 120];
 
 export interface IsleData {
   land: string;
-  /** 本拠・渡った・まだ・渡れない */
-  status: 'home' | 'branch' | 'open' | 'closed';
+  /** 本拠・渡った・まだ・渡れない・描かない（創業の大陸選びでは、創業できる 4 つだけを描く） */
+  status: 'home' | 'branch' | 'open' | 'closed' | 'hidden';
 }
 
 export class WorldScene implements MapScene {
-  readonly width = 576;
-  readonly height = 480;
+  readonly width: number;
+  readonly height: number;
   readonly animated = true;
   selected: number | null = null;
 
-  constructor(readonly isles: IsleData[]) {}
+  /** pos と size を渡すと、島の置き場所と大きさを変えられる（創業の大陸選びは 4 つを大きく） */
+  constructor(
+    readonly isles: IsleData[],
+    private readonly layout: { pos?: [number, number][]; w?: number; h?: number; width?: number; height?: number } = {},
+  ) {
+    this.width = layout.width ?? 576;
+    this.height = layout.height ?? 480;
+  }
+
+  private get iw() {
+    return this.layout.w ?? ISLE_W;
+  }
+  private get ih() {
+    return this.layout.h ?? ISLE_H;
+  }
 
   pending(): boolean {
-    return this.isles.some((i) => !ready(landBackground(i.land)) || !ready(img(sectorIcon(i.land, 4))));
+    return this.isles.some((i) => i.status !== 'hidden' && (!ready(landBackground(i.land)) || !ready(img(sectorIcon(i.land, 4)))));
   }
 
   isleRect(i: number) {
-    const [x, y] = ISLE_POS[i];
-    return { x, y, w: ISLE_W, h: ISLE_H };
+    const [x, y] = (this.layout.pos ?? ISLE_POS)[i];
+    return { x, y, w: this.iw, h: this.ih };
   }
 
   drawSurround(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
@@ -60,31 +74,32 @@ export class WorldScene implements MapScene {
   drawStatic(ctx: CanvasRenderingContext2D): void {
     seaTiles(ctx, 0, 0, this.width, this.height);
     this.isles.forEach((isle, i) => {
+      if (isle.status === 'hidden') return;
       const { x, y } = this.isleRect(i);
       // 浅瀬（砂浜）と外郭線
       ctx.fillStyle = css(P.outline);
-      ctx.fillRect(x - 6, y - 6, ISLE_W + 12, ISLE_H + 12);
+      ctx.fillRect(x - 6, y - 6, this.iw + 12, this.ih + 12);
       ctx.fillStyle = css(P.sand[1]);
-      ctx.fillRect(x - 5, y - 5, ISLE_W + 10, ISLE_H + 10);
+      ctx.fillRect(x - 5, y - 5, this.iw + 10, this.ih + 10);
       const bg = landBackground(isle.land);
-      if (ready(bg)) ctx.drawImage(bg, CROP[0], CROP[1], ISLE_W / 2, ISLE_H / 2, x, y, ISLE_W, ISLE_H);
+      if (ready(bg)) ctx.drawImage(bg, CROP[0], CROP[1], this.iw / 2, this.ih / 2, x, y, this.iw, this.ih);
       // 関わりの縁（3 ドット）
       const edge = isle.status === 'home' ? P.ours[1] : isle.status === 'branch' ? P.plaza[0] : P.neutral[1];
       ctx.fillStyle = css(edge);
-      ctx.fillRect(x - 3, y - 3, ISLE_W + 6, 3);
-      ctx.fillRect(x - 3, y + ISLE_H, ISLE_W + 6, 3);
-      ctx.fillRect(x - 3, y, 3, ISLE_H);
-      ctx.fillRect(x + ISLE_W, y, 3, ISLE_H);
+      ctx.fillRect(x - 3, y - 3, this.iw + 6, 3);
+      ctx.fillRect(x - 3, y + this.ih, this.iw + 6, 3);
+      ctx.fillRect(x - 3, y, 3, this.ih);
+      ctx.fillRect(x + this.iw, y, 3, this.ih);
       if (isle.status === 'closed') {
         ctx.fillStyle = 'rgba(25,22,40,0.6)';
-        ctx.fillRect(x - 6, y - 6, ISLE_W + 12, ISLE_H + 12);
+        ctx.fillRect(x - 6, y - 6, this.iw + 12, this.ih + 12);
       }
       // Legendary のアイコン（島の右上）
       const icon = img(sectorIcon(isle.land, 4));
       if (ready(icon)) {
         ctx.fillStyle = css(P.outline);
-        ctx.fillRect(x + ISLE_W - 41, y - 17, 50, 50);
-        ctx.drawImage(icon, x + ISLE_W - 40, y - 16, 48, 48);
+        ctx.fillRect(x + this.iw - 41, y - 17, 50, 50);
+        ctx.drawImage(icon, x + this.iw - 40, y - 16, 48, 48);
       }
     });
   }
@@ -99,8 +114,8 @@ export class WorldScene implements MapScene {
         const b = this.isleRect(i);
         const k = ((t / 6000 + i * 0.27) % 1 + 1) % 1;
         const u = k < 0.5 ? k * 2 : 2 - k * 2;
-        const x = Math.round(a.x + ISLE_W / 2 + (b.x - a.x) * u - 12);
-        const y = Math.round(a.y + ISLE_H + 4 + (b.y - a.y) * u);
+        const x = Math.round(a.x + this.iw / 2 + (b.x - a.x) * u - 12);
+        const y = Math.round(a.y + this.ih + 4 + (b.y - a.y) * u);
         drawSprite(ctx, 'boat', x, y);
       });
     }
@@ -114,6 +129,7 @@ export class WorldScene implements MapScene {
 
   hit(x: number, y: number): MapTarget | null {
     for (let i = 0; i < this.isles.length; i++) {
+      if (this.isles[i].status === 'hidden') continue;
       const r = this.isleRect(i);
       if (x >= r.x - 6 && y >= r.y - 6 && x < r.x + r.w + 6 && y < r.y + r.h + 6) return { kind: 'land', id: i, ...r };
     }
@@ -123,7 +139,8 @@ export class WorldScene implements MapScene {
   hitNear(x: number, y: number, rad: number): MapTarget | null {
     let best: MapTarget | null = null;
     let bd = rad;
-    this.isles.forEach((_, i) => {
+    this.isles.forEach((isle, i) => {
+      if (isle.status === 'hidden') return;
       const p = this.isleRect(i);
       const d = Math.hypot(Math.max(p.x - x, 0, x - (p.x + p.w)), Math.max(p.y - y, 0, y - (p.y + p.h)));
       if (d <= bd) {

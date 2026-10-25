@@ -1,5 +1,5 @@
 // ランドの個性の画面（M10a）：創業のときのランド選び、品ぞろえ。どれも DOM を返すだけ。
-import { FOCUS_CHANGE_PER_STORE, FOCUSES, landProfile, type Focus, type LandProfile } from '../../empire/lands';
+import { FOCUS_CHANGE_PER_STORE, FOCUSES, landProfile, type Focus } from '../../empire/lands';
 import { focusChangeCost, landDemand } from '../../empire/sim';
 import { ATTENTION, attentionPerMonth, crownCount, KINGS, kingFit, kingWants, OFFERINGS, type Offering } from '../../empire/court';
 import { phase3Done } from '../../empire/sim';
@@ -9,26 +9,6 @@ import { h } from '../dom';
 import { card, type Ctx } from './cards';
 import { costButton, row } from './parts';
 import { fitMark, focusLabel, kingName, money, offeringLabel, privilegeLabel } from './text';
-
-/** 創業のときのランドの札（守り神の絵・ランドの名前・国の形）。くわしくは landDetail */
-export function landPickCard(p: LandProfile, image: HTMLElement | null, selected: boolean, onPick: () => void): HTMLElement {
-  return h(
-    'button.ke-land-card',
-    { type: 'button', role: 'radio', 'aria-checked': String(selected), onclick: onPick },
-    h('span.ke-land-face', {}, image),
-    h('span.ke-land-head', {}, h('b', {}, p.key), h('span.ke-hint', {}, t(p.kind.ja, p.kind.en))),
-  );
-}
-
-/** 選んだランドのくわしい説明（文化 3 行・特産品・守り神・キング） */
-export function landDetail(p: LandProfile): HTMLElement {
-  return h(
-    'div.ke-land-detail',
-    {},
-    h('ul.ke-land-lines', {}, ...p.lines.map((l) => h('li', {}, t(l.ja, l.en)))),
-    h('span.ke-land-meta', {}, t(`特産品 ${p.specialty.name.ja}・守り神 ${p.guardian.name.ja}・キング ${p.king.name.ja}（${p.king.likes.ja}）`, `Specialty ${p.specialty.name.en} · guardian ${p.guardian.name.en} · ${p.king.name.en} (likes ${p.king.likes.en})`)),
-  );
-}
 
 /** 品ぞろえの 5 択（ランドの文化との合い方の印つき） */
 export function focusPicker(land: string, current: Focus, onPick: (f: Focus) => void): HTMLElement {
