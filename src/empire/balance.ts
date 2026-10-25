@@ -6,6 +6,7 @@ import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
 import { landProfile, type FoundingLand, type Focus } from './lands';
 import { KINGS } from './court';
+import { entryCost, OPEN_LANDS, phase4Done, routeCost, type BranchDecision } from './world';
 import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import {
@@ -132,11 +133,57 @@ function heedDemands(s: EmpireState, d: Decisions): Decisions {
   return { ...d, stores, openAt };
 }
 
+/** フェーズ 4 の手：本拠はフェーズ 3 と同じ。1 年ごとに次のランドへ合弁で渡り、渡ったランドで拠点・研修所・出店 */
+function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decisions {
+  const d = phase3Moves(s, reserve, type);
+  const w = s.world!;
+  const branches: NonNullable<Decisions['branches']> = {};
+  let funds = s.funds - reserved4(d);
+  const next = OPEN_LANDS.filter((k) => k !== s.land && !w.branches.some((b) => b.land === k));
+  const lastEntry = Math.max(-99, ...w.branches.map((b) => b.opened));
+  if (next.length && s.month - lastEntry >= 12 && funds > (routeCost(s) + entryCost('jv')) * 2) {
+    d.enter = { land: next[0], mode: 'jv' };
+    funds -= routeCost(s) + entryCost('jv');
+  }
+  for (const b of w.branches) {
+    const n = b.nation;
+    const bd: BranchDecision = {};
+    if (b.court.invited) bd.offering = KINGS[landProfile(b.land).key as FoundingLand]?.likes;
+    if (n.trainingCenters < 3 && funds > TRAINING_COST * 3) {
+      bd.training = 1;
+      funds -= TRAINING_COST;
+    }
+    const noHub = n.regions.map((r, i) => ({ r, i })).filter((x) => !x.r.hub && !x.r.locked && x.i !== 0).sort((a, b2) => b2.r.traffic - a.r.traffic);
+    if (noHub.length && funds > HUB_COST * 2) {
+      bd.buildHub = [noHub[0].i];
+      funds -= HUB_COST;
+    }
+    if (b.mode === 'jv' && b.stake < 1 && funds > 5e9) bd.buyout = true;
+    let people = trainees(n);
+    bd.expand = [];
+    for (const [i, r] of n.regions.entries()) {
+      if (!(r.hub || i === 0) && !bd.buildHub?.includes(i)) continue;
+      const room = Math.floor(r.capacity * 0.6) - regionStores(r);
+      const count = Math.max(0, Math.min(room, people, Math.floor(funds / (OPEN_COSTS[type] * reserve))));
+      if (count > 0) {
+        bd.expand.push({ region: i, type, count });
+        people -= count;
+        funds -= count * OPEN_COSTS[type];
+      }
+    }
+    branches[b.land] = bd;
+  }
+  return { ...d, branches };
+}
+
+/** 本拠の決定でおよそ使う資金（フェーズ 4 のボットの資金繰り） */
+const reserved4 = (d: Decisions) => (d.training ?? 0) * TRAINING_COST + (d.buildHub?.length ?? 0) * HUB_COST + (d.expand ?? []).reduce((a, x) => a + x.count * OPEN_COSTS[x.type], 0);
+
 /** フェーズごとに手を変えるボット */
 const staged = (p1: (s: EmpireState) => Decisions, reserve: number, type: StoreType) => (s: EmpireState): Decisions => {
-  if (canPromote(s) && s.phase < 3) return { promote: true };
+  if (canPromote(s) && s.phase < 4) return { promote: true };
   if (s.phase === 1) return heedDemands(s, p1(s));
-  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : phase3Moves(s, reserve, type));
+  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : s.phase === 3 ? phase3Moves(s, reserve, type) : phase4Moves(s, reserve, type));
 };
 
 const BOTS_P1: Bot[] = [
@@ -179,6 +226,8 @@ export interface BotResult {
   phase2Month: number | null;
   /** フェーズ 3 の条件を満たした月 */
   phase3Month: number | null;
+  /** フェーズ 4 の条件を満たした月 */
+  phase4Month: number | null;
   stores: number;
   funds: number;
   /** 資金がマイナスで終わった月の数 */
@@ -193,6 +242,7 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
   let phase1Month: number | null = null;
   let phase2Month: number | null = null;
   let phase3Month: number | null = null;
+  let phase4Month: number | null = null;
   let redMonths = 0;
   let ultimatums = 0;
   let demands = 0;
@@ -205,6 +255,7 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
     if (phase1Month === null && phase1Done(s)) phase1Month = s.month;
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
     if (phase3Month === null && s.phase === 3 && s.court?.audience) phase3Month = s.month;
+    if (phase4Month === null && s.phase === 4 && phase4Done(s)) phase4Month = s.month;
   }
-  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
+  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, phase4Month, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
 }

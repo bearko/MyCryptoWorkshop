@@ -8,6 +8,7 @@ import { restoreCrowns, type CrownId, type Crowns } from './crowns';
 import type { Campaign } from './rivalai';
 import { FOCUSES, type Focus } from './lands';
 import { restoreCourt, type Court, type Offering, type Privilege } from './court';
+import { ENTRY_MODES, type Branch, type EntryMode, type World } from './world';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -118,7 +119,13 @@ export type Note =
   /** 政府の注目とキングとの謁見（court.ts） */
   | { kind: 'attention'; stage: number }
   | { kind: 'audienceInvite' }
-  | { kind: 'audience'; offering: Offering; success: boolean; privilege: Privilege };
+  | { kind: 'audience'; offering: Offering; success: boolean; privilege: Privilege }
+  /** フェーズ 4 世界展開（world.ts） */
+  | { kind: 'entered'; land: string; mode: EntryMode }
+  | { kind: 'exited'; land: string; stores: number }
+  | { kind: 'jvBuyout'; land: string }
+  | { kind: 'licenseWarning'; land: string; month: number }
+  | { kind: 'licenseBroke'; land: string; stores: number };
 
 export interface MonthReport {
   month: number;
@@ -129,6 +136,8 @@ export interface MonthReport {
   overhead?: number;
   /** フェーズ 3 から：ライバルの売上（本拠ランド全体） */
   rivalRevenue?: number;
+  /** フェーズ 4 から：本拠の外のランドの売上（revenue に含む） */
+  foreignRevenue?: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -172,6 +181,8 @@ export interface EmpireState {
   focus?: Focus;
   /** フェーズ 3 から：政府の注目度とキングとの謁見、特権 */
   court?: Court;
+  /** フェーズ 4 から：渡ったランドと、ほかの会社の進み具合 */
+  world?: World;
 }
 
 export const HISTORY = 24;
@@ -219,8 +230,34 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     crowns: restoreCrowns(r.crowns),
     campaign: restoreCampaign(r.campaign),
     court: restoreCourt(r.court),
+    world: restoreWorld(r.world),
     ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
+}
+
+function restoreWorld(raw: unknown): World | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const w = raw as Partial<World>;
+  const rec = (v: unknown) => (v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'number' && Number.isFinite(x))) : {}) as Record<string, number>;
+  const branches = (Array.isArray(w.branches) ? w.branches : []).flatMap((b): Branch[] => {
+    const nation = restoreNation(b?.nation);
+    if (!b || typeof b.land !== 'string' || !nation) return [];
+    return [
+      {
+        land: b.land,
+        mode: ENTRY_MODES.includes(b.mode) ? b.mode : 'direct',
+        opened: num(b.opened, 0),
+        nation,
+        court: restoreCourt(b.court) ?? { attention: 0, stage: 0, invited: false, audience: false, privileges: [] },
+        local: Math.min(1, Math.max(0.5, num(b.local, 0.85))),
+        partner: Math.max(0, num(b.partner, 0)),
+        stake: Math.min(1, Math.max(0, num(b.stake, 1))),
+        integrateUntil: num(b.integrateUntil, -1),
+        hist: (Array.isArray(b.hist) ? b.hist : []).slice(-12).map((h) => ({ revenue: num(h?.revenue, 0), rival: num(h?.rival, 0) })),
+      },
+    ];
+  });
+  return { branches, others: rec(w.others), knowhow: rec(w.knowhow) };
 }
 
 function restoreCampaign(raw: unknown): Campaign | null | undefined {

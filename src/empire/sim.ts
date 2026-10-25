@@ -6,6 +6,7 @@ import { stakeMods, stakeStep } from './stakeholders';
 import { crownStep } from './crowns';
 import { FOCUS_CHANGE_PER_STORE, focusFit, landProfile, type Focus } from './lands';
 import { courtStep, holdAudience, privilegeMods, type Offering } from './court';
+import { branchMonth, enterLand, exitLand, newWorld, othersMonth, phase4Done, type BranchDecision, type EntryMode } from './world';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
@@ -149,6 +150,10 @@ export interface Decisions {
   focus?: Focus;
   /** キングとの謁見で献上する品（招待が来ている月） */
   offering?: Offering;
+  /** フェーズ 4 から：ほかのランドへ渡る（参入方式つき） */
+  enter?: { land: string; mode: EntryMode };
+  /** フェーズ 4 から：渡ったランドごとの決定 */
+  branches?: Record<string, BranchDecision>;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -191,7 +196,7 @@ export function phase3Done(s: EmpireState): boolean {
 }
 
 /** フェーズ 3 の卒業はキングとの謁見（招待には売上 1 位と政府の注目が要る。court.ts） */
-export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s)) || (s.phase === 3 && !!s.court?.audience);
+export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) || (s.phase === 2 && phase2Done(s)) || (s.phase === 3 && !!s.court?.audience) || (s.phase === 4 && phase4Done(s));
 
 /** 店の数（フェーズ 3 からはエリアの合計） */
 export const storeCount = (s: EmpireState) => (s.nation ? nationStores(s.nation) : s.stores.length);
@@ -289,6 +294,7 @@ function applyDecisions(state: EmpireState, d: Decisions, notes: Note[], rng: Rn
     notes.push({ kind: 'promoted', phase: state.phase });
     if (state.phase === 2) openArea(state, rng);
     if (state.phase === 3) openNation(state, rng);
+    if (state.phase === 4) state.world = newWorld(state.land);
   }
   for (const s of state.stores) {
     const c = { ...d.all, ...d.stores?.[s.id] };
@@ -599,7 +605,22 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     return !!p && ((s.sign && !p.sign) || (s.parking && !p.parking));
   }).length;
   if (state.phase >= 3 && state.nation) {
+    if (state.phase >= 4 && state.world && decisions.enter) enterLand(state, decisions.enter.land, decisions.enter.mode, rng, notes);
     const report = nationMonth(state, decisions, notes, rng);
+    // フェーズ 4：渡ったランドの 1 か月（売上は会社の売上に、本拠の外の売上として足す）
+    if (state.phase >= 4 && state.world) {
+      for (const [land, bd] of Object.entries(decisions.branches ?? {})) if (bd.exit) exitLand(state, land, notes);
+      let foreign = 0;
+      for (const b of state.world.branches) {
+        const r = branchMonth(state, b, decisions.branches?.[b.land] ?? {}, rng, notes);
+        foreign += r.revenue;
+        report.revenue += r.revenue;
+        report.profit += r.profit;
+        state.funds += r.profit;
+      }
+      report.foreignRevenue = foreign;
+      othersMonth(state.world, state.month);
+    }
     state.inflow = 0;
     state.history = [...state.history, report].slice(-HISTORY);
     stakeStep(state, report, { renovated });
