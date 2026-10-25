@@ -123,13 +123,28 @@ export class LandScene implements MapScene {
   readonly width = 640;
   readonly height = 512;
   selected: number | null = null;
+  /** 光らせる板（創業の土地選びで、選べる Common の板） */
+  highlight: number[] = [];
   private tops: HTMLCanvasElement[];
 
+  /**
+   * slots：エリアの番号 → 板の置き場所（PLATE_POS の番号）。省くとエリアの番号のまま。
+   * 創業のときに選んだ Common の土地が本拠（エリア 0）になるので、本拠をその置き場所に描く
+   */
   constructor(
     readonly land: string,
     readonly plates: PlateData[],
+    readonly slots: number[] = plates.map((_, i) => i),
   ) {
     this.tops = plates.map((p, i) => schematic(p, i + 1));
+  }
+
+  get animated(): boolean {
+    return this.highlight.length > 0;
+  }
+
+  private pos(i: number): [number, number] {
+    return PLATE_POS[this.slots[i] ?? i];
   }
 
   pending(): boolean {
@@ -139,7 +154,7 @@ export class LandScene implements MapScene {
   /** 板の範囲（略図＋縁＋厚み） */
   plateRect(i: number) {
     const [w, h] = SECTOR_SIZE[this.plates[i].rarity];
-    const [x, y] = PLATE_POS[i];
+    const [x, y] = this.pos(i);
     return { x, y, w: w * PX + 2, h: h * PX + 2 + this.depth(i) };
   }
 
@@ -160,7 +175,7 @@ export class LandScene implements MapScene {
     const lc = hex(LAND_COLOR[this.land] ?? LAND_COLOR.Ocean);
     const face = [0.85, 0.65, 0.45].map((t) => mix([40, 40, 48], lc, t));
     // 奥（上）の板から順に
-    const order = this.plates.map((_, i) => i).sort((a, b) => PLATE_POS[a][1] - PLATE_POS[b][1]);
+    const order = this.plates.map((_, i) => i).sort((a, b) => this.pos(a)[1] - this.pos(b)[1]);
     for (const i of order) {
       const p = this.plates[i];
       const { x, y } = this.plateRect(i);
@@ -206,7 +221,13 @@ export class LandScene implements MapScene {
     }
   }
 
-  drawDynamic(ctx: CanvasRenderingContext2D, _t: number, hover: MapTarget | null): void {
+  drawDynamic(ctx: CanvasRenderingContext2D, t: number, hover: MapTarget | null): void {
+    // 選べる板は、ゆっくり明滅する金の縁
+    const glow = 0.45 + 0.45 * Math.sin(t / 380);
+    for (const i of this.highlight) {
+      const r = this.plateRect(i);
+      ring(ctx, { x: r.x - 4, y: r.y - 4, w: r.w + 8, h: r.h + 8 }, `rgba(242,181,68,${glow.toFixed(2)})`, 3);
+    }
     if (hover) ring(ctx, hover, 'rgba(244,235,221,0.95)', 2);
     if (this.selected !== null) {
       const r = { ...this.plateRect(this.selected), kind: 'region', id: this.selected };
@@ -233,7 +254,7 @@ export class LandScene implements MapScene {
 
   hit(x: number, y: number): MapTarget | null {
     // 手前（下）の板から
-    const order = this.plates.map((_, i) => i).sort((a, b) => PLATE_POS[b][1] - PLATE_POS[a][1]);
+    const order = this.plates.map((_, i) => i).sort((a, b) => this.pos(b)[1] - this.pos(a)[1]);
     for (const i of order) {
       const r = this.plateRect(i);
       if (x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h) return { kind: 'region', id: i, ...r };

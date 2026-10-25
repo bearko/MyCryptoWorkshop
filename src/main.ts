@@ -1142,22 +1142,47 @@ async function openEmpire(): Promise<void> {
   if (!empireAvailable()) return;
   const ui = await import('./ui/empire/index');
   if (!save.empire) {
-    const close = openModal(
-      t('マインちゃんから', 'From Mine-chan'),
-      ui.foundView((emp) => {
-        save.empire = emp;
-        writeSave(save);
-        close();
-        sound.play('helper');
-        void openEmpire();
-      }, fileImg(staffFrames.mine[0].image, 'px empire-mine'), save.prestige.home, (k) => {
-        // 守り神（クリプタイド）の絵
+    // マインちゃんの提案から、大陸・屋号・最初の土地を選ぶまで（全画面の導入。docs/EMPIRE_DESIGN.md 10.18）
+    const CH = 'mch/Image/Characters/';
+    const POSES: Record<string, string[]> = {
+      greet: ['navi_ain_greeting_00_greet_sparkle.png', 'navi_ain_greeting_01_greet_sparkle.png'],
+      talk: ['navi_ain_speak_00_talk.png', 'navi_ain_speak_01_talk.png'],
+      cross: ['navi_ain_cross_00_talk.png', 'navi_ain_cross_01_smile.png'],
+      smile: ['navi_ain_cross_01_smile.png'],
+      idle: [staffFrames.mine[0].image.replace(CH, '')],
+    };
+    const prevBgm = sound.currentBgm();
+    let closeIntro = () => {};
+    const intro = ui.introView({
+      mine: (pose) => (POSES[pose] ?? POSES.idle).map((f) => fileImg(CH + f, 'px')),
+      landImage: (k) => {
         const l = lands.find((x) => x.key === k);
         return l ? fileImg(l.cryptid, 'px') : null;
-      }),
-      [{ label: t('あとで', 'Later') }],
-      'wide',
-    );
+      },
+      play: (k) => sound.play(k),
+      onFound: (emp) => {
+        save.empire = emp;
+        writeSave(save);
+        closeIntro();
+        void openEmpire();
+      },
+      onLater: () => closeIntro(),
+    });
+    modalOpen++;
+    document.body.classList.add('ke-open');
+    modalRoot.prepend(intro);
+    sound.playBgm('bgmCompany');
+    const entry = { wrap: intro, cancel: () => closeIntro() };
+    closeIntro = () => {
+      if (!intro.isConnected) return;
+      intro.remove();
+      modalOpen--;
+      document.body.classList.remove('ke-open');
+      const i = modalStack.indexOf(entry);
+      if (i >= 0) modalStack.splice(i, 1);
+      if (prevBgm) sound.playBgm(prevBgm);
+    };
+    modalStack.unshift(entry);
     return;
   }
   // 経営画面は全画面（モーダルの重なりの一番下。デバッグパネルなどはその上に開く）

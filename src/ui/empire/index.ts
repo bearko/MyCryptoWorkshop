@@ -4,16 +4,16 @@
 import './tokens.css';
 import './empire.css';
 import { cannibalMult, dist, freeCells, inRange } from '../../empire/area';
-import { newEmpire, type EmpireState, type MonthReport } from '../../empire/model';
+import type { EmpireState, MonthReport } from '../../empire/model';
 import { regionStores } from '../../empire/nation';
 import { rivalOf } from '../../empire/rivals';
-import { advanceMonth, AREA_OPEN_COST, canPromote, letterFor, MAX_STORES, ownCells, phase1Done, plotsFor, storeCount, type Decisions } from '../../empire/sim';
+import { advanceMonth, AREA_OPEN_COST, canPromote, homeSlots, letterFor, MAX_STORES, ownCells, phase1Done, plotsFor, storeCount, type Decisions } from '../../empire/sim';
 import { activeStakeholders, supportOf, SUPPORT } from '../../empire/stakeholders';
 import { BOARD_SEATS, meetingNow } from '../../empire/governance';
 import { CROWNS, crownStats, FISCAL_MONTH, REGULATION, regulationLevel } from '../../empire/crowns';
-import { bestFocus, FOUNDING_LANDS, LAND_PROFILES, landProfile, type FoundingLand, type Focus } from '../../empire/lands';
+import { landProfile } from '../../empire/lands';
 import { boardCard, meetingCard, type BoardCandidate } from './govern';
-import { courtCard, focusCard, focusPicker, landDetail, landPickCard } from './landui';
+import { courtCard, focusCard } from './landui';
 import { branchCtx, branchHqCard, branchLens, isleStatus, isleTag, worldLandCard, worldPanel } from './worldui';
 import { branchOf, foreignShare, GRADUATE, WORLD_LANDS } from '../../empire/world';
 import { WorldScene } from '../../render/map/world';
@@ -330,6 +330,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
           land = new LandScene(
             v.land,
             nat.regions.map((r, i) => ({ rarity: r.rarity, own: regionStores(r), rival: r.rival, capacity: r.capacity, hub: r.hub || i === 0, locked: r.locked })),
+            branchAt() ? undefined : homeSlots(e),
           );
           grid = null;
           world = null;
@@ -1470,44 +1471,4 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   return root;
 }
 
-/** マインちゃんの誘い：屋号を決めて会社を作る */
-export function foundView(onFound: (e: EmpireState) => void, mineImg: HTMLElement, land: string | null, landImage?: (key: string) => HTMLElement | null): HTMLElement {
-  ensureFonts();
-  const input = h('input.ke-input', { type: 'text', maxlength: 12, value: t('マイクリ', 'MyCrypto'), 'aria-label': t('屋号', 'Company name') }) as HTMLInputElement;
-  const seed = () => {
-    const b = new Uint32Array(1);
-    crypto.getRandomValues(b);
-    return b[0];
-  };
-  // 本拠のランド：工房のランドが創業できる 4 ランドのどれかなら、それを選んでおく
-  let picked: FoundingLand = FOUNDING_LANDS.find((k) => k.toLowerCase() === (land ?? '').toLowerCase()) ?? 'Ocean';
-  let focus: Focus = bestFocus(picked);
-  const lands = h('div.ke-land-pick', { role: 'radiogroup', 'aria-label': t('本拠のランド', 'Home land') });
-  const detail = h('div.ke-land-detail-host');
-  const focusRow = h('div.ke-focus-pick');
-  const draw = () => {
-    lands.replaceChildren(...FOUNDING_LANDS.map((k) => landPickCard(LAND_PROFILES[k], landImage?.(k) ?? null, k === picked, () => ((picked = k), (focus = bestFocus(k)), draw()))));
-    detail.replaceChildren(landDetail(LAND_PROFILES[picked]));
-    focusRow.replaceChildren(focusPicker(picked, focus, (f) => ((focus = f), draw())));
-  };
-  draw();
-  return h(
-    'div.ke.ke-found',
-    {},
-    h(
-      'div.ke-advisor.ke-advisor-static',
-      {},
-      h('div.ke-advisor-face', {}, mineImg),
-      h('p.ke-advisor-text', {}, t('店主さん、もう立派な商売人です！ 新しいお店を出してみませんか？ どのランドで始めるかで、当たる商売が変わりますよ。', "Owner, you're a real merchant now! How about opening a new store? What sells depends on the land you start in.")),
-    ),
-    h('div.ke-field.ke-field-stack', {}, h('span.ke-field-label', {}, t('本拠のランド', 'Home land'), h('span.ke-hint', {}, t('文化・地形・特産品・キングがランドごとに違います', 'Culture, terrain, specialty and king differ by land'))), lands, detail),
-    h('div.ke-field.ke-field-stack', {}, h('span.ke-field-label', {}, t('品ぞろえ', 'Product range'), h('span.ke-hint', {}, t('◎ ほど、このランドで当たります（あとで変えられます）', '◎ sells best in this land (you can change it later)'))), focusRow),
-    h(
-      'div.ke-found-go',
-      {},
-      h('label.ke-found-name', {}, h('span.ke-field-label', {}, t('屋号', 'Company name')), input),
-      h('button.ke-btn.ke-btn-primary', { type: 'button', onclick: () => onFound(newEmpire(input.value.trim().slice(0, 12) || t('マイクリ', 'MyCrypto'), seed(), picked, focus)) }, t('お店を出す', 'Open a store')),
-    ),
-    h('p.ke-hint', {}, t('本店の売上の一部が、営業日を終えるたびに会社の資金になります（会社のお金で工房は強くなりません）。', "Part of the main shop's sales goes into the company's funds after each business day (company money doesn't power up the workshop).")),
-  );
-}
+export { introView } from './intro';

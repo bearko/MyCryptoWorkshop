@@ -9,7 +9,7 @@ import { courtStep, holdAudience, privilegeMods, type Offering } from './court';
 import { branchMonth, enterLand, exitLand, newWorld, othersMonth, phase4Done, postToBoard, type BranchDecision, type EntryMode } from './world';
 import { groupMonth, landsOf, newGroup, type Bid } from './group';
 import { groupMods, type Table } from './business';
-import { plotRoom, unlockLegend } from './nation';
+import { plotRoom, REGION_NAMES, unlockLegend } from './nation';
 import { allStores, applyCrisisDecisions, crisisMods, crisisStep } from './crisis';
 import { controlled, mnaStep, type MnaDecision } from './mna';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
@@ -446,6 +446,24 @@ function openNation(state: EmpireState, rng: Rng): void {
   // 人の多いランド（Ocean）ほど、エリアに入りきる店が多い
   const pop = landProfile(state.land).population;
   for (const r of state.nation.regions.slice(1)) r.capacity = Math.round(r.capacity * pop);
+  // 創業のときに選んだ Common の土地が本拠（エリア 0）。名前を入れ替え、地図ではその置き場所に描く（homeSlots）
+  const k = state.homeSector ?? 0;
+  if (k > 0 && k < state.nation.regions.length && state.nation.regions[k].rarity === 0) {
+    const home = state.nation.regions[0];
+    const other = state.nation.regions[k];
+    const picked = REGION_NAMES[k];
+    home.name = { ja: `${picked.ja}（本拠）`, en: `${picked.en} (home)` }; // i18n-ja
+    other.name = { ja: REGION_NAMES[0].ja.replace('（本拠）', ''), en: REGION_NAMES[0].en.replace(' (home)', '') }; // i18n-ja
+  }
+}
+
+/** 本拠の国の板の置き場所（創業のときに選んだ Common の土地に、本拠の板を描く） */
+export function homeSlots(state: Pick<EmpireState, 'homeSector' | 'nation'>): number[] {
+  const n = state.nation?.regions.length ?? 0;
+  const slots = Array.from({ length: n }, (_, i) => i);
+  const k = state.homeSector ?? 0;
+  if (k > 0 && k < n) [slots[0], slots[k]] = [slots[k], slots[0]];
+  return slots;
 }
 
 /** 自店がエリアの入りきる目安のこの割合を超えると、オーナーの満足度が下がる */

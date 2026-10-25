@@ -87,3 +87,17 @@ describe('フェーズ 4 から渡れる 4 ランド', () => {
     expect(LATER_LANDS.map((k) => landProfile(k).guardian.series)).toEqual([24, 26, 23, 27, 25]);
   });
 });
+
+describe('創業のときに選んだ Common の土地', () => {
+  it('フェーズ 3 でその土地が本拠になり、地図ではその置き場所に本拠の板を描く', async () => {
+    const { newSave } = await import('../src/game/save');
+    const { testActions } = await import('../src/ui/testPanel');
+    const { homeSlots } = await import('../src/empire/sim');
+    const save = { ...newSave(), empire: { ...newEmpire('テスト', 1, 'Lime'), homeSector: 2 } };
+    const e = testActions.jumpPhase3(save, 3).empire!;
+    expect(e.homeSector).toBe(2);
+    expect(e.nation!.regions[0].name.ja).toBe('南町（本拠）');
+    expect(e.nation!.regions[2].name.ja).toBe('駅前の町');
+    expect(homeSlots(e).slice(0, 3)).toEqual([2, 1, 0]);
+  });
+});

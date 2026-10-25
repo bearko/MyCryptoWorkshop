@@ -22,8 +22,10 @@ export interface LandProfile {
   key: string;
   /** 国の形（海上都市・帝国…） */
   kind: { ja: string; en: string };
-  /** 文化のひと言（創業の画面と、世界の海図で見せる） */
+  /** 文化のひと言（世界の海図で見せる） */
   lines: { ja: string; en: string }[];
+  /** どんな国か、ひと言で（創業の大陸選びで見せる。くわしい文化は入国してから） */
+  summary: { ja: string; en: string };
   /** 特産品と守り神（MCH のエクステンションのシリーズ番号。地図の飾りに使う） */
   specialty: { series: number; name: { ja: string; en: string } };
   guardian: { series: number; name: { ja: string; en: string } };
@@ -44,6 +46,7 @@ const L = (ja: string, en: string) => ({ ja, en });
 export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   Ocean: {
     key: 'Ocean',
+    summary: L('住民がいちばん多い海上都市。異文化の交流が盛んで、船の技術は世界の最先端', 'The most populous sea city: open to other cultures, with world-leading ships'), // i18n-ja
     kind: L('海上都市', 'Sea city'), // i18n-ja
     lines: [
       L('住民の数は全ランドで 1 番。異文化の交流が盛んで、よそのランドの特産品がよく売れる', 'The most populous land. Open to other cultures: goods from other lands sell well'), // i18n-ja
@@ -61,6 +64,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Strawberry: {
     key: 'Strawberry',
+    summary: L('魔王が治める帝国。よそとはあまり交わらない、独自の文化を持つ', 'An empire under the Demon King, with a culture all its own'), // i18n-ja
     kind: L('帝国', 'Empire'), // i18n-ja
     lines: [
       L('魔王の絶対王政。国民の忠義が厚く、武力も高い。地下に秘密の施設があるという噂', "The Demon King's absolute rule. Loyal, strong people. Rumors of a secret facility underground"), // i18n-ja
@@ -78,6 +82,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Tangerine: {
     key: 'Tangerine',
+    summary: L('偉人によって姿を変えてきた自由国家。まだどこの会社も入っていない', 'A free state reshaped by great figures. No company has arrived yet'), // i18n-ja
     kind: L('自由国家', 'Free state'), // i18n-ja
     lines: [
       L('商人・宗教家・芸術家と、その時々の偉人で姿を変えてきた国。いまは象徴となる偉人がいない', 'A land reshaped by each era’s great figure. Right now it has none'), // i18n-ja
@@ -95,6 +100,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Lime: {
     key: 'Lime',
+    summary: L('一度は最弱と言われながら、急成長した国。調和を重んじ、住宅街が広がる', 'Once the weakest, now a rising land of harmony and wide suburbs'), // i18n-ja
     kind: L('急成長の国', 'Rising nation'), // i18n-ja
     lines: [
       L('一度は最弱と言われたが、建て直して Strawberry と肩を並べるまでになった。調和を重んじる', 'Once the weakest land, now rebuilt to rival Strawberry. It values harmony'), // i18n-ja
@@ -113,6 +119,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   // ---- フェーズ 4 から渡れるランド（創業はできない。rivalFrom は使わない）
   Graphite: {
     key: 'Graphite',
+    summary: L('親方と慕われる象王のもと、国じゅうが団結する技術の国', 'A united land of technology under King Elephant, the beloved Boss'), // i18n-ja
     kind: L('団結の国', 'United nation'), // i18n-ja
     lines: [
       L('安定した、柔和な国。キングの象王は「親方」と呼ばれ、家臣と国民に慕われている', 'A steady, gentle land. King Elephant, called "the Boss", is loved by retainers and people alike'), // i18n-ja
@@ -130,6 +137,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Grape: {
     key: 'Grape',
+    summary: L('G9 の議長・魚王が率いる、野心と活気にあふれる国', 'An ambitious, lively land led by King Fish, chair of the G9'), // i18n-ja
     kind: L('野心の国', 'Ambitious nation'), // i18n-ja
     lines: [
       L('野心あふれる国。キングの魚王は、9 ランドの代表が集まって世界の方針を決める G9 の議長', "A land brimming with ambition. King Fish chairs the G9, where the nine lands set the world's course"), // i18n-ja
@@ -147,6 +155,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Sage: {
     key: 'Sage',
+    summary: L('女王の猫王が治め、新しく来た人と異文化を迎える穏やかな国', 'A gentle land under Queen Cat that welcomes newcomers'), // i18n-ja
     kind: L('穏やかな国', 'Gentle nation'), // i18n-ja
     lines: [
       L('女王の猫王が治める、穏やかな国。特産品はセージ', 'A gentle land ruled by Queen Cat. Specialty: sage'), // i18n-ja
@@ -164,6 +173,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Blueberry: {
     key: 'Blueberry',
+    summary: L('船の上で暮らす人々の、海賊団を名乗る小さな海洋国家', 'A tiny sea nation of ship-dwellers calling itself a pirate crew'), // i18n-ja
     kind: L('海賊団', 'Pirate crew'), // i18n-ja
     lines: [
       L('海賊団を名乗る、ごく少ない人数の海洋国家。土地はほとんどなく、小さな島が点在し、人々は船の上で暮らす', 'A tiny sea nation calling itself a pirate crew. Barely any land: scattered islets, people living on ships'), // i18n-ja
@@ -181,6 +191,7 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
   },
   Ruby: {
     key: 'Ruby',
+    summary: L('ふだんは入れない謎多き国。通称「流星街」', 'A land of mysteries, closed to outsiders: Meteor Town'), // i18n-ja
     kind: L('謎多き国', 'Land of mysteries'), // i18n-ja
     lines: [
       L('謎の多い国。通称「流星街」。ふだんは入国できず、所属する国民（団員）とつながりのある者だけが入れる', 'A land of mysteries, known as Meteor Town. Closed to outsiders: only those with ties to its members may enter'), // i18n-ja
@@ -196,6 +207,14 @@ export const LAND_PROFILES: Record<WorldLand, LandProfile> = {
     rent: 1.1,
     rivalFrom: 0,
   },
+};
+
+/** 地形のひと言（創業の大陸選びで見せる） */
+export const TERRAIN_TEXT: Record<Terrain, { ja: string; en: string }> = {
+  sea: L('海に浮かぶ島々と港町', 'Islands and harbor towns on the sea'), // i18n-ja
+  castle: L('城を中心に広がる城下町', 'Towns spreading around a castle'), // i18n-ja
+  open: L('見渡すかぎりの野原', 'Open fields as far as the eye can see'), // i18n-ja
+  suburb: L('住宅街の広がる平地', 'Plains lined with houses'), // i18n-ja
 };
 
 /** 創業できない（古いセーブの）ランドは、どの品ぞろえも 1 倍の、癖のないランドとして扱う */
