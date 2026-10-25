@@ -12,7 +12,8 @@ import { meetingNow, pledgeKept, trustOf } from '../../empire/governance';
 import { campaignActive, CAMPAIGN, counterCost } from '../../empire/rivalai';
 import { REGULATION } from '../../empire/crowns';
 import { pledgeProgress } from './govern';
-import { demandText, kingName, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
+import { CRISES, CRISIS, crisisUntil, diversifyCost, inspectCost } from '../../empire/crisis';
+import { crisisName, demandText, kingName, money, monthLabel, noteText, pledgeLabel, stakeName, storeName } from './text';
 
 export interface Voice {
   /** 誰の声か（常連客・問屋・店主・オーナー会・当局・銀行） */
@@ -119,9 +120,36 @@ function rivalVoices(e: EmpireState): Voice[] {
   return out;
 }
 
+/** 危機の予兆（メーターが予兆の線を超えているあいだ）と、起きた危機の効き目 */
+function crisisVoices(e: EmpireState): Voice[] {
+  const c = e.crisis;
+  if (!c || e.phase < 3) return [];
+  const out: Voice[] = [];
+  for (const id of CRISES) {
+    const until = crisisUntil(e, id);
+    const v = Math.round(c.meters[id]);
+    if (v < CRISIS.sign && until === null) continue;
+    const fix: Voice['fix'] =
+      id === 'food'
+        ? { label: t(`品質点検（${money(inspectCost(e))}）`, `Inspect (${money(inspectCost(e))})`), apply: (d) => ({ ...d, inspect: true }) }
+        : id === 'supply'
+          ? { label: t(`仕入れ先を分ける（${money(diversifyCost(e))}）`, `Spread suppliers (${money(diversifyCost(e))})`), apply: (d) => ({ ...d, diversify: true }) }
+          : { label: t('今月の出店を半分に', 'Halve this month’s openings'), apply: (d) => ({ ...d, expand: (d.expand ?? []).map((x) => ({ ...x, count: Math.ceil(x.count / 2) })) }) };
+    out.push({
+      key: `crisis-${id}`,
+      who: { food: t('お客さんの声', 'Customers'), supply: t('仕入れ担当', 'Purchasing'), overgrow: t('現場の店長たち', 'Store managers') }[id],
+      text: until !== null ? noteText({ kind: 'crisis', crisis: id }, e) : noteText({ kind: 'crisisSign', crisis: id }, e),
+      due: until !== null ? t(`${monthLabel(until - 1)}まで`, `Until ${monthLabel(until - 1)}`) : t(`${crisisName(id)}のおそれ ${v} / 100`, `${crisisName(id)} risk ${v} / 100`),
+      urgent: true,
+      fix: until === null ? fix : undefined,
+    });
+  }
+  return out;
+}
+
 export function voicesOf(r: MonthReport | null, e: EmpireState): Voice[] {
-  if (!r) return [...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
-  const out: Voice[] = [...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
+  if (!r) return [...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
+  const out: Voice[] = [...crisisVoices(e), ...rivalVoices(e), ...demandVoices(e), ...pledgeVoice(e)];
   const seen = new Set<string>();
   const add = (v: Voice) => {
     if (seen.has(v.key)) return;
@@ -253,6 +281,10 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'jvBuyout':
       case 'licenseWarning':
       case 'licenseBroke':
+      case 'crisis':
+        out.push({ head: noteText(n, e), hero: null, kind: 'era' });
+        break;
+      case 'crisisAction':
       case 'auctionSoon':
       case 'auction':
       case 'legendCrown':
@@ -281,6 +313,8 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
 export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean): string {
   const has = (k: Note['kind']) => r?.notes.find((n) => n.kind === k);
   if (ready) return t('条件を満たしました！ 下の「次の格へ」から、会社を大きくできます。', 'Goal met! Use "Next stage" below to grow the company.');
+  const sign = CRISES.find((id) => (e.crisis?.meters[id] ?? 0) >= CRISIS.sign && crisisUntil(e, id) === null);
+  if (sign) return t(`${crisisName(sign)}の予兆です！ 絵馬掛けのボタンで、起きる前に手を打っておきましょう。`, `Signs of a ${crisisName(sign).toLowerCase()}! Use the button on the plaque before it strikes.`);
   if ((e.crowns?.overMonths ?? 0) > 0) return t('シェアが 5 割を超え、当局が分割の審査を始めました。出店を止めるか、加盟店を手放してシェアを下げましょう。', 'Over half the market: a break-up review began. Stop opening or shed stores.');
   if (e.campaign && campaignActive(e.campaign, e.month)) return t('ライバルの値下げ攻勢です。絵馬の「対抗セール」で客足を守れます（費用がかかります）。', 'A rival price war. Use the counter-sale on the plaque to keep customers (it costs money).');
   if (e.court?.invited && !e.court.audience) return t(`${kingName(e.land)}から謁見の招待です！ 下の「${kingName(e.land)}」で献上の品を選んでから、月を進めましょう。`, `${kingName(e.land)} invites you! Pick an offering under "${kingName(e.land)}", then advance.`);

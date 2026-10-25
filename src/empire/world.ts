@@ -14,6 +14,7 @@ import { courtStep, holdAudience, newCourt, type Court } from './court';
 import { focusFit, landProfile, LAND_PROFILES, type FoundingLand } from './lands';
 import type { EmpireState, Note } from './model';
 import { groupMods } from './business';
+import { crisisMods } from './crisis';
 import { plotRoom, unlockLegend } from './nation';
 import { RIVAL_NATION } from './nation';
 import { generateNation, HUB_COST, nationStores, OPEN_COSTS, regionMonth, regionStores, trainees, TRAINING_COST, TRAINING_UPKEEP, HUB_UPKEEP, type Nation, type StoreType } from './nation';
@@ -238,8 +239,9 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
   const gm = groupMods(e);
   b.local = Math.min(1, b.local + ENTRY.localMonthly + gm.localize);
   const integrating = e.month < b.integrateUntil;
-  const demand = focusFit(b.land, e.focus) * b.local * (integrating ? ENTRY.integrateDemand : 1) * (1 + gm.demand);
-  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * 0.05, { demand, costCut: gm.costCut, rentMult: landProfile(b.land).rent * gm.rent }));
+  const cm = crisisMods(e);
+  const demand = focusFit(b.land, e.focus) * b.local * (integrating ? ENTRY.integrateDemand : 1) * (1 + gm.demand) * cm.demand;
+  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * 0.05, { demand, costCut: gm.costCut - cm.costRate, rentMult: landProfile(b.land).rent * gm.rent }));
   let revenue = reps.reduce((a, r) => a + r.revenue, 0);
   let profit = reps.reduce((a, r) => a + r.profit, 0) * b.stake;
   // ライセンスの提携先の売上の一部

@@ -8,6 +8,7 @@ import { landProfile, type Focus } from '../../empire/lands';
 import type { Offering, Privilege } from '../../empire/court';
 import type { EntryMode } from '../../empire/world';
 import { BUSINESS, type Business } from '../../empire/business';
+import { CRISIS, type CrisisId } from '../../empire/crisis';
 import { legendCrowns, RANK, type BidLevel } from '../../empire/group';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
@@ -158,6 +159,20 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
         : t(`会議卓から「${n.removed.map(businessName).join('・')}」を外しました`, `Removed ${n.removed.map(businessName).join(', ')} from the table`);
     case 'ending':
       return t('全ランドの Legendary で 3 冠をそろえました。グループは財閥と呼ばれるようになりました', 'You hold all three crowns in every Legendary area. The group is now called a zaibatsu');
+    case 'crisisSign':
+      return {
+        food: t('「最近、品物の傷みが気になる」という声が増えています。食の事故の予兆です。品質点検をしましょう', 'More complaints about spoiled goods: a food accident is brewing. Run a quality inspection'),
+        supply: t('仕入れが 1 か所に偏っています。供給ショックの予兆です。仕入れ先を分けましょう', 'Purchasing leans on one supplier: a supply shock is brewing. Spread your suppliers'),
+        overgrow: t('出店に研修と物流が追いつかず、現場が悲鳴を上げています。拡大しすぎの予兆です。出店を緩めましょう', 'Training and logistics cannot keep up with openings: you are overexpanding. Slow down'),
+      }[n.crisis];
+    case 'crisis':
+      return {
+        food: t(`食の事故が起きました。ブランドに傷がつき、${CRISIS.food.months} か月はお客さんが減ります`, `A food accident: the brand is hurt and customers drop for ${CRISIS.food.months} months`),
+        supply: t(`供給ショックです。仕入れ値が ${CRISIS.supply.months} か月上がります`, `A supply shock: purchase costs rise for ${CRISIS.supply.months} months`),
+        overgrow: t('拡大しすぎて、品質とオーナーの満足度が落ちました', 'Overexpansion: quality and owner satisfaction fell'),
+      }[n.crisis];
+    case 'crisisAction':
+      return n.crisis === 'food' ? t('全店で品質点検をしました。食の事故のおそれが下がりました', 'Inspected every store: the risk of a food accident fell') : t(`仕入れ先を分けました。${CRISIS.supply.diversifyMonths} か月は供給ショックが起きにくくなります`, `Spread the suppliers: supply shocks are less likely for ${CRISIS.supply.diversifyMonths} months`);
     case 'licenseBroke':
       return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
@@ -323,4 +338,9 @@ export function businessName(b: Business): string {
 /** 地主会の付け値の呼び名 */
 export function bidLabel(l: BidLevel): string {
   return { low: t('控えめ', 'Low'), market: t('相場', 'Market'), high: t('強気', 'High') }[l];
+}
+
+/** 危機の名前 */
+export function crisisName(c: CrisisId): string {
+  return { food: t('食の事故', 'Food accident'), supply: t('供給ショック', 'Supply shock'), overgrow: t('拡大しすぎ', 'Overexpansion') }[c];
 }

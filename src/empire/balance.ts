@@ -11,6 +11,7 @@ import { crownStats, REGULATION } from './crowns';
 import { HUB_COST, legendIndex, OPEN_COSTS, regionStores, trainees, TRAINING_COST, type StoreType } from './nation';
 import { biddable, bidPrice, landsOf, type Bid } from './group';
 import { BUSINESS, type Business } from './business';
+import { CRISIS, diversifyCost, inspectCost } from './crisis';
 import {
   advanceMonth,
   AREA_OPEN_COST,
@@ -221,11 +222,25 @@ function phase5Moves(s: EmpireState, reserve: number, type: StoreType): Decision
 /** 本拠の決定でおよそ使う資金（フェーズ 4 のボットの資金繰り） */
 const reserved4 = (d: Decisions) => (d.training ?? 0) * TRAINING_COST + (d.buildHub?.length ?? 0) * HUB_COST + (d.expand ?? []).reduce((a, x) => a + x.count * OPEN_COSTS[x.type], 0);
 
+/**
+ * 危機の予兆に応える（人のプレイヤーも、予兆の絵馬とマインちゃんのひと言で備える）：
+ * 食の事故は品質点検、供給ショックは仕入れ先を分ける、拡大しすぎは出店を半分に
+ */
+function heedCrisis(s: EmpireState, d: Decisions): Decisions {
+  const c = s.crisis;
+  if (!c || s.phase < 3) return d;
+  const out = { ...d };
+  if (c.meters.food >= CRISIS.sign && s.funds > inspectCost(s) * 2) out.inspect = true;
+  if (c.meters.supply >= CRISIS.sign && s.funds > diversifyCost(s) * 2) out.diversify = true;
+  if (c.meters.overgrow >= CRISIS.sign) out.expand = (d.expand ?? []).map((x) => ({ ...x, count: Math.ceil(x.count / 2) }));
+  return out;
+}
+
 /** フェーズごとに手を変えるボット */
 const staged = (p1: (s: EmpireState) => Decisions, reserve: number, type: StoreType) => (s: EmpireState): Decisions => {
   if (canPromote(s) && s.phase < 5) return { promote: true };
   if (s.phase === 1) return heedDemands(s, p1(s));
-  return heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : s.phase === 3 ? phase3Moves(s, reserve, type) : s.phase === 4 ? phase4Moves(s, reserve, type) : phase5Moves(s, reserve, type));
+  return heedCrisis(s, heedDemands(s, s.phase === 2 ? phase2Moves(s, reserve) : s.phase === 3 ? phase3Moves(s, reserve, type) : s.phase === 4 ? phase4Moves(s, reserve, type) : phase5Moves(s, reserve, type)));
 };
 
 const BOTS_P1: Bot[] = [
@@ -281,6 +296,9 @@ export interface BotResult {
   /** 最後通告を受けた回数と、要望が出た回数 */
   ultimatums: number;
   demands: number;
+  /** 起きた危機と、出た予兆の数 */
+  crises: number;
+  signs: number;
 }
 
 export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', focus?: Focus): BotResult {
@@ -293,11 +311,15 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
   let redMonths = 0;
   let ultimatums = 0;
   let demands = 0;
+  let crises = 0;
+  let signs = 0;
   for (let i = 0; i < months; i++) {
     const step = advanceMonth(s, bot.decide(s));
     s = step.state;
     ultimatums += step.report.notes.filter((n) => n.kind === 'ultimatum').length;
     demands += step.report.notes.filter((n) => n.kind === 'demand').length;
+    crises += step.report.notes.filter((n) => n.kind === 'crisis').length;
+    signs += step.report.notes.filter((n) => n.kind === 'crisisSign').length;
     if (s.funds < 0) redMonths++;
     if (phase1Month === null && phase1Done(s)) phase1Month = s.month;
     if (phase2Month === null && s.phase === 2 && phase2Done(s)) phase2Month = s.month;
@@ -306,5 +328,5 @@ export function runBot(bot: Bot, seed: number, months: number, land = 'Ocean', f
     if (endingMonth === null && s.group?.ended != null) endingMonth = s.month;
   }
   const legend = Object.values(s.group?.legend ?? {}).reduce((a, r) => a + Object.values(r.held).filter(Boolean).length, 0);
-  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, phase4Month, endingMonth, legend, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands };
+  return { bot: bot.name, seed, phase1Month, phase2Month, phase3Month, phase4Month, endingMonth, legend, stores: s.nation ? s.nation.regions.reduce((a, r) => a + regionStores(r), 0) : s.stores.length, funds: Math.round(s.funds), redMonths, ultimatums, demands, crises, signs };
 }

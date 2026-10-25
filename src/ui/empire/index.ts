@@ -27,8 +27,9 @@ import { h } from '../dom';
 import { hqCard2, hqCard3, letterCard, lotCard, plotCard, plotProfit, regionCard, reserved, ringiItems, ringiList, storeCard, type Ctx, type SoundKey } from './cards';
 import { foundingTown, gridIndex, heats, plotCells, RAMEN, sectorGrid, storeCells, storeExt, townGrid } from './maps';
 import { adviceOf, newsOf, voicesOf } from './notes';
-import { bubble, chip, emaCard, kawaraban, panel, profitBars, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
-import { companyTitle, crownName, fitMark, focusLabel, kingName, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
+import { bubble, chip, emaCard, kawaraban, panel, profitBars, riskMeters, row, sheet, supportMeters, svgIcon, type SheetState } from './parts';
+import { CRISES, CRISIS, crisisUntil } from '../../empire/crisis';
+import { companyTitle, crisisName, crownName, fitMark, focusLabel, kingName, monthLabel, money, plotLabel, shortMoney, storeName } from './text';
 
 export { companyTitle, monthLabel, noteText, plotLabel, cellName } from './text';
 
@@ -845,6 +846,25 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     );
   }
 
+  /** 危機のメーター（フェーズ 3 から） */
+  function riskView(): HTMLElement | null {
+    const c = e.crisis;
+    // 低いうちは出さない（どれかが 40 を超えるか、危機が起きているときだけ）
+    if (!c || e.phase < 3 || !CRISES.some((id) => c.meters[id] >= 40 || crisisUntil(e, id) !== null)) return null;
+    return h(
+      'div.ke-risk-block',
+      {},
+      h('span.ke-field-label', {}, t('危機のおそれ', 'Crisis risk')),
+      riskMeters(
+        CRISES.map((id) => {
+          const until = crisisUntil(e, id);
+          return { name: crisisName(id), value: c.meters[id], note: until !== null ? t(`発生中・${monthLabel(until - 1)}まで`, `Active until ${monthLabel(until - 1)}`) : undefined };
+        }),
+        CRISIS.sign,
+      ),
+    );
+  }
+
   function voicesView(): HTMLElement[] {
     const vs = voicesOf(last, e);
     const letter = e.phase === 1 && opts.letterHero ? letterFor(e, opts.letterHero.id) : null;
@@ -1171,7 +1191,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       case 'ledger':
         return h('div.ke-ema-list', {}, ledgerView(), ...[legendView(), crownsPanel()].filter((x): x is HTMLElement => !!x));
       case 'voices':
-        return h('div.ke-ema-list', {}, supportView(), ...voicesView());
+        return h('div.ke-ema-list', {}, supportView(), riskView(), ...voicesView());
       case 'commands':
         return h(
           'div.ke-cmd-list',
@@ -1337,7 +1357,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       folds.replaceChildren();
       sheetHost.replaceChildren();
       left.replaceChildren(ledgerView(), ...[legendView(), crownsPanel()].filter((x): x is HTMLElement => !!x));
-      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), supportView(), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
+      right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), supportView(), riskView(), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
       // 会議卓のマスのカードは、地図の横ではなく右の窓に出す
       const slotSel = selection?.kind === 'slot';
       selCard.replaceChildren(

@@ -45,6 +45,7 @@ try {
       '赤字月（合計）': rs.reduce((a, r) => a + r.redMonths, 0),
       '要望（1 社あたり）': (rs.reduce((a, r) => a + r.demands, 0) / seeds).toFixed(1),
       '最後通告（1 社あたり）': (rs.reduce((a, r) => a + r.ultimatums, 0) / seeds).toFixed(1),
+      '危機の予兆／発生（1 社あたり）': `${(rs.reduce((a, r) => a + r.signs, 0) / seeds).toFixed(1)}／${(rs.reduce((a, r) => a + r.crises, 0) / seeds).toFixed(1)}`,
     };
   });
   console.log(`${months} か月・種 ${seeds} 個・${land}${focus ? `・${focus}` : ''}`);

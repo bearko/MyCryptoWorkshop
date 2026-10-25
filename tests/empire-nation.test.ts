@@ -101,7 +101,8 @@ describe('卒業と保存', () => {
     s = advanceMonth(s, { training: 8, buildHub: open }).state;
     for (let i = 0; i < 48 && !phase3Done(s); i++) {
       // 分割の線（シェア 5 割）に近づいたら出店を止める
-      const near = (crownStats(s)?.share ?? 0) >= 0.47;
+      // 拡大しすぎの予兆が近づいても止める（人のプレイヤーも危機のメーターを見て緩める）
+      const near = (crownStats(s)?.share ?? 0) >= 0.47 || (s.crisis?.meters.overgrow ?? 0) >= 50;
       s = advanceMonth(s, { expand: near ? [] : [0, ...open].map((region) => ({ region, type: 'fcOwner' as const, count: 2 })), manual: true, training: 0 }).state;
     }
     expect(phase3Done(s)).toBe(true);

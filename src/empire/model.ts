@@ -11,6 +11,7 @@ import { restoreCourt, type Court, type Offering, type Privilege } from './court
 import { ENTRY_MODES, type Branch, type EntryMode, type World } from './world';
 import { restoreGroup, type Group } from './group';
 import type { Business } from './business';
+import { restoreCrisis, type Crisis, type CrisisId } from './crisis';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -133,7 +134,11 @@ export type Note =
   | { kind: 'auction'; land: string; won: number; wanted: number; paid: number; rivalWon: number }
   | { kind: 'legendCrown'; land: string; crown: CrownId; won: boolean }
   | { kind: 'tableChanged'; added: Business[]; removed: Business[] }
-  | { kind: 'ending' };
+  | { kind: 'ending' }
+  /** 危機（crisis.ts）：予兆・発生・備え */
+  | { kind: 'crisisSign'; crisis: CrisisId }
+  | { kind: 'crisis'; crisis: CrisisId }
+  | { kind: 'crisisAction'; crisis: CrisisId };
 
 export interface MonthReport {
   month: number;
@@ -195,6 +200,8 @@ export interface EmpireState {
   world?: World;
   /** フェーズ 5 から：会議卓・地主会・Legendary の番付・エンディング */
   group?: Group;
+  /** フェーズ 3 から：危機のメーター（食の事故・供給ショック・拡大しすぎ） */
+  crisis?: Crisis;
 }
 
 export const HISTORY = 24;
@@ -244,6 +251,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     court: restoreCourt(r.court),
     world: restoreWorld(r.world),
     group: restoreGroup(r.group),
+    crisis: restoreCrisis(r.crisis),
     ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
 }
