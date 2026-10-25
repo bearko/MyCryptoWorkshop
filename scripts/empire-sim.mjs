@@ -26,6 +26,7 @@ try {
     const done2 = rs.filter((r) => r.phase2Month !== null).map((r) => r.phase2Month - r.phase1Month);
     const done3 = rs.filter((r) => r.phase3Month !== null).map((r) => r.phase3Month - r.phase2Month);
     const done4 = rs.filter((r) => r.phase4Month !== null && r.phase3Month !== null).map((r) => r.phase4Month - r.phase3Month);
+    const done5 = rs.filter((r) => r.endingMonth !== null && r.phase4Month !== null).map((r) => r.endingMonth - r.phase4Month);
     return {
       bot: bot.name,
       'フェーズ1 到達': `${done.length}/${seeds}`,
@@ -36,6 +37,9 @@ try {
       'フェーズ3 の月数': median(done3) ?? '-',
       'フェーズ4 到達': `${done4.length}/${seeds}`,
       'フェーズ4 の月数': median(done4) ?? '-',
+      'エンディング到達': `${done5.length}/${seeds}`,
+      'フェーズ5 の月数': median(done5) ?? '-',
+      '番付の冠（中央値）': median(rs.map((r) => r.legend)),
       '店数（中央値）': median(rs.map((r) => r.stores)),
       '資金（中央値）': median(rs.map((r) => r.funds)).toLocaleString('ja-JP'),
       '赤字月（合計）': rs.reduce((a, r) => a + r.redMonths, 0),

@@ -13,6 +13,9 @@
 import { courtStep, holdAudience, newCourt, type Court } from './court';
 import { focusFit, landProfile, LAND_PROFILES, type FoundingLand } from './lands';
 import type { EmpireState, Note } from './model';
+import { groupMods } from './business';
+import { plotRoom, unlockLegend } from './nation';
+import { RIVAL_NATION } from './nation';
 import { generateNation, HUB_COST, nationStores, OPEN_COSTS, regionMonth, regionStores, trainees, TRAINING_COST, TRAINING_UPKEEP, HUB_UPKEEP, type Nation, type StoreType } from './nation';
 import { rivalExpand } from './rivalai';
 import type { Rng } from './rng';
@@ -91,9 +94,9 @@ export function newWorld(home: string): World {
 }
 
 /** 渡る費用 */
-export function routeCost(e: Pick<EmpireState, 'land' | 'court'>): number {
+export function routeCost(e: Pick<EmpireState, 'land' | 'court' | 'group'>): number {
   const ocean = landProfile(e.land).key === 'Ocean' || !!e.court?.privileges.includes('harbor');
-  return ENTRY.route * (ocean ? ENTRY.oceanDiscount : 1);
+  return ENTRY.route * (ocean ? ENTRY.oceanDiscount : 1) * groupMods(e).route;
 }
 
 /** 参入方式ごとの、渡った月の費用（航路を除く） */
@@ -121,11 +124,14 @@ export function enterLand(e: EmpireState, land: string, mode: EntryMode, rng: Rn
   const extra = 1 + (w.others[land] ?? 0) * OTHERS.toRival;
   for (const r of nation.regions.slice(1)) {
     r.capacity = Math.round(r.capacity * p.population);
-    r.rival = Math.round(r.rival * (p.key === 'Tangerine' ? 0.5 : 1) * extra);
+    // ほかの会社が多いほどライバルも多いが、エリアの入りきる目安の 55% まで
+    r.rival = Math.min(Math.floor(r.capacity * RIVAL_NATION.share), Math.round(r.rival * (p.key === 'Tangerine' ? 0.5 : 1) * extra));
   }
   nation.regions[0].rival = Math.round(2 * extra);
   // 最初のエリアは、本拠ではなく上陸した港町
   nation.regions[0].name = { ja: '上陸の港町', en: 'Landing port' }; // i18n-ja
+  // フェーズ 5 で渡ったランドは、Legendary エリアも最初から開いている（区画は地主会で取る）
+  if (e.phase >= 5) unlockLegend(nation);
   const b: Branch = { land, mode, opened: e.month, nation, court: newCourt(), local: Math.max(ENTRY.localStart, w.knowhow[land] ?? 0), partner: 0, stake: 1, integrateUntil: -1, hist: [] };
   const home = nation.regions[0];
   if (mode === 'jv') {
@@ -203,7 +209,7 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
     const r = n.regions[x.region];
     if (!r || r.locked || (!r.hub && x.region !== 0)) continue;
     for (let i = 0; i < x.count && people > 0; i++) {
-      if (!pay(OPEN_COSTS[x.type])) break;
+      if (plotRoom(r) <= 0 || !pay(OPEN_COSTS[x.type])) break;
       r[x.type]++;
       people--;
     }
@@ -229,10 +235,11 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
   // ライバル（そのランドの会社）
   if (e.month % 3 === 0) rivalExpand(n, 1);
   // 現地化：月ごとに慣れる
-  b.local = Math.min(1, b.local + ENTRY.localMonthly);
+  const gm = groupMods(e);
+  b.local = Math.min(1, b.local + ENTRY.localMonthly + gm.localize);
   const integrating = e.month < b.integrateUntil;
-  const demand = focusFit(b.land, e.focus) * b.local * (integrating ? ENTRY.integrateDemand : 1);
-  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * 0.05, { demand, rentMult: landProfile(b.land).rent }));
+  const demand = focusFit(b.land, e.focus) * b.local * (integrating ? ENTRY.integrateDemand : 1) * (1 + gm.demand);
+  const reps = n.regions.map((r) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * 0.05, { demand, costCut: gm.costCut, rentMult: landProfile(b.land).rent * gm.rent }));
   let revenue = reps.reduce((a, r) => a + r.revenue, 0);
   let profit = reps.reduce((a, r) => a + r.profit, 0) * b.stake;
   // ライセンスの提携先の売上の一部
@@ -241,7 +248,7 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
     revenue += partnerRev;
     profit += partnerRev * ENTRY.licenseRoyalty;
   }
-  profit -= n.regions.filter((r) => r.hub).length * HUB_UPKEEP + n.trainingCenters * TRAINING_UPKEEP;
+  profit -= n.regions.filter((r) => r.hub).length * HUB_UPKEEP * gm.hubUpkeep + n.trainingCenters * TRAINING_UPKEEP;
   const rivalRevenue = reps.reduce((a, r) => a + r.rivalRevenue, 0);
   b.hist = [...b.hist, { revenue, rival: rivalRevenue }].slice(-12);
   // キングの注目（そのランドのキング）

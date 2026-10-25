@@ -17,6 +17,8 @@ import { courtCard, focusCard, focusPicker, landDetail, landPickCard } from './l
 import { branchCtx, branchHqCard, branchLens, isleStatus, isleTag, worldLandCard, worldPanel } from './worldui';
 import { branchOf, foreignShare, GRADUATE, WORLD_LANDS } from '../../empire/world';
 import { WorldScene } from '../../render/map/world';
+import { auctionCard, draftTable, endingCard, legendPanel, slotCard, tableView } from './groupui';
+import { ENDING_CROWNS, legendCrowns } from '../../empire/group';
 import { t } from '../../i18n';
 import { GridScene, type GridData } from '../../render/map/grid';
 import { LandScene } from '../../render/map/land';
@@ -58,8 +60,8 @@ export interface EmpireViewOptions {
   onTest?: () => void;
 }
 
-type Panel = 'hq' | 'branch' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | 'court' | null;
-type Selection = { kind: 'store' | 'plot' | 'lot' | 'region' | 'land'; id: number } | null;
+type Panel = 'hq' | 'branch' | 'auction' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | 'court' | null;
+type Selection = { kind: 'store' | 'plot' | 'lot' | 'region' | 'land' | 'slot'; id: number } | null;
 
 const PHASE_NAME = () => ['', t('店主', 'Owner'), t('エリア', 'Area chain'), t('全国', 'National'), t('世界', 'Global'), t('グループ', 'Group')];
 
@@ -82,6 +84,10 @@ function goal(e: EmpireState): { label: string; value: string; done: boolean } {
       value: t(`店 ${e.stores.length}/12・相手 ${e.area.rivalStores.length}・センター ${e.area.centers.length ? '✓' : '—'}`, `Stores ${e.stores.length}/12 · rival ${e.area.rivalStores.length} · center ${e.area.centers.length ? '✓' : '—'}`),
       done: canPromote(e),
     };
+  }
+  if (e.phase >= 5 && e.group) {
+    // フェーズ 5 の目標：渡れる全ランドの Legendary で 3 冠
+    return { label: t('番付', 'Legendary'), value: t(`冠 ${legendCrowns(e)}/${ENDING_CROWNS}`, `Crowns ${legendCrowns(e)}/${ENDING_CROWNS}`), done: e.group.ended !== null };
   }
   if (e.phase >= 4 && e.world) {
     // フェーズ 4 の目標：本拠の外の 2 ランドで謁見、売上の 3 割を本拠の外で
@@ -132,7 +138,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   /** フェーズ 3：国の板を見ているか、どのエリアの地図に入っているか */
   let regionView: number | null = null;
   /** フェーズ 4：世界の海図・本拠・渡ったランドのどれを見ているか */
-  let at: string = initial.phase >= 4 ? 'world' : 'home';
+  let at: string = initial.phase >= 5 ? 'table' : initial.phase >= 4 ? 'world' : 'home';
+  /** フェーズ 5：会議卓で動かそうとしているカードのマス */
+  let moving: number | null = null;
+  /** エンディングの画面を閉じたか（その月の報告で 1 度だけ開く） */
+  let endingOpen = (initial.history.at(-1)?.notes ?? []).some((n) => n.kind === 'ending');
   /** 今月、絵馬の「その場のボタン」を押したもの */
   const fixed = new Set<string>();
   let busy = false;
@@ -152,7 +162,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   const dock = h('nav.ke-dock', { 'aria-label': t('指示', 'Commands') });
   const pop = h('div.ke-pop-host', {});
   const sheetHost = h('div.ke-sheet-host', {});
-  root.append(head, chipsRow, desk, strip, folds, dock, pop, sheetHost);
+  const endHost = h('div.ke-end-host', {});
+  root.append(head, chipsRow, desk, strip, folds, dock, pop, sheetHost, endHost);
 
   // ---------------------------------------------------------------- 地図
   const tags = h('div.ke-tags', { 'aria-hidden': 'true' });
@@ -161,6 +172,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   const tools = h('div.ke-tools', {});
   const advisorHost = h('div.ke-advisor-host', {});
   const coins = h('div.ke-coins', { 'aria-hidden': 'true' });
+  /** フェーズ 5 の会議卓（地図のかわりに真ん中に出す） */
+  const tableHost = h('div.ke-table-host', { hidden: true });
   let grid: GridScene | null = null;
   let land: LandScene | null = null;
   let world: WorldScene | null = null;
@@ -172,11 +185,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     onSelect: (target) => select(target),
     onCamera: () => placeOverlays(),
   });
-  center.append(view.el, tags, coins, tools, advisorHost, selCard, tip);
+  center.append(view.el, tableHost, tags, coins, tools, advisorHost, selCard, tip);
 
   /** 見ている渡ったランド（海図・本拠を見ているときは null） */
-  const branchAt = () => (e.phase >= 4 && at !== 'world' && at !== 'home' ? (branchOf(e, at) ?? null) : null);
+  const branchAt = () => (e.phase >= 4 && at !== 'world' && at !== 'home' && at !== 'table' ? (branchOf(e, at) ?? null) : null);
   const atWorld = () => e.phase >= 4 && !!e.world && at === 'world';
+  const atTable = () => e.phase >= 5 && !!e.group && at === 'table';
   /** 国の画面に出す会社（渡ったランドを見ているときは、そのランドに見立てた写し） */
   const lens = (): EmpireState => {
     const b = branchAt();
@@ -190,6 +204,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   const goTo = (where: string) => {
     at = where === e.land ? 'home' : where;
     regionView = null;
+    moving = null;
     selection = null;
     openPanel = null;
     sheetState = 'closed';
@@ -220,7 +235,34 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   };
 
   /** 地図の場面を作り直す（形が変わったときだけ） */
+  /** 会議卓のマスを押す：動かしているカードがあれば空いたマスへ動かす。なければそのマスを選ぶ */
+  function onSlot(slot: number): void {
+    const table = draftTable(ctx());
+    if (moving !== null && !table[slot]) {
+      const next = [...table];
+      next[slot] = next[moving];
+      next[moving] = null;
+      draft = { ...draft, table: next.some((x, i) => x !== e.group!.table[i]) ? next : undefined };
+      moving = null;
+      selection = { kind: 'slot', id: slot };
+      play('build');
+      render();
+      return;
+    }
+    moving = null;
+    select({ kind: 'slot', id: slot, x: 0, y: 0, w: 0, h: 0 });
+  }
+
   function syncMap(): void {
+    // フェーズ 5 の会議卓：地図を隠して、会議卓を出す
+    const tbl = atTable();
+    view.el.hidden = tbl;
+    tableHost.hidden = !tbl;
+    if (tbl) {
+      tableHost.replaceChildren(tableView(ctx(), selection?.kind === 'slot' ? selection.id : null, onSlot));
+      tags.replaceChildren();
+      return;
+    }
     let key = '';
     let data: GridData | null = null;
     let focus: { x: number; y: number } | undefined;
@@ -523,7 +565,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       } else sheetState = 'closed';
     }
     render();
-    if (phone() && target) view.reveal(target, (root.clientHeight || 700) * 0.5);
+    if (phone() && target && target.kind !== 'slot') view.reveal(target, (root.clientHeight || 700) * 0.5);
   }
 
   /** 選んだ物の詳しい情報（PC は地図の横、スマホはシート） */
@@ -545,6 +587,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       });
     }
     if (selection.kind === 'lot' && e.area) return lotCard(c, selection.id);
+    if (selection.kind === 'slot' && e.group) return slotCard(c, selection.id, moving, (from) => ((moving = from), render()));
     if (selection.kind === 'land') {
       const k = WORLD_LANDS[selection.id];
       return worldLandCard(c, k, opts.landImage?.(k) ?? null, goTo);
@@ -604,11 +647,14 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       advisor = true;
       tuckAdvisor();
       busy = false;
-      if (r.report.notes.some((n) => n.kind === 'audience' && n.success)) play('win');
+      if (r.report.notes.some((n) => n.kind === 'ending')) {
+        endingOpen = true;
+        play('win');
+      } else if (r.report.notes.some((n) => n.kind === 'audience' && n.success)) play('win');
       else if (e.phase !== wasPhase) {
         selection = null;
         regionView = null;
-        if (e.phase >= 4) at = 'world';
+        if (e.phase >= 4) at = e.phase >= 5 ? 'table' : 'world';
         play('win');
       } else if (!wasReady && canPromote(e)) play('unlock');
       else if (r.report.profit > prevBest && e.history.length > 3) play('rare');
@@ -620,7 +666,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       else if (r.report.notes.some((n) => n.kind === 'demandMet')) play('clean');
       // 選んでいた物がもう無ければ外す（撤退したランドを見ていたら海図へ）
       if (selection?.kind === 'plot') selection = null;
-      if (at !== 'world' && at !== 'home' && !branchAt()) ((at = 'world'), (regionView = null), (selection = null));
+      if (at !== 'world' && at !== 'home' && at !== 'table' && !branchAt()) ((at = 'world'), (regionView = null), (selection = null));
       openPanel = null;
       sheetState = 'closed';
       commit(e);
@@ -661,7 +707,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       ].filter((x): x is HTMLElement => !!x);
     }
     chipsRow.hidden = true;
-    const where = branchAt() ? ` → ${at}` : atWorld() ? t('・海図', ' · chart') : '';
+    const where = branchAt() ? ` → ${at}` : atWorld() ? t('・海図', ' · chart') : atTable() ? t('・会議卓', ' · table') : '';
     return [h('h1.ke-title', {}, companyTitle(e)), h('span.ke-pill', { title: t(`${landProfile(e.land).key}（${landProfile(e.land).kind.ja}）`, `${landProfile(e.land).key} (${landProfile(e.land).kind.en})`) }, t(`フェーズ${e.phase}　${PHASE_NAME()[e.phase]}・${e.land}${where}`, `Phase ${e.phase} · ${PHASE_NAME()[e.phase]} · ${e.land}${where}`)), h('span.ke-spacer', {}), h('div.ke-chips', {}, ...chips), test, close].filter((x): x is HTMLElement => !!x);
   }
 
@@ -680,6 +726,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         return ic;
       })),
     );
+  }
+
+  /** Legendary の番付（フェーズ 5） */
+  function legendView(): HTMLElement | null {
+    return e.group ? legendPanel(e, (land) => goTo(land)) : null;
   }
 
   /** 3 冠の表と規制のメーター（フェーズ 3 から） */
@@ -753,6 +804,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     if (last.overhead) rows.push(row(t('本部の費用', 'Head office'), money(-last.overhead)));
     if (last.inflow) rows.push(row(t('本店からの送金', 'From the main shop'), money(last.inflow), 'good'));
     if (last.foreignRevenue) rows.splice(1, 0, row(t('うち本拠の外の売上', 'of which abroad'), money(last.foreignRevenue), 'good'));
+    if (last.groupProfit) rows.push(row(t('会議卓の事業の利益', 'Group businesses'), money(last.groupProfit), 'good'));
     const delta = prev ? last.profit - prev.profit : 0;
     // 本拠ランドの売上の比べ合いは、3 冠の「売上規模」と同じなので、3 冠の表が出てからは省く
     const race = (() => {
@@ -857,6 +909,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   /** 右の列：エリアの一覧（フェーズ 3）。地図の板と同じものを、数字で比べられるように */
   function regionsPanel(): HTMLElement | null {
     if (atWorld()) return worldPanel(e, selection?.kind === 'land' ? WORLD_LANDS[selection.id] : null, (i) => select({ kind: 'land', id: i, ...(world?.isleRect(i) ?? { x: 0, y: 0, w: 0, h: 0 }) }));
+    // 会議卓から：本拠や渡ったランドを押すとその国へ、まだのランドは海図へ
+    if (atTable()) return worldPanel(e, null, (i) => goTo(['home', 'branch'].includes(isleStatus(e, WORLD_LANDS[i])) ? WORLD_LANDS[i] : 'world'));
     const nat = lens().nation;
     if (!nat || regionView !== null) return null;
     return panel(
@@ -968,6 +1022,19 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       });
       cmds.push({ label: t('本部の方針', 'Head office'), sub: t(`SV ${draft.sv ?? e.sv} 人・POS ${e.pos ? '✓' : '—'}`, `SV ${draft.sv ?? e.sv} · POS ${e.pos ? '✓' : '—'}`), band: 'ours', on: toggle('hq'), pressed: openPanel === 'hq' });
     }
+    if (e.phase >= 5 && e.group) {
+      // フェーズ 5：会議卓・地主会はどの画面からも
+      const g = e.group;
+      if (!atTable()) cmds.push({ label: t('会議卓', 'Board table'), sub: t(`冠 ${legendCrowns(e)}/${ENDING_CROWNS}`, `${legendCrowns(e)}/${ENDING_CROWNS} crowns`), band: 'ours', on: () => goTo('table') });
+      const now = e.month === g.nextAuction;
+      const bids = Object.keys(draft.bids ?? {}).length;
+      cmds.push({ label: t('地主会', 'Auction'), sub: now ? (bids ? t(`✓ ${bids} ランドに付け値`, `✓ ${bids} bid(s)`) : t('今月・付け値を決める', 'This month: bid')) : monthLabel(g.nextAuction), band: now || g.nextAuction === e.month + 1 ? 'lantern' : 'ours', on: toggle('auction'), pressed: openPanel === 'auction' });
+      if (atTable()) {
+        cmds.push({ label: t('世界の海図', 'World chart'), sub: t(`${(e.world?.branches.length ?? 0) + 1} ランド`, `${(e.world?.branches.length ?? 0) + 1} lands`), band: 'ours', on: () => goTo('world') });
+        cmds.push({ label: t('本拠を見る', 'Home land'), sub: e.land, band: 'ours', on: () => goTo(e.land) });
+      }
+      if (g.ended !== null && atTable()) cmds.push({ label: t('エンディング', 'Ending'), sub: companyTitle(e), band: 'lantern', on: () => ((endingOpen = true), render()) });
+    }
     if (atWorld()) {
       // 世界の海図：渡れるランドを選ぶ・本拠や渡ったランドを見る
       const next = WORLD_LANDS.findIndex((k) => isleStatus(e, k) === 'open');
@@ -992,7 +1059,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       }
     }
     const v = lens();
-    if (e.phase >= 3 && v.nation && !atWorld()) {
+    if (e.phase >= 3 && v.nation && !atWorld() && !atTable()) {
       const n = v.nation;
       const br = branchAt();
       if (e.phase >= 4 && regionView === null) cmds.push({ label: t('世界へ戻る', 'World chart'), sub: br ? t(`いま ${br.land}`, `now ${br.land}`) : t(`いま ${e.land}（本拠）`, `now ${e.land} (home)`), band: 'ours', on: () => goTo('world') });
@@ -1028,7 +1095,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       cmds.push({ label: t('役員会', 'Board'), sub: t(`${seated} / ${BOARD_SEATS} 席`, `${seated} / ${BOARD_SEATS} seats`), band: 'ours', on: toggle('board'), pressed: openPanel === 'board' });
     }
     // 役員会と株主総会は会社全体のもの（海図を見ていても出す）
-    if (e.phase >= 3 && e.nation && atWorld()) {
+    if (e.phase >= 3 && e.nation && (atWorld() || atTable())) {
       const seated = (draft.board ?? e.gov?.board ?? []).length;
       cmds.push({ label: t('役員会', 'Board'), sub: t(`${seated} / ${BOARD_SEATS} 席`, `${seated} / ${BOARD_SEATS} seats`), band: 'ours', on: toggle('board'), pressed: openPanel === 'board' });
     }
@@ -1061,13 +1128,18 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
                 `ほかのランドへ渡る「世界チェーン」になります。航路を開き、ランドごとに Common の 1 エリアから小さく始め直します（直営・ライセンス・合弁・買収の 4 つの渡り方）。本拠の外の ${GRADUATE.audiences} ランドでキングとの謁見が成り、売上の ${GRADUATE.foreign * 100}% を本拠の外で上げると、次の格です。`,
                 `You become a global chain. Open sea routes and start small again in each land, from one Common area (direct, license, joint venture or acquisition). Win audiences with ${GRADUATE.audiences} kings abroad and earn ${GRADUATE.foreign * 100}% of sales outside your home land to move up.`,
               )
-            : t('次の格（グループ）は、次の更新で開きます。', 'The next stage (group) opens in a later update.');
+            : e.phase === 4
+              ? t(
+                  '企業グループ「ホールディングス」になります。各ランドの Legendary エリア（大市場）が開き、年に 1 度の地主会で区画を競り落とします。会議卓に業態カードを並べてグループを組み、渡れる全ランドの Legendary で 3 冠をそろえるとエンディングです。',
+                  'You become a holding group. The Legendary market in each land opens, and its plots are won at a yearly auction. Build the group on the board table, and hold all three crowns in every Legendary area to reach the ending.',
+                )
+              : '';
     return h(
       'div.ke-card',
       {},
       h('div.ke-card-head', {}, h('h3.ke-card-title', {}, t(`条件達成！ ${next}へ`, `Goal met! Become ${next}`))),
       h('p.ke-note', {}, text),
-      e.phase <= 3 ? h('button.ke-btn.ke-btn-primary', { type: 'button', onclick: () => advance({ promote: true }) }, t(`${next}になって月を進める`, `Become ${next} and advance`)) : null,
+      e.phase <= 4 ? h('button.ke-btn.ke-btn-primary', { type: 'button', onclick: () => advance({ promote: true }) }, t(`${next}になって月を進める`, `Become ${next} and advance`)) : null,
     );
   }
 
@@ -1076,6 +1148,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     switch (p) {
       case 'hq':
         return e.phase >= 3 && e.nation ? hqCard3(c) : hqCard2(c);
+      case 'auction':
+        return e.group ? auctionCard(c) : null;
       case 'branch': {
         const b = branchAt();
         return b ? branchHqCard(c, b) : null;
@@ -1095,7 +1169,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       case 'meeting':
         return e.gov ? meetingCard(c) : null;
       case 'ledger':
-        return h('div.ke-ema-list', {}, ledgerView(), ...[crownsPanel()].filter((x): x is HTMLElement => !!x));
+        return h('div.ke-ema-list', {}, ledgerView(), ...[legendView(), crownsPanel()].filter((x): x is HTMLElement => !!x));
       case 'voices':
         return h('div.ke-ema-list', {}, supportView(), ...voicesView());
       case 'commands':
@@ -1123,7 +1197,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), branch: t(`${at}の支社`, `${at} branch`), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), court: kingName(lens().land), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), auction: t('地主会', 'Auction'), branch: t(`${at}の支社`, `${at} branch`), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), court: kingName(lens().land), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);
@@ -1153,7 +1227,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
 
   function toolsView(): HTMLElement[] {
     const out: HTMLElement[] = [];
-    if (grid || (land && phone())) {
+    if (!atTable() && (grid || (land && phone()) || (world && phone()))) {
       const [lo, hi] = view.zoomLimits;
       out.push(
         h('button.ke-tool', { type: 'button', 'aria-label': t('拡大', 'Zoom in'), disabled: view.currentZoom >= hi, onclick: () => (view.stepZoom(1), render()) }, svgIcon('zoom-in')),
@@ -1164,7 +1238,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       const ov = (k: 'heat' | 'range', label: string) => h('button.ke-tool.ke-tool-text', { type: 'button', 'aria-pressed': String(overlay === k), onclick: () => ((overlay = overlay === k ? 'none' : k), render()) }, label);
       out.push(ov('heat', t('人通り', 'Traffic')), ov('range', t('配送圏', 'Delivery')));
     }
-    if (e.phase >= 4 && !atWorld() && regionView === null) out.unshift(h('button.ke-tool.ke-tool-text', { type: 'button', onclick: () => goTo('world') }, svgIcon('back', 18), t('世界の海図へ', 'World chart')));
+    if (e.phase >= 4 && !atWorld() && !atTable() && regionView === null) out.unshift(h('button.ke-tool.ke-tool-text', { type: 'button', onclick: () => goTo('world') }, svgIcon('back', 18), t('世界の海図へ', 'World chart')));
     if (e.phase >= 3 && regionView !== null && lens().nation) {
       const r = lens().nation!.regions[regionView];
       out.unshift(h('button.ke-tool.ke-tool-text', { type: 'button', onclick: () => ((regionView = null), (selection = null), render()) }, svgIcon('back', 18), t(`国へ戻る（${t(r.name.ja, r.name.en)}）`, `Back (${r.name.en})`)));
@@ -1262,10 +1336,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       strip.replaceChildren();
       folds.replaceChildren();
       sheetHost.replaceChildren();
-      left.replaceChildren(ledgerView(), ...[crownsPanel()].filter((x): x is HTMLElement => !!x));
+      left.replaceChildren(ledgerView(), ...[legendView(), crownsPanel()].filter((x): x is HTMLElement => !!x));
       right.replaceChildren(panel('ke-voices', t('絵馬掛け', 'Voices'), supportView(), ...voices), ...[storesPanel(), regionsPanel(), kawa].filter((x): x is HTMLElement => !!x));
+      // 会議卓のマスのカードは、地図の横ではなく右の窓に出す
+      const slotSel = selection?.kind === 'slot';
       selCard.replaceChildren(
-        sc
+        sc && !slotSel
           ? h(
               'div.ke-selcard',
               {},
@@ -1291,13 +1367,14 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         ringiButton(),
         monthButton(),
       );
-      const body = panelBody(openPanel);
+      const body = slotSel ? sc : panelBody(openPanel);
+      const popTitle = slotSel ? t('会議卓', 'Board table') : panelTitle(openPanel);
       pop.replaceChildren(
         body
           ? h(
               'div.ke-pop',
-              { role: 'dialog', 'aria-label': panelTitle(openPanel) },
-              h('div.ke-pop-head', {}, h('h2.ke-panel-title', {}, panelTitle(openPanel)), h('button.ke-icon-btn', { type: 'button', 'aria-label': t('閉じる', 'Close'), onclick: () => ((openPanel = null), render()) }, svgIcon('close'))),
+              { role: 'dialog', 'aria-label': popTitle },
+              h('div.ke-pop-head', {}, h('h2.ke-panel-title', {}, popTitle), h('button.ke-icon-btn', { type: 'button', 'aria-label': t('閉じる', 'Close'), onclick: () => ((openPanel = null), (selection = null), (moving = null), render()) }, svgIcon('close'))),
               h('div.ke-pop-body', {}, body),
             )
           : h('span', {}),
@@ -1305,6 +1382,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     }
     syncMap();
     requestAnimationFrame(placeOverlays);
+    // エンディング（その月の報告で 1 度、会議卓の指示からもう一度）
+    endHost.replaceChildren(
+      endingOpen && e.group
+        ? h('div.ke-end-backdrop', {}, endingCard(e, opts.mineImage?.() ?? null, () => ((endingOpen = false), render())))
+        : h('span', {}),
+    );
   }
 
   // Esc：まずシート・詳細・パネルを閉じる（経営画面ごと閉じるのはそのあと）
@@ -1339,6 +1422,11 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       keDebug: {
         /** kind・id の物の中心（画面の座標）。見えていなければ null */
         point: (kind: string, id: number) => {
+          if (kind === 'slot') {
+            const el = root.querySelectorAll('.ke-slot')[id] as HTMLElement | undefined;
+            const b = el?.getBoundingClientRect();
+            return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null;
+          }
           const r = targetRect({ kind: kind as NonNullable<Selection>['kind'], id });
           if (!r) return null;
           const p = view.toCss(r.x + r.w / 2, r.y + r.h / 2);

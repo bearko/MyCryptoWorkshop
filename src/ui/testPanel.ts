@@ -7,6 +7,9 @@ import { PARTY_ROSTER, scoutId } from '../game/party';
 import { planCampaign } from '../empire/rivalai';
 import { bestFocus, FOUNDING_LANDS } from '../empire/lands';
 import { KINGS, newCourt } from '../empire/court';
+import { OPEN_LANDS } from '../empire/world';
+import { landsOf, newGroup } from '../empire/group';
+import { unlockLegend } from '../empire/nation';
 import { landProfile, type FoundingLand } from '../empire/lands';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
@@ -143,6 +146,41 @@ export const testActions = {
     e = advanceMonth(e, { promote: true }).state;
     return { ...current, empire: { ...e, funds: 5e9 } };
   },
+  /**
+   * フェーズ 5（グループ）へ飛ぶ：フェーズ 4 から 2 ランドへ合弁で渡り、そのキングとの謁見を済ませ、
+   * Legendary エリアを開いたところ（卒業の売上の割合は待たずに格上げする。資金 300 億を残す）
+   */
+  jumpPhase5(current: SaveData, seed = 1): SaveData {
+    let e = { ...testActions.jumpPhase4(current, seed).empire!, funds: 1e11 };
+    for (const land of OPEN_LANDS.filter((k) => k !== e.land).slice(0, 2)) e = advanceMonth(e, { enter: { land, mode: 'jv' } }).state;
+    const branches = e.world!.branches.map((b) => {
+      const king = KINGS[landProfile(b.land).key as FoundingLand] ?? KINGS.Ocean;
+      return { ...b, court: { ...b.court, attention: 100, stage: 2, invited: false, audience: true, privileges: [king.privilege] } };
+    });
+    e = structuredClone({ ...e, phase: 5 as const, world: { ...e.world!, branches } });
+    for (const { nation } of landsOf(e)) unlockLegend(nation);
+    // 格上げした月の翌月（いま）が最初の地主会
+    e.group = newGroup(e.month - 1);
+    return { ...current, empire: { ...e, funds: 3e10 } };
+  },
+  /** 地主会の月まで進める（フェーズ 5） */
+  toAuction(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      for (let i = 0; i < 13 && e.group && e.month < e.group.nextAuction; i++) e = advanceMonth(e).state;
+      return e;
+    });
+  },
+  /** エンディングを見る：番付の冠を全部そろえたことにして、先月の報告にエンディングの知らせを足す（フェーズ 5） */
+  showEnding(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      if (!e.group) return e;
+      const held = { scale: true, brand: true, influence: true };
+      const legend = { ...e.group.legend };
+      for (const k of OPEN_LANDS) legend[k] = { ...(legend[k] ?? { hist: [], rivalPrice: 0 }), held };
+      const history = e.history.map((r, i) => (i === e.history.length - 1 ? { ...r, notes: [...r.notes, { kind: 'ending' as const }] } : r));
+      return { ...e, history, group: { ...e.group, legend, ended: e.month - 1 } };
+    });
+  },
   setSeed(current: SaveData, seed: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, rng: seed >>> 0 }));
   },
@@ -217,6 +255,9 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('フェーズ 2 へ飛ぶ', 'Jump to phase 2'), () => testActions.jumpPhase2(save)),
       btn(t('フェーズ 3 へ飛ぶ', 'Jump to phase 3'), () => testActions.jumpPhase3(save)),
       btn(t('フェーズ 4 へ飛ぶ', 'Jump to phase 4'), () => testActions.jumpPhase4(save)),
+      btn(t('フェーズ 5 へ飛ぶ', 'Jump to phase 5'), () => testActions.jumpPhase5(save)),
+      btn(t('地主会の月まで進める', 'Advance to the auction'), () => testActions.toAuction(save)),
+      btn(t('エンディングを見る', 'Show the ending'), () => testActions.showEnding(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
       btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),

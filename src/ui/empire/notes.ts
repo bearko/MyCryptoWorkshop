@@ -247,6 +247,19 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'meetingSoon':
         out.push({ head: noteText(n, e), hero: null, kind: 'company' });
         break;
+      // フェーズ 4〜5
+      case 'entered':
+      case 'exited':
+      case 'jvBuyout':
+      case 'licenseWarning':
+      case 'licenseBroke':
+      case 'auctionSoon':
+      case 'auction':
+      case 'legendCrown':
+      case 'tableChanged':
+      case 'ending':
+        out.push({ head: noteText(n, e), hero: null, kind: 'company' });
+        break;
       case 'opened':
       case 'centerBuilt':
       case 'hubBuilt':
@@ -296,6 +309,11 @@ export function adviceOf(r: MonthReport | null, e: EmpireState, ready: boolean):
     return t('点線の区画が出店の候補です（★がおすすめ）。押すと、家賃と見込みの利益を比べられます。', 'Dashed plots are candidates (★ is the best). Tap one to compare rent and expected profit.');
   }
   if (e.phase === 2) return t('物流センターから 2 マスの配送圏に店を集めると、配送費が下がります。★はおすすめの区画です。', 'Cluster stores within 2 plots of a distribution center to cut delivery costs. ★ marks good plots.');
+  if (e.phase >= 5 && e.group) {
+    if (e.month === e.group.nextAuction) return t('今月は地主会です。指示の「地主会」で、Legendary の区画の数と付け値を決めましょう。', 'The auction is this month. Set Legendary plots and bids under "Auction".');
+    if (e.group.table.filter(Boolean).length <= 1) return t('会議卓の空いたマスを押して、業態カードを置きましょう。相性のよいカードが隣り合うと、シナジーの線がつながります。', 'Tap an empty slot on the board table to place a business. Good neighbors link up.');
+    return t('Legendary エリアで、ライバルより多くの区画と店を持つと 3 冠に近づきます。会議卓のブランド力と影響力も効きますよ。', 'More plots and stores than the rival in each Legendary area bring the crowns closer. The table adds brand and influence too.');
+  }
   if (e.phase >= 4 && e.world) {
     if (!e.world.branches.length) return t('海図の島を押すと、渡り方と費用が出ます。遅れて渡るほど、ほかの会社の店が増えていますよ。', 'Tap an island on the chart to see how to enter and what it costs. The longer you wait, the more rivals there are.');
     return t('渡ったランドでは、研修所を建てて店長を育て、Common のエリアから広げます。そのランドのキングの好みに合わせると、注目が集まります。', 'In a new land, build a training center and grow from the Common area. Suit the local king to draw attention.');

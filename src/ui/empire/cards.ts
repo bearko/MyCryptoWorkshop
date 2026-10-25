@@ -49,13 +49,17 @@ import {
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
-import { cellName, entryLabel, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
+import { bidLabel, businessName, cellName, entryLabel, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
 import { articlesField } from './govern';
 import type { Articles } from '../../empire/governance';
 import { FOCUS_CHANGE_PER_STORE, landProfile } from '../../empire/lands';
 import { focusPicker } from './landui';
 import { counterCost } from '../../empire/rivalai';
 import { branchDecisionCost, branchOf, buyoutCost, ENTRY, entryCost, exitValue, routeCost } from '../../empire/world';
+import { BUSINESS, SELL_BACK as SELL_BACK_RATE, tableChangeCost } from '../../empire/business';
+const BUSINESS_COST = (b: keyof typeof BUSINESS) => BUSINESS[b].cost;
+import { bidCost } from '../../empire/group';
+import { isLegend, plotRoom } from '../../empire/nation';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -99,8 +103,17 @@ export function reserved(e: EmpireState, d: Decisions): number {
     (d.manual && !e.nation?.manual ? MANUAL_COST : 0) +
     (d.pb ? PB.cost : 0) +
     (d.enter ? routeCost(e) + entryCost(d.enter.mode) : 0) +
-    Object.entries(d.branches ?? {}).reduce((a, [land, bd]) => a + branchDecisionCost(e, land, bd), 0)
+    Object.entries(d.branches ?? {}).reduce((a, [land, bd]) => a + branchDecisionCost(e, land, bd), 0) +
+    groupCost(e, d)
   );
+}
+
+/** フェーズ 5 の下書きの費用：会議卓の並べ替え（外すと戻る）と、地主会の付け値（地主会の月だけ） */
+function groupCost(e: EmpireState, d: Decisions): number {
+  if (!e.group) return 0;
+  const ch = d.table ? tableChangeCost(e.group.table, d.table) : { cost: 0, refund: 0 };
+  const bids = e.month === e.group.nextAuction ? Object.values(d.bids ?? {}).reduce((a, b) => a + bidCost(e, b), 0) : 0;
+  return ch.cost - ch.refund + bids;
 }
 
 /** 足りないときの理由（押せないボタンの下に出す） */
@@ -354,6 +367,9 @@ export function regionCard(ctx: Ctx, ri: number, onEnter: () => void): HTMLEleme
   const own = regionStores(r);
   const plannedHere = (['direct', 'fcOwner', 'fcHq'] as const).reduce((a, k) => a + planned(k), 0);
   const canOpen = (r.hub || ri === 0 || hubs.includes(ri)) && !r.locked;
+  // Legendary は地主会で落札した区画の数まで
+  const legend = isLegend(r) && !r.locked;
+  const room = plotRoom(r);
   const share = (x: number) => Math.round((x / Math.max(1, r.capacity)) * 100);
   const typeLabel: Record<StoreType, string> = { direct: t('直営', 'Company-run'), fcOwner: t('加盟（オーナーの土地）', 'Franchise (owner land)'), fcHq: t('加盟（本部の土地）', 'Franchise (HQ land)') };
   const typeNote: Record<StoreType, string> = {
@@ -378,6 +394,7 @@ export function regionCard(ctx: Ctx, ri: number, onEnter: () => void): HTMLEleme
       row(t('自社の店', 'Your stores'), plannedHere ? t(`${own}（+${plannedHere}）`, `${own} (+${plannedHere})`) : String(own), 'good'),
       row(rivalName, String(r.rival), 'bad'),
       row(t('1 店の日販', 'Daily sales per store'), money(Math.round(perStoreDaily(r, n.quality)))),
+      legend ? row(t('区画（自社・ライバル）', 'Plots (you · rival)'), `${r.plots ?? 0} · ${r.rivalPlots ?? r.rival}`, room > 0 ? 'good' : '') : null,
       row(t('物流拠点', 'Hub'), r.hub || ri === 0 ? t('あり', 'yes') : hubs.includes(ri) ? t('今月建てる', 'this month') : t('なし', 'none'), r.hub || ri === 0 || hubs.includes(ri) ? 'good' : 'bad'),
     ),
     r.locked
@@ -399,11 +416,12 @@ export function regionCard(ctx: Ctx, ri: number, onEnter: () => void): HTMLEleme
               'div.ke-expand-row',
               {},
               h('span.ke-expand-name', {}, typeLabel[type], h('span.ke-hint', {}, t(`${money(cost(type))}・${typeNote[type]}`, `${money(cost(type))} · ${typeNote[type]}`))),
-              stepper(String(planned(type)), planned(type) > 0 ? () => setPlan(type, planned(type) - 1) : null, used < people && ctx.fundsLeft() >= cost(type) ? () => setPlan(type, planned(type) + 1) : null, typeLabel[type]),
+              stepper(String(planned(type)), planned(type) > 0 ? () => setPlan(type, planned(type) - 1) : null, used < people && plannedHere < room && ctx.fundsLeft() >= cost(type) ? () => setPlan(type, planned(type) + 1) : null, typeLabel[type]),
             ),
           ),
         )
       : null,
+    legend ? h('p.ke-hint', {}, room > 0 ? t(`落札した区画に、あと ${room} 店出せます`, `${room} more stores fit on your plots`) : t('区画は年に 1 度の地主会で落札します（指示の「地主会」）', 'Win plots at the yearly auction (Commands → Auction)')) : null,
     h('button.ke-link', { type: 'button', onclick: onEnter }, t('エリアの地図を見る', 'View the area map'), svgIcon('chevron-right', 16)),
   );
 }
@@ -568,6 +586,14 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
     if (bd.offering) out.push({ label: t(`${land}・謁見の献上：${offeringLabel(bd.offering)}`, `${land} · offering: ${offeringLabel(bd.offering)}`), cost: 0, cancel: drop({ offering: undefined }) });
     if (bd.exit) out.push({ label: t(`${land}から撤退`, `Leave ${land}`), cost: -exitValue(b), cancel: drop({ exit: undefined }) });
   }
+  if (d.table && e.group) {
+    const ch = tableChangeCost(e.group.table, d.table);
+    for (const b of ch.added) out.push({ label: t(`会議卓に置く：${businessName(b)}`, `Place: ${businessName(b)}`), cost: BUSINESS_COST(b), cancel: (x) => ({ ...x, table: undefined }) });
+    for (const b of ch.removed) out.push({ label: t(`会議卓から外す：${businessName(b)}`, `Remove: ${businessName(b)}`), cost: -BUSINESS_COST(b) * SELL_BACK_RATE, cancel: (x) => ({ ...x, table: undefined }) });
+    if (!ch.added.length && !ch.removed.length) out.push({ label: t('会議卓の並べ替え', 'Rearrange the table'), cost: 0, cancel: (x) => ({ ...x, table: undefined }) });
+  }
+  if (e.group && e.month === e.group.nextAuction)
+    for (const [land, b] of Object.entries(d.bids ?? {})) out.push({ label: t(`地主会：${land} ${b.plots} 区画（${bidLabel(b.level)}）`, `Auction: ${land} ${b.plots} plots (${bidLabel(b.level)})`), cost: bidCost(e, b), cancel: (x) => ({ ...x, bids: Object.fromEntries(Object.entries(x.bids ?? {}).filter(([k]) => k !== land)) }) });
   if (d.counter && e.campaign && e.nation) out.push({ label: t('対抗セール', 'Counter-sale'), cost: counterCost(e.nation, e.campaign), cancel: (x) => ({ ...x, counter: undefined }) });
   return out;
 }

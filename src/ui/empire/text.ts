@@ -7,11 +7,13 @@ import type { CrownId } from '../../empire/crowns';
 import { landProfile, type Focus } from '../../empire/lands';
 import type { Offering, Privilege } from '../../empire/court';
 import type { EntryMode } from '../../empire/world';
+import { BUSINESS, type Business } from '../../empire/business';
+import { legendCrowns, RANK, type BidLevel } from '../../empire/group';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
 
 /** 会社の格（フェーズごとの呼び名） */
-export function companyTitle(e: Pick<EmpireState, 'name' | 'phase'>): string {
+export function companyTitle(e: Pick<EmpireState, 'name' | 'phase'> & Partial<Pick<EmpireState, 'group'>>): string {
   const n = e.name;
   switch (e.phase) {
     case 1:
@@ -22,8 +24,13 @@ export function companyTitle(e: Pick<EmpireState, 'name' | 'phase'>): string {
       return t(`株式会社${n}`, `${n} Inc.`);
     case 4:
       return t(`${n}インターナショナル`, `${n} International`);
-    default:
+    default: {
+      // フェーズ 5 は Legendary の番付の冠の数で格が上がる
+      const c = legendCrowns(e);
+      if (c >= RANK.zaibatsu) return t(`${n}財閥`, `${n} Zaibatsu`);
+      if (c >= RANK.konzern) return t(`${n}コンツェルン`, `${n} Konzern`);
       return t(`${n}ホールディングス`, `${n} Holdings`);
+    }
   }
 }
 
@@ -135,6 +142,22 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`${n.land}の提携先の持分を買い取りました`, `You bought out your partner in ${n.land}`);
     case 'licenseWarning':
       return t(`${n.land}の提携先が、${monthLabel(n.month)}に独立したいと言っています。買い取らなければ、店ごとライバルになります`, `Your licensee in ${n.land} wants independence in ${monthLabel(n.month)}. Buy them out or they become a rival`);
+    case 'auctionSoon':
+      return t(`来月（${monthLabel(n.month)}）は地主会です。Legendary の区画の付け値を決めておきましょう`, `The landowners' auction is next month (${monthLabel(n.month)}). Set your bids for Legendary plots`);
+    case 'auction':
+      return n.won > 0
+        ? t(`${n.land}の地主会：${n.won} 区画を ${fmt(n.paid)} で落札（ライバルは ${n.rivalWon} 区画）`, `${n.land} auction: won ${n.won} plots for ${fmt(n.paid)} (rival ${n.rivalWon})`)
+        : n.wanted > 0
+          ? t(`${n.land}の地主会：ライバルに競り負けました（ライバルは ${n.rivalWon} 区画）`, `${n.land} auction: outbid by the rival (${n.rivalWon} plots)`)
+          : t(`${n.land}の地主会：ライバルが ${n.rivalWon} 区画を落札しました`, `${n.land} auction: the rival won ${n.rivalWon} plots`);
+    case 'legendCrown':
+      return n.won ? t(`${n.land}の Legendary で、${crownName(n.crown)}の 1 位を取りました`, `First in ${crownName(n.crown)} in the ${n.land} Legendary area`) : t(`${n.land}の Legendary で、${crownName(n.crown)}の 1 位を失いました`, `Lost first in ${crownName(n.crown)} in the ${n.land} Legendary area`);
+    case 'tableChanged':
+      return n.added.length
+        ? t(`会議卓に「${n.added.map(businessName).join('・')}」を加えました`, `Added ${n.added.map(businessName).join(', ')} to the table`)
+        : t(`会議卓から「${n.removed.map(businessName).join('・')}」を外しました`, `Removed ${n.removed.map(businessName).join(', ')} from the table`);
+    case 'ending':
+      return t('全ランドの Legendary で 3 冠をそろえました。グループは財閥と呼ばれるようになりました', 'You hold all three crowns in every Legendary area. The group is now called a zaibatsu');
     case 'licenseBroke':
       return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
@@ -289,4 +312,15 @@ export function privilegeLabel(p: Privilege): string {
 /** 参入方式の呼び名 */
 export function entryLabel(m: EntryMode): string {
   return { direct: t('直営', 'Direct'), license: t('ライセンス', 'License'), jv: t('合弁', 'Joint venture'), acquire: t('買収', 'Acquisition') }[m];
+}
+
+/** 業態の名前 */
+export function businessName(b: Business): string {
+  const n = BUSINESS[b].name;
+  return t(n.ja, n.en);
+}
+
+/** 地主会の付け値の呼び名 */
+export function bidLabel(l: BidLevel): string {
+  return { low: t('控えめ', 'Low'), market: t('相場', 'Market'), high: t('強気', 'High') }[l];
 }
