@@ -9,6 +9,7 @@ import type { Offering, Privilege } from '../../empire/court';
 import type { EntryMode } from '../../empire/world';
 import { BUSINESS, type Business } from '../../empire/business';
 import { CRISIS, type CrisisId } from '../../empire/crisis';
+import type { Defense } from '../../empire/mna';
 import { legendCrowns, RANK, type BidLevel } from '../../empire/group';
 import { isEn, t } from '../../i18n';
 import { fmt } from '../dom';
@@ -173,6 +174,29 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       }[n.crisis];
     case 'crisisAction':
       return n.crisis === 'food' ? t('全店で品質点検をしました。食の事故のおそれが下がりました', 'Inspected every store: the risk of a food accident fell') : t(`仕入れ先を分けました。${CRISIS.supply.diversifyMonths} か月は供給ショックが起きにくくなります`, `Spread the suppliers: supply shocks are less likely for ${CRISIS.supply.diversifyMonths} months`);
+    case 'mnaDisclosed':
+      return t(`${landRival(n.land)}の株の 5% を持ち、大量保有を報告しました。ここからは株価が上がります`, `You hold 5% of ${landRival(n.land)} and filed the disclosure. Its share price is rising`);
+    case 'tobFailed':
+      return {
+        regulation: t(`${landRival(n.land)}への公開買付けは、当局が認めませんでした（${n.land}でのシェアが 5 割を超えるため）`, `The authorities blocked your bid for ${landRival(n.land)} (over half of ${n.land})`),
+        trust: t(`株主の信任が足りず、${landRival(n.land)}への公開買付けに応じてもらえませんでした`, `Shareholders did not back your bid for ${landRival(n.land)}`),
+        funds: t(`資金の確実さを疑われ、${landRival(n.land)}への公開買付けは不成立でした`, `Your bid for ${landRival(n.land)} failed: funding looked uncertain`),
+        outbid: t(`大陸ホールディングスが高い値で対抗し、${landRival(n.land)}は向こうに付きました`, `Continental Holdings outbid you for ${landRival(n.land)}`),
+      }[n.reason];
+    case 'tobDone':
+      return t(`公開買付けが成り、${landRival(n.land)}を傘下にしました`, `Your bid succeeded: ${landRival(n.land)} is now part of the group`);
+    case 'integrated':
+      return t(`${landRival(n.land)}との統合が済みました。配当が倍になります`, `Integration with ${landRival(n.land)} is complete: dividends double`);
+    case 'impairment':
+      return t(`${landRival(n.land)}の統合が進まず、決算で ${fmt(Math.round(n.loss))} を減損しました`, `Integration with ${landRival(n.land)} lagged: ${fmt(Math.round(n.loss))} written off`);
+    case 'raidDisclosed':
+      return t('大陸ホールディングスが、あなたの会社の株を 5% 持ったと報告しました。買い集めています', 'Continental Holdings disclosed a 5% stake in your company. It is buying more');
+    case 'raidTob':
+      return t(`大陸ホールディングスが ${monthLabel(n.month)}に公開買付けをかけてきます。それまでに防衛策を選びましょう`, `Continental Holdings launches a bid in ${monthLabel(n.month)}. Choose a defense before then`);
+    case 'raidDefense':
+      return t(`防衛策「${defenseLabel(n.defense)}」を選びました`, `Defense chosen: ${defenseLabel(n.defense)}`);
+    case 'raidOver':
+      return n.won ? t('大陸ホールディングスの買収を退けました', 'You fought off Continental Holdings') : t('大陸ホールディングスの買収を防げず、役員会の席と資金の 2 割、会議卓の事業を 1 つ失いました', 'Continental Holdings got its way: board seats, 20% of funds and one business are gone');
     case 'licenseBroke':
       return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
@@ -343,4 +367,15 @@ export function bidLabel(l: BidLevel): string {
 /** 危機の名前 */
 export function crisisName(c: CrisisId): string {
   return { food: t('食の事故', 'Food accident'), supply: t('供給ショック', 'Supply shock'), overgrow: t('拡大しすぎ', 'Overexpansion') }[c];
+}
+
+/** そのランドのライバル会社の名前 */
+export function landRival(land: string): string {
+  const r = rivalOf(land);
+  return t(r.company.ja, r.company.en);
+}
+
+/** 買収の防衛策の名前 */
+export function defenseLabel(d: Defense): string {
+  return { stable: t('安定株主', 'Friendly shareholders'), pill: t('ポイズンピル', 'Poison pill'), knight: t('ホワイトナイト', 'White knight'), mbo: t('MBO（上場をやめる）', 'Management buyout') }[d];
 }

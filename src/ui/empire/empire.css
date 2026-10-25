@@ -2220,3 +2220,18 @@
   gap: 4px;
   margin-top: var(--space-2);
 }
+
+/* ---------------------------------------------------------------- M&A */
+.ke-actions-stack {
+  display: grid;
+  gap: var(--space-2);
+}
+.ke-defense {
+  display: grid;
+  gap: 2px;
+}
+.ke-raid {
+  padding: var(--space-2);
+  border: 2px solid var(--rival-400);
+  border-radius: var(--radius-sm);
+}

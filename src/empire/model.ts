@@ -12,6 +12,7 @@ import { ENTRY_MODES, type Branch, type EntryMode, type World } from './world';
 import { restoreGroup, type Group } from './group';
 import type { Business } from './business';
 import { restoreCrisis, type Crisis, type CrisisId } from './crisis';
+import { restoreMna, type Defense, type Mna } from './mna';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -138,7 +139,17 @@ export type Note =
   /** 危機（crisis.ts）：予兆・発生・備え */
   | { kind: 'crisisSign'; crisis: CrisisId }
   | { kind: 'crisis'; crisis: CrisisId }
-  | { kind: 'crisisAction'; crisis: CrisisId };
+  | { kind: 'crisisAction'; crisis: CrisisId }
+  /** M&A（mna.ts）：買う側と、買われる側 */
+  | { kind: 'mnaDisclosed'; land: string }
+  | { kind: 'tobFailed'; land: string; reason: 'regulation' | 'trust' | 'funds' | 'outbid' }
+  | { kind: 'tobDone'; land: string }
+  | { kind: 'integrated'; land: string }
+  | { kind: 'impairment'; land: string; loss: number }
+  | { kind: 'raidDisclosed' }
+  | { kind: 'raidTob'; month: number }
+  | { kind: 'raidDefense'; defense: Defense }
+  | { kind: 'raidOver'; won: boolean };
 
 export interface MonthReport {
   month: number;
@@ -153,6 +164,8 @@ export interface MonthReport {
   foreignRevenue?: number;
   /** フェーズ 5 から：会議卓の事業の利益（profit に含む） */
   groupProfit?: number;
+  /** フェーズ 4 から：傘下の会社からの配当（profit に含む） */
+  mnaDividend?: number;
   profit: number;
   funds: number;
   stores: StoreReport[];
@@ -202,6 +215,8 @@ export interface EmpireState {
   group?: Group;
   /** フェーズ 3 から：危機のメーター（食の事故・供給ショック・拡大しすぎ） */
   crisis?: Crisis;
+  /** フェーズ 4 から：ライバル会社の株・買収の防衛 */
+  mna?: Mna;
 }
 
 export const HISTORY = 24;
@@ -252,6 +267,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     world: restoreWorld(r.world),
     group: restoreGroup(r.group),
     crisis: restoreCrisis(r.crisis),
+    mna: restoreMna(r.mna),
     ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
 }

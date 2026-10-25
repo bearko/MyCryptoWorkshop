@@ -17,6 +17,7 @@ import { courtCard, focusCard, focusPicker, landDetail, landPickCard } from './l
 import { branchCtx, branchHqCard, branchLens, isleStatus, isleTag, worldLandCard, worldPanel } from './worldui';
 import { branchOf, foreignShare, GRADUATE, WORLD_LANDS } from '../../empire/world';
 import { WorldScene } from '../../render/map/world';
+import { mnaCard } from './mnaui';
 import { auctionCard, draftTable, endingCard, legendPanel, slotCard, tableView } from './groupui';
 import { ENDING_CROWNS, legendCrowns } from '../../empire/group';
 import { t } from '../../i18n';
@@ -61,7 +62,7 @@ export interface EmpireViewOptions {
   onTest?: () => void;
 }
 
-type Panel = 'hq' | 'branch' | 'auction' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | 'court' | null;
+type Panel = 'hq' | 'branch' | 'auction' | 'mna' | 'ringi' | 'news' | 'promote' | 'commands' | 'ledger' | 'voices' | 'board' | 'meeting' | 'focus' | 'court' | null;
 type Selection = { kind: 'store' | 'plot' | 'lot' | 'region' | 'land' | 'slot'; id: number } | null;
 
 const PHASE_NAME = () => ['', t('店主', 'Owner'), t('エリア', 'Area chain'), t('全国', 'National'), t('世界', 'Global'), t('グループ', 'Group')];
@@ -805,6 +806,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
     if (last.overhead) rows.push(row(t('本部の費用', 'Head office'), money(-last.overhead)));
     if (last.inflow) rows.push(row(t('本店からの送金', 'From the main shop'), money(last.inflow), 'good'));
     if (last.foreignRevenue) rows.splice(1, 0, row(t('うち本拠の外の売上', 'of which abroad'), money(last.foreignRevenue), 'good'));
+    if (last.mnaDividend) rows.push(row(t('傘下の会社からの配当', 'Dividends from subsidiaries'), money(last.mnaDividend), 'good'));
     if (last.groupProfit) rows.push(row(t('会議卓の事業の利益', 'Group businesses'), money(last.groupProfit), 'good'));
     const delta = prev ? last.profit - prev.profit : 0;
     // 本拠ランドの売上の比べ合いは、3 冠の「売上規模」と同じなので、3 冠の表が出てからは省く
@@ -1119,6 +1121,12 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
       const seated = (draft.board ?? e.gov?.board ?? []).length;
       cmds.push({ label: t('役員会', 'Board'), sub: t(`${seated} / ${BOARD_SEATS} 席`, `${seated} / ${BOARD_SEATS} seats`), band: 'ours', on: toggle('board'), pressed: openPanel === 'board' });
     }
+    if (e.phase >= 4 && e.nation) {
+      // M&A：買収を仕掛けられて防衛策がまだなら光る
+      const raid = e.mna?.raid;
+      const owned = Object.values(e.mna?.holdings ?? {}).filter((x) => x.control).length;
+      cmds.push({ label: t('M&A', 'M&A'), sub: raid && !raid.defense ? t('買収を仕掛けられています', 'Takeover bid!') : owned ? t(`傘下 ${owned} 社`, `${owned} controlled`) : t('ライバルの株', 'Rival shares'), band: raid && !raid.defense ? 'lantern' : 'ours', on: toggle('mna'), pressed: openPanel === 'mna' });
+    }
     if (e.phase >= 3 && e.nation) {
       // 株主総会（上場前は銀行との面談）：その月と、前の月だけ出す
       if (e.gov && (meetingNow(e) || e.gov.nextMeeting === e.month + 1)) {
@@ -1170,6 +1178,8 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
         return e.phase >= 3 && e.nation ? hqCard3(c) : hqCard2(c);
       case 'auction':
         return e.group ? auctionCard(c) : null;
+      case 'mna':
+        return e.phase >= 4 ? mnaCard(c) : null;
       case 'branch': {
         const b = branchAt();
         return b ? branchHqCard(c, b) : null;
@@ -1217,7 +1227,7 @@ export function empireView(initial: EmpireState, commit: (e: EmpireState) => voi
   }
 
   const panelTitle = (p: Panel) =>
-    ({ hq: t('本部', 'Head office'), auction: t('地主会', 'Auction'), branch: t(`${at}の支社`, `${at} branch`), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), court: kingName(lens().land), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
+    ({ hq: t('本部', 'Head office'), auction: t('地主会', 'Auction'), mna: t('M&A', 'M&A'), branch: t(`${at}の支社`, `${at} branch`), ringi: t('稟議', 'Plans'), news: t('かわら版', 'News'), promote: t('次の格へ', 'Next stage'), board: t('役員会', 'Board'), focus: t('品ぞろえ', 'Product range'), court: kingName(lens().land), meeting: e.nation?.listed ? t('株主総会', "Shareholders' meeting") : t('銀行との面談', 'Bank meeting'), ledger: t('帳簿', 'Ledger'), voices: t('声', 'Voices'), commands: t('指示', 'Commands') })[p as Exclude<Panel, null>] ?? '';
 
   function monthButton(): HTMLElement {
     const items = ringiItems(e, draft);

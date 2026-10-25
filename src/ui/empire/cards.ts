@@ -49,7 +49,7 @@ import {
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
-import { bidLabel, businessName, cellName, entryLabel, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
+import { bidLabel, businessName, cellName, defenseLabel, landRival, entryLabel, focusLabel, monthLabel, money, offeringLabel, plotLabel, pledgeLabel, storeName } from './text';
 import { articlesField } from './govern';
 import type { Articles } from '../../empire/governance';
 import { FOCUS_CHANGE_PER_STORE, landProfile } from '../../empire/lands';
@@ -61,6 +61,7 @@ const BUSINESS_COST = (b: keyof typeof BUSINESS) => BUSINESS[b].cost;
 import { bidCost } from '../../empire/group';
 import { isLegend, plotRoom } from '../../empire/nation';
 import { diversifyCost, inspectCost } from '../../empire/crisis';
+import { MNA, mboCost, RAID, stepPrice, tobPrice } from '../../empire/mna';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -107,7 +108,20 @@ export function reserved(e: EmpireState, d: Decisions): number {
     Object.entries(d.branches ?? {}).reduce((a, [land, bd]) => a + branchDecisionCost(e, land, bd), 0) +
     groupCost(e, d) +
     (d.inspect ? inspectCost(e) : 0) +
-    (d.diversify ? diversifyCost(e) : 0)
+    (d.diversify ? diversifyCost(e) : 0) +
+    mnaCost(e, d)
+  );
+}
+
+/** M&A の下書きの費用：市場で買う・公開買付け・統合・防衛策 */
+function mnaCost(e: EmpireState, d: Decisions): number {
+  const m = d.mna;
+  if (!m) return 0;
+  return (
+    (m.buy ?? []).reduce((a, land) => a + stepPrice(e, land), 0) +
+    (m.tob ? tobPrice(e, m.tob.land, m.tob.premium) : 0) +
+    (m.pmi ?? []).length * MNA.pmiCost +
+    (m.defense === 'stable' ? RAID.stableCost : m.defense === 'mbo' ? mboCost(e) : 0)
   );
 }
 
@@ -589,6 +603,13 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
     if (bd.offering) out.push({ label: t(`${land}・謁見の献上：${offeringLabel(bd.offering)}`, `${land} · offering: ${offeringLabel(bd.offering)}`), cost: 0, cancel: drop({ offering: undefined }) });
     if (bd.exit) out.push({ label: t(`${land}から撤退`, `Leave ${land}`), cost: -exitValue(b), cancel: drop({ exit: undefined }) });
   }
+  for (const land of d.mna?.buy ?? []) out.push({ label: t(`${landRival(land)}の株を ${Math.round(MNA.step * 100)}% 買う`, `Buy ${Math.round(MNA.step * 100)}% of ${landRival(land)}`), cost: stepPrice(e, land), cancel: (x) => ({ ...x, mna: { ...x.mna, buy: (x.mna?.buy ?? []).filter((y) => y !== land) } }) });
+  if (d.mna?.tob) {
+    const tob = d.mna.tob;
+    out.push({ label: t(`${landRival(tob.land)}に公開買付け（上乗せ ${Math.round(tob.premium * 100)}%）`, `Tender offer for ${landRival(tob.land)} (+${Math.round(tob.premium * 100)}%)`), cost: tobPrice(e, tob.land, tob.premium), cancel: (x) => ({ ...x, mna: { ...x.mna, tob: undefined } }) });
+  }
+  for (const land of d.mna?.pmi ?? []) out.push({ label: t(`${landRival(land)}との統合`, `Integrate ${landRival(land)}`), cost: MNA.pmiCost, cancel: (x) => ({ ...x, mna: { ...x.mna, pmi: (x.mna?.pmi ?? []).filter((y) => y !== land) } }) });
+  if (d.mna?.defense) out.push({ label: t(`買収の防衛：${defenseLabel(d.mna.defense)}`, `Defense: ${defenseLabel(d.mna.defense)}`), cost: d.mna.defense === 'stable' ? RAID.stableCost : d.mna.defense === 'mbo' ? mboCost(e) : 0, cancel: (x) => ({ ...x, mna: { ...x.mna, defense: undefined } }) });
   if (d.inspect) out.push({ label: t('全店の品質点検', 'Inspect every store'), cost: inspectCost(e), cancel: (x) => ({ ...x, inspect: undefined }) });
   if (d.diversify) out.push({ label: t('仕入れ先を分ける', 'Spread suppliers'), cost: diversifyCost(e), cancel: (x) => ({ ...x, diversify: undefined }) });
   if (d.table && e.group) {

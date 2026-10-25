@@ -11,6 +11,7 @@ import { OPEN_LANDS } from '../empire/world';
 import { landsOf, newGroup } from '../empire/group';
 import { unlockLegend } from '../empire/nation';
 import { CRISIS, newCrisis } from '../empire/crisis';
+import { MNA, newMna } from '../empire/mna';
 import { landProfile, type FoundingLand } from '../empire/lands';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
@@ -182,6 +183,14 @@ export const testActions = {
       return { ...e, history, group: { ...e.group, legend, ended: e.month - 1 } };
     });
   },
+  /** 買収を仕掛けられる（フェーズ 4 から）：上場していることにして、大陸ホールディングスが 30% を持ち、2 か月後に公開買付け */
+  raidNow(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      if (e.phase < 4 || !e.nation) return e;
+      const mna = { ...(e.mna ?? newMna()), raid: { stake: MNA.marketCap, tobAt: e.month + 2, defense: null }, raided: true };
+      return { ...e, nation: { ...e.nation, listed: true, ownership: Math.min(e.nation.ownership, 0.75) }, mna };
+    });
+  },
   /** 危機のメーターを予兆の線まで上げる（フェーズ 3 から。3 つとも予兆が出ている状態） */
   crisisSigns(current: SaveData): SaveData {
     return withEmpire(current, (e) => (e.phase >= 3 ? { ...e, crisis: { ...(e.crisis ?? newCrisis()), meters: { food: CRISIS.sign + 5, supply: CRISIS.sign + 5, overgrow: CRISIS.sign + 5 }, warned: { food: true, supply: true, overgrow: true } } } : e));
@@ -264,6 +273,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('地主会の月まで進める', 'Advance to the auction'), () => testActions.toAuction(save)),
       btn(t('エンディングを見る', 'Show the ending'), () => testActions.showEnding(save)),
       btn(t('危機の予兆を出す', 'Raise crisis signs'), () => testActions.crisisSigns(save)),
+      btn(t('買収を仕掛けられる', 'Face a takeover bid'), () => testActions.raidNow(save)),
       btn(t('+1 億 資金', '+100M funds'), () => testActions.addFunds(save, 1e8)),
       btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
       btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),
