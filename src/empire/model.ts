@@ -6,6 +6,7 @@ import { restoreStake, type Stake, type StakeholderId } from './stakeholders';
 import { restoreGovernance, type Governance, type PromiseKind } from './governance';
 import { restoreCrowns, type CrownId, type Crowns } from './crowns';
 import type { Campaign } from './rivalai';
+import { FOCUSES, type Focus } from './lands';
 
 /** 区画の種類（フェーズ 1 の出店候補）。home は創業の 1 号店、liquor は加盟した酒屋 */
 export type PlotKind = 'home' | 'station' | 'residential' | 'suburb' | 'office' | 'school' | 'liquor';
@@ -111,7 +112,8 @@ export type Note =
   | { kind: 'breakupCleared' }
   | { kind: 'breakup'; stores: number }
   | { kind: 'campaignSoon'; region: number; month: number }
-  | { kind: 'campaign'; region: number; until: number };
+  | { kind: 'campaign'; region: number; until: number }
+  | { kind: 'focusChanged'; focus: Focus };
 
 export interface MonthReport {
   month: number;
@@ -161,6 +163,8 @@ export interface EmpireState {
   crowns?: Crowns;
   /** フェーズ 3 から：ライバルのセール攻勢（予告ずみ・進行中） */
   campaign?: Campaign | null;
+  /** 会社の品ぞろえ（当たるビジネス）。ランドの文化との合い方が客足に掛かる（無ければ日用品） */
+  focus?: Focus;
 }
 
 export const HISTORY = 24;
@@ -173,8 +177,8 @@ export function newStore(id: number, opened: number, plot: Plot = HOME_PLOT): St
   return { id, plot: plot.kind, owner: plot.owner, cell: null, opened, base: plot.base, rent: plot.rent, order: 1.1, hours: 16, staff: 3, sign: false, parking: false, fatigue: 0 };
 }
 
-export function newEmpire(name: string, seed: number, land = 'Ocean'): EmpireState {
-  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [], land, area: null, sv: 0, pos: false, nation: null };
+export function newEmpire(name: string, seed: number, land = 'Ocean', focus?: Focus): EmpireState {
+  return { name, phase: 1, month: 0, funds: START_FUNDS, rng: seed >>> 0, stores: [newStore(1, 0)], nextStoreId: 2, inflow: 0, history: [], land, area: null, sv: 0, pos: false, nation: null, ...(focus ? { focus } : {}) };
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -207,6 +211,7 @@ export function restoreEmpire(raw: unknown): EmpireState | null {
     gov: restoreGovernance(r.gov),
     crowns: restoreCrowns(r.crowns),
     campaign: restoreCampaign(r.campaign),
+    ...(FOCUSES.includes(r.focus as Focus) ? { focus: r.focus } : {}),
   };
 }
 

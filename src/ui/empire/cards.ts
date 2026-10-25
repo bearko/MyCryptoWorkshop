@@ -24,6 +24,8 @@ import {
 import { rivalOf } from '../../empire/rivals';
 import {
   areaMult,
+  landDemand,
+  focusChangeCost,
   AREA_OPEN_COST,
   canIpo,
   CENTER_COST,
@@ -47,9 +49,10 @@ import {
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { costButton, row, segmented, stepper, svgIcon } from './parts';
-import { cellName, monthLabel, money, plotLabel, pledgeLabel, storeName } from './text';
+import { cellName, focusLabel, monthLabel, money, plotLabel, pledgeLabel, storeName } from './text';
 import { articlesField } from './govern';
 import type { Articles } from '../../empire/governance';
+import { landProfile } from '../../empire/lands';
 import { counterCost } from '../../empire/rivalai';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
@@ -110,7 +113,7 @@ export function storeCard(ctx: Ctx, orig: Store): HTMLElement {
   const s = drafted(orig, draft);
   const rep = ctx.last?.stores.find((r) => r.id === s.id);
   const need = STAFF_NEEDED[s.hours];
-  const daily = expectedDemand(s, e.month, areaMult(e, s));
+  const daily = expectedDemand(s, e.month, areaMult(e, s) * landDemand(e));
   const renov = (kind: 'sign' | 'parking', label: string, effect: string) => {
     if (orig[kind]) return h('span.ke-done', {}, t(`✓ ${label}`, `✓ ${label}`));
     const on = (draft.renovate ?? []).some((r) => r.store === s.id && r.kind === kind);
@@ -181,14 +184,19 @@ export function storeCard(ctx: Ctx, orig: Store): HTMLElement {
 // ---------------------------------------------------------------- 出店候補（フェーズ 1）
 
 /** 候補の区画の、ざっくりした月の利益（16 時間・発注 ×1.1・原価 75%） */
-export const plotProfit = (p: Plot) => Math.round(p.base * 30 * (p.owner !== null ? 0.25 * FC_SHARE : 0.25) - p.rent - (p.owner !== null ? 0 : 3 * 90_000));
+/** 候補の区画の、月の利益の見込み（ランドの文化と人の多さ、家賃の倍率をかける） */
+export const plotProfit = (p: Plot, e?: Pick<EmpireState, 'land' | 'focus'>) => {
+  const d = e ? landDemand(e) : 1;
+  const r = e ? landProfile(e.land).rent : 1;
+  return Math.round(p.base * d * 30 * (p.owner !== null ? 0.25 * FC_SHARE : 0.25) - p.rent * r - (p.owner !== null ? 0 : 3 * 90_000));
+};
 
 export function plotCard(ctx: Ctx, p: Plot, planned: boolean, onToggle: () => void): HTMLElement {
   const { e, draft } = ctx;
   const cap = MAX_STORES[e.phase];
   const count = e.stores.length + (draft.open ?? []).length;
   const full = !planned && count >= cap;
-  const est = plotProfit(p);
+  const est = plotProfit(p, ctx.e);
   return card(
     plotLabel(p.kind),
     t('今月の空き区画（来月には入れ替わる）', "This month's vacant plot (changes next month)"),
@@ -528,6 +536,7 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
   if (d.board) out.push({ label: t(`役員会：${d.board.length} 席`, `Board: ${d.board.length} seats`), cost: 0, cancel: (x) => ({ ...x, board: undefined }) });
   if (d.meeting) out.push({ label: t(`総会の演説：${pledgeLabel(d.meeting.pledge)}`, `Speech: ${pledgeLabel(d.meeting.pledge)}`), cost: 0, cancel: (x) => ({ ...x, meeting: undefined }) });
   if (d.postpone) out.push({ label: t('総会を延期', 'Postpone the meeting'), cost: 0, cancel: (x) => ({ ...x, postpone: undefined }) });
+  if (d.focus && d.focus !== (e.focus ?? 'daily')) out.push({ label: t(`品ぞろえ：${focusLabel(d.focus)}`, `Range: ${focusLabel(d.focus)}`), cost: focusChangeCost(e), cancel: (x) => ({ ...x, focus: undefined }) });
   if (d.counter && e.campaign && e.nation) out.push({ label: t('対抗セール', 'Counter-sale'), cost: counterCost(e.nation, e.campaign), cancel: (x) => ({ ...x, counter: undefined }) });
   return out;
 }

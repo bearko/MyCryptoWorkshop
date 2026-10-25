@@ -7,6 +7,7 @@ import { makeRng } from '../../empire/rng';
 import type { GridCell, GridData } from '../../render/map/grid';
 import { TILE } from '../../render/map/grid';
 import { SECTOR_SIZE } from '../../render/map/land';
+import type { LandProfile } from '../../empire/lands';
 
 /** シリーズ（ID の下 3 桁）と段階（1〜5）から ID */
 const ext = (series: number, lv: number) => Math.max(1, Math.min(5, lv)) * 1000 + series;
@@ -86,6 +87,8 @@ export interface TownOptions {
   centers: number[];
   /** 押せる区画の種類（フェーズ 1 の候補だけ押せる、など） */
   targetKind: (cell: number) => string | null;
+  /** ランドの個性（地形・守り神・特産品）。無ければ森に囲まれた、癖のない町 */
+  land?: LandProfile;
 }
 
 /** 町（Common のエリア）：8×6 の区画のまわりに木の外周、ブロックのあいだに細い道、駅 */
@@ -97,9 +100,14 @@ export function townGrid(a: Area, o: TownOptions): GridData {
     const x = gi % cols;
     const y = Math.floor(gi / cols);
     const ring = x === 0 || y === 0 || x === cols - 1 || y === rows - 1;
-    return ring ? { ground: 'grass', obj: (x + y) % 3 === 0 ? 'treeL' : 'treeS' } : { ground: 'grass' };
+    if (!ring) return { ground: 'grass' };
+    // 地形：海上都市は砂浜（下の端は海）、城下町は上の端が大通り、ほかは森
+    if (o.land?.terrain === 'sea') return y === rows - 1 ? { ground: 'water' } : { ground: 'sand' };
+    if (o.land?.terrain === 'castle' && y === 0) return { ground: 'plaza' };
+    return { ground: 'grass', obj: (x + y) % 3 === 0 ? 'treeL' : 'treeS' };
   });
   const peak = h.indexOf(1);
+  const terrain = o.land?.terrain;
   a.cells.forEach((_, i) => {
     const gi = gridIndex(a, i);
     const own = o.own.find((s) => s.cell === i);
@@ -109,9 +117,20 @@ export function townGrid(a: Area, o: TownOptions): GridData {
     else if (o.rival.includes(i)) cells[gi] = { ground: 'grass', lot: 'rival', ext: RIVAL_EXT, target };
     else if (o.centers.includes(i)) cells[gi] = { ground: 'grass', lot: 'ours', obj: 'hubS', target };
     else if (h[i] >= 0.62) cells[gi] = { ground: 'grass', lot: 'free', target };
-    else if (h[i] >= 0.3) cells[gi] = { ground: 'grass', ext: ext(DOLL, h[i] > 0.48 ? 2 : 1), target };
-    else cells[gi] = { ground: (i * 7) % 5 === 0 ? 'field' : 'grass', obj: (i * 7) % 5 === 0 ? undefined : i % 2 ? 'treeL' : 'treeS', target };
+    // 自由国家（Tangerine）はまだ空き地が多く、住宅の国（Lime）は郊外まで家が並ぶ
+    else if (h[i] >= 0.3 && !(terrain === 'open' && i % 2 === 0)) cells[gi] = { ground: 'grass', ext: ext(DOLL, h[i] > 0.48 ? 2 : 1), target };
+    else if (terrain === 'suburb' && i % 3 !== 0) cells[gi] = { ground: 'grass', ext: ext(DOLL, 1), target };
+    else cells[gi] = { ground: (i * 7) % 5 === 0 || terrain === 'open' ? 'field' : 'grass', obj: (i * 7) % 5 === 0 || terrain === 'open' ? undefined : i % 2 ? 'treeL' : 'treeS', target };
   });
+  // 特産品の店：駅にいちばん近い、どこのものでもない家 2 軒を、ランドの特産品の店に
+  if (o.land) {
+    const homes = a.cells
+      .map((_, i) => i)
+      .filter((i) => cells[gridIndex(a, i)].ext !== undefined && !cells[gridIndex(a, i)].lot)
+      .sort((x, y) => h[y] - h[x])
+      .slice(0, 2);
+    for (const i of homes) cells[gridIndex(a, i)] = { ...cells[gridIndex(a, i)], lot: 'neutral', ext: ext(o.land.specialty.series, 2) };
+  }
   // 駅：人通りのいちばん多い区画の真上の外周（上の端）に
   const px = (peak % a.w) + 1;
   const stationX = Math.max(0, Math.min(cols * TILE - 122, px * TILE + TILE / 2 - 61));
@@ -119,11 +138,19 @@ export function townGrid(a: Area, o: TownOptions): GridData {
     const c = cells[px + dx];
     if (c) delete c.obj;
   }
-  return { cols, rows, cells, roadsX: [3, 5, 7].filter((x) => x < cols - 1), roadsY: [3, 5].filter((y) => y < rows - 1), extras: [{ sprite: 'station', x: stationX, y: 10 }], surround: 'woods', traffic: true };
+  // 守り神：駅の左どなりの外周に、ランドの守り神のエクステンション
+  if (o.land) {
+    const gx = px - 2 >= 0 ? px - 2 : px + 2;
+    if (gx < cols) cells[gx] = { ground: o.land.terrain === 'sea' ? 'sand' : 'plaza', ext: ext(o.land.guardian.series, 3) };
+  }
+  const extras: GridData['extras'] = [{ sprite: 'station', x: stationX, y: 10 }];
+  // 海上都市の港：下の海に船
+  if (terrain === 'sea') for (const bx of [2, cols - 3]) extras.push({ sprite: 'boat', x: bx * TILE, y: (rows - 1) * TILE + 8 });
+  return { cols, rows, cells, roadsX: [3, 5, 7].filter((x) => x < cols - 1), roadsY: [3, 5].filter((y) => y < rows - 1), extras, surround: terrain === 'sea' ? 'sea' : 'woods', traffic: true };
 }
 
 /** フェーズ 3 のエリア（ほかのランドセクタ）の地図。店の数から区画を割りふる（見た目だけ） */
-export function sectorGrid(r: Region, seed: number): GridData {
+export function sectorGrid(r: Region, seed: number, land?: LandProfile): GridData {
   const [cols, rows] = SECTOR_SIZE[r.rarity];
   const lv = r.rarity + 1;
   const block = r.rarity === 0 ? 2 : 3;
@@ -141,7 +168,8 @@ export function sectorGrid(r: Region, seed: number): GridData {
   const ordered = [...lots].sort((a, b) => blockOf(a) - blockOf(b) || a - b);
   const own = Math.min(regionStores(r), ordered.length);
   const rival = Math.min(r.rival, ordered.length - own);
-  const others = [ext(SUSHI, lv), ext(BURGER, lv), ext(WHEEL, Math.min(lv, 4)), ext(PARASOL, lv)];
+  // 町の店：寿司・バーガー・観覧車・パラソル。ランドの特産品の店も混ぜる
+  const others = [ext(SUSHI, lv), ext(BURGER, lv), ext(WHEEL, Math.min(lv, 4)), ext(PARASOL, lv), ...(land ? [ext(land.specialty.series, lv), ext(land.specialty.series, lv)] : [])];
   ordered.forEach((gi, k) => {
     if (k < own) cells[gi] = { ground: 'grass', lot: 'ours', ext: ext(RAMEN, lv) };
     else if (k >= ordered.length - rival) cells[gi] = { ground: 'grass', lot: 'rival', ext: ext(CAKE, lv) };
@@ -157,5 +185,5 @@ export function sectorGrid(r: Region, seed: number): GridData {
   for (let x = 1 + block; x < cols - 1; x += block) roadsX.push(x);
   for (let y = 1 + block; y < rows - 1; y += block) roadsY.push(y);
   if (r.hub) cells[cols + 1] = { ground: 'grass', lot: 'ours', obj: 'hubS' };
-  return { cols, rows, cells, roadsX, roadsY, extras: [], surround: 'woods', traffic: true };
+  return { cols, rows, cells, roadsX, roadsY, extras: [], surround: land?.terrain === 'sea' ? 'sea' : 'woods', traffic: true };
 }

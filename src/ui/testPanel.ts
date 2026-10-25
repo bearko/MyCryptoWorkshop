@@ -5,6 +5,7 @@ import { advanceMonth, canPromote, ownCells, plotsFor } from '../empire/sim';
 import { newStake } from '../empire/stakeholders';
 import { PARTY_ROSTER, scoutId } from '../game/party';
 import { planCampaign } from '../empire/rivalai';
+import { bestFocus, FOUNDING_LANDS } from '../empire/lands';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -33,7 +34,7 @@ export const testActions = {
   },
   /** 会社を作る（もうあれば作り直す）。種を決めておくと同じ月が出る */
   foundEmpire(current: SaveData, seed = 1): SaveData {
-    return { ...current, empire: newEmpire(current.empire?.name || t('テスト', 'Test'), seed) };
+    return { ...current, empire: newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.empire?.land ?? 'Ocean', current.empire?.focus) };
   },
   addFunds(current: SaveData, amount: number): SaveData {
     return withEmpire(current, (e) => ({ ...e, funds: e.funds + amount }));
@@ -76,6 +77,14 @@ export const testActions = {
       return { ...e, nation: { ...e.nation, regions: e.nation.regions.map((r) => (r.locked ? r : { ...r, rival: Math.floor(r.rival / 3), direct: Math.max(r.direct, Math.round(r.capacity * 0.75) - r.fcOwner - r.fcHq) })) } };
     });
   },
+  /** 本拠のランドを次の創業ランドに切り替える（品ぞろえはそのランドでいちばん合うもの） */
+  nextLand(current: SaveData): SaveData {
+    return withEmpire(current, (e) => {
+      const i = FOUNDING_LANDS.findIndex((k) => k === e.land);
+      const land = FOUNDING_LANDS[(i + 1) % FOUNDING_LANDS.length];
+      return { ...e, land, focus: bestFocus(land) };
+    });
+  },
   /** 決定を変えずに n か月進める */
   advanceMonths(current: SaveData, n: number): SaveData {
     return withEmpire(current, (e) => {
@@ -96,7 +105,8 @@ export const testActions = {
   },
   /** フェーズ 2（エリアチェーン）へ飛ぶ：3 店を出して条件を満たし、格上げしたところ（資金 1 億を残す） */
   jumpPhase2(current: SaveData, seed = 1): SaveData {
-    let e = { ...newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.prestige.home ?? 'Ocean'), funds: 1e9 };
+    // いまの会社のランドと品ぞろえのまま（会社がなければ工房のランド）
+    let e = { ...newEmpire(current.empire?.name || t('テスト', 'Test'), seed, current.empire?.land ?? current.prestige.home ?? 'Ocean', current.empire?.focus), funds: 1e9 };
     e = advanceMonth(e, { open: plotsFor(e).slice(0, 2) }).state;
     for (let i = 0; i < 24 && !canPromote(e); i++) e = advanceMonth(e).state;
     e = advanceMonth(e, { promote: true }).state;
@@ -188,6 +198,7 @@ export function testPanelView(save: SaveData, apply: (data: SaveData) => void, e
       btn(t('要望を出す（支持度 35）', 'Raise a request (support 35)'), () => testActions.stakeDemand(save)),
       btn(t('英雄を 6 人スカウト済みに', 'Scout 6 heroes'), () => testActions.scoutSome(save)),
       btn(t('次の総会の月まで進める', 'Advance to the next meeting'), () => testActions.toMeeting(save)),
+      btn(t('本拠のランドを切り替える', 'Switch home land'), () => testActions.nextLand(save)),
       btn(t('ライバルのセール攻勢を起こす', 'Start a rival price war'), () => testActions.startCampaign(save)),
       btn(t('シェアを 5 割超えに', 'Push share over 50%'), () => testActions.overShare(save)),
       btn(t('+1 か月', '+1 month'), () => testActions.advanceMonths(save, 1)),
