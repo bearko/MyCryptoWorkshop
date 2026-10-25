@@ -197,6 +197,8 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
       return t(`防衛策「${defenseLabel(n.defense)}」を選びました`, `Defense chosen: ${defenseLabel(n.defense)}`);
     case 'raidOver':
       return n.won ? t('大陸ホールディングスの買収を退けました', 'You fought off Continental Holdings') : t('大陸ホールディングスの買収を防げず、役員会の席と資金の 2 割、会議卓の事業を 1 つ失いました', 'Continental Holdings got its way: board seats, 20% of funds and one business are gone');
+    case 'rubyPost':
+      return n.link >= 100 ? t('Ruby の掲示板に書き込み、団員とのつながりができました。Ruby へ渡れます', 'Your posts on the Ruby board earned the members’ trust. You may now enter Ruby') : t(`Ruby の掲示板に書き込みました（団員とのつながり ${n.link} / 100）`, `Posted on the Ruby board (ties with members ${n.link} / 100)`);
     case 'licenseBroke':
       return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
@@ -340,12 +342,12 @@ export function kingName(land: string | null | undefined): string {
 
 /** 献上の品の呼び名 */
 export function offeringLabel(o: Offering): string {
-  return { pledge: t('町への約束', 'A pledge to the towns'), sweets: t('特産の菓子', 'Local sweets'), talent: t('逸材の推薦', 'A gifted recruit'), wine: t('上等なワイン', 'Fine wine'), tech: t('技術の供与', 'Shared technology'), ice: t('特製のアイス', 'Special ice cream'), radio: t('ラジオ局の建設', 'A radio station'), ship: t('新しい船', 'A new ship'), gold: t('献金（資金の 5%）', 'Gold (5% of funds)') }[o];
+  return { pledge: t('町への約束', 'A pledge to the towns'), sweets: t('特産の菓子', 'Local sweets'), talent: t('逸材の推薦', 'A gifted recruit'), wine: t('上等なワイン', 'Fine wine'), tech: t('技術の供与', 'Shared technology'), ice: t('特製のアイス', 'Special ice cream'), radio: t('ラジオ局の建設', 'A radio station'), ship: t('新しい船', 'A new ship'), intel: t('他国の情報', 'Intelligence on other lands'), gold: t('献金（資金の 5%）', 'Gold (5% of funds)') }[o];
 }
 
 /** 特権の呼び名と効き目 */
 export function privilegeLabel(p: Privilege): string {
-  return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)'), craft: t('親方の後ろ盾（品質とマニュアル・研修所 1 つ）', "The Boss's backing (quality, manual, a training center)"), g9: t('G9 の口添え（ほかのキングの注目 +25）', 'A word at the G9 (+25 attention with other kings)'), airwaves: t('電波の許し（常連客と商店街の支持 +10）', 'Airwaves (+10 regulars and high street)'), searoute: t('海路の守り（航路 −40%・現地化 +5%）', 'Sea-lane escort (routes −40%, localization +5%)') }[p];
+  return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)'), craft: t('親方の後ろ盾（品質とマニュアル・研修所 1 つ）', "The Boss's backing (quality, manual, a training center)"), g9: t('G9 の口添え（ほかのキングの注目 +25）', 'A word at the G9 (+25 attention with other kings)'), airwaves: t('電波の許し（常連客と商店街の支持 +10）', 'Airwaves (+10 regulars and high street)'), searoute: t('海路の守り（航路 −40%・現地化 +5%）', 'Sea-lane escort (routes −40%, localization +5%)'), network: t('団長の情報網（地主会でライバルの付け値が先に分かる）', "The Chief's network (see rival bids before each auction)") }[p];
 }
 
 /** 参入方式の呼び名 */

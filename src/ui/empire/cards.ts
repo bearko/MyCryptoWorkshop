@@ -55,7 +55,7 @@ import type { Articles } from '../../empire/governance';
 import { FOCUS_CHANGE_PER_STORE, landProfile } from '../../empire/lands';
 import { focusPicker } from './landui';
 import { counterCost } from '../../empire/rivalai';
-import { branchDecisionCost, branchOf, buyoutCost, ENTRY, entryCost, exitValue, routeCost } from '../../empire/world';
+import { branchDecisionCost, branchOf, buyoutCost, ENTRY, entryCost, exitValue, routeCost, RUBY } from '../../empire/world';
 import { BUSINESS, SELL_BACK as SELL_BACK_RATE, tableChangeCost } from '../../empire/business';
 const BUSINESS_COST = (b: keyof typeof BUSINESS) => BUSINESS[b].cost;
 import { bidCost } from '../../empire/group';
@@ -109,6 +109,7 @@ export function reserved(e: EmpireState, d: Decisions): number {
     groupCost(e, d) +
     (d.inspect ? inspectCost(e) : 0) +
     (d.diversify ? diversifyCost(e) : 0) +
+    (d.post ? RUBY.postCost : 0) +
     mnaCost(e, d)
   );
 }
@@ -610,6 +611,7 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
   }
   for (const land of d.mna?.pmi ?? []) out.push({ label: t(`${landRival(land)}との統合`, `Integrate ${landRival(land)}`), cost: MNA.pmiCost, cancel: (x) => ({ ...x, mna: { ...x.mna, pmi: (x.mna?.pmi ?? []).filter((y) => y !== land) } }) });
   if (d.mna?.defense) out.push({ label: t(`買収の防衛：${defenseLabel(d.mna.defense)}`, `Defense: ${defenseLabel(d.mna.defense)}`), cost: d.mna.defense === 'stable' ? RAID.stableCost : d.mna.defense === 'mbo' ? mboCost(e) : 0, cancel: (x) => ({ ...x, mna: { ...x.mna, defense: undefined } }) });
+  if (d.post) out.push({ label: t('Ruby の掲示板に書き込む', 'Post on the Ruby board'), cost: RUBY.postCost, cancel: (x) => ({ ...x, post: undefined }) });
   if (d.inspect) out.push({ label: t('全店の品質点検', 'Inspect every store'), cost: inspectCost(e), cancel: (x) => ({ ...x, inspect: undefined }) });
   if (d.diversify) out.push({ label: t('仕入れ先を分ける', 'Spread suppliers'), cost: diversifyCost(e), cancel: (x) => ({ ...x, diversify: undefined }) });
   if (d.table && e.group) {

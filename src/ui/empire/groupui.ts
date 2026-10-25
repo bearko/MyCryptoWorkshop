@@ -2,6 +2,7 @@
 // どれも DOM を返すだけ。会議卓は地図のかわりに真ん中に置く（3×3 のマスと、マスの間のシナジーの線）。
 import { BUSINESS, BUSINESSES, CORE_SLOT, linksAt, NEIGHBORS, SELL_BACK, synergizes, synergyLinks, tableProfit, type Business, type Table } from '../../empire/business';
 import { CROWNS } from '../../empire/crowns';
+import { hasNetwork, rivalBid } from '../../empire/group';
 import { AUCTION, BID_LEVELS, bidCost, biddable, bidPrice, ENDING_CROWNS, legendCrowns, legendIndex, landsOf, plotCap, type Bid } from '../../empire/group';
 import type { EmpireState } from '../../empire/model';
 import { nationStores, regionStores } from '../../empire/nation';
@@ -194,6 +195,7 @@ export function auctionCard(ctx: Ctx): HTMLElement {
   const { e, draft } = ctx;
   const g = e.group!;
   const now = e.month === g.nextAuction;
+  const network = hasNetwork(e);
   const setBid = (land: string, bid: Bid | undefined) => ctx.set((d) => {
     const bids = { ...d.bids };
     if (bid && bid.plots > 0) bids[land] = bid;
@@ -217,6 +219,7 @@ export function auctionCard(ctx: Ctx): HTMLElement {
         {},
         h('span.ke-field-label', {}, t(`${land}・${r.name.ja}`, `${land} · ${r.name.en}`), h('span.ke-hint', {}, t(`自社 ${r.plots ?? 0}・ライバル ${r.rivalPlots ?? r.rival}・上限 ${plotCap(r)}（店 ${regionStores(r)}）`, `You ${r.plots ?? 0} · rival ${r.rivalPlots ?? r.rival} · cap ${plotCap(r)} (stores ${regionStores(r)})`))),
         rec?.rivalPrice ? h('span.ke-hint', {}, t(`前回のライバルの付け値：1 区画 ${money(rec.rivalPrice)}`, `Rival's last bid: ${money(rec.rivalPrice)} per plot`)) : null,
+        network ? h('span.ke-hint.ke-good', {}, t(`団長の情報網：今回のライバルの付け値は 1 区画 ${money(Math.round(rivalBid(g, land)))}`, `The Chief's network: the rival bids ${money(Math.round(rivalBid(g, land)))} per plot this time`)) : null,
         now && max > 0
           ? h(
               'div.ke-auction-row',

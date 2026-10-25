@@ -6,7 +6,7 @@ import { stakeMods, stakeStep } from './stakeholders';
 import { crownStep } from './crowns';
 import { FOCUS_CHANGE_PER_STORE, focusFit, landProfile, type Focus } from './lands';
 import { courtStep, holdAudience, privilegeMods, type Offering } from './court';
-import { branchMonth, enterLand, exitLand, newWorld, othersMonth, phase4Done, type BranchDecision, type EntryMode } from './world';
+import { branchMonth, enterLand, exitLand, newWorld, othersMonth, phase4Done, postToBoard, type BranchDecision, type EntryMode } from './world';
 import { groupMonth, landsOf, newGroup, type Bid } from './group';
 import { groupMods, type Table } from './business';
 import { plotRoom, unlockLegend } from './nation';
@@ -157,6 +157,8 @@ export interface Decisions {
   offering?: Offering;
   /** フェーズ 4 から：ほかのランドへ渡る（参入方式つき） */
   enter?: { land: string; mode: EntryMode };
+  /** フェーズ 4 から：Ruby の掲示板に書き込む（団員とのつながりを作る） */
+  post?: boolean;
   /** フェーズ 4 から：渡ったランドごとの決定 */
   branches?: Record<string, BranchDecision>;
   /** フェーズ 5 から：会議卓の新しい並び（9 マス） */
@@ -632,6 +634,7 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
   if (state.phase >= 3 && state.nation) {
     const storesBefore = allStores(state);
     applyCrisisDecisions(state, decisions, notes);
+    if (state.phase >= 4 && state.world && decisions.post) postToBoard(state, notes);
     if (state.phase >= 4 && state.world && decisions.enter) enterLand(state, decisions.enter.land, decisions.enter.mode, rng, notes);
     const report = nationMonth(state, decisions, notes, rng);
     // フェーズ 4：渡ったランドの 1 か月（売上は会社の売上に、本拠の外の売上として足す）

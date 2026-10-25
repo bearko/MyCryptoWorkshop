@@ -302,6 +302,7 @@ export function newsOf(r: MonthReport | null, e: EmpireState): News[] {
       case 'impairment':
         out.push({ head: noteText(n, e), hero: null, kind: 'era' });
         break;
+      case 'rubyPost':
       case 'mnaDisclosed':
       case 'tobFailed':
       case 'tobDone':

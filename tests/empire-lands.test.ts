@@ -20,7 +20,7 @@ describe('ランドの文化と品ぞろえ', () => {
   });
 
   it('知らないランド（古いセーブ）は、どの品ぞろえも 1 倍', () => {
-    expect(Object.values(landProfile('Ruby').fit).every((v) => v === 1)).toBe(true);
+    expect(Object.values(landProfile('Atlantis').fit).every((v) => v === 1)).toBe(true);
   });
 
   it('品ぞろえはフェーズ 1 なら無料、フェーズ 2 からは店の数だけ費用がかかる', () => {
@@ -69,7 +69,7 @@ describe('地図の地形', () => {
 });
 
 describe('フェーズ 4 から渡れる 4 ランド', () => {
-  it('Graphite・Grape・Sage・Blueberry にも文化・特産品・守り神・キングがあり、創業では選べない', async () => {
+  it('Graphite・Grape・Sage・Blueberry・Ruby にも文化・特産品・守り神・キングがあり、創業では選べない', async () => {
     const { LATER_LANDS, FOUNDING_LANDS: F } = await import('../src/empire/lands');
     const { KINGS } = await import('../src/empire/court');
     const { OPEN_LANDS } = await import('../src/empire/world');
@@ -82,8 +82,8 @@ describe('フェーズ 4 から渡れる 4 ランド', () => {
       expect(F).not.toContain(k);
       expect(OPEN_LANDS).toContain(k);
     }
-    expect(OPEN_LANDS).not.toContain('Ruby');
-    // 守り神：象・蛇・牛・犬
-    expect(LATER_LANDS.map((k) => landProfile(k).guardian.series)).toEqual([24, 26, 23, 27]);
+    expect(OPEN_LANDS).toHaveLength(9);
+    // 守り神：象・蛇・牛・犬・猿
+    expect(LATER_LANDS.map((k) => landProfile(k).guardian.series)).toEqual([24, 26, 23, 27, 25]);
   });
 });

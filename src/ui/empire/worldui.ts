@@ -18,6 +18,8 @@ import {
   GRADUATE,
   OPEN_LANDS,
   routeCost,
+  RUBY,
+  rubyOpen,
   WORLD_LANDS,
   type Branch,
   type BranchDecision,
@@ -124,6 +126,23 @@ export function worldLandCard(ctx: Ctx, land: string, image: HTMLElement | null,
   const others = Math.round(e.world?.others[land] ?? 0);
   if (!open || status === 'closed') {
     return card(land, sub, head, h('div.ke-paper.is-wide', {}, row(t('ほかの会社の店', "Other companies' stores"), String(others), 'bad')));
+  }
+  // Ruby：ふだんは入国できない。掲示板に書き込んで、団員とのつながりを作る
+  if (land === 'Ruby' && !rubyOpen(e)) {
+    const link = e.world?.rubyLink ?? 0;
+    return card(
+      land,
+      sub,
+      head,
+      h(
+        'div.ke-field.ke-field-stack',
+        {},
+        h('span.ke-field-label', {}, t(`団員とのつながり ${link} / 100`, `Ties with members ${link} / 100`), h('span.ke-hint', {}, t('100 で入国が許されます', 'Entry is allowed at 100'))),
+        h('meter', { min: 0, max: 100, value: link }),
+        costButton(t(`掲示板に書き込む（+${RUBY.postStep}）`, `Post on the board (+${RUBY.postStep})`), RUBY.postCost, () => ctx.set((d) => ({ ...d, post: d.post ? undefined : true }), draft.post ? undefined : 'build'), { pressed: !!draft.post, disabled: draft.post ? null : lack(ctx, RUBY.postCost) }),
+        h('p.ke-hint', {}, t('団長は掲示板で指示を出し、団員は書き込みで団長に声を届けます。', 'The Chief gives orders on the board; members answer by posting.')),
+      ),
+    );
   }
   const route = routeCost(e);
   const chosen = draft.enter?.land === land ? draft.enter.mode : null;
@@ -262,6 +281,7 @@ export function isleTag(e: EmpireState, land: string): string {
   const b = branchOf(e, land);
   if (st === 'home') return t('本拠', 'Home');
   if (b) return t(`${nationStores(b.nation)} 店`, `${nationStores(b.nation)}`);
+  if (land === 'Ruby' && !rubyOpen(e)) return t(`つながり ${e.world?.rubyLink ?? 0}`, `ties ${e.world?.rubyLink ?? 0}`);
   if (st === 'open') return t('渡れる', 'Open');
   return '—';
 }

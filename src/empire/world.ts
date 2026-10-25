@@ -50,6 +50,8 @@ export interface Branch {
 
 export interface World {
   branches: Branch[];
+  /** Ruby の団員とのつながり（0〜100）。掲示板に書き込むと上がり、100 で入国が許される */
+  rubyLink?: number;
   /** 渡っていないランドで、ほかの会社が開いた店の数（海図に出す） */
   others: Record<string, number>;
   /** 撤退したランドの現地化（再進出が楽になる） */
@@ -110,7 +112,25 @@ export function entryCost(mode: EntryMode): number {
   return 0;
 }
 
-export const canEnter = (e: EmpireState, land: string) => e.phase >= 4 && !!e.world && OPEN_LANDS.includes(land as WorldLand) && land !== e.land && !e.world.branches.some((b) => b.land === land);
+export const canEnter = (e: EmpireState, land: string) => e.phase >= 4 && !!e.world && OPEN_LANDS.includes(land as WorldLand) && land !== e.land && !e.world.branches.some((b) => b.land === land) && (land !== 'Ruby' || rubyOpen(e));
+
+/** Ruby の掲示板：書き込み 1 回の費用と、つながりの上がり方 */
+export const RUBY = { postCost: 50_000_000, postStep: 20 } as const;
+/** Ruby に入国できるか（団員とのつながりが 100） */
+export const rubyOpen = (e: Pick<EmpireState, 'world'>) => (e.world?.rubyLink ?? 0) >= 100;
+
+/** Ruby の掲示板に書き込む（月のはじめ） */
+export function postToBoard(e: EmpireState, notes: Note[]): void {
+  const w = e.world;
+  if (!w || rubyOpen(e) || w.branches.some((b) => b.land === 'Ruby')) return;
+  if (e.funds < RUBY.postCost) {
+    notes.push({ kind: 'shortOfFunds' });
+    return;
+  }
+  e.funds -= RUBY.postCost;
+  w.rubyLink = Math.min(100, (w.rubyLink ?? 0) + RUBY.postStep);
+  notes.push({ kind: 'rubyPost', link: w.rubyLink });
+}
 
 /** ほかのランドへ渡る（月の決定のはじめ） */
 export function enterLand(e: EmpireState, land: string, mode: EntryMode, rng: Rng, notes: Note[]): void {

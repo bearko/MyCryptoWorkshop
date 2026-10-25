@@ -80,7 +80,7 @@ export const LEGEND = {
 } as const;
 
 /** 財閥の格：番付の冠の数で、ホールディングス → コンツェルン → 財閥 */
-export const RANK = { konzern: 8, zaibatsu: 16 } as const;
+export const RANK = { konzern: 9, zaibatsu: 18 } as const;
 
 export function newGroup(month: number): Group {
   return { table: newTable(), legend: {}, nextAuction: month + 1, auctions: 0, since: month, ended: null };
@@ -110,6 +110,20 @@ export const bidPrice = (level: BidLevel) => AUCTION.price * AUCTION.levels[leve
 /** 落札したときに払う額（不動産のカードで安くなる） */
 export const bidCost = (e: Pick<EmpireState, 'group'>, bid: Bid) => Math.round(bid.plots * bidPrice(bid.level) * groupMods(e).plotPrice);
 
+/**
+ * ライバルの付け値（区画 1 つ）。地主会の回とランドで決まり、乱数を使わない。
+ * Ruby の団長の情報網（特権）があれば、地主会の前に分かる
+ */
+export function rivalBid(g: Pick<Group, 'auctions'>, land: string): number {
+  let hash = 7 + g.auctions * 131;
+  for (const c of land) hash = (hash * 33 + c.charCodeAt(0)) % 100_003;
+  const u = (hash % 1000) / 1000;
+  return AUCTION.price * (AUCTION.rivalPrice[0] + u * (AUCTION.rivalPrice[1] - AUCTION.rivalPrice[0])) * (1 + AUCTION.rivalGrowth * Math.min(g.auctions, AUCTION.rivalGrowthMax));
+}
+
+/** 団長の情報網（Ruby の特権）を持っているか */
+export const hasNetwork = (e: Pick<EmpireState, 'court' | 'world'>) => !!e.court?.privileges.includes('network') || !!e.world?.branches.some((b) => b.court.privileges.includes('network'));
+
 /** 地主会：ランドごとに、付け値の高いほうから区画を取る。払うのは自分の付け値（落札した区画の分だけ） */
 export function holdAuction(e: EmpireState, bids: Record<string, Bid> | undefined, rng: Rng, notes: Note[]): void {
   const g = e.group!;
@@ -120,7 +134,8 @@ export function holdAuction(e: EmpireState, bids: Record<string, Bid> | undefine
     const rec = (g.legend[land] ??= newRecord());
     const bid = bids?.[land];
     const offered = Math.min(AUCTION.offered, Math.max(0, r.capacity - (r.plots ?? 0) - (r.rivalPlots ?? r.rival)));
-    const rivalPrice = AUCTION.price * (AUCTION.rivalPrice[0] + rng.next() * (AUCTION.rivalPrice[1] - AUCTION.rivalPrice[0])) * (1 + AUCTION.rivalGrowth * Math.min(g.auctions, AUCTION.rivalGrowthMax));
+    rng.next(); // 乱数の並びを前と同じに保つ（ライバルの付け値は rivalBid で決まる）
+    const rivalPrice = rivalBid(g, land);
     let rivalWant = Math.min(AUCTION.rivalWant[0] + Math.floor(rng.next() * (AUCTION.rivalWant[1] - AUCTION.rivalWant[0] + 1)) + g.auctions, Math.max(0, plotCap(r) - (r.rivalPlots ?? r.rival)));
     const want = bid ? Math.max(0, Math.min(Math.floor(bid.plots), biddable(r))) : 0;
     // 傘下のライバルは控えめ（欲しがる区画が半分）

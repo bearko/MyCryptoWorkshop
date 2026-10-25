@@ -149,7 +149,9 @@ export type Note =
   | { kind: 'raidDisclosed' }
   | { kind: 'raidTob'; month: number }
   | { kind: 'raidDefense'; defense: Defense }
-  | { kind: 'raidOver'; won: boolean };
+  | { kind: 'raidOver'; won: boolean }
+  /** Ruby の掲示板（world.ts） */
+  | { kind: 'rubyPost'; link: number };
 
 export interface MonthReport {
   month: number;
@@ -294,7 +296,7 @@ function restoreWorld(raw: unknown): World | undefined {
       },
     ];
   });
-  return { branches, others: rec(w.others), knowhow: rec(w.knowhow) };
+  return { branches, others: rec(w.others), knowhow: rec(w.knowhow), ...(typeof w.rubyLink === 'number' ? { rubyLink: Math.min(100, Math.max(0, w.rubyLink)) } : {}) };
 }
 
 function restoreCampaign(raw: unknown): Campaign | null | undefined {
