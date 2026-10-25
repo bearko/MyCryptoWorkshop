@@ -73,3 +73,24 @@ describe('キングとの謁見', () => {
     expect(restoreEmpire(JSON.parse(JSON.stringify(s)))!.court).toEqual(s.court);
   });
 });
+
+describe('フェーズ 4 から渡れるランドのキング', () => {
+  it('Grape の魚王はアイスを好み、謁見が成ると G9 の口添えで、ほかのキングの注目が上がる', async () => {
+    const { newSave } = await import('../src/game/save');
+    const { testActions } = await import('../src/ui/testPanel');
+    let e = testActions.jumpPhase4(newSave(), 3).empire as EmpireState;
+    e = { ...e, funds: 1e11 };
+    const other = e.land === 'Lime' ? 'Sage' : 'Lime';
+    e = advanceMonth(e, { enter: { land: 'Grape', mode: 'jv' } }).state;
+    e = advanceMonth(e, { enter: { land: other, mode: 'jv' } }).state;
+    const grape = e.world!.branches.find((b) => b.land === 'Grape')!;
+    grape.court = { ...grape.court, attention: 100, stage: 2, invited: true };
+    const before = e.world!.branches.find((b) => b.land === other)!.court.attention;
+    expect(KINGS.Grape.likes).toBe('ice');
+    const r = advanceMonth(e, { branches: { Grape: { offering: 'ice' } } });
+    const g = r.state.world!.branches.find((b) => b.land === 'Grape')!;
+    expect(g.court.audience).toBe(true);
+    expect(g.court.privileges).toContain('g9');
+    expect(r.state.world!.branches.find((b) => b.land === other)!.court.attention).toBeGreaterThanOrEqual(before + 20);
+  });
+});

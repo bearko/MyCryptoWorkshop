@@ -10,8 +10,8 @@
 // - ライセンス：現地の提携先が速く店を増やす。こちらは売上の 1 割を受け取るだけ。30 か月で独立を言い出す
 // - 合弁：最初から 8 店。利益は半分ずつ。あとで残り半分を買い取れる
 // - 買収：現地のチェーンを買う。すぐに店が手に入るが、統合までの半年は客足が落ちる
-import { courtStep, holdAudience, newCourt, type Court } from './court';
-import { focusFit, landProfile, LAND_PROFILES, type FoundingLand } from './lands';
+import { courtStep, holdAudience, newCourt, PRIVILEGE, type Court } from './court';
+import { FOUNDING_LANDS, focusFit, landProfile, LAND_PROFILES, LATER_LANDS, type WorldLand } from './lands';
 import type { EmpireState, Note } from './model';
 import { groupMods } from './business';
 import { crisisMods } from './crisis';
@@ -27,7 +27,7 @@ export const ENTRY_MODES: EntryMode[] = ['direct', 'license', 'jv', 'acquire'];
 
 /** 世界の 9 ランド（海図の並び）。渡れるのは創業できる 4 ランド。残りは名前だけ */
 export const WORLD_LANDS = ['Ocean', 'Strawberry', 'Tangerine', 'Lime', 'Graphite', 'Grape', 'Sage', 'Blueberry', 'Ruby'] as const;
-export const OPEN_LANDS: FoundingLand[] = ['Ocean', 'Strawberry', 'Tangerine', 'Lime'];
+export const OPEN_LANDS: WorldLand[] = [...FOUNDING_LANDS, ...LATER_LANDS];
 
 export interface Branch {
   land: string;
@@ -96,9 +96,11 @@ export function newWorld(home: string): World {
 }
 
 /** 渡る費用 */
-export function routeCost(e: Pick<EmpireState, 'land' | 'court' | 'group'>): number {
+export function routeCost(e: Pick<EmpireState, 'land' | 'court' | 'group' | 'world'>): number {
   const ocean = landProfile(e.land).key === 'Ocean' || !!e.court?.privileges.includes('harbor');
-  return ENTRY.route * (ocean ? ENTRY.oceanDiscount : 1) * groupMods(e).route;
+  // Blueberry の海賊団が海路を守ってくれると、さらに安い
+  const sea = !!e.world?.branches.some((b) => b.court.privileges.includes('searoute'));
+  return ENTRY.route * (ocean ? ENTRY.oceanDiscount : 1) * (sea ? PRIVILEGE.searouteRoute : 1) * groupMods(e).route;
 }
 
 /** 参入方式ごとの、渡った月の費用（航路を除く） */
@@ -108,7 +110,7 @@ export function entryCost(mode: EntryMode): number {
   return 0;
 }
 
-export const canEnter = (e: EmpireState, land: string) => e.phase >= 4 && !!e.world && OPEN_LANDS.includes(land as FoundingLand) && land !== e.land && !e.world.branches.some((b) => b.land === land);
+export const canEnter = (e: EmpireState, land: string) => e.phase >= 4 && !!e.world && OPEN_LANDS.includes(land as WorldLand) && land !== e.land && !e.world.branches.some((b) => b.land === land);
 
 /** ほかのランドへ渡る（月の決定のはじめ） */
 export function enterLand(e: EmpireState, land: string, mode: EntryMode, rng: Rng, notes: Note[]): void {
@@ -326,4 +328,4 @@ export function branchDecisionCost(e: EmpireState, land: string, d: BranchDecisi
 export const branchOf = (e: EmpireState, land: string) => e.world?.branches.find((b) => b.land === land);
 
 /** 創業できるランドのキングの名前の表（海図で使う） */
-export const KING_OF = (land: string) => (OPEN_LANDS.includes(land as FoundingLand) ? LAND_PROFILES[land as FoundingLand].king.name : null);
+export const KING_OF = (land: string) => (OPEN_LANDS.includes(land as WorldLand) ? LAND_PROFILES[land as WorldLand].king.name : null);

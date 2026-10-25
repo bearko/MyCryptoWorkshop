@@ -51,7 +51,7 @@ export const AUCTION = {
   /** 1 回の地主会に出る区画 */
   offered: 30,
   /** 区画 1 つの相場 */
-  price: 150_000_000,
+  price: 80_000_000,
   /** 1 社が持てる区画の上限（エリアの広さに対する割合） */
   cap: 0.5,
   /** ライバルの欲しい区画と、付け値（相場に対する倍率）。回を重ねるほど強気になる */
@@ -80,7 +80,7 @@ export const LEGEND = {
 } as const;
 
 /** 財閥の格：番付の冠の数で、ホールディングス → コンツェルン → 財閥 */
-export const RANK = { konzern: 4, zaibatsu: 8 } as const;
+export const RANK = { konzern: 8, zaibatsu: 16 } as const;
 
 export function newGroup(month: number): Group {
   return { table: newTable(), legend: {}, nextAuction: month + 1, auctions: 0, since: month, ended: null };
