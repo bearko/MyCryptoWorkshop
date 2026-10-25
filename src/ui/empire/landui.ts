@@ -67,7 +67,8 @@ export function focusCard(ctx: Ctx): HTMLElement {
 }
 
 /** 政府とキング：注目度、招待の条件、謁見の献上の品、授かった特権 */
-export function courtCard(ctx: Ctx, image: HTMLElement | null): HTMLElement {
+/** branch：渡ったランドのキング（謁見はフェーズ 4 の卒業に数える） */
+export function courtCard(ctx: Ctx, image: HTMLElement | null, branch = false): HTMLElement {
   const { e, draft } = ctx;
   const p = landProfile(e.land);
   const c = e.court;
@@ -95,7 +96,7 @@ export function courtCard(ctx: Ctx, image: HTMLElement | null): HTMLElement {
       'div.ke-paper.is-wide',
       {},
       row(t('キングの好みに合う商い', "The king's taste"), t(wants.ja, wants.en), fit >= 1 ? 'good' : ''),
-      row(t('本拠ランドで売上 1 位', 'First in sales at home'), first ? t('✓', '✓') : t('まだ', 'Not yet'), first ? 'good' : 'bad'),
+      row(branch ? t('このランドで売上 1 位', 'First in sales in this land') : t('本拠ランドで売上 1 位', 'First in sales at home'), first ? t('✓', '✓') : t('まだ', 'Not yet'), first ? 'good' : 'bad'),
       row(t('注目度 100', 'Attention 100'), att >= 100 ? t('✓', '✓') : `${att}`, att >= 100 ? 'good' : ''),
     ),
     c?.invited && !c.audience
@@ -113,6 +114,8 @@ export function courtCard(ctx: Ctx, image: HTMLElement | null): HTMLElement {
       : null,
     c?.privileges.length
       ? h('div.ke-paper', {}, ...c.privileges.map((v) => row(t('特権', 'Privilege'), privilegeLabel(v), 'good')))
-      : h('p.ke-hint', {}, t(`謁見が成ると、特権「${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}」を授かり、フェーズ 3 を卒業できます`, `An audience grants the privilege "${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}" and lets you graduate phase 3`)),
+      : branch
+        ? h('p.ke-hint', {}, t(`謁見が成ると、このランドで特権「${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}」を授かります。本拠の外の 2 ランドで謁見が成ると、フェーズ 4 の卒業に近づきます`, `An audience grants "${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}" in this land. Audiences in two lands abroad count toward graduating phase 4`))
+        : h('p.ke-hint', {}, t(`謁見が成ると、特権「${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}」を授かり、フェーズ 3 を卒業できます`, `An audience grants the privilege "${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}" and lets you graduate phase 3`)),
   );
 }

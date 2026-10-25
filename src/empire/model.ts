@@ -117,9 +117,9 @@ export type Note =
   | { kind: 'campaign'; region: number; until: number }
   | { kind: 'focusChanged'; focus: Focus }
   /** 政府の注目とキングとの謁見（court.ts） */
-  | { kind: 'attention'; stage: number }
-  | { kind: 'audienceInvite' }
-  | { kind: 'audience'; offering: Offering; success: boolean; privilege: Privilege }
+  | { kind: 'attention'; stage: number; land?: string }
+  | { kind: 'audienceInvite'; land?: string }
+  | { kind: 'audience'; offering: Offering; success: boolean; privilege: Privilege; land?: string }
   /** フェーズ 4 世界展開（world.ts） */
   | { kind: 'entered'; land: string; mode: EntryMode }
   | { kind: 'exited'; land: string; stores: number }

@@ -124,6 +124,8 @@ export function enterLand(e: EmpireState, land: string, mode: EntryMode, rng: Rn
     r.rival = Math.round(r.rival * (p.key === 'Tangerine' ? 0.5 : 1) * extra);
   }
   nation.regions[0].rival = Math.round(2 * extra);
+  // 最初のエリアは、本拠ではなく上陸した港町
+  nation.regions[0].name = { ja: '上陸の港町', en: 'Landing port' }; // i18n-ja
   const b: Branch = { land, mode, opened: e.month, nation, court: newCourt(), local: Math.max(ENTRY.localStart, w.knowhow[land] ?? 0), partner: 0, stake: 1, integrateUntil: -1, hist: [] };
   const home = nation.regions[0];
   if (mode === 'jv') {
@@ -164,9 +166,15 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
   };
   const view = (): EmpireState =>
     ({ ...e, land: b.land, nation: n, court: b.court, crowns: { held: held(), shock: 0, overMonths: 0 }, history: b.hist.map((h, i) => ({ month: i, revenue: h.revenue, rivalRevenue: h.rival, inflow: 0, profit: 0, funds: 0, stores: [], notes: [] })) }) as EmpireState;
+  // 謁見と注目の知らせには、どのランドのキングかを付ける（画面の文に使う）
+  const tag = (from: number) => {
+    for (const x of notes.slice(from)) if (x.kind === 'attention' || x.kind === 'audienceInvite' || x.kind === 'audience') x.land = b.land;
+  };
   if (d.offering) {
     const v = view();
+    const from = notes.length;
     holdAudience(v, d.offering, notes);
+    tag(from);
     b.court = v.court!;
     e.funds = v.funds;
   }
@@ -185,7 +193,7 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
     if (pay(HUB_COST)) r.hub = true;
   }
   if (d.localize && b.local < 1 && pay(ENTRY.localizeCost)) b.local = Math.min(1, b.local + ENTRY.localizeStep);
-  if (d.buyout && b.mode === 'jv' && b.stake < 1 && pay(regionStores(n.regions[0]) * ENTRY.jvBuyout)) {
+  if (d.buyout && b.mode === 'jv' && b.stake < 1 && pay(buyoutCost(b, e.month))) {
     b.stake = 1;
     notes.push({ kind: 'jvBuyout', land: b.land });
   }
@@ -207,7 +215,7 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
     const months = e.month - b.opened;
     if (months === ENTRY.licenseBreak - 3) notes.push({ kind: 'licenseWarning', land: b.land, month: b.opened + ENTRY.licenseBreak });
     if (months === ENTRY.licenseBreak) {
-      if (d.buyout && pay(b.partner * ENTRY.jvBuyout)) {
+      if (d.buyout && pay(buyoutCost(b, e.month))) {
         r.fcOwner += b.partner;
         notes.push({ kind: 'jvBuyout', land: b.land });
       } else {
@@ -238,7 +246,9 @@ export function branchMonth(e: EmpireState, b: Branch, d: BranchDecision, rng: R
   b.hist = [...b.hist, { revenue, rival: rivalRevenue }].slice(-12);
   // キングの注目（そのランドのキング）
   const v = view();
+  const from = notes.length;
   courtStep(v, notes);
+  tag(from);
   b.court = v.court!;
   return { revenue, profit, rivalRevenue };
 }
@@ -277,6 +287,30 @@ export function foreignShare(e: EmpireState): number {
 export function phase4Done(e: EmpireState): boolean {
   if (!e.world || !e.nation) return false;
   return e.world.branches.filter((b) => b.court.audience).length >= GRADUATE.audiences && foreignShare(e) >= GRADUATE.foreign;
+}
+
+/** 買い取りの費用（合弁の残り半分、独立を言い出した月のライセンスの提携先）。買い取れないときは 0 */
+export function buyoutCost(b: Branch, month: number): number {
+  if (b.mode === 'jv' && b.stake < 1) return regionStores(b.nation.regions[0]) * ENTRY.jvBuyout;
+  if (b.mode === 'license' && month - b.opened === ENTRY.licenseBreak) return b.partner * ENTRY.jvBuyout;
+  return 0;
+}
+
+/** 撤退で戻るお金 */
+export const exitValue = (b: Branch) => nationStores(b.nation) * OPEN_COSTS.direct * ENTRY.exitRecover;
+
+/** ランドの決定にかかる費用の合計（稟議の見込み。撤退で戻るお金は引く） */
+export function branchDecisionCost(e: EmpireState, land: string, d: BranchDecision | undefined): number {
+  const b = branchOf(e, land);
+  if (!b || !d) return 0;
+  return (
+    (d.expand ?? []).reduce((a, x) => a + x.count * OPEN_COSTS[x.type], 0) +
+    (d.buildHub ?? []).length * HUB_COST +
+    (d.training ?? 0) * TRAINING_COST +
+    (d.localize && b.local < 1 ? ENTRY.localizeCost : 0) +
+    (d.buyout ? buyoutCost(b, e.month) : 0) -
+    (d.exit ? exitValue(b) : 0)
+  );
 }
 
 export const branchOf = (e: EmpireState, land: string) => e.world?.branches.find((b) => b.land === land);

@@ -71,7 +71,7 @@ function drawLot(ctx: CanvasRenderingContext2D, x: number, y: number, owner: Own
   ctx.fillRect(x + TILE - 4, y + 2, 2, TILE - 4);
 }
 
-function tile(ground: Ground, x: number, y: number): EmpireSprite {
+export function tile(ground: Ground, x: number, y: number): EmpireSprite {
   if (ground === 'water') return `water${(x * 3 + y) % 4}` as EmpireSprite;
   if (ground === 'grass') return `grass${(x * 7 + y * 3) % 5}` as EmpireSprite;
   return ground;

@@ -138,11 +138,11 @@ export function noteText(n: Note, e?: Pick<EmpireState, 'land' | 'area' | 'natio
     case 'licenseBroke':
       return t(`${n.land}の提携先が独立し、${n.stores} 店がライバルになりました`, `Your licensee in ${n.land} went independent: ${n.stores} stores became a rival`);
     case 'attention':
-      return n.stage === 1 ? t('政府が、あなたの会社に目を留めはじめました', 'The government has started to notice your company') : t(`大臣から声がかかりました。${kingName(e?.land)}の耳にも届いているようです`, `A minister reached out. Word has reached ${kingName(e?.land)}`);
+      return n.stage === 1 ? t('政府が、あなたの会社に目を留めはじめました', 'The government has started to notice your company') : t(`大臣から声がかかりました。${kingName(n.land ?? e?.land)}の耳にも届いているようです`, `A minister reached out. Word has reached ${kingName(n.land ?? e?.land)}`);
     case 'audienceInvite':
-      return t(`${kingName(e?.land)}から謁見の招待が届きました。献上の品を選んで臨みましょう`, `${kingName(e?.land)} invites you to an audience. Choose an offering`);
+      return t(`${kingName(n.land ?? e?.land)}から謁見の招待が届きました。献上の品を選んで臨みましょう`, `${kingName(n.land ?? e?.land)} invites you to an audience. Choose an offering`);
     case 'audience':
-      return n.success ? t(`${kingName(e?.land)}との謁見が成りました。特権「${privilegeLabel(n.privilege)}」を授かりました`, `Your audience with ${kingName(e?.land)} went well. Privilege granted: ${privilegeLabel(n.privilege)}`) : t(`${kingName(e?.land)}は「${offeringLabel(n.offering)}」がお気に召さなかったようです。注目度が下がりました`, `${kingName(e?.land)} was not pleased with ${offeringLabel(n.offering)}. Attention fell`);
+      return n.success ? t(`${kingName(n.land ?? e?.land)}との謁見が成りました。特権「${privilegeLabel(n.privilege)}」を授かりました`, `Your audience with ${kingName(n.land ?? e?.land)} went well. Privilege granted: ${privilegeLabel(n.privilege)}`) : t(`${kingName(n.land ?? e?.land)}は「${offeringLabel(n.offering)}」がお気に召さなかったようです。注目度が下がりました`, `${kingName(n.land ?? e?.land)} was not pleased with ${offeringLabel(n.offering)}. Attention fell`);
     case 'focusChanged':
       return t(`品ぞろえを「${focusLabel(n.focus)}」に変えました`, `Switched the range to ${focusLabel(n.focus)}`);
     case 'crown':
