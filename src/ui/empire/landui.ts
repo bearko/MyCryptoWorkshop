@@ -3,7 +3,7 @@ import { FOCUS_CHANGE_PER_STORE, FOCUSES, landProfile, type Focus, type LandProf
 import { focusChangeCost, landDemand } from '../../empire/sim';
 import { ATTENTION, attentionPerMonth, crownCount, KINGS, kingFit, kingWants, OFFERINGS, type Offering } from '../../empire/court';
 import { phase3Done } from '../../empire/sim';
-import type { FoundingLand } from '../../empire/lands';
+import type { WorldLand } from '../../empire/lands';
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { card, type Ctx } from './cards';
@@ -115,7 +115,7 @@ export function courtCard(ctx: Ctx, image: HTMLElement | null, branch = false): 
     c?.privileges.length
       ? h('div.ke-paper', {}, ...c.privileges.map((v) => row(t('特権', 'Privilege'), privilegeLabel(v), 'good')))
       : branch
-        ? h('p.ke-hint', {}, t(`謁見が成ると、このランドで特権「${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}」を授かります。本拠の外の 2 ランドで謁見が成ると、フェーズ 4 の卒業に近づきます`, `An audience grants "${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}" in this land. Audiences in two lands abroad count toward graduating phase 4`))
-        : h('p.ke-hint', {}, t(`謁見が成ると、特権「${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}」を授かり、フェーズ 3 を卒業できます`, `An audience grants the privilege "${privilegeLabel(KINGS[(p.key as FoundingLand)]?.privilege ?? 'harbor')}" and lets you graduate phase 3`)),
+        ? h('p.ke-hint', {}, t(`謁見が成ると、このランドで特権「${privilegeLabel(KINGS[(p.key as WorldLand)]?.privilege ?? 'harbor')}」を授かります。本拠の外の 2 ランドで謁見が成ると、フェーズ 4 の卒業に近づきます`, `An audience grants "${privilegeLabel(KINGS[(p.key as WorldLand)]?.privilege ?? 'harbor')}" in this land. Audiences in two lands abroad count toward graduating phase 4`))
+        : h('p.ke-hint', {}, t(`謁見が成ると、特権「${privilegeLabel(KINGS[(p.key as WorldLand)]?.privilege ?? 'harbor')}」を授かり、フェーズ 3 を卒業できます`, `An audience grants the privilege "${privilegeLabel(KINGS[(p.key as WorldLand)]?.privilege ?? 'harbor')}" and lets you graduate phase 3`)),
   );
 }

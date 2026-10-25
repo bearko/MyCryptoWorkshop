@@ -340,12 +340,12 @@ export function kingName(land: string | null | undefined): string {
 
 /** 献上の品の呼び名 */
 export function offeringLabel(o: Offering): string {
-  return { pledge: t('町への約束', 'A pledge to the towns'), sweets: t('特産の菓子', 'Local sweets'), talent: t('逸材の推薦', 'A gifted recruit'), wine: t('上等なワイン', 'Fine wine'), gold: t('献金（資金の 5%）', 'Gold (5% of funds)') }[o];
+  return { pledge: t('町への約束', 'A pledge to the towns'), sweets: t('特産の菓子', 'Local sweets'), talent: t('逸材の推薦', 'A gifted recruit'), wine: t('上等なワイン', 'Fine wine'), tech: t('技術の供与', 'Shared technology'), ice: t('特製のアイス', 'Special ice cream'), radio: t('ラジオ局の建設', 'A radio station'), ship: t('新しい船', 'A new ship'), gold: t('献金（資金の 5%）', 'Gold (5% of funds)') }[o];
 }
 
 /** 特権の呼び名と効き目 */
 export function privilegeLabel(p: Privilege): string {
-  return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)') }[p];
+  return { harbor: t('港の優先権（原価 −1%）', 'Harbor priority (cost −1%)'), underground: t('地下の開拓（地下街のエリア）', 'Underground (a new area below)'), purveyor: t('御用商人（20 億の出資・家賃 −10%）', 'Royal purveyor (2B grant, rent −10%)'), housing: t('住宅開発の許し（エリアが 1 割広く）', 'Housing permit (areas 10% larger)'), craft: t('親方の後ろ盾（品質とマニュアル・研修所 1 つ）', "The Boss's backing (quality, manual, a training center)"), g9: t('G9 の口添え（ほかのキングの注目 +25）', 'A word at the G9 (+25 attention with other kings)'), airwaves: t('電波の許し（常連客と商店街の支持 +10）', 'Airwaves (+10 regulars and high street)'), searoute: t('海路の守り（航路 −40%・現地化 +5%）', 'Sea-lane escort (routes −40%, localization +5%)') }[p];
 }
 
 /** 参入方式の呼び名 */

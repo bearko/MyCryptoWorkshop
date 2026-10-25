@@ -4,7 +4,7 @@
 import { cannibalMult, CENTER_RANGE, dist, freeCells } from './area';
 import { newEmpire, type EmpireState } from './model';
 import { meetingNow } from './governance';
-import { landProfile, type FoundingLand, type Focus } from './lands';
+import { landProfile, type WorldLand, type Focus } from './lands';
 import { KINGS } from './court';
 import { entryCost, OPEN_LANDS, phase4Done, routeCost, type BranchDecision } from './world';
 import { crownStats, REGULATION } from './crowns';
@@ -82,7 +82,7 @@ function phase3Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   const n = s.nation!;
   // 株主総会：従業員をたたえ、ライバルは遠回しに、約束は「赤字を出さない」
   // 謁見に招かれたら、キングの好む品を献上する（人のプレイヤーも、謁見の画面でキングの好みを見て選ぶ）
-  const offering = s.court?.invited ? KINGS[landProfile(s.land).key as FoundingLand]?.likes : undefined;
+  const offering = s.court?.invited ? KINGS[landProfile(s.land).key as WorldLand]?.likes : undefined;
   const d: Decisions = { expand: [], ...(offering ? { offering } : {}), ...(meetingNow(s) ? { meeting: { praise: 'staff', rival: 'hint', pledge: 'noLoss' } as const } : {}) };
   let funds = s.funds;
   if (n.trainingCenters < 4 && funds > TRAINING_COST * 2 * reserve) {
@@ -151,7 +151,7 @@ function phase4Moves(s: EmpireState, reserve: number, type: StoreType): Decision
   for (const b of w.branches) {
     const n = b.nation;
     const bd: BranchDecision = {};
-    if (b.court.invited) bd.offering = KINGS[landProfile(b.land).key as FoundingLand]?.likes;
+    if (b.court.invited) bd.offering = KINGS[landProfile(b.land).key as WorldLand]?.likes;
     if (n.trainingCenters < 3 && funds > TRAINING_COST * 3) {
       bd.training = 1;
       funds -= TRAINING_COST;

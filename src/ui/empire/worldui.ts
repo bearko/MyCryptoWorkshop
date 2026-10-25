@@ -6,7 +6,7 @@
 import type { EmpireState } from '../../empire/model';
 import type { Decisions } from '../../empire/sim';
 import { nationStores, TRAINEES, TRAINING_COST } from '../../empire/nation';
-import { landProfile, type FoundingLand } from '../../empire/lands';
+import { landProfile, type WorldLand } from '../../empire/lands';
 import {
   branchOf,
   buyoutCost,
@@ -34,7 +34,7 @@ export type IsleStatus = 'home' | 'branch' | 'open' | 'closed';
 export function isleStatus(e: EmpireState, land: string): IsleStatus {
   if (land === e.land) return 'home';
   if (branchOf(e, land)) return 'branch';
-  return OPEN_LANDS.includes(land as FoundingLand) ? 'open' : 'closed';
+  return OPEN_LANDS.includes(land as WorldLand) ? 'open' : 'closed';
 }
 
 /** 渡ったランドを、本拠と同じ形の会社に見立てた写し（画面だけに使う。書き換えない） */
@@ -90,10 +90,10 @@ function modeNote(m: EntryMode): string {
 export function worldLandCard(ctx: Ctx, land: string, image: HTMLElement | null, onView: (land: string) => void): HTMLElement {
   const { e, draft } = ctx;
   const status = isleStatus(e, land);
-  const open = OPEN_LANDS.includes(land as FoundingLand);
+  const open = OPEN_LANDS.includes(land as WorldLand);
   const p = landProfile(land);
   const sub = open ? t(`${p.kind.ja}・${kingName(land)}`, `${p.kind.en} · ${kingName(land)}`) : t('まだ航路がありません', 'No route yet');
-  const head = h('div.ke-court-head', {}, h('span.ke-land-face', {}, image), open ? h('ul.ke-land-lines', {}, ...p.lines.map((l) => h('li', {}, t(l.ja, l.en)))) : h('p.ke-note', {}, t('このランドへは、まだ渡れません（グループになってから）。', 'You cannot cross here yet (it opens later).')));
+  const head = h('div.ke-court-head', {}, h('span.ke-land-face', {}, image), open ? h('ul.ke-land-lines', {}, ...p.lines.map((l) => h('li', {}, t(l.ja, l.en)))) : h('p.ke-note', {}, t('このランドへの航路は、まだありません。', 'There is no sea route to this land yet.')));
   if (status === 'home') {
     return card(
       t(`${land}（本拠）`, `${land} (home)`),

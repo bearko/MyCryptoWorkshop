@@ -12,7 +12,7 @@ import { landsOf, newGroup } from '../empire/group';
 import { unlockLegend } from '../empire/nation';
 import { CRISIS, newCrisis } from '../empire/crisis';
 import { MNA, newMna } from '../empire/mna';
-import { landProfile, type FoundingLand } from '../empire/lands';
+import { landProfile, type WorldLand } from '../empire/lands';
 import { newSave, readProductionSave, SaveError, type SaveData } from '../game/save';
 import { t } from '../i18n';
 import { fmt, h } from './dom';
@@ -143,7 +143,7 @@ export const testActions = {
   /** フェーズ 4（世界展開）へ飛ぶ：フェーズ 3 の卒業（本拠のキングとの謁見）を済ませて格上げしたところ（資金 50 億を残す） */
   jumpPhase4(current: SaveData, seed = 1): SaveData {
     let e = testActions.jumpPhase3(current, seed).empire!;
-    const king = KINGS[landProfile(e.land).key as FoundingLand] ?? KINGS.Ocean;
+    const king = KINGS[landProfile(e.land).key as WorldLand] ?? KINGS.Ocean;
     e = { ...e, court: { ...(e.court ?? newCourt()), attention: 100, stage: 2, invited: false, audience: true, privileges: [king.privilege] } };
     e = advanceMonth(e, { promote: true }).state;
     return { ...current, empire: { ...e, funds: 5e9 } };
@@ -156,7 +156,7 @@ export const testActions = {
     let e = { ...testActions.jumpPhase4(current, seed).empire!, funds: 1e11 };
     for (const land of OPEN_LANDS.filter((k) => k !== e.land).slice(0, 2)) e = advanceMonth(e, { enter: { land, mode: 'jv' } }).state;
     const branches = e.world!.branches.map((b) => {
-      const king = KINGS[landProfile(b.land).key as FoundingLand] ?? KINGS.Ocean;
+      const king = KINGS[landProfile(b.land).key as WorldLand] ?? KINGS.Ocean;
       return { ...b, court: { ...b.court, attention: 100, stage: 2, invited: false, audience: true, privileges: [king.privilege] } };
     });
     e = structuredClone({ ...e, phase: 5 as const, world: { ...e.world!, branches } });

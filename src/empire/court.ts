@@ -6,13 +6,14 @@
 // - 謁見：献上の品を 1 つ選ぶ。キングの好みに合えば謁見は成り、フェーズ 3 を卒業できる。
 //   ランドごとの特権（外交と各種の許し）が開く。合わなければ注目度が下がり、また貯め直す
 import type { EmpireState, Note } from './model';
-import { landProfile, type FoundingLand } from './lands';
+import { landProfile, type WorldLand } from './lands';
 import { regionStores } from './nation';
 
-export type Offering = 'pledge' | 'sweets' | 'talent' | 'wine' | 'gold';
-export const OFFERINGS: Offering[] = ['pledge', 'sweets', 'talent', 'wine', 'gold'];
+export type Offering = 'pledge' | 'sweets' | 'talent' | 'wine' | 'tech' | 'ice' | 'radio' | 'ship' | 'gold';
+export const OFFERINGS: Offering[] = ['pledge', 'sweets', 'talent', 'wine', 'tech', 'ice', 'radio', 'ship', 'gold'];
 
-export type Privilege = 'harbor' | 'underground' | 'purveyor' | 'housing';
+export type Privilege = 'harbor' | 'underground' | 'purveyor' | 'housing' | 'craft' | 'g9' | 'airwaves' | 'searoute';
+export const PRIVILEGES: Privilege[] = ['harbor', 'underground', 'purveyor', 'housing', 'craft', 'g9', 'airwaves', 'searoute'];
 
 export interface Court {
   /** 注目度（0〜100） */
@@ -39,11 +40,15 @@ export const ATTENTION = {
 } as const;
 
 /** キングごとの好み：喜ぶ献上の品と、特権 */
-export const KINGS: Record<FoundingLand, { likes: Offering; privilege: Privilege }> = {
+export const KINGS: Record<WorldLand, { likes: Offering; privilege: Privilege }> = {
   Ocean: { likes: 'pledge', privilege: 'harbor' },
   Strawberry: { likes: 'sweets', privilege: 'underground' },
   Tangerine: { likes: 'talent', privilege: 'purveyor' },
   Lime: { likes: 'wine', privilege: 'housing' },
+  Graphite: { likes: 'tech', privilege: 'craft' },
+  Grape: { likes: 'ice', privilege: 'g9' },
+  Sage: { likes: 'radio', privilege: 'airwaves' },
+  Blueberry: { likes: 'ship', privilege: 'searoute' },
 };
 
 /** 特権の効き目 */
@@ -56,6 +61,14 @@ export const PRIVILEGE = {
   purveyorRent: 0.9,
   /** 住宅開発の許し（Lime）：開いているエリアの入りきる目安が増える */
   housingCapacity: 1.1,
+  /** 親方の後ろ盾（Graphite）：そのランドの品質が戻り、マニュアルと研修所が 1 つ */
+  /** G9 の口添え（Grape）：まだ謁見していないキングの注目度が上がる */
+  g9Attention: 25,
+  /** 電波の許し（Sage）：常連客と商店街の支持度 */
+  airwavesSupport: 10,
+  /** 海路の守り（Blueberry）：航路の費用の倍率と、渡ったランドの現地化 */
+  searouteRoute: 0.6,
+  searouteLocal: 0.05,
 } as const;
 
 export function newCourt(): Court {
@@ -63,7 +76,7 @@ export function newCourt(): Court {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const kingOf = (e: Pick<EmpireState, 'land'>) => KINGS[landProfile(e.land).key as FoundingLand] ?? KINGS.Ocean;
+const kingOf = (e: Pick<EmpireState, 'land'>) => KINGS[landProfile(e.land).key as WorldLand] ?? KINGS.Ocean;
 
 /**
  * キングの好みに合っているか（0〜1）。ランドごとに見るところが違う：
@@ -79,6 +92,12 @@ export function kingFit(e: EmpireState): number {
   if (k === 'Strawberry') return focus === 'sweets' ? 1 : focus === 'imports' ? 0 : 0.4;
   if (k === 'Tangerine') return Math.min(1, (e.gov?.board.length ?? 0) / 2) * 0.8 + (focus === 'luxury' ? 0.2 : 0);
   if (k === 'Lime') return (focus === 'luxury' || focus === 'leisure' ? 0.5 : 0) + ((sup?.staff ?? 60) >= 60 && (sup?.shotengai ?? 60) >= 60 ? 0.5 : 0);
+  const n = e.nation;
+  const stores = n ? n.regions.reduce((a, r) => a + regionStores(r), 0) : 0;
+  if (k === 'Graphite') return ((n?.trainingCenters ?? 0) >= 2 ? 0.5 : 0) + ((sup?.staff ?? 60) >= 60 ? 0.5 : 0);
+  if (k === 'Grape') return (focus === 'leisure' || focus === 'sweets' ? 0.5 : 0) + (n && stores > n.regions.reduce((a, r) => a + r.rival, 0) ? 0.5 : 0);
+  if (k === 'Sage') return (focus === 'imports' ? 0.5 : 0) + (n && stores > 0 && n.regions.reduce((a, r) => a + r.fcOwner, 0) / stores >= 0.3 ? 0.5 : 0);
+  if (k === 'Blueberry') return (focus === 'imports' || focus === 'sweets' ? 0.5 : 0) + ((n?.regions.filter((r) => r.hub).length ?? 0) >= 2 ? 0.5 : 0);
   // Ocean と、創業できないランド（古いセーブ）
   const all = sup ? Object.entries(sup).filter(([w]) => w !== 'owners').map(([, v]) => v) : [60];
   const owners = e.nation?.satisfaction ?? 60;
@@ -91,6 +110,10 @@ export function kingWants(e: Pick<EmpireState, 'land'>): { ja: string; en: strin
   if (k === 'Strawberry') return { ja: '品ぞろえをスイーツ・果物に（よその特産品は嫌われる）', en: 'Sell sweets and fruit (goods from other lands are frowned on)' }; // i18n-ja
   if (k === 'Tangerine') return { ja: '役員会に英雄を 2 人以上迎える（国を活気づける逸材）', en: 'Seat two or more heroes on the board (talent that lifts the land)' }; // i18n-ja
   if (k === 'Lime') return { ja: '品ぞろえを高級品か娯楽に、従業員と商店街の支持度を 60 以上に', en: 'Sell fine goods or leisure; keep staff and high-street support at 60+' }; // i18n-ja
+  if (k === 'Graphite') return { ja: 'このランドに研修所を 2 つ以上、従業員の支持度を 60 以上に（国を強くする人づくり）', en: 'Two or more training centers here; staff support at 60+ (people who make the land strong)' }; // i18n-ja
+  if (k === 'Grape') return { ja: '品ぞろえを娯楽かスイーツに、このランドでライバルより多くの店を（勢いのある商い）', en: 'Sell leisure or sweets; outnumber the rival here (business with drive)' }; // i18n-ja
+  if (k === 'Sage') return { ja: '品ぞろえを輸入品に、加盟店（オーナーの土地）を店の 3 割以上に（新しく来た人を支える）', en: 'Sell imports; owner-land franchises at 30%+ of stores (support newcomers)' }; // i18n-ja
+  if (k === 'Blueberry') return { ja: '品ぞろえを輸入品かスイーツに、物流拠点を 2 つ以上（島と島をつなぐ港）', en: 'Sell imports or sweets; two or more hubs (ports linking the islets)' }; // i18n-ja
   return { ja: 'どのステークホルダーの支持度も 50 以上に保つ（かたよらない商い）', en: 'Keep every stakeholder at 50+ support (balanced business)' }; // i18n-ja
 }
 
@@ -153,6 +176,19 @@ function grantPrivilege(e: EmpireState, p: Privilege): void {
     e.funds += PRIVILEGE.purveyorGrant;
   } else if (p === 'housing') {
     for (const r of n.regions) if (!r.locked) r.capacity = Math.round(r.capacity * PRIVILEGE.housingCapacity);
+  } else if (p === 'craft') {
+    n.quality = 1;
+    n.manual = true;
+    n.trainingCenters++;
+  } else if (p === 'g9') {
+    for (const b of e.world?.branches ?? []) if (!b.court.audience && b.court !== e.court) b.court.attention = Math.min(100, b.court.attention + PRIVILEGE.g9Attention);
+  } else if (p === 'airwaves') {
+    if (e.stake) {
+      e.stake.support.regulars = Math.min(100, e.stake.support.regulars + PRIVILEGE.airwavesSupport);
+      e.stake.support.shotengai = Math.min(100, e.stake.support.shotengai + PRIVILEGE.airwavesSupport);
+    }
+  } else if (p === 'searoute') {
+    for (const b of e.world?.branches ?? []) b.local = Math.min(1, b.local + PRIVILEGE.searouteLocal);
   }
 }
 
@@ -177,7 +213,7 @@ export function restoreCourt(raw: unknown): Court | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const c = raw as Partial<Court>;
   const num = (v: unknown, f: number) => (typeof v === 'number' && Number.isFinite(v) ? v : f);
-  const ps: Privilege[] = ['harbor', 'underground', 'purveyor', 'housing'];
+  const ps = PRIVILEGES;
   return {
     attention: clamp(num(c.attention, 0), 0, 100),
     stage: Math.max(0, Math.min(2, Math.floor(num(c.stage, 0)))),
