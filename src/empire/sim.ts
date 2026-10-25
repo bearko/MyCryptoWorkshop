@@ -10,6 +10,7 @@ import { branchMonth, enterLand, exitLand, newWorld, othersMonth, phase4Done, ty
 import { groupMonth, landsOf, newGroup, type Bid } from './group';
 import { groupMods, type Table } from './business';
 import { plotRoom, unlockLegend } from './nation';
+import { allStores, applyCrisisDecisions, crisisMods, crisisStep } from './crisis';
 import { CAMPAIGN, campaignActive, campaignStep, counterCost, planCampaign, rivalExpand } from './rivalai';
 import { boardMods, boardMonth, capByArticles, holdMeeting, newGovernance, seatBoard, type Articles, type BoardMember, type MeetingChoice } from './governance';
 import { cannibalMult, freeCells, generateArea, inRange, rivalTarget, type Area } from './area';
@@ -161,6 +162,9 @@ export interface Decisions {
   table?: Table;
   /** フェーズ 5 から：地主会の付け値（ランドごと。地主会の月だけ効く） */
   bids?: Record<string, Bid>;
+  /** フェーズ 3 から：危機の備え（品質点検・仕入れ先を分ける） */
+  inspect?: boolean;
+  diversify?: boolean;
 }
 
 const pickIn = (rng: Rng, [lo, hi]: [number, number]) => Math.round((lo + rng.next() * (hi - lo)) / 10_000) * 10_000;
@@ -207,7 +211,7 @@ export const canPromote = (s: EmpireState) => (s.phase === 1 && phase1Done(s)) |
 // フェーズ 5 の先は無い（エンディングは group.ts の endingReached）
 
 /** 店の数（フェーズ 3 からはエリアの合計） */
-export const storeCount = (s: EmpireState) => (s.nation ? nationStores(s.nation) : s.stores.length);
+export const storeCount = (s: EmpireState) => (s.nation ? allStores(s) : s.stores.length);
 
 /** 店のある区画（フェーズ 2 から） */
 export const ownCells = (s: EmpireState) => s.stores.map((x) => x.cell).filter((c): c is number => c !== null);
@@ -598,7 +602,8 @@ function nationMonth(state: EmpireState, d: Decisions, notes: Note[], rng: Rng):
   if (state.gov && state.gov.nextMeeting === m + 1) notes.push({ kind: 'meetingSoon', month: m + 1 });
   const pm = privilegeMods(state);
   const gm = groupMods(state);
-  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand * landDemand(state) * (1 + gm.demand), costCut: n.pb * PB.costCut - sm.costRate + bm.costCut + pm.costCut + gm.costCut, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent * landProfile(state.land).rent * pm.rent * gm.rent };
+  const cm = crisisMods(state);
+  const mods = { demand: (1 + n.pb * PB.demand) * sm.demand * bm.demand * landDemand(state) * (1 + gm.demand) * cm.demand, costCut: n.pb * PB.costCut - sm.costRate + bm.costCut + pm.costCut + gm.costCut - cm.costRate, fcBoost: n.force24 ? FORCE24_BOOST : 1, rentMult: sm.rent * landProfile(state.land).rent * pm.rent * gm.rent };
   const reps = n.regions.map((r, i) => regionMonth(r, n.quality, (rng.next() * 2 - 1) * WEATHER_SWING * 0.5, i === state.campaign?.region && campaignActive(state.campaign, m) ? { ...mods, demand: mods.demand * hitDemand } : mods));
   const overhead = n.regions.filter((r) => r.hub).length * HUB_UPKEEP * gm.hubUpkeep + n.trainingCenters * TRAINING_UPKEEP + counterSpend + n.loans * LOAN.interest * bm.interest + n.support * fc * SUPPORT_COST;
   const revenue = reps.reduce((a, r) => a + r.revenue, 0);
@@ -620,6 +625,8 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     return !!p && ((s.sign && !p.sign) || (s.parking && !p.parking));
   }).length;
   if (state.phase >= 3 && state.nation) {
+    const storesBefore = allStores(state);
+    applyCrisisDecisions(state, decisions, notes);
     if (state.phase >= 4 && state.world && decisions.enter) enterLand(state, decisions.enter.land, decisions.enter.mode, rng, notes);
     const report = nationMonth(state, decisions, notes, rng);
     // フェーズ 4：渡ったランドの 1 か月（売上は会社の売上に、本拠の外の売上として足す）
@@ -638,6 +645,8 @@ export function advanceMonth(prev: EmpireState, decisions: Decisions = {}): { st
     }
     // フェーズ 5：会議卓・地主会・Legendary の番付・エンディング
     if (state.phase >= 5) groupMonth(state, decisions, report, rng, notes);
+    // 危機：この月に増えた店の数で、食の事故と拡大しすぎが積もる
+    crisisStep(state, Math.max(0, allStores(state) - storesBefore), notes);
     state.inflow = 0;
     state.history = [...state.history, report].slice(-HISTORY);
     stakeStep(state, report, { renovated });

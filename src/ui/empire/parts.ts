@@ -233,3 +233,26 @@ export function supportMeters(items: { name: string; value: number; note?: strin
     ),
   );
 }
+
+/** 危機のメーター（高いほど悪い。sign の線で予兆が出る） */
+export function riskMeters(items: { name: string; value: number; note?: string }[], sign: number): HTMLElement {
+  return h(
+    'ul.ke-support.ke-risk',
+    { 'aria-label': t('危機のおそれ', 'Crisis risk') },
+    ...items.map((it) =>
+      h(
+        'li.ke-support-row',
+        { title: t(`${it.name}のおそれ ${Math.round(it.value)}（${sign} で予兆、100 で起きる）`, `${it.name}: ${Math.round(it.value)} (sign at ${sign}, strikes at 100)`) },
+        h('span.ke-support-name', {}, it.name),
+        h(
+          'span.ke-support-bar',
+          {},
+          h('span', { class: it.value >= sign ? 'is-bad' : it.value >= sign - 20 ? 'is-warn' : 'is-good', style: `width:${Math.max(2, Math.min(100, Math.round(it.value)))}%` }),
+          h('i.ke-support-line', { style: `left:${sign}%` }),
+        ),
+        h('b', { class: `ke-figure ${it.value >= sign ? 'ke-bad' : ''}` }, String(Math.round(it.value))),
+        it.note ? h('span.ke-support-note', {}, it.note) : null,
+      ),
+    ),
+  );
+}

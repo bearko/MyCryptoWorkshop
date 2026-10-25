@@ -2213,3 +2213,10 @@
     grid-template-rows: 104px 12px 104px 12px 104px;
   }
 }
+
+/* ---------------------------------------------------------------- 危機のメーター */
+.ke-risk-block {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--space-2);
+}

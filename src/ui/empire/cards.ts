@@ -60,6 +60,7 @@ import { BUSINESS, SELL_BACK as SELL_BACK_RATE, tableChangeCost } from '../../em
 const BUSINESS_COST = (b: keyof typeof BUSINESS) => BUSINESS[b].cost;
 import { bidCost } from '../../empire/group';
 import { isLegend, plotRoom } from '../../empire/nation';
+import { diversifyCost, inspectCost } from '../../empire/crisis';
 
 export type SoundKey = 'build' | 'sale' | 'rare' | 'win' | 'debuff' | 'fail' | 'helper' | 'unlock' | 'craft' | 'buff' | 'clean';
 
@@ -104,7 +105,9 @@ export function reserved(e: EmpireState, d: Decisions): number {
     (d.pb ? PB.cost : 0) +
     (d.enter ? routeCost(e) + entryCost(d.enter.mode) : 0) +
     Object.entries(d.branches ?? {}).reduce((a, [land, bd]) => a + branchDecisionCost(e, land, bd), 0) +
-    groupCost(e, d)
+    groupCost(e, d) +
+    (d.inspect ? inspectCost(e) : 0) +
+    (d.diversify ? diversifyCost(e) : 0)
   );
 }
 
@@ -586,6 +589,8 @@ export function ringiItems(e: EmpireState, d: Decisions): RingiItem[] {
     if (bd.offering) out.push({ label: t(`${land}・謁見の献上：${offeringLabel(bd.offering)}`, `${land} · offering: ${offeringLabel(bd.offering)}`), cost: 0, cancel: drop({ offering: undefined }) });
     if (bd.exit) out.push({ label: t(`${land}から撤退`, `Leave ${land}`), cost: -exitValue(b), cancel: drop({ exit: undefined }) });
   }
+  if (d.inspect) out.push({ label: t('全店の品質点検', 'Inspect every store'), cost: inspectCost(e), cancel: (x) => ({ ...x, inspect: undefined }) });
+  if (d.diversify) out.push({ label: t('仕入れ先を分ける', 'Spread suppliers'), cost: diversifyCost(e), cancel: (x) => ({ ...x, diversify: undefined }) });
   if (d.table && e.group) {
     const ch = tableChangeCost(e.group.table, d.table);
     for (const b of ch.added) out.push({ label: t(`会議卓に置く：${businessName(b)}`, `Place: ${businessName(b)}`), cost: BUSINESS_COST(b), cancel: (x) => ({ ...x, table: undefined }) });
