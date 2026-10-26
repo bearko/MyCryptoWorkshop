@@ -39,6 +39,8 @@ export interface TreeCallbacks {
   onBuy(node: SkillNode): void;
   /** The "back to the shop" button (bottom right). */
   onShop(): void;
+  /** 開店前の日を、ショップに寄らずにそのまま開店する */
+  onOpenDay(): void;
   onCollection(): void;
   onRanking(): void;
   onRelocate(): void;
@@ -60,6 +62,8 @@ export class TreeView {
   private readonly statsBox: HTMLElement;
   /** Back to the shop, bottom right (like the shop's button to the tree, in the same spot). */
   private readonly shopBtn: HTMLButtonElement;
+  /** 開店前だけ出る「▶ Day N 開店する」（ショップへ → 開店するの 2 回を 1 回に） */
+  private readonly openBtn: HTMLButtonElement;
   /** A business day is open (the tree was opened mid-day; the day waits). */
   private dayOpen = false;
   private shownOnce = false;
@@ -118,6 +122,7 @@ export class TreeView {
     this.buyList = h('div.buy-list');
     this.infusionBox = h('div.infusion');
     this.shopBtn = h('button.btn.nav-btn.to-shop', { onclick: () => this.cb.onShop() }, t('🏪 ショップへ', '🏪 To the shop')) as HTMLButtonElement;
+    this.openBtn = h('button.btn.btn-primary.nav-btn.tree-open', { onclick: () => this.cb.onOpenDay() }) as HTMLButtonElement;
     this.moveBtn.addEventListener('click', () => this.cb.onRelocate());
 
     // Minimap: tap to jump there.
@@ -184,17 +189,25 @@ export class TreeView {
         this.statsBox,
         h('p.tree-help', {}, t('ノードを選んで習得ボタン（またはもう一度タップ）で強化。ドラッグで移動、ホイールまたはピンチで拡大縮小。', 'Select a node, then press the buy button (or tap it again) to learn it. Drag to pan; scroll or pinch to zoom.')),
       )),
-      this.shopBtn,
+      h('div.tree-nav', {}, this.shopBtn, this.openBtn),
     );
   }
 
   /** Whether a business day is open while the tree is shown (a note says it waits in the shop). */
   setDayOpen(open: boolean): void {
     this.dayOpen = open;
+    this.refreshNav();
+  }
+
+  /** 開店前なら「▶ Day N 開店する」を出す（営業中はショップへ戻るだけ） */
+  private refreshNav(): void {
+    this.openBtn.hidden = this.dayOpen;
+    this.openBtn.textContent = t(`▶ Day ${this.save.day} 開店する`, `▶ Open Day ${this.save.day}`);
   }
 
   show(): void {
     this.root.hidden = false;
+    this.refreshNav();
     // Keep the view where the player left it when coming back from the shop.
     if (!this.shownOnce) this.center();
     this.shownOnce = true;

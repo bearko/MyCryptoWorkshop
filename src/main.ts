@@ -168,6 +168,7 @@ const stage = h('main.stage', {}, scene);
 const tree = new TreeView(save, {
   onBuy: buyNode,
   onShop: () => showShop(),
+  onOpenDay: () => startDay(),
   onCollection: () => openCollection(),
   onRanking: () => openRanking(),
   onRelocate: () => openRelocate(),

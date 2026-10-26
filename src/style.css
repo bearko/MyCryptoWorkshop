@@ -2515,10 +2515,16 @@ body.in-day {
   display: none;
 }
 
-.to-shop {
+.tree-nav {
   position: fixed;
   right: 14px;
   bottom: 14px;
+  z-index: 8;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  max-width: calc(100vw - 28px);
 }
 
 .tree-note {
