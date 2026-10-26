@@ -190,6 +190,8 @@ if (TEST_MODE) {
   (window as unknown as { mcwTest: object }).mcwTest = {
     registerClicks: () => registerClicks,
     counterBox: () => sceneBox(COUNTER.x0, COUNTER.top, COUNTER.x1, COUNTER.bottom),
+    /** 初めての Legendary の GOLD CHEST を出す（お祝いの自動クローズを確かめる） */
+    goldChest: () => goldChest(series[0].items.find((x) => x.rarityIndex === 4)!.id),
   };
 }
 const elBox = (selector: string): Box | null => {
@@ -448,7 +450,14 @@ const modalStack: { wrap: HTMLElement; cancel: (() => void) | null }[] = [];
  * A modal dialog. A button marked `cancel` (or, if none is, the last button without an action) is
  * what Escape presses; a modal whose buttons are all real choices stays open on Escape.
  */
-function openModal(title: string, body: HTMLElement, buttons: { label: string; primary?: boolean; cancel?: boolean; onClick?: () => void }[], cls = ''): () => void {
+function openModal(
+  title: string,
+  body: HTMLElement,
+  buttons: { label: string; primary?: boolean; cancel?: boolean; onClick?: () => void }[],
+  cls = '',
+  /** お祝いだけの画面：この秒数で最初のボタンを押したことにして閉じる（残りの秒数をボタンに出す） */
+  autoCloseSec = 0,
+): () => void {
   modalOpen++;
   const close = () => {
     if (!wrap.isConnected) return;
@@ -488,6 +497,21 @@ function openModal(title: string, body: HTMLElement, buttons: { label: string; p
   const cancel = buttons.find((b) => b.cancel) ?? [...buttons].reverse().find((b) => !b.onClick);
   modalStack.push({ wrap, cancel: cancel ? () => press(cancel) : null });
   modalRoot.append(wrap);
+  if (autoCloseSec > 0 && buttons.length) {
+    const btn = wrap.querySelector('.modal-buttons button') as HTMLButtonElement;
+    let left = autoCloseSec;
+    const label = () => (btn.textContent = t(`${buttons[0].label}（${left}）`, `${buttons[0].label} (${left})`));
+    label();
+    const timer = window.setInterval(() => {
+      if (!wrap.isConnected) return window.clearInterval(timer);
+      // 上に別の画面があるとき・タブが隠れているときは数えない
+      if (document.hidden || modalStack[modalStack.length - 1]?.wrap !== wrap) return;
+      left--;
+      if (left > 0) return label();
+      window.clearInterval(timer);
+      press(buttons[0]);
+    }, 1000);
+  }
   return close;
 }
 
@@ -1576,6 +1600,9 @@ function showDecision(d: Decision): void {
 }
 
 /** The MCH gold-chest moment, for the first Epic / Legendary / 真 / golden edition. */
+/** GOLD CHEST（初めての伝説品など）のお祝いを自動で閉じるまでの秒数 */
+const GOLD_CHEST_SECONDS = 4;
+
 function goldChest(code: number): boolean {
   const ext = itemExt(code);
   const edition = itemEdition(code);
@@ -1589,6 +1616,8 @@ function goldChest(code: number): boolean {
     h('div.gold-chest', {}, h('div.gold-chest-head', {}, '★ GOLD CHEST ★'), icon(ext.image, 'px'), h('p', {}, extLabel(code), t(' が完成！', ' is done!'))),
     [{ label: t('やった！', 'Hooray!'), primary: true }],
     'gold-chest-modal',
+    // 営業中に出るお祝いなので、数秒で閉じて営業に戻る（押せばすぐ閉じる）
+    GOLD_CHEST_SECONDS,
   );
   return true;
 }
