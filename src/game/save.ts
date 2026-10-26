@@ -63,6 +63,8 @@ export interface SaveData {
     bulkSkip: Currency[];
     /** The bearko.games chat: shown (on wide screens, below the storefront) or hidden. */
     chat: boolean;
+    /** 日々の売上報告から、3 秒数えて自動で次の日を開店する */
+    autoNextDay: boolean;
   };
   tips: string[];
   meta: {
@@ -162,6 +164,7 @@ export function newSave(now = Date.now()): SaveData {
       reduceMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
       alerts: false,
       chat: true,
+      autoNextDay: false,
     },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
