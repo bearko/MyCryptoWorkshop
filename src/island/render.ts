@@ -102,9 +102,10 @@ function diamond(ctx: CanvasRenderingContext2D, i: number, j: number, fill: stri
   ctx.fill();
 }
 
-export function draw(ctx: CanvasRenderingContext2D, s: State, cam: Camera, w: number, h: number, now: number, fx: Effect[], ghost: Ghost | null, selected: number | null) {
+/** dpr＝画面の画素の細かさ。canvas の大きさは CSS の dpr 倍なので、描くときも dpr 倍にする（w・h・pick は CSS の座標） */
+export function draw(ctx: CanvasRenderingContext2D, s: State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: Ghost | null, selected: number | null) {
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#2f6fae';
   ctx.fillRect(0, 0, w, h);
   ctx.translate(w / 2, h / 2);
@@ -134,9 +135,9 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cam: Camera, w: nu
       if (g) drawCell(ctx, tile[g], i, j);
     }
   }
-  // まわりの海
-  for (let i = -6; i < s.n + 6; i++)
-    for (let j = -6; j < s.n + 6; j++) if ((i < 0 || j < 0 || i >= s.n || j >= s.n) && visible(i, j)) drawCell(ctx, water, i, j);
+  // まわりの海（島の外は 2 マスだけ。その先は背景の色）
+  for (let i = -2; i < s.n + 2; i++)
+    for (let j = -2; j < s.n + 2; j++) if ((i < 0 || j < 0 || i >= s.n || j >= s.n) && visible(i, j)) drawCell(ctx, water, i, j);
 
   // 置こうとしている場所の色
   if (ghost) for (const [x, y] of cells(ghost.def, ghost.i, ghost.j, ghost.dir)) diamond(ctx, x, y, ghost.ok ? 'rgba(120,255,160,0.35)' : 'rgba(255,90,90,0.4)');
@@ -190,3 +191,8 @@ function drawBuilding(ctx: CanvasRenderingContext2D, b: Building, def: Def, now:
 }
 
 export const effectDone = (e: Effect, now: number) => now - e.start > SPARKLE_FRAMES * SPARKLE_MS;
+
+/** 絵が読み込み途中か（読み終わるまでは毎フレーム描き直す） */
+export const loading = () => [...cache.values()].some((im) => !im.complete);
+/** 海の揺れのコマ（変わったときだけ描き直す） */
+export const waterFrame = (now: number) => Math.floor(now / 700) % 2;

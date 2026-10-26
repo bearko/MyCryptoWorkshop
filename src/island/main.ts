@@ -5,7 +5,7 @@
 import './island.css';
 import { isEn, setLang, t } from '../i18n';
 import { CATS, DEF, DEFS, NEEDS, POLICIES, type Cat, type Def } from './defs';
-import { art, draw, effectDone, pick, type Camera, type Effect, type Ghost } from './render';
+import { art, draw, effectDone, loading, pick, waterFrame, type Camera, type Effect, type Ghost } from './render';
 import {
   DAYS_PER_MONTH,
   DIRS,
@@ -71,7 +71,7 @@ const ctx = canvas.getContext('2d')!;
 const root = document.getElementById('isl-ui')!;
 let W = 0;
 let H = 0;
-const cam: Camera = { x: 0, y: (s.n - 1) * 55, zoom: 0.5 };
+const cam: Camera = { x: 0, y: (s.n - 1) * 55, zoom: innerWidth < 600 ? 0.3 : 0.5 };
 let speed = 1;
 let placing: { def: Def; dir: Dir; i: number; j: number } | null = null;
 let selected: number | null = null;
@@ -81,15 +81,23 @@ let lifeOpen = false;
 let policyOpen = false;
 let confirmDemolish = false;
 
+let DPR = 1;
+/** 描き直しが要るか。地図は変わったときだけ描く（スマホの負荷を下げる） */
+let dirty = true;
 function resize() {
-  const dpr = Math.min(2, devicePixelRatio || 1);
-  W = innerWidth;
-  H = innerHeight;
-  canvas.width = Math.round(W * dpr);
-  canvas.height = Math.round(H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  DPR = Math.min(2, devicePixelRatio || 1);
+  // アドレスバーの出し入れで高さが変わる。見えている大きさ（visualViewport）に合わせる
+  W = Math.round(visualViewport?.width ?? innerWidth);
+  H = Math.round(visualViewport?.height ?? innerHeight);
+  canvas.style.width = `${W}px`;
+  canvas.style.height = `${H}px`;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  dirty = true;
+  if (typeof layout === 'function' && root.childElementCount) layout();
 }
 addEventListener('resize', resize);
+visualViewport?.addEventListener('resize', resize);
 resize();
 
 // ---------------------------------------------------------------- 小さな DOM の道具
@@ -254,6 +262,7 @@ function tryPlace() {
   renderAll();
 }
 function renderPlace() {
+  dirty = true;
   placeBox.hidden = !placing;
   canvas.classList.toggle('is-placing', !!placing);
   if (!placing) return;
@@ -289,6 +298,7 @@ function needText(d: Def) {
     .join(t('・', ', '));
 }
 function renderInfo() {
+  dirty = true;
   const b = selected != null ? s.buildings.find((x) => x.uid === selected) : null;
   info.hidden = !b;
   if (!b) return;
@@ -513,6 +523,7 @@ function layout() {
   toasts.style.top = `${top}px`;
 }
 function renderAll() {
+  dirty = true;
   renderHud();
   renderBuild();
   renderPlace();
@@ -547,6 +558,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (pinch && pts.size === 2) {
     const [a, b] = [...pts.values()];
     cam.zoom = clampZoom((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.d);
+    dirty = true;
     return;
   }
   if (drag) {
@@ -556,11 +568,13 @@ canvas.addEventListener('pointermove', (e) => {
     if (drag.moved) {
       cam.x = drag.cx - dx / cam.zoom;
       cam.y = drag.cy - dy / cam.zoom;
+      dirty = true;
     }
     return;
   }
   if (placing && e.pointerType === 'mouse') {
-    const [i, j] = pick(cam, W, H, e.clientX, e.clientY);
+    const r = canvas.getBoundingClientRect();
+    const [i, j] = pick(cam, W, H, e.clientX - r.left, e.clientY - r.top);
     if (i !== placing.i || j !== placing.j) {
       placing.i = i;
       placing.j = j;
@@ -577,7 +591,8 @@ function up(e: PointerEvent) {
   const d = drag;
   drag = null;
   if (!d || d.moved) return;
-  const [i, j] = pick(cam, W, H, e.clientX, e.clientY);
+  const r = canvas.getBoundingClientRect();
+  const [i, j] = pick(cam, W, H, e.clientX - r.left, e.clientY - r.top);
   if (placing) {
     // マウスはその場で建てる。指は 1 回目で場所を選び、同じマスをもう一度押すと建てる
     if (e.pointerType === 'mouse' || (placing.i === i && placing.j === j)) {
@@ -609,6 +624,7 @@ canvas.addEventListener(
     const k = ZOOMS.findIndex((z) => z >= cam.zoom - 1e-6);
     const next = e.deltaY < 0 ? ZOOMS[Math.min(ZOOMS.length - 1, k + 1)] : ZOOMS[Math.max(0, k - (ZOOMS[k] === cam.zoom ? 1 : 0))];
     cam.zoom = next;
+    dirty = true;
   },
   { passive: false },
 );
@@ -640,6 +656,7 @@ const DAY_MS = 600;
 let acc = 0;
 let last = performance.now();
 let celebrated = won(s);
+let lastWater = -1;
 function frame(now: number) {
   const dt = Math.min(250, now - last);
   last = now;
@@ -682,6 +699,9 @@ function frame(now: number) {
     }
   }
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
+  const wf = waterFrame(now);
+  if (changed || fx.length || wf !== lastWater || loading()) dirty = true;
+  lastWater = wf;
   if (changed) {
     renderHud();
     renderBuild();
@@ -691,8 +711,11 @@ function frame(now: number) {
     if (placing) renderPlace();
     layout();
   }
-  const ghost: Ghost | null = placing ? { def: placing.def, i: placing.i, j: placing.j, dir: placing.dir, ok: !canPlace(s, placing.def, placing.i, placing.j, placing.dir) } : null;
-  draw(ctx, s, cam, W, H, now, fx, ghost, selected);
+  if (dirty) {
+    dirty = false;
+    const ghost: Ghost | null = placing ? { def: placing.def, i: placing.i, j: placing.j, dir: placing.dir, ok: !canPlace(s, placing.def, placing.i, placing.j, placing.dir) } : null;
+    draw(ctx, s, cam, W, H, DPR, now, fx, ghost, selected);
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
