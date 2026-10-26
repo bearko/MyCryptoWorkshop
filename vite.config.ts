@@ -86,6 +86,10 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   // Relative base so the build works from any sub-path (itch.io, static hosting).
   base: './',
-  build: { assetsInlineLimit: 0 },
+  build: {
+    assetsInlineLimit: 0,
+    // 島づくり（試作）は別のページ（island.html）。工房の画面とは読み込むものを分ける
+    rollupOptions: { input: { main: 'index.html', island: 'island.html' } },
+  },
   plugins: [pwa(), devLeaderboard(), siteUrl()],
 });

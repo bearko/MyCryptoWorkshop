@@ -31,6 +31,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   // The leaderboard API is always live, never cached.
   if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/api/')) return;
+  if (req.mode === 'navigate' && !/(\/|index\.html)$/.test(url.pathname)) {
+    // Other pages (island.html): network only, so they never replace the cached shell below.
+    return;
+  }
   if (req.mode === 'navigate') {
     // Network first, so a new version is picked up; the cached shell offline.
     event.respondWith(
