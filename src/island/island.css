@@ -1,0 +1,402 @@
+/* 島づくり（試作）の画面。地図は全面の canvas、その上に HTML の帯と札を重ねる */
+:root {
+  --isl-ink: #1d1a24;
+  --isl-paper: #fbf3e0;
+  --isl-night: #1d2a44;
+  --isl-panel: rgba(29, 42, 68, 0.92);
+  --isl-line: #0f1626;
+  --isl-gold: #f2b544;
+  --isl-good: #6fd08c;
+  --isl-bad: #f07070;
+  --isl-text: #f4f1ea;
+  --isl-dim: #b8c0d4;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body.isl {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--isl-night);
+  color: var(--isl-text);
+  font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+#isl-map {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+#isl-map.is-placing {
+  cursor: crosshair;
+}
+#isl-ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#isl-ui > * {
+  pointer-events: auto;
+}
+.isl-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font: 700 15px/1 inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.isl-btn.is-on {
+  background: var(--isl-gold);
+}
+.isl-btn.is-danger {
+  background: #f3b0a8;
+}
+
+/* ---------------------------------------------------------------- 上の帯 */
+.isl-hud {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.isl-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 10px;
+  background: var(--isl-panel);
+  font-weight: 700;
+  font-size: 16px;
+  white-space: nowrap;
+}
+.isl-stat small {
+  color: var(--isl-dim);
+  font-size: 12px;
+}
+.isl-stat.is-bad b {
+  color: var(--isl-bad);
+}
+.isl-hud .isl-spacer {
+  flex: 1;
+}
+.isl-speed {
+  display: flex;
+  gap: 4px;
+}
+.isl-speed .isl-btn {
+  min-width: 44px;
+  padding: 0 8px;
+}
+
+/* ---------------------------------------------------------------- 下の建てる帯 */
+.isl-build {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 8px max(8px, env(safe-area-inset-bottom));
+  background: var(--isl-panel);
+  border-top: 2px solid var(--isl-line);
+}
+.isl-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.isl-tabs .isl-btn {
+  flex: none;
+  min-height: 34px;
+  font-size: 14px;
+}
+.isl-cards {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.isl-card {
+  position: relative;
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 112px;
+  padding: 4px 4px 6px;
+  border: 2px solid var(--isl-line);
+  border-radius: 10px;
+  background: #2b3b5e;
+  color: var(--isl-text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-card.is-on {
+  background: #4c6aa6;
+  outline: 3px solid var(--isl-gold);
+}
+.isl-card img {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  object-position: bottom;
+}
+.isl-card b {
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+}
+.isl-card span {
+  font-size: 12px;
+  color: var(--isl-gold);
+}
+.isl-card.is-locked img {
+  filter: grayscale(1) brightness(0.5);
+}
+.isl-card.is-locked span {
+  color: var(--isl-dim);
+}
+
+/* ---------------------------------------------------------------- 置くとき・選んだとき */
+.isl-place,
+.isl-info {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100% - 16px));
+  padding: 10px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: var(--isl-panel);
+}
+.isl-place p,
+.isl-info p {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.isl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.isl-info h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.isl-info dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.isl-info dt {
+  color: var(--isl-dim);
+}
+.isl-info dd {
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- 暮らしの札 */
+.isl-life {
+  position: absolute;
+  right: 8px;
+  width: min(300px, calc(100% - 16px));
+  padding: 10px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: var(--isl-panel);
+  font-size: 14px;
+}
+.isl-life h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.isl-meter {
+  display: grid;
+  grid-template-columns: 5.5em 1fr 3em;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+.isl-meter i {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: #0f1626;
+  overflow: hidden;
+}
+.isl-meter i::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--v);
+  background: var(--c, var(--isl-good));
+}
+.isl-meter.is-off {
+  opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------- マインちゃん */
+.isl-advisor {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: min(460px, calc(100% - 16px));
+}
+.isl-advisor img {
+  width: 64px;
+  height: 85px;
+  image-rendering: pixelated;
+  flex: none;
+}
+.isl-advisor p {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- お知らせ */
+.isl-toasts {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  pointer-events: none !important;
+}
+.isl-toast {
+  padding: 6px 14px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font-size: 14px;
+  font-weight: 700;
+  animation: isl-toast 3.2s ease both;
+}
+@keyframes isl-toast {
+  0% { opacity: 0; transform: translateY(-6px); }
+  10%, 80% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
+/* ---------------------------------------------------------------- メニュー・お祝い */
+.isl-modal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 14, 24, 0.6);
+}
+.isl-modal > div {
+  width: min(420px, calc(100% - 24px));
+  padding: 16px;
+  border: 2px solid var(--isl-line);
+  border-radius: 14px;
+  background: var(--isl-panel);
+  display: grid;
+  gap: 10px;
+}
+.isl-modal h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.isl-modal p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+@media (max-width: 599px) {
+  .isl-hud {
+    gap: 4px;
+  }
+  .isl-stat {
+    min-height: 32px;
+    padding: 3px 7px;
+    font-size: 13px;
+  }
+  .isl-stat small {
+    font-size: 10px;
+  }
+  .isl-hud .isl-btn {
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+  .isl-speed .isl-btn {
+    min-width: 34px;
+  }
+  .isl-tabs .isl-btn {
+    min-height: 30px;
+    font-size: 13px;
+  }
+  .isl-card {
+    width: 84px;
+  }
+  .isl-card img {
+    width: 72px;
+    height: 72px;
+  }
+  .isl-card b {
+    font-size: 12px;
+  }
+  .isl-advisor img {
+    width: 48px;
+    height: 64px;
+  }
+}
+
+.isl-policy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.isl-policy b {
+  display: block;
+  font-size: 14px;
+}
+.isl-policy small {
+  color: var(--isl-dim);
+  font-size: 12px;
+}
+.isl-policy .isl-btn {
+  flex: none;
+  min-height: 34px;
+  font-size: 13px;
+}

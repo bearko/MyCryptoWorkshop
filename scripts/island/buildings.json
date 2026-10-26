@@ -1,0 +1,698 @@
+[
+ {
+  "id": "cottage",
+  "cat": "住宅",
+  "name": "平屋",
+  "base": "1",
+  "desc": "a one-story cottage with a brown gable roof, a small wooden porch with two chairs, flower beds along the walls, green lawn with a low hedge",
+  "back": "replace the porch with a plain wall with one window and a small back door, and add a little vegetable garden"
+ },
+ {
+  "id": "ramen",
+  "cat": "飲食店",
+  "name": "ラーメン屋（本業）",
+  "base": "1",
+  "desc": "a Japanese ramen shop with a dark wooden facade, a short red noren curtain over the door, red paper lanterns, a hanging sign with a ramen bowl icon, steam rising from a vent, paved front",
+  "back": "remove the noren, the lanterns and the sign, and show a plain wall with a kitchen vent, a back door and stacked soup pots"
+ },
+ {
+  "id": "general_store",
+  "cat": "物販・本業",
+  "name": "よろず屋（本業）",
+  "base": "1",
+  "desc": "a general store with a wooden facade, a wide awning, baskets of goods and produce displayed out front, a hanging sign with a shopping basket icon, paved front",
+  "back": "remove the awning, the displays and the sign, and show a plain wooden wall with a back door and stacked boxes"
+ },
+ {
+  "id": "hq",
+  "cat": "会社の施設",
+  "name": "本社ビル",
+  "base": "1T",
+  "desc": "a modern corporate headquarters tower, twelve stories, teal glass curtain walls, a helipad on the roof, a wide glass entrance with a small plaza and flag poles with blank flags",
+  "back": "remove the glass entrance and the flag poles, and show a service entrance, a parking ramp and air conditioning units"
+ },
+ {
+  "id": "garage_house",
+  "cat": "住宅",
+  "name": "車庫つきの家",
+  "base": "1",
+  "desc": "a two-story house with a dark gray roof and an attached garage with a closed white shutter (no car), a short paved driveway, green lawn with a low hedge",
+  "back": "remove the garage shutter and the driveway, show the plain back wall of the garage with one small window, and a back door with a small terrace"
+ },
+ {
+  "id": "japanese_house",
+  "cat": "住宅",
+  "name": "和風の家",
+  "base": "1",
+  "desc": "a Japanese-style two-story house with a dark gray tiled roof, white plaster walls, wooden lattice windows, a small stone garden with a pine tree and a low wooden fence",
+  "back": "replace the entrance with a plain plaster wall with a small window, and show a wooden veranda facing a small pond"
+ },
+ {
+  "id": "manor",
+  "cat": "住宅",
+  "name": "洋館",
+  "base": "1",
+  "desc": "a stately two-story Western-style mansion with a dark blue roof, white columns at the entrance, a small fountain in front, trimmed hedges",
+  "back": "remove the columns and the fountain, and show a back terrace with a garden table and a back door"
+ },
+ {
+  "id": "apartment",
+  "cat": "住宅",
+  "name": "小さなアパート",
+  "base": "1",
+  "desc": "a small three-story apartment building with a flat roof, beige walls, balconies with potted plants on each floor, a bicycle rack by the entrance, paved ground with a few shrubs",
+  "back": "replace the entrance and the bicycle rack with a plain wall, and show an outdoor staircase and small windows on each floor"
+ },
+ {
+  "id": "tower",
+  "cat": "住宅",
+  "name": "マンション",
+  "base": "1T",
+  "desc": "a ten-story modern apartment tower with white walls, rows of glass balconies, a water tank on the flat roof, a glass entrance hall at the base, a small paved plaza with planters",
+  "back": "remove the glass entrance hall, and show plain walls with rows of small windows and an emergency staircase"
+ },
+ {
+  "id": "sushi",
+  "cat": "飲食店",
+  "name": "寿司屋",
+  "base": "1",
+  "desc": "a traditional sushi restaurant with a dark tiled roof, white plaster walls, a navy noren curtain, a small bamboo fence with a stone lantern, a hanging sign with a sushi icon, gravel front",
+  "back": "remove the noren, the bamboo fence and the sign, and show a plain plaster wall with a small window, a back door and wooden fish crates"
+ },
+ {
+  "id": "bento",
+  "cat": "飲食店",
+  "name": "弁当屋",
+  "base": "1",
+  "desc": "a small bento shop with a takeout counter window, a cherry blossom tree beside it, a hanging sign with a bento box icon, paved front",
+  "back": "remove the counter window and the sign, and show a plain wall with a back door and stacked delivery boxes; keep the cherry tree"
+ },
+ {
+  "id": "burger",
+  "cat": "飲食店",
+  "name": "ハンバーガー屋",
+  "base": "1",
+  "desc": "an American-style burger diner with red and white trim, a big hamburger-shaped sign on the roof, large glass windows, a few outdoor stools, a small paved parking area",
+  "back": "remove the roof sign and the windows, and show a plain wall with a kitchen vent, a back door and trash bins"
+ },
+ {
+  "id": "cafe",
+  "cat": "飲食店",
+  "name": "カフェ",
+  "base": "1",
+  "desc": "a cozy two-story cafe with a striped green awning, large front windows, two small outdoor tables with umbrellas, a hanging sign with a coffee cup icon, potted plants, paved terrace",
+  "back": "remove the awning, the outdoor tables and the sign, and show a plain wall with a small kitchen window, a back door and a few stacked crates"
+ },
+ {
+  "id": "cake",
+  "cat": "飲食店",
+  "name": "ケーキ屋",
+  "base": "1",
+  "desc": "a pastel pink pastry shop with a white scalloped awning, a display window full of cakes, a hanging sign with a strawberry cake icon, flower boxes, paved front",
+  "back": "remove the display window, the awning and the sign, and show a plain pastel wall with a small window, a back door and a delivery box"
+ },
+ {
+  "id": "bakery",
+  "cat": "飲食店",
+  "name": "パン屋",
+  "base": "1",
+  "desc": "a small bakery with a red brick chimney, a brown awning, a window with bread loaves, a hanging sign with a bread icon, a wooden bench, paved front",
+  "back": "remove the awning, the window and the sign, and show the brick oven wall with the chimney, a back door and flour sacks"
+ },
+ {
+  "id": "restaurant",
+  "cat": "飲食店",
+  "name": "レストラン（洋食）",
+  "base": "1",
+  "desc": "a two-story Western restaurant with a burgundy roof, arched windows with warm lights, a small terrace with flower pots, a hanging sign with a fork and knife icon, paved front",
+  "back": "remove the terrace and the sign, and show a plain wall with a kitchen exhaust fan, a back door and trash bins"
+ },
+ {
+  "id": "izakaya",
+  "cat": "飲食店",
+  "name": "居酒屋・酒場",
+  "base": "1",
+  "desc": "a lively Japanese izakaya tavern with a wooden facade, rows of red paper lanterns, a sliding glass door, beer crates stacked by the door, a hanging sign with a sake bottle icon, paved front",
+  "back": "remove the lanterns, the sliding door and the sign, and show a plain wall with a back door, empty beer crates and a small vent"
+ },
+ {
+  "id": "soba",
+  "cat": "飲食店",
+  "name": "そば・うどん屋",
+  "base": "1",
+  "desc": "a Japanese noodle shop with a thatched roof, wooden walls, an indigo noren curtain, a small water wheel, a hanging sign with a noodle bowl icon, stone path",
+  "back": "remove the noren, the water wheel and the sign, and show a plain wooden wall with a back door and stacked firewood"
+ },
+ {
+  "id": "yakiniku",
+  "cat": "飲食店",
+  "name": "焼肉屋",
+  "base": "1",
+  "desc": "a barbecue restaurant with a black roof, exhaust ducts with light smoke on the roof, warm lit windows, a hanging sign with a grilled meat icon, paved front",
+  "back": "remove the windows and the sign, and show a plain wall with large exhaust ducts, a back door and charcoal sacks"
+ },
+ {
+  "id": "chinese",
+  "cat": "飲食店",
+  "name": "中華料理店",
+  "base": "1",
+  "desc": "a Chinese restaurant with a red pagoda-style roof with upturned eaves, red pillars, round red lanterns, a round moon window, a hanging sign with a dumpling icon, paved front",
+  "back": "remove the pillars, the lanterns and the sign, and show a plain wall with a kitchen vent, a back door and stacked steamer baskets"
+ },
+ {
+  "id": "pizza",
+  "cat": "飲食店",
+  "name": "ピザ屋",
+  "base": "1",
+  "desc": "an Italian pizzeria with a terracotta roof, a stone pizza oven chimney, a green, white and red striped awning, a small outdoor table, a hanging sign with a pizza slice icon, paved front",
+  "back": "remove the awning, the table and the sign, and show the stone oven wall with the chimney, a back door and a firewood pile"
+ },
+ {
+  "id": "curry",
+  "cat": "飲食店",
+  "name": "カレー屋",
+  "base": "1",
+  "desc": "a small curry restaurant with orange walls, an onion-dome ornament on the roof, a hanging sign with a curry plate icon, potted spice plants, paved front",
+  "back": "remove the plants and the sign, and show a plain orange wall with a back door and spice sacks"
+ },
+ {
+  "id": "icecream",
+  "cat": "飲食店",
+  "name": "アイスクリーム屋",
+  "base": "1",
+  "desc": "a small pastel ice cream parlor with a giant ice cream cone on the roof, a striped mint awning, a serving window, two small tables with parasols, paved front",
+  "back": "remove the serving window, the awning and the tables, and show a plain pastel wall with a back door and a freezer unit"
+ },
+ {
+  "id": "fruit_parlor",
+  "cat": "飲食店",
+  "name": "フルーツパーラー",
+  "base": "1",
+  "desc": "a fruit parlor with a glass storefront showing fruit desserts, crates of strawberries, tangerines, limes and grapes by the door, a hanging sign with a fruit parfait icon, paved front",
+  "back": "remove the storefront, the crates and the sign, and show a plain wall with a back door and empty fruit crates"
+ },
+ {
+  "id": "wine_bar",
+  "cat": "飲食店",
+  "name": "ワインバー",
+  "base": "1",
+  "desc": "a stylish wine bar with dark green walls, a grapevine climbing the facade, wine barrels by the door, warm lit windows, a hanging sign with a wine glass icon, paved front",
+  "back": "remove the barrels, the windows and the sign, and show a plain wall with the grapevine, a back door and empty bottle crates"
+ },
+ {
+  "id": "food_stalls",
+  "cat": "飲食店",
+  "name": "屋台村",
+  "base": "1",
+  "desc": "a cluster of three small food stalls with colorful canopies and paper lanterns, a few wooden benches, a paved plaza",
+  "back": "show the backs of the stalls with gas cylinders, crates and folded chairs, without counters or lanterns"
+ },
+ {
+  "id": "workshop",
+  "cat": "物販・本業",
+  "name": "工房（本店）",
+  "base": "1",
+  "desc": "a craftsman's workshop store with a brick ground floor and a wooden upper floor, a workbench visible through a wide window, hanging tools, a chimney, a hanging sign with a hammer and gear icon, paved front",
+  "back": "remove the wide window, the tools and the sign, and show the brick wall with the chimney, a back door and a pile of lumber"
+ },
+ {
+  "id": "jewelry",
+  "cat": "物販・本業",
+  "name": "宝飾店",
+  "base": "1",
+  "desc": "an elegant jewelry boutique with a white marble facade, gold trim, a display window with rings and necklaces, a hanging sign with a diamond ring icon, paved front",
+  "back": "remove the display window and the sign, and show a plain marble wall with a reinforced back door"
+ },
+ {
+  "id": "boutique",
+  "cat": "物販・本業",
+  "name": "ブティック",
+  "base": "1",
+  "desc": "a fashion boutique with a black and gold facade, large display windows with mannequins wearing coats and hats, a hanging sign with a hat icon, paved front",
+  "back": "remove the display windows and the sign, and show a plain black wall with a back door and clothing racks"
+ },
+ {
+  "id": "watch",
+  "cat": "物販・本業",
+  "name": "時計店",
+  "base": "1",
+  "desc": "a classic watch shop with a dark wood facade, a big round clock above the door, display windows with pocket watches, a hanging sign with a pocket watch icon, paved front",
+  "back": "remove the clock, the windows and the sign, and show a plain wooden wall with a small window and a back door"
+ },
+ {
+  "id": "import",
+  "cat": "物販・本業",
+  "name": "輸入品店",
+  "base": "1",
+  "desc": "an import goods store with a colorful facade, stacked wooden crates with travel stickers, rolled carpets and jars out front, a hanging sign with a globe icon, paved front",
+  "back": "remove the crates, the carpets and the sign, and show a plain wall with a back door and a small loading area"
+ },
+ {
+  "id": "greengrocer",
+  "cat": "物販・本業",
+  "name": "青果店",
+  "base": "1",
+  "desc": "a fruit and vegetable shop with an open front, crates of colorful fruit (strawberries, tangerines, limes, grapes, blueberries), a striped awning, a hanging sign with an apple icon, paved front",
+  "back": "remove the open front, the crates and the awning, and show a plain wall with a back door and empty crates"
+ },
+ {
+  "id": "department",
+  "cat": "物販・本業",
+  "name": "デパート",
+  "base": "2T",
+  "desc": "a grand five-story department store with a cream stone facade, rows of large windows, a big glass entrance, colorful banners without letters on the walls, a rooftop garden",
+  "back": "remove the glass entrance and the banners, and show a plain wall with a loading dock, delivery trucks and service doors"
+ },
+ {
+  "id": "weapon",
+  "cat": "武器屋・防具屋・道具屋",
+  "name": "武器屋",
+  "base": "1",
+  "desc": "a sturdy weapon shop with a stone ground floor and a timber upper floor, crossed swords mounted above the door, a weapon rack with swords, spears and axes by the entrance, a hanging sign with a sword icon, cobblestone front",
+  "back": "remove the weapon rack and the crossed swords, and show a blacksmith's forge with a glowing furnace, an anvil and a smoking chimney"
+ },
+ {
+  "id": "armor",
+  "cat": "武器屋・防具屋・道具屋",
+  "name": "防具屋",
+  "base": "1",
+  "desc": "an armor shop with a stone and timber facade, a suit of armor standing by the door, round shields hung on the wall, a hanging sign with a shield icon, cobblestone front",
+  "back": "remove the armor stand and the shields, and show a plain stone wall with a back door, stacked metal plates and a water barrel"
+ },
+ {
+  "id": "item",
+  "cat": "武器屋・防具屋・道具屋",
+  "name": "道具屋",
+  "base": "1",
+  "desc": "an item shop with a cozy timber facade, shelves of colorful potion bottles in the window, barrels and sacks by the door, a hanging sign with a potion bottle icon, cobblestone front",
+  "back": "remove the potion window and the sign, and show a plain wall with a back door, herb drying racks and wooden crates"
+ },
+ {
+  "id": "logistics",
+  "cat": "会社の施設",
+  "name": "物流拠点",
+  "base": "2",
+  "desc": "a large logistics warehouse with a corrugated metal roof, several loading docks with roll-up doors, delivery trucks parked at the docks, stacked pallets, a paved yard",
+  "back": "remove the loading docks and the trucks, and show a back wall with a few small windows, an office annex and a fenced storage yard"
+ },
+ {
+  "id": "factory",
+  "cat": "会社の施設",
+  "name": "工場（製造）",
+  "base": "2",
+  "desc": "a mid-size factory with a sawtooth roof, two tall chimneys, large windows, a loading bay with a forklift, stacked crates, a paved yard",
+  "back": "remove the loading bay and the forklift, and show pipes, water tanks and a back gate"
+ },
+ {
+  "id": "training",
+  "cat": "会社の施設",
+  "name": "研修所",
+  "base": "1",
+  "desc": "a two-story training center with clean white walls, large classroom windows, a small lawn with a bench, a flagpole with a blank flag",
+  "back": "remove the bench and the flagpole, and show a plain wall with an emergency staircase and solar panels on the roof"
+ },
+ {
+  "id": "bank",
+  "cat": "会社の施設",
+  "name": "銀行",
+  "base": "1",
+  "desc": "a classical bank building with stone columns, a triangular pediment, heavy bronze doors, an ATM booth on the side, a hanging sign with a coin icon, stone steps",
+  "back": "remove the columns, the ATM booth and the sign, and show a plain stone wall with a reinforced back door and a security camera"
+ },
+ {
+  "id": "realty",
+  "cat": "会社の施設",
+  "name": "不動産屋",
+  "base": "1",
+  "desc": "a small real estate office with large windows covered with house listing pictures without letters, a hanging sign with a house key icon, paved front",
+  "back": "remove the listing windows and the sign, and show a plain wall with a back door and a small parking space"
+ },
+ {
+  "id": "media",
+  "cat": "会社の施設",
+  "name": "瓦版社（メディア）",
+  "base": "1",
+  "desc": "a newspaper office with a brick facade, a radio antenna on the roof, bundles of newspapers by the door, a hanging sign with a rolled newspaper icon, paved front",
+  "back": "remove the newspaper bundles and the sign, and show a brick wall with a printing press exhaust, a back door and paper rolls"
+ },
+ {
+  "id": "power",
+  "cat": "会社の施設",
+  "name": "発電所（エネルギー）",
+  "base": "2",
+  "desc": "a compact power plant with a turbine building, a tall striped chimney, transformers and power poles, a fenced gravel yard",
+  "back": "remove the transformers, and show cooling pipes, fuel tanks and a back gate"
+ },
+ {
+  "id": "inn",
+  "cat": "会社の施設",
+  "name": "旅館（宿）",
+  "base": "1",
+  "desc": "a traditional two-story Japanese inn with a curved tiled roof, wooden balconies, paper lanterns at the entrance, a small garden with a stone lantern, a hanging sign with a hot spring icon",
+  "back": "remove the lanterns and the sign, and show the inn's back garden with an outdoor bath behind a bamboo fence"
+ },
+ {
+  "id": "hotel",
+  "cat": "会社の施設",
+  "name": "ホテル（宿）",
+  "base": "1T",
+  "desc": "an eight-story hotel with a warm beige facade, a canopy over the entrance, rows of windows, a sign with a bed icon on the roof, potted palms",
+  "back": "remove the canopy and the roof sign, and show plain walls with rows of windows, a service door and laundry carts"
+ },
+ {
+  "id": "trading",
+  "cat": "会社の施設",
+  "name": "商社（交易）",
+  "base": "1T",
+  "desc": "a six-story trading company office of red brick with arched windows, a globe sculpture by the entrance, a small plaza",
+  "back": "remove the globe sculpture and the entrance, and show a brick wall with a loading door and stacked shipping crates"
+ },
+ {
+  "id": "harbor",
+  "cat": "会社の施設",
+  "name": "港と海運",
+  "base": "2",
+  "desc": "a harbor warehouse and pier: a brick warehouse with a cargo crane, a wooden pier over water along the bottom-left edge with a small cargo ship, stacked crates",
+  "back": "show the land side of the warehouse with large doors and parked trucks, with the pier and the ship hidden behind"
+ },
+ {
+  "id": "survey",
+  "cat": "会社の施設",
+  "name": "調査室",
+  "base": "1",
+  "desc": "a small research office with a satellite dish and a telescope on the roof, maps and binoculars visible through the window, paved front",
+  "back": "remove the window display, and show a plain wall with a back door and antenna cables"
+ },
+ {
+  "id": "lab",
+  "cat": "会社の施設",
+  "name": "開発室（研究所）",
+  "base": "1",
+  "desc": "a modern research lab with white walls, a dome-shaped roof, glowing blue windows, antennas, paved front",
+  "back": "remove the glowing windows, and show a plain wall with server units, cooling fans and a back door"
+ },
+ {
+  "id": "arcade",
+  "cat": "会社の施設",
+  "name": "アーケード（天候設備）",
+  "base": "2",
+  "desc": "a covered shopping arcade with an arched glass roof spanning the lot, small shop fronts on both sides under the roof, hanging lanterns",
+  "back": null
+ },
+ {
+  "id": "guard",
+  "cat": "会社の施設",
+  "name": "警備の詰所",
+  "base": "1",
+  "desc": "a small security station with a watchtower, a barrier gate, a flashing light on the roof, paved front",
+  "back": "remove the barrier gate, and show a plain wall with a back door and a patrol bicycle"
+ },
+ {
+  "id": "station",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "駅",
+  "base": "2",
+  "desc": "a train station with a long platform roof, a clock tower in the middle, a brick main hall with large arched windows, a short railway track with a train along the back edge, a bus stop and taxi area in front",
+  "back": "show the platform side with the railway tracks, a stopped train and platform benches, without the entrance hall"
+ },
+ {
+  "id": "city_hall",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "市役所（庁舎）",
+  "base": "2T",
+  "desc": "a city hall with a white stone facade, a central clock tower, wide stone steps, a flag pole with a blank flag, a small plaza with a fountain",
+  "back": "remove the steps, the flag pole and the fountain, and show a plain stone wall with a staff entrance and a parking area"
+ },
+ {
+  "id": "government",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "政府機関（当局）",
+  "base": "2T",
+  "desc": "a government agency building of gray stone with tall columns, a dome on top, guarded gates, neat hedges",
+  "back": "remove the columns and the gates, and show a plain stone wall with a back gate and a guard booth"
+ },
+ {
+  "id": "assembly",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "地主会の会館",
+  "base": "1",
+  "desc": "a traditional assembly hall with a heavy tiled roof, wooden pillars, a wide stone stairway, banners without letters",
+  "back": "remove the stairway and the banners, and show a plain wooden wall with a back door and a storehouse"
+ },
+ {
+  "id": "hospital",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "病院",
+  "base": "2T",
+  "desc": "a modern hospital, six stories, white walls with a green cross emblem, an ambulance bay, a small garden with benches",
+  "back": "remove the emblem and the ambulance bay, and show a plain wall with a service entrance and a helipad on the roof"
+ },
+ {
+  "id": "police",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "交番",
+  "base": "1",
+  "desc": "a small police box with a red lamp over the door, a bicycle parked in front, a tiny garden, paved front",
+  "back": "remove the lamp and the bicycle, and show a plain wall with a back door"
+ },
+ {
+  "id": "park",
+  "cat": "公共・大型の建物（2 マス）",
+  "name": "公園",
+  "base": "1",
+  "desc": "a small park with trees, a fountain, benches, a sandbox and flower beds, paved paths",
+  "back": null
+ },
+ {
+  "id": "rest_area",
+  "cat": "地域への投資",
+  "name": "休憩所（椅子）",
+  "base": "1",
+  "desc": "a small rest area with a wooden gazebo and benches, a drinking fountain, flower beds, trees, paved paths",
+  "back": null
+ },
+ {
+  "id": "concert_hall",
+  "cat": "地域への投資",
+  "name": "ホール（楽器）",
+  "base": "2",
+  "desc": "a concert hall with a curved copper roof shaped like a wave, a glass lobby, a plaza with a small outdoor stage",
+  "back": "remove the glass lobby and the stage, and show the stage-door side with loading doors and an instrument truck"
+ },
+ {
+  "id": "library",
+  "cat": "地域への投資",
+  "name": "図書館（ブック）",
+  "base": "1",
+  "desc": "a library with a red brick facade, tall arched windows, an open-book relief above the door, benches and trees",
+  "back": "remove the relief and the benches, and show a brick wall with tall windows and a book return box by a back door"
+ },
+ {
+  "id": "school",
+  "cat": "地域への投資",
+  "name": "学校（ペン）",
+  "base": "2",
+  "desc": "a three-story school with cream walls and a clock on the facade, a schoolyard with a small playground and a soccer goal",
+  "back": "remove the clock and the entrance, and show the back of the school with a gym building and a bicycle shed"
+ },
+ {
+  "id": "circus",
+  "cat": "地域への投資",
+  "name": "サーカス（ピエロ）",
+  "base": "2",
+  "desc": "a circus big top tent with red and white stripes, flags on the poles, a ticket booth, colorful trailers",
+  "back": "remove the ticket booth, and show the back of the tent with the performers' trailers and animal wagons"
+ },
+ {
+  "id": "amusement",
+  "cat": "地域への投資",
+  "name": "遊園地（観覧車）",
+  "base": "2T",
+  "desc": "an amusement park corner with a large Ferris wheel, a small carousel, a ticket gate and snack carts",
+  "back": "remove the ticket gate, and show the Ferris wheel and the carousel from the opposite side with a maintenance shed"
+ },
+ {
+  "id": "sea_palace",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "海王の宮殿（Ocean）",
+  "base": "2T",
+  "desc": "a palace on the sea: a white and turquoise palace with seashell-shaped domes, coral decorations, a stone platform surrounded by water, a turtle statue",
+  "back": "remove the turtle statue and the main gate, and show the palace's back terrace facing the sea"
+ },
+ {
+  "id": "lighthouse",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "港町の灯台（Ocean）",
+  "base": "1T",
+  "desc": "a red and white striped lighthouse on a rocky base with a small keeper's house",
+  "back": "show the lighthouse from the opposite side with the keeper's back door and a small boat"
+ },
+ {
+  "id": "demon_castle",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "魔王の城（Strawberry）",
+  "base": "2T",
+  "desc": "a dark fairy-tale castle with crimson roofs, tall spires, strawberry-shaped ornaments on the towers, a rooster weathervane, a drawbridge gate",
+  "back": "remove the drawbridge gate, and show the castle's back wall with a small hidden door leading underground"
+ },
+ {
+  "id": "underground",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "地下街の入口（Strawberry）",
+  "base": "1",
+  "desc": "an ornate entrance to an underground mall: a stairway going down under a red iron and glass canopy, street lamps",
+  "back": "show the canopy from the opposite side, with the stairway hidden behind it"
+ },
+ {
+  "id": "tiger_estate",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "虎王の館（Tangerine）",
+  "base": "2",
+  "desc": "a luxurious estate with golden roofs, orange walls, tiger statues guarding the gate, a tangerine orchard garden",
+  "back": "remove the gate and the tiger statues, and show the back garden with the tangerine orchard and a teahouse"
+ },
+ {
+  "id": "dragon_palace",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "龍王の宮殿（Lime）",
+  "base": "2T",
+  "desc": "an elegant palace with green tiled roofs, a dragon sculpture coiling around the main tower, lime trees in the garden",
+  "back": "remove the main gate, and show the back of the palace with the dragon's tail and a wine cellar door"
+ },
+ {
+  "id": "elephant_works",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "象王の大工房（Graphite）",
+  "base": "2T",
+  "desc": "a giant workshop fortress of dark graphite stone with gears, chimneys and cranes, an elephant emblem relief",
+  "back": "remove the main gate and the emblem, and show the back with smelting furnaces and stacked metal ingots"
+ },
+ {
+  "id": "g9_hall",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "G9 の会議場（Grape）",
+  "base": "2T",
+  "desc": "an international summit hall with a round glass dome, nine flagpoles with blank flags in a circle, a wide plaza",
+  "back": "remove the flagpoles and the main entrance, and show a plain wall with a delegates' entrance and parked cars"
+ },
+ {
+  "id": "arena",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "大会の闘技場（Grape）",
+  "base": "2",
+  "desc": "a stone arena like a small colosseum with banners without letters, a snake emblem relief over the main gate",
+  "back": "remove the main gate and the emblem, and show the back of the arena with the fighters' entrance and weapon racks"
+ },
+ {
+  "id": "radio",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "ラジオ局（Sage）",
+  "base": "1T",
+  "desc": "a radio station with a tall red and white broadcast tower and a small studio building with an on-air lamp",
+  "back": "remove the studio entrance, and show the base of the tower with cables and a generator"
+ },
+ {
+  "id": "cat_manor",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "猫王の館（Sage）",
+  "base": "2",
+  "desc": "a gentle manor with sage green roofs, cat-ear shaped turrets, a flower garden, a welcome arch",
+  "back": "remove the welcome arch, and show the back garden with a greenhouse and a bull statue"
+ },
+ {
+  "id": "pirate_base",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "海賊団の本拠（Blueberry）",
+  "base": "2",
+  "desc": "a pirate harbor base: a wooden fort on a pier, a pirate ship with blueberry-blue sails and a dog figurehead docked along the edge, barrels and cannons",
+  "back": "show the fort from the land side with a wooden gate and stacked treasure chests, with the ship hidden behind"
+ },
+ {
+  "id": "board",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "流星街の掲示板（Ruby）",
+  "base": "1",
+  "desc": "a plaza with a giant wooden bulletin board covered with papers without readable letters, street lamps, benches, a hooded statue",
+  "back": "show the back of the bulletin board with support beams and a ladder, and the statue from behind"
+ },
+ {
+  "id": "robot_lab",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "巨大ロボの研究所（Ruby）",
+  "base": "2T",
+  "desc": "a secret hangar with a half-open roof revealing a giant robot under construction, scaffolding, cranes and red warning lights",
+  "back": "remove the hangar doors, and show the back of the hangar with power cables, generators and a monkey emblem"
+ },
+ {
+  "id": "shrine_turtle",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Ocean）",
+  "base": "1",
+  "desc": "a small shrine for the guardian turtle: a stone statue of a turtle on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_rooster",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Strawberry）",
+  "base": "1",
+  "desc": "a small shrine for the guardian rooster: a stone statue of a rooster on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_tiger",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Tangerine）",
+  "base": "1",
+  "desc": "a small shrine for the guardian tiger: a stone statue of a tiger on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_dragon",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Lime）",
+  "base": "1",
+  "desc": "a small shrine for the guardian dragon: a stone statue of a dragon on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_elephant",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Graphite）",
+  "base": "1",
+  "desc": "a small shrine for the guardian elephant: a stone statue of a elephant on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_snake",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Grape）",
+  "base": "1",
+  "desc": "a small shrine for the guardian snake: a stone statue of a snake on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_bull",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Sage）",
+  "base": "1",
+  "desc": "a small shrine for the guardian bull: a stone statue of a bull on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_dog",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Blueberry）",
+  "base": "1",
+  "desc": "a small shrine for the guardian dog: a stone statue of a dog on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ },
+ {
+  "id": "shrine_monkey",
+  "cat": "ランドの特別な建物と守り神の祠",
+  "name": "守り神の祠（Ruby）",
+  "base": "1",
+  "desc": "a small shrine for the guardian monkey: a stone statue of a monkey on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
+  "back": null
+ }
+]
