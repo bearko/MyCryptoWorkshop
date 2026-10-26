@@ -185,6 +185,13 @@ function sceneBox(x0: number, y0: number, x1: number, y1: number): Box {
   const b = renderer.toClient(x1, y1);
   return { left: a.x, top: a.y, width: b.x - a.x, height: b.y - a.y };
 }
+// テストモードだけ：ブラウザの通しテストが読む値（読むだけ。遊び方は変わらない）
+if (TEST_MODE) {
+  (window as unknown as { mcwTest: object }).mcwTest = {
+    registerClicks: () => registerClicks,
+    counterBox: () => sceneBox(COUNTER.x0, COUNTER.top, COUNTER.x1, COUNTER.bottom),
+  };
+}
 const elBox = (selector: string): Box | null => {
   const el = document.querySelector(selector);
   const r = el?.getBoundingClientRect();
@@ -1842,8 +1849,20 @@ function hitTest(x: number, y: number): 'hazard' | 'thief' | 'pest' | 'decision'
 /** A press on a production line: a tap crafts a little; holding past HOLD_DELAY overclocks it. */
 const HOLD_DELAY = 250;
 let press: { pointer: number; line: LineId; timer: number } | null = null;
+/** レジの長押し：連打の間隔（1 秒に 8 回、手で速くクリックするくらい） */
+const REGISTER_REPEAT_MS = 125;
+let registerHold: { pointer: number; timer: number; interval: number } | null = null;
+
+
+function endRegisterHold(): void {
+  if (!registerHold) return;
+  window.clearTimeout(registerHold.timer);
+  window.clearInterval(registerHold.interval);
+  registerHold = null;
+}
 
 function endPress(): void {
+  endRegisterHold();
   if (!press) return;
   window.clearTimeout(press.timer);
   shop?.holdLine(press.line, false);
@@ -1879,11 +1898,28 @@ canvas.addEventListener('pointerdown', (ev) => {
   } else if (target === 'register') {
     shop.clickRegister();
     registerClicks++;
+    if (registerClicks === 30) tip('registerHold', t('レジは長押しでも連打できるよ！', 'You can also hold down on the register to keep clicking!'));
+    // 長押しで連打（手で速くクリックするのと同じくらいの速さ）
+    endRegisterHold();
+    canvas.setPointerCapture(ev.pointerId);
+    registerHold = {
+      pointer: ev.pointerId,
+      timer: window.setTimeout(() => {
+        if (!registerHold) return;
+        registerHold.interval = window.setInterval(() => {
+          if (!shop || paused || !shop.started || shop.over || modalOpen > 0) return endRegisterHold();
+          shop.clickRegister();
+          registerClicks++;
+        }, REGISTER_REPEAT_MS);
+      }, HOLD_DELAY),
+      interval: 0,
+    };
   }
 });
 for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
   canvas.addEventListener(type, (ev) => {
     if (press && ev.pointerId === press.pointer) endPress();
+    if (registerHold && ev.pointerId === registerHold.pointer) endRegisterHold();
   });
 }
 canvas.addEventListener('pointermove', (ev) => {
