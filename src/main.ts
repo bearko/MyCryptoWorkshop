@@ -2030,6 +2030,7 @@ canvas.addEventListener('pointermove', (ev) => {
 // Keyboard: Space taps (and, held, overclocks) the magic pot, Enter helps at the register,
 // Escape opens the menu.
 let spaceHeld = false;
+let lastEnterRepeat = 0;
 window.addEventListener('keydown', (ev) => {
   // Typing in a field (the menu's, or the bearko.games chat's) is not a game key.
   if (isTypingEvent(ev) || !shop || paused || !shop.started || modalOpen > 0) return;
@@ -2044,6 +2045,10 @@ window.addEventListener('keydown', (ev) => {
     potClicks++;
   } else if (ev.code === 'Enter') {
     ev.preventDefault();
+    // 押しっぱなしの連打は、レジの長押しと同じ速さに抑える（OS のキーリピートは 30 回/秒ほど出る）
+    const now = performance.now();
+    if (ev.repeat && now - lastEnterRepeat < REGISTER_REPEAT_MS) return;
+    lastEnterRepeat = now;
     shop.clickRegister();
     registerClicks++;
   } else if (ev.code === 'Escape') {
