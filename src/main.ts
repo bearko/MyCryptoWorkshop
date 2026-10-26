@@ -12,7 +12,7 @@ import { EDITIONS, itemEdition, itemExt, itemName } from './game/items';
 import { exportCode, importCode, loadSave, newSave, SaveError, writeSave, type SaveData } from './game/save';
 import { Shop, type DayReport, type Decision, type ExtraSource, type ShopEvent } from './game/shop';
 import { autoBuy, buy } from './game/purchase';
-import { relocate } from './game/prestige';
+import { everCleared, relocate } from './game/prestige';
 import { computeStats } from './game/stats';
 import { level, skillById, type SkillNode } from './game/skills';
 import { assetUrl, preload } from './render/images';
@@ -1101,11 +1101,23 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
       { label: t('ショップへ', 'To the shop'), onClick: () => (autoNext.stop(), showShop()) },
       { label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => (autoNext.stop(), showTree()) },
       { label: hasKeyboard() ? t(`▶ Day ${save.day} 開店する（Enter）`, `▶ Open Day ${save.day} (Enter)`) : t(`▶ Day ${save.day} 開店する`, `▶ Open Day ${save.day}`), onClick: () => (autoNext.stop(), startDay()) },
+      // 周回向け：一度クリアした人だけ（初めての周回では、スキルを選ぶこと自体が遊びなので出さない）
+      ...(everCleared(save.prestige) ? [{ label: t('⚡ 安い順にまとめて習得して開店', '⚡ Learn all (cheapest first) and open'), onClick: () => (autoNext.stop(), learnAllAndOpen()) }] : []),
     ],
     'results-modal',
   );
   onEnterWhileOpen(body, openNext);
   autoNext.start(openNext);
+}
+
+/** 周回向けの近道：スキルツリーの「安い順にまとめて習得」をして、そのまま次の日を開店する */
+function learnAllAndOpen(): void {
+  const n = tree.buyCheapestRepeatedly();
+  updateTopbar();
+  // エンディングなど、習得で開いた画面があればそちらを先に（開店はしない）
+  if (modalOpen > 0) return;
+  startDay();
+  if (n > 0) say(t(`まとめて ${n} 件習得して開店！`, `Learned ${n} and opened!`));
 }
 
 /** マウスのある端末（PC）か。キーの近道の表記はそこでだけ出す */
