@@ -3580,3 +3580,23 @@ body.ke-open .test-badge {
 .empire-expand .muted {
   font-size: 11px;
 }
+
+/* 売上報告の「自動で次の日へ」 */
+.auto-next {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.auto-next input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+}
+.auto-next-count {
+  color: var(--gold);
+  font-weight: 700;
+}

@@ -1085,15 +1085,73 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
       : null,
   );
   place = 'results';
-  openModal(
+  // 自動で次の日へ：オンなら 3 秒数えて、そのまま次の日を開店する（ボタンを押せば止まる）
+  const autoNext = autoNextDay(body);
+  const close = openModal(
     t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`),
     body,
     [
-      { label: t('ショップへ', 'To the shop'), onClick: () => showShop() },
-      { label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => showTree() },
+      { label: t('ショップへ', 'To the shop'), onClick: () => (autoNext.stop(), showShop()) },
+      { label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => (autoNext.stop(), showTree()) },
     ],
     'results-modal',
   );
+  autoNext.start(() => {
+    close();
+    startDay();
+  });
+}
+
+/** 自動で次の日を開店するまでの秒数 */
+const AUTO_NEXT_SECONDS = 3;
+
+/**
+ * 売上報告の「自動で次の日へ」。切り替えのチェックと数え下ろしを body の末尾に足す。
+ * 報告が閉じられた・ほかの画面が上に重なった・タブが隠れているあいだは進めない。
+ */
+function autoNextDay(body: HTMLElement): { start: (go: () => void) => void; stop: () => void } {
+  let timer = 0;
+  let left = AUTO_NEXT_SECONDS;
+  let go: (() => void) | null = null;
+  const count = h('span.auto-next-count', {});
+  const box = h('input', { type: 'checkbox', checked: save.settings.autoNextDay }) as HTMLInputElement;
+  const stop = () => {
+    window.clearInterval(timer);
+    timer = 0;
+    count.textContent = '';
+  };
+  const run = () => {
+    stop();
+    if (!save.settings.autoNextDay || !go) return;
+    left = AUTO_NEXT_SECONDS;
+    count.textContent = t(`${left} 秒後に次の日を開店…`, `Opening the next day in ${left}…`);
+    timer = window.setInterval(() => {
+      if (!body.isConnected) return stop();
+      // ほかの画面（実績やエンディングなど）が上にある・タブが隠れているあいだは待つ
+      if (document.hidden || modalOpen > 1) return;
+      left--;
+      if (left > 0) {
+        count.textContent = t(`${left} 秒後に次の日を開店…`, `Opening the next day in ${left}…`);
+        return;
+      }
+      const next = go;
+      stop();
+      next?.();
+    }, 1000);
+  };
+  box.addEventListener('change', () => {
+    save.settings.autoNextDay = box.checked;
+    writeSave(save);
+    run();
+  });
+  body.append(h('label.auto-next', {}, box, h('span', {}, t('自動で次の日へ（3 秒後に開店）', 'Auto-start the next day (in 3 seconds)')), count));
+  return {
+    start: (fn) => {
+      go = fn;
+      run();
+    },
+    stop,
+  };
 }
 
 // ------------------------------------------------------------------ flow
