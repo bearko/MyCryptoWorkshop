@@ -733,6 +733,7 @@ function openMenu(fromHome = false): void {
     langSwitch(),
     displaySettings(),
     computeStats(save.levels).autoBuyer > 0 ? h('div.menu-sound', {}, h('span', {}, t('番頭の自動習得', 'Head clerk auto-buy')), autoBuyBtn()) : null,
+    autoDecideList(),
     // bearko.games 共通のアイコン（共通基盤 SPEC-005 5.3。窓は SDK 1.7.0。SDK が読めたときだけ）
     canPickAvatar()
       ? h('div.menu-sound', {}, h('span', {}, t('アイコン（bearko.games 全体で共通）', 'Icon (shared on bearko.games)')), h('button.btn.small', { onclick: () => openAvatarPicker() }, t('変える', 'Change')))
@@ -1574,6 +1575,64 @@ const LOST_TEXT = {
   scared: t(' はエネミーに驚いて逃げ帰ってしまった…', ' was scared off by an enemy...'),
 };
 
+/** 「次からもこれを選ぶ」で覚えた返事を、吹き出しが出て少ししてから自動でする（見えるように 0.8 秒待つ） */
+const AUTO_DECIDE_DELAY_MS = 800;
+
+/** 訪問者の種類の呼び名（メニューの「いつもの返事」の一覧） */
+const DECISION_KIND_LABEL: Record<string, string> = {
+  merchant: t('商人', 'Merchant'),
+  mai: t('マイちゃん', 'MAI'),
+  reform: t('改心した泥棒', 'Reformed thief'),
+};
+
+/** 覚えた返事があれば自動で答える。答えたら true */
+function autoDecide(kind: string): boolean {
+  const choice = save.settings.autoDecide?.[kind];
+  if (choice === undefined) return false;
+  window.setTimeout(() => {
+    if (!shop || !shop.started || shop.over || modalOpen > 0) return;
+    const d = shop.viewDecision();
+    if (!d) return;
+    // 選択肢が減っているとき（商人に売る品がない など）は、手で選ぶ（いつもどおり待つ）
+    if (choice >= d.options.length || d.kind !== kind) {
+      shop.deferDecision();
+      return;
+    }
+    shop.decide(choice);
+    const who = DECISION_KIND_LABEL[kind] ?? d.title;
+    say(t(`${who}に、いつもの返事をしたよ：「${d.options[choice].label}」`, `Gave the ${who} the usual answer: "${d.options[choice].label}"`));
+  }, AUTO_DECIDE_DELAY_MS);
+  return true;
+}
+
+/** メニューの「いつもの返事」：覚えた返事の一覧と解除 */
+function autoDecideList(): HTMLElement | null {
+  const entries = Object.entries(save.settings.autoDecide ?? {});
+  if (!entries.length) return null;
+  const box = h('div.menu-sound.auto-decide', {}, h('span', {}, t('訪問者へのいつもの返事', 'Usual answers to visitors')));
+  for (const [kind] of entries) {
+    const row = h(
+      'span.auto-decide-row',
+      {},
+      DECISION_KIND_LABEL[kind] ?? kind,
+      h(
+        'button.btn.small',
+        {
+          onclick: () => {
+            const { [kind]: _drop, ...rest } = save.settings.autoDecide;
+            save.settings.autoDecide = rest;
+            writeSave(save);
+            row.remove();
+          },
+        },
+        t('解除', 'Undo'),
+      ),
+    );
+    box.append(row);
+  }
+  return box;
+}
+
 /** Options can be chosen only after this long, so a tap meant for the shop does not pick one. */
 const DECISION_ARM_MS = 600;
 
@@ -1591,11 +1650,23 @@ function showDecision(d: Decision): void {
   const choose = (i: number) => {
     if (done) return;
     done = true;
+    if (remember.checked) {
+      save.settings.autoDecide = { ...save.settings.autoDecide, [d.kind]: i };
+      writeSave(save);
+    }
     close();
     shop?.decide(i);
   };
   window.setTimeout(() => buttons.forEach((b) => (b.disabled = false)), DECISION_ARM_MS);
-  const body = h('div.decision', {}, h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)), ...buttons);
+  // 次からもこれを選ぶ：選んだ番号を種類ごとに覚え、次からは吹き出しが出たらすぐその返事をする（メニューで解除）
+  const remember = h('input', { type: 'checkbox' }) as HTMLInputElement;
+  const body = h(
+    'div.decision',
+    {},
+    h('div.decision-head', {}, icon(d.image, 'px'), h('p.decision-text', {}, d.text)),
+    ...buttons,
+    d.options.length > 1 ? h('label.decision-remember', {}, remember, t('次からもこれを選ぶ（メニューで解除できます）', 'Always choose this from now on (undo in the menu)')) : null,
+  );
   const close = openModal(d.title, body, [{ label: t('あとで決める', 'Decide later'), cancel: true, onClick: () => ((done = true), shop?.deferDecision()) }], 'decision-modal');
 }
 
@@ -1718,6 +1789,7 @@ function onShopEvent(e: ShopEvent): void {
       // The same flash-of-inspiration sound as a treasure chest.
       sound.play('rare');
       log(h('span', {}, h('b', {}, e.decision.title), t('（タップで話を聞く）', ' (tap to talk)')), 'rare');
+      if (autoDecide(e.decision.kind)) break;
       tip('decisionTap', t('吹き出しを出している人がいるよ！タップすると話を聞けるよ。しばらく放っておくと、いつもの返事をして帰っちゃう', 'Someone with a speech bubble wants to talk! Tap them to hear them out. Leave them for a while and they take the usual answer and go'));
       break;
     case 'decided':

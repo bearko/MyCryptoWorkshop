@@ -65,6 +65,8 @@ export interface SaveData {
     chat: boolean;
     /** 日々の売上報告から、3 秒数えて自動で次の日を開店する */
     autoNextDay: boolean;
+    /** 訪問者の「次からもこれを選ぶ」：種類（merchant・mai・reform）ごとの選択肢の番号 */
+    autoDecide: Record<string, number>;
   };
   tips: string[];
   meta: {
@@ -165,6 +167,7 @@ export function newSave(now = Date.now()): SaveData {
       alerts: false,
       chat: true,
       autoNextDay: false,
+      autoDecide: {},
     },
     tips: [],
     meta: { createdAt: now, savedAt: now, playSeconds: 0 },
