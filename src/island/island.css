@@ -16,9 +16,12 @@
 }
 html,
 body.isl {
+  position: fixed;
+  inset: 0;
   margin: 0;
   height: 100%;
   overflow: hidden;
+  touch-action: none;
   background: var(--isl-night);
   color: var(--isl-text);
   font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
@@ -27,9 +30,8 @@ body.isl {
 }
 #isl-map {
   position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 0;
+  top: 0;
   touch-action: none;
   cursor: grab;
 }
@@ -129,6 +131,10 @@ body.isl {
   flex: none;
   min-height: 34px;
   font-size: 14px;
+}
+.isl-tabs,
+.isl-cards {
+  touch-action: pan-x;
 }
 .isl-cards {
   display: flex;
