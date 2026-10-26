@@ -3606,3 +3606,27 @@ body.ke-open .test-badge {
   color: var(--gold);
   font-weight: 700;
 }
+
+/* 訪問者の「次からもこれを選ぶ」と、メニューのいつもの返事 */
+.decision-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.decision-remember input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+}
+.auto-decide {
+  flex-wrap: wrap;
+}
+.auto-decide-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
