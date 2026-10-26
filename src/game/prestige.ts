@@ -47,6 +47,9 @@ export interface Prestige {
 
 export const newPrestige = (): Prestige => ({ runs: 0, cp: 0, home: null, fame: 0, runStartSeconds: 0, runStartRevenue: 0, clearSeconds: null, clearDay: null, bestDay: 0, history: [] });
 
+/** 一度でもクリアした（黄金のエクステンションを作った）か。周回向けの近道はクリアした人にだけ出す */
+export const everCleared = (p: Prestige) => p.clearSeconds !== null || p.history.some((r) => r.clearSeconds !== null);
+
 /** GUM a new run starts with, by level of 移転資金. */
 export const START_GUM = [0, 1e3, 1e5, 1e7, 1e9];
 

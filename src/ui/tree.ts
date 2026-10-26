@@ -483,13 +483,17 @@ export class TreeView {
       .sort((a, b) => a.cost - b.cost);
   }
 
-  /** Buys the cheapest affordable level repeatedly until nothing is affordable (skipping the unticked currencies). */
-  private buyCheapestRepeatedly(): void {
+  /**
+   * Buys the cheapest affordable level repeatedly until nothing is affordable (skipping the unticked currencies).
+   * Returns how many levels were bought (the results screen's 「まとめて習得して開店」 uses it too).
+   */
+  buyCheapestRepeatedly(): number {
     const skip = new Set(this.save.settings.bulkSkip ?? []);
     const next = () => this.affordable().find((o) => !skip.has(o.node.currency ?? 'gum'));
     let guard = 0;
     for (let o = next(); o && guard < 500; o = next(), guard++) this.cb.onBuy(o.node);
     this.refresh();
+    return guard;
   }
 
   /** Ticks for the currencies the bulk buy may spend (always the same row; Cp once relocated). */
