@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DEF, DEFS } from '../src/island/defs';
+import { DEF, DEFS, PENDING_ART } from '../src/island/defs';
 import { ELECTION, canPlace, cells, monthReport, togglePolicy, demolish, deserialize, endMonth, frontCell, groundAt, happiness, homes, newGame, place, rotate, serialize, step, type State } from '../src/island/sim';
 
 const grassCell = (s: State, size = 1): [number, number] => {
@@ -16,7 +16,7 @@ describe('島づくり：建物の一覧', () => {
   it('どの建物にも正面と背面の絵があり、生成の一覧とそろっている', () => {
     for (const d of DEFS) for (const k of ['rd', 'lu']) expect(existsSync(`public/island/b/${d.id}/${k}.png`), `${d.id}/${k}`).toBe(true);
     const gen = JSON.parse(readFileSync('scripts/island/buildings.json', 'utf8')) as { id: string }[];
-    for (const g of gen) expect(DEF[g.id], g.id).toBeDefined();
+    for (const g of gen) expect(!!DEF[g.id] || PENDING_ART.includes(g.id), g.id).toBe(true);
   });
 
   it('id が重ならず、2 マスは 2 マス', () => {

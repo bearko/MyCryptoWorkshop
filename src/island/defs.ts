@@ -66,7 +66,7 @@ const shop = (id: string, name: string, serve: number, income: number, cost: num
 const shrine = (animal: string, land: string, en: string) =>
   D(`shrine_${animal}`, t(`守り神の祠（${land}）`, `Guardian shrine (${en})`), 'land', { serve: { faith: 120 }, cost: 1500, days: 6, upkeep: 15, appeal: 1, unlock: 30 });
 
-export const DEFS: Def[] = [
+const ALL: Def[] = [
   // ---------------------------------------------------------------- 住宅
   home('house', t('2 階建ての住宅', 'Two-story house'), 6, 1200),
   home('cottage', t('平屋', 'Cottage'), 4, 900),
@@ -164,6 +164,11 @@ export const DEFS: Def[] = [
   shrine('dog', 'Blueberry', 'Blueberry'),
   shrine('monkey', 'Ruby', 'Ruby'),
 ];
+
+/** 絵がまだ無い建物（生成の回数が尽きたため。scripts/island/generate.py で作れば外す） */
+export const PENDING_ART = ['elephant_works', 'g9_hall', 'robot_lab'];
+
+export const DEFS: Def[] = ALL.filter((d) => !PENDING_ART.includes(d.id));
 
 export const DEF: Record<string, Def> = Object.fromEntries(DEFS.map((d) => [d.id, d]));
 
