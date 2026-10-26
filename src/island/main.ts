@@ -4,10 +4,12 @@
  */
 import './island.css';
 import { isEn, setLang, t } from '../i18n';
-import { CATS, DEF, DEFS, NEEDS, type Cat, type Def } from './defs';
+import { CATS, DEF, DEFS, NEEDS, POLICIES, type Cat, type Def } from './defs';
 import { art, draw, effectDone, pick, type Camera, type Effect, type Ghost } from './render';
 import {
+  DAYS_PER_MONTH,
   DIRS,
+  ELECTION,
   GOAL,
   boosts,
   canPlace,
@@ -25,8 +27,11 @@ import {
   place,
   rotate,
   serialize,
+  flags,
+  endMonth,
   staffing,
   step,
+  togglePolicy,
   won,
   workers,
   type Dir,
@@ -34,6 +39,8 @@ import {
   type State,
 } from './sim';
 
+/** ?test=2 で開いたとき（工房の ?test=2 から来る）。テスト用の札を出す */
+const TEST = new URLSearchParams(location.search).get('test') === '2';
 const SAVE = 'mycryptoisland.save.v1';
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const money = (n: number) => `${fmt(n)} G`;
@@ -71,6 +78,7 @@ let selected: number | null = null;
 let tab: Cat = 'home';
 const fx: Effect[] = [];
 let lifeOpen = false;
+let policyOpen = false;
 let confirmDemolish = false;
 
 function resize() {
@@ -137,10 +145,36 @@ hud.append(
   speedBox,
   btn(t('暮らし', 'Life'), () => {
     lifeOpen = !lifeOpen;
+    policyOpen = false;
     renderLife();
+    renderPolicy();
+  }),
+  btn(t('政策', 'Policy'), () => {
+    policyOpen = !policyOpen;
+    lifeOpen = false;
+    renderLife();
+    renderPolicy();
   }),
   btn('☰', openMenu),
 );
+if (TEST) hud.append(btn(t('テスト', 'Test'), openTest, 'is-danger'));
+
+/** テスト用の札：資金・工事・時間・解放を手早く動かす */
+function openTest() {
+  modal(t('テスト用', 'Test tools'), t('?test=2 のときだけ出ます。', 'Shown only with ?test=2.'), [
+    [t('資金 +50,000', 'Funds +50,000'), () => ((s.money += 50000), renderAll())],
+    [t('工事をすべて終える', 'Finish all construction'), () => {
+      for (const b of s.buildings) if (b.left > 0) { b.left = 0; fx.push({ uid: b.uid, start: performance.now() }); }
+      renderAll();
+    }],
+    [t('1 か月進める', 'Advance a month'), () => {
+      s.day += 30 - (s.day % 30);
+      endMonth(s);
+      renderAll();
+    }],
+    [flags.unlockAll ? t('解放を元に戻す', 'Restore unlocks') : t('すべての建物を解放', 'Unlock all buildings'), () => ((flags.unlockAll = !flags.unlockAll), renderAll())],
+  ]);
+}
 
 function renderHud() {
   statMoney.className = `isl-stat ${s.money < 0 ? 'is-bad' : ''}`;
@@ -178,7 +212,7 @@ function renderBuild() {
   );
   cards.replaceChildren(
     ...DEFS.filter((d) => d.cat === tab).map((d) => {
-      const locked = s.pop < d.unlock;
+      const locked = s.pop < d.unlock && !flags.unlockAll;
       const c = h('button', `isl-card ${locked ? 'is-locked' : ''} ${placing?.def.id === d.id ? 'is-on' : ''}`);
       c.type = 'button';
       const im = art(d.id, 'rd').cloneNode() as HTMLImageElement;
@@ -330,8 +364,46 @@ function renderLife() {
   }
   const b = boosts(s);
   if (b.approval || b.tax || b.immigration) parts.push(h('div', '', t(`後押し：支持 +${b.approval}・税 +${Math.round(b.tax * 100)}%・移住 +${b.immigration}`, `Boosts: approval +${b.approval}, tax +${Math.round(b.tax * 100)}%, arrivals +${b.immigration}`)));
+  const left = monthsToElection();
+  parts.push(h('div', '', t(`次の選挙まで ${left} か月（支持率 ${ELECTION.pass}% で続投）`, `Election in ${left} months (${ELECTION.pass}% approval to stay)`)));
   parts.push(h('div', '', t(`目標：人口 ${GOAL.pop}・支持率 ${GOAL.approval}%`, `Goal: ${GOAL.pop} people and ${GOAL.approval}% approval`)));
   life.replaceChildren(...parts);
+}
+
+function monthsToElection() {
+  const month = Math.floor(s.day / DAYS_PER_MONTH);
+  return ELECTION.everyMonths - (month % ELECTION.everyMonths);
+}
+
+// ---------------------------------------------------------------- 政策の札
+
+const policy = h('div', 'isl-life');
+function renderPolicy() {
+  policy.hidden = !policyOpen;
+  if (!policyOpen) return;
+  const parts: HTMLElement[] = [h('h3', '', t('政策', 'Policies')), h('div', '', t('出している間、毎月の費用がかかります。', 'Active policies cost money every month.'))];
+  for (const p of POLICIES) {
+    const on = s.policies.includes(p.id);
+    const locked = s.pop < p.unlock;
+    const row = h('div', 'isl-policy');
+    const b = btn(
+      locked ? t(`人口 ${p.unlock}`, `${p.unlock} people`) : on ? t('やめる', 'Stop') : t('出す', 'Enact'),
+      () => {
+        const now = togglePolicy(s, p.id);
+        toast(now ? t(`「${p.name}」を出しました`, `Enacted: ${p.name}`) : t(`「${p.name}」をやめました`, `Stopped: ${p.name}`));
+        save();
+        renderPolicy();
+        renderLife();
+      },
+      on ? 'is-on' : '',
+    );
+    b.disabled = locked;
+    const text = h('div');
+    text.append(h('b', '', p.name), h('small', '', p.note));
+    row.append(text, b);
+    parts.push(row);
+  }
+  policy.replaceChildren(...parts);
 }
 
 // ---------------------------------------------------------------- マインちゃん
@@ -353,6 +425,8 @@ function tip(): string {
   const built = s.buildings.length;
   if (built === 0) return t('ようこそ、島の新しい長さん！まずは「住宅」から家を建てましょう。住む人がいないと島は始まりません。', 'Welcome, new island chief! Start by building a home from Homes. No residents, no island.');
   if (homes(s) === 0) return t('工事が終わるまで少し待ちましょう。▶ を ⏩ にすると早く進みます。', 'Wait for the work to finish. Switch ▶ to ⏩ to speed up.');
+  const left = monthsToElection();
+  if (left <= 3 && s.approval < ELECTION.pass + 5) return t(`あと ${left} か月で選挙です。支持率が ${ELECTION.pass}% 以上ないと島の長を続けられません。「政策」の減税やお祭りが効きます。`, `Election in ${left} months. You need ${ELECTION.pass}% approval to stay. Try a tax cut or a festival under Policy.`);
   if (s.money < 0) return t('赤字です！維持費の高い建物を減らすか、お店や会社で売上を増やしましょう。', 'We are in the red! Cut costly upkeep or add shops and businesses.');
   if (cov.food < 0.8) return t('食べる所が足りません。「飲食」からお店を建てましょう。', 'Not enough places to eat. Build something from Food.');
   if (cov.goods < 0.8) return t('買い物できるお店が足りません。「物販」を見てみてください。', 'Not enough shops. Take a look at Shops.');
@@ -434,6 +508,7 @@ function layout() {
   placeBox.style.bottom = `${bottom}px`;
   info.style.bottom = `${bottom}px`;
   life.style.top = `${top}px`;
+  policy.style.top = `${top}px`;
   advisor.style.bottom = `${bottom + (placing || selected != null ? (placing ? placeBox : info).getBoundingClientRect().height + 8 : 0)}px`;
   toasts.style.top = `${top}px`;
 }
@@ -443,10 +518,11 @@ function renderAll() {
   renderPlace();
   renderInfo();
   renderLife();
+  renderPolicy();
   renderAdvisor();
   layout();
 }
-root.append(hud, toasts, advisor, life, placeBox, info, build);
+root.append(hud, toasts, advisor, life, policy, placeBox, info, build);
 renderAll();
 
 // ---------------------------------------------------------------- 地図の操作
@@ -586,6 +662,17 @@ function frame(now: number) {
         const opened = DEFS.filter((d) => d.unlock === p).length;
         toast(t(`人口 ${p} 人！${opened ? `新しい建物が ${opened} 種類建てられます` : ''}`, `${p} people!${opened ? ` ${opened} new buildings unlocked` : ''}`));
       }
+      if (r.election) {
+        speed = 0;
+        const e = r.election;
+        if (e.won)
+          modal(t('選挙で続投が決まりました！', 'Re-elected!'), t(`支持率 ${e.approval}%。あと 2 年、島づくりを任されました。`, `${e.approval}% approval. The island is yours for two more years.`), [[t('続ける', 'Keep going'), () => ((speed = 1), renderHud()), 'is-on']]);
+        else
+          modal(t('選挙に負けてしまいました…', 'You lost the election…'), t(`支持率 ${e.approval}%（${ELECTION.pass}% に届かず）。試作なので、このまま続けることもできます。`, `${e.approval}% approval (below ${ELECTION.pass}%). This is a prototype, so you may keep playing.`), [
+            [t('新しい島で', 'New island'), () => { s = newGame(); selected = null; placing = null; save(); speed = 1; renderAll(); }, 'is-on'],
+            [t('このまま続ける', 'Keep playing'), () => ((speed = 1), renderHud())],
+          ]);
+      } else if (monthsToElection() === 3) toast(t('3 か月後に選挙があります', 'Election in 3 months'));
       if (!celebrated && won(s)) {
         celebrated = true;
         speed = 0;

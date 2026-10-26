@@ -2,7 +2,7 @@
  * 島づくり（試作）の中身：地図、建物の置き方、1 日ごとの工事、1 か月ごとの暮らしとお金。
  * 画面に依存しない（tests/island.test.ts で確かめる）。
  */
-import { DEF, NEEDS, type Boost, type Def, type Need } from './defs';
+import { DEF, NEEDS, POLICIES, type Boost, type Def, type Need } from './defs';
 
 export type Dir = 'rd' | 'ld' | 'lu' | 'ru';
 export const DIRS: Dir[] = ['rd', 'ld', 'lu', 'ru'];
@@ -40,15 +40,23 @@ export interface State {
   last: Month | null;
   /** 届いた人口の節目（お祝いは 1 度だけ） */
   reached: number[];
+  /** 出している政策 */
+  policies: string[];
+  /** 選挙の結果（新しい順ではなく行った順） */
+  elections: { day: number; approval: number; won: boolean }[];
 }
 
 export const START_MONEY = 30000;
+/** テスト用（?test=2）：人口の条件を無視して何でも建てられる */
+export const flags = { unlockAll: false };
 export const DAYS_PER_MONTH = 30;
 export const WORK_SHARE = 0.6;
 export const TAX_PER_WORKER = 12;
 /** 住んでいる人 1 人あたりの月の住民税 */
 export const TAX_PER_RESIDENT = 3;
 export const GOAL = { pop: 1000, approval: 70 };
+/** 選挙は 2 年ごと（最初は 2 年目の終わり）。支持率がこれ以上なら続投 */
+export const ELECTION = { everyMonths: 24, pass: 45 };
 
 // ---------------------------------------------------------------- 地図
 
@@ -84,7 +92,7 @@ export function makeIsland(seed: number, n = 28): Ground[] {
 
 export function newGame(seed = Math.floor(Math.random() * 1e9)): State {
   const n = 28;
-  return { v: 1, seed, n, ground: makeIsland(seed, n), day: 0, money: START_MONEY, pop: 0, approval: 50, buildings: [], nextUid: 1, last: null, reached: [] };
+  return { v: 1, seed, n, ground: makeIsland(seed, n), day: 0, money: START_MONEY, pop: 0, approval: 50, buildings: [], nextUid: 1, last: null, reached: [], policies: [], elections: [] };
 }
 
 export const groundAt = (s: State, i: number, j: number): Ground | null => (i < 0 || j < 0 || i >= s.n || j >= s.n ? null : s.ground[j * s.n + i]);
@@ -113,7 +121,7 @@ export function occupant(s: State, i: number, j: number): Building | null {
 export type PlaceError = 'ground' | 'taken' | 'money' | 'locked' | 'coast';
 
 export function canPlace(s: State, def: Def, i: number, j: number, dir: Dir): PlaceError | null {
-  if (s.pop < def.unlock) return 'locked';
+  if (s.pop < def.unlock && !flags.unlockAll) return 'locked';
   const cs = cells(def, i, j, dir);
   if (cs.some(([x, y]) => groundAt(s, x, y) !== 'grass')) return 'ground';
   if (cs.some(([x, y]) => occupant(s, x, y))) return 'taken';
@@ -174,6 +182,7 @@ export const appeal = (s: State) => done(s).reduce((t, d) => t + d.appeal, 0);
 export function boosts(s: State): Record<Boost, number> {
   const out: Record<Boost, number> = { tax: 0, industry: 0, tourism: 0, approval: 0, immigration: 0 };
   for (const d of done(s)) for (const [k, v] of Object.entries(d.boost)) out[k as Boost] += v ?? 0;
+  for (const p of POLICIES) if (s.policies.includes(p.id)) for (const [k, v] of Object.entries(p.boost)) out[k as Boost] += v ?? 0;
   return out;
 }
 
@@ -221,13 +230,24 @@ export function monthReport(s: State): Month {
     else if (d.kind === 'tourism') income += d.income * staffed * Math.min(1, appeal(s) / 30) * (1 + b.tourism);
   }
   const employed = Math.min(workers(s), jobs(s));
-  const tax = (employed * TAX_PER_WORKER + s.pop * TAX_PER_RESIDENT) * (1 + b.tax);
-  const upkeep = done(s).reduce((t, d) => t + d.upkeep, 0);
+  const rate = POLICIES.reduce((r, p) => (s.policies.includes(p.id) && p.taxRate ? r * p.taxRate : r), 1);
+  const tax = (employed * TAX_PER_WORKER + s.pop * TAX_PER_RESIDENT) * (1 + b.tax) * rate;
+  const upkeep = done(s).reduce((t, d) => t + d.upkeep, 0) + POLICIES.reduce((t, p) => t + (s.policies.includes(p.id) ? p.cost : 0), 0);
   return { income: Math.round(income), tax: Math.round(tax), upkeep, moved: 0 };
 }
 
 /** 1 日進める。工事が終わった建物を返す。月の終わりには暮らしとお金を計算する */
-export function step(s: State): { finished: Building[]; month: Month | null } {
+export function togglePolicy(s: State, id: string): boolean {
+  const k = s.policies.indexOf(id);
+  if (k >= 0) s.policies.splice(k, 1);
+  else s.policies.push(id);
+  return k < 0;
+}
+
+/** この月の終わりが選挙か */
+export const electionDue = (day: number) => day > 0 && day % (ELECTION.everyMonths * DAYS_PER_MONTH) === 0;
+
+export function step(s: State): { finished: Building[]; month: Month | null; election: { won: boolean; approval: number } | null } {
   s.day++;
   const finished: Building[] = [];
   for (const b of s.buildings) {
@@ -237,8 +257,15 @@ export function step(s: State): { finished: Building[]; month: Month | null } {
     }
   }
   let month: Month | null = null;
-  if (s.day % DAYS_PER_MONTH === 0) month = endMonth(s);
-  return { finished, month };
+  let election: { won: boolean; approval: number } | null = null;
+  if (s.day % DAYS_PER_MONTH === 0) {
+    month = endMonth(s);
+    if (electionDue(s.day)) {
+      election = { won: s.approval >= ELECTION.pass, approval: s.approval };
+      s.elections.push({ day: s.day, ...election });
+    }
+  }
+  return { finished, month, election };
 }
 
 export function endMonth(s: State): Month {
@@ -284,7 +311,7 @@ export function deserialize(json: string): State | null {
     const o = JSON.parse(json) as Omit<State, 'ground'>;
     if (o.v !== 1 || !Array.isArray(o.buildings)) return null;
     const buildings = o.buildings.filter((b) => DEF[b.id]);
-    return { ...o, buildings, ground: makeIsland(o.seed, o.n) };
+    return { ...o, policies: o.policies ?? [], elections: o.elections ?? [], buildings, ground: makeIsland(o.seed, o.n) };
   } catch {
     return null;
   }

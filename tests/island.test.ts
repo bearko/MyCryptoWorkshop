@@ -1,6 +1,7 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEF, DEFS } from '../src/island/defs';
-import { canPlace, cells, demolish, deserialize, endMonth, frontCell, groundAt, happiness, homes, newGame, place, rotate, serialize, step, type State } from '../src/island/sim';
+import { ELECTION, canPlace, cells, monthReport, togglePolicy, demolish, deserialize, endMonth, frontCell, groundAt, happiness, homes, newGame, place, rotate, serialize, step, type State } from '../src/island/sim';
 
 const grassCell = (s: State, size = 1): [number, number] => {
   for (let j = 0; j < s.n; j++)
@@ -12,6 +13,12 @@ const grassCell = (s: State, size = 1): [number, number] => {
 };
 
 describe('島づくり：建物の一覧', () => {
+  it('どの建物にも正面と背面の絵があり、生成の一覧とそろっている', () => {
+    for (const d of DEFS) for (const k of ['rd', 'lu']) expect(existsSync(`public/island/b/${d.id}/${k}.png`), `${d.id}/${k}`).toBe(true);
+    const gen = JSON.parse(readFileSync('scripts/island/buildings.json', 'utf8')) as { id: string }[];
+    for (const g of gen) expect(DEF[g.id], g.id).toBeDefined();
+  });
+
   it('id が重ならず、2 マスは 2 マス', () => {
     expect(new Set(DEFS.map((d) => d.id)).size).toBe(DEFS.length);
     expect(DEF.station.size).toBe(2);
@@ -109,5 +116,39 @@ describe('島づくり：暮らし', () => {
     const r = deserialize(serialize(s));
     expect(r?.buildings).toEqual(s.buildings);
     expect(r?.ground).toEqual(s.ground);
+  });
+});
+
+describe('島づくり：政策と選挙', () => {
+  it('減税は税を減らして支持を上げ、移住の支援は毎月の費用がかかる', () => {
+    const s = newGame(3);
+    s.money = 1e6;
+    const [i, j] = grassCell(s);
+    place(s, 'apartment', i, j, 'rd');
+    const [x, y] = grassCell(s);
+    place(s, 'factory', x, y, 'rd');
+    for (const b of s.buildings) b.left = 0;
+    s.pop = 18;
+    const before = monthReport(s);
+    togglePolicy(s, 'tax_cut');
+    togglePolicy(s, 'welcome');
+    const after = monthReport(s);
+    expect(after.tax).toBeLessThan(before.tax);
+    expect(after.upkeep).toBe(before.upkeep + 400);
+    togglePolicy(s, 'welcome');
+    expect(s.policies).toEqual(['tax_cut']);
+  });
+
+  it('2 年ごとに選挙があり、支持率で結果が決まる', () => {
+    const s = newGame(3);
+    let result = null as null | { won: boolean };
+    for (let d = 0; d < ELECTION.everyMonths * 30; d++) {
+      s.approval = 30;
+      const r = step(s);
+      if (r.election) result = r.election;
+    }
+    expect(result).not.toBeNull();
+    expect(s.elections).toHaveLength(1);
+    expect(s.elections[0].won).toBe(s.elections[0].approval >= ELECTION.pass);
   });
 });

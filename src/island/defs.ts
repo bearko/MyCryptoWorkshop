@@ -187,3 +187,23 @@ export const NEEDS: { key: Need; name: string; from: number; weight: number }[] 
   { key: 'health', name: t('医療', 'Health'), from: 100, weight: 0.1 },
   { key: 'edu', name: t('教育', 'Education'), from: 150, weight: 0.06 },
 ];
+
+/** 政策：毎月の費用と引き換えに、島全体を後押しする（いくつでも同時に出せる） */
+export interface Policy {
+  id: string;
+  name: string;
+  note: string;
+  cost: number;
+  boost: Partial<Record<Boost, number>>;
+  /** 税の倍率（減税なら 1 未満） */
+  taxRate?: number;
+  unlock: number;
+}
+
+export const POLICIES: Policy[] = [
+  { id: 'tax_cut', name: t('減税', 'Tax cut'), note: t('税収 −25%・支持 +8', 'Tax −25%, approval +8'), cost: 0, boost: { approval: 8 }, taxRate: 0.75, unlock: 0 },
+  { id: 'welcome', name: t('移住の支援', 'Settler support'), note: t('月 400 G・移住 +6', '400 G/mo, arrivals +6'), cost: 400, boost: { immigration: 6 }, unlock: 20 },
+  { id: 'tourism', name: t('観光の宣伝', 'Tourism campaign'), note: t('月 600 G・観光の売上 +30%', '600 G/mo, tourism +30%'), cost: 600, boost: { tourism: 0.3 }, unlock: 80 },
+  { id: 'festival', name: t('島のお祭り', 'Island festival'), note: t('月 900 G・支持 +6・移住 +2', '900 G/mo, approval +6, arrivals +2'), cost: 900, boost: { approval: 6, immigration: 2 }, unlock: 150 },
+  { id: 'industry', name: t('産業の振興', 'Industry drive'), note: t('月 800 G・会社の売上 +15%・支持 −3', '800 G/mo, industry +15%, approval −3'), cost: 800, boost: { industry: 0.15, approval: -3 }, unlock: 100 },
+];

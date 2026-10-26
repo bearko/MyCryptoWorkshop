@@ -2,6 +2,11 @@
 
 工房とは別のページ（`island.html`）で遊ぶ、島の町づくりシミュレーションの試作です。PixelLab で生成した建物の絵を、斜め上から見た地図に並べて島を育てます。工房のセーブとは別に、このブラウザに保存されます（`mycryptoisland.save.v1`）。
 
+## 開き方
+
+- `https://workshop.bearko.games/?test=2` で直接開く（工房の読み込みより先に `island.html?test=2` へ移る）
+- `?test=2` のときは右上に「テスト」が出る：資金 +50,000・工事をすべて終える・1 か月進める・すべての建物を解放
+
 ## 遊び方
 
 1. 下の帯から建物を選び、地図のマスを選んで建てる（マウスはクリックで建つ。指は 1 回目で場所を選び、同じマスをもう一度押すか「建てる」）
@@ -37,6 +42,8 @@
 建物の数値は `src/island/defs.ts`。試作の当たりで、遊びながら直す。
 
 ## 絵の作り方
+
+`scripts/island/generate.py`（PixelLab の API。`PIXELLAB_API_KEY` が要る）と `scripts/island/fx.py`（地面・足場・キラキラ）。土台は `scripts/island/bases/`、建物ごとの文は `scripts/island/buildings.json`。
 
 1. 空き地の土台（または住宅の土台）を PixelLab の Edit image（`/v2/edit-images-v2`）に渡し、「On this empty lot, build …」で正面を作る
 2. できた正面を同じ API に渡し、「Show the back side of the same building …」で背面を作る

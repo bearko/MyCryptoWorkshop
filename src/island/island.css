@@ -379,3 +379,24 @@ body.isl {
     height: 64px;
   }
 }
+
+.isl-policy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.isl-policy b {
+  display: block;
+  font-size: 14px;
+}
+.isl-policy small {
+  color: var(--isl-dim);
+  font-size: 12px;
+}
+.isl-policy .isl-btn {
+  flex: none;
+  min-height: 34px;
+  font-size: 13px;
+}
