@@ -1087,19 +1087,47 @@ function showResults(report: DayReport, auto: SkillNode[] = []): void {
   place = 'results';
   // 自動で次の日へ：オンなら 3 秒数えて、そのまま次の日を開店する（ボタンを押せば止まる）
   const autoNext = autoNextDay(body);
+  // 次の日をすぐ開店する（ボタン 1 回、PC なら Enter）。いままでは「ショップへ」→「開店する」の 2 回
+  const openNext = () => {
+    autoNext.stop();
+    close();
+    startDay();
+  };
   const close = openModal(
     t(`Day ${report.day} 閉店`, `Day ${report.day}: closed`),
     body,
     [
       { label: t('ショップへ', 'To the shop'), onClick: () => (autoNext.stop(), showShop()) },
       { label: t('スキルツリーへ', 'To the skill tree'), primary: true, onClick: () => (autoNext.stop(), showTree()) },
+      { label: hasKeyboard() ? t(`▶ Day ${save.day} 開店する（Enter）`, `▶ Open Day ${save.day} (Enter)`) : t(`▶ Day ${save.day} 開店する`, `▶ Open Day ${save.day}`), onClick: () => (autoNext.stop(), startDay()) },
     ],
     'results-modal',
   );
-  autoNext.start(() => {
-    close();
-    startDay();
-  });
+  onEnterWhileOpen(body, openNext);
+  autoNext.start(openNext);
+}
+
+/** マウスのある端末（PC）か。キーの近道の表記はそこでだけ出す */
+const hasKeyboard = () => typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+/** 報告が出てすぐの Enter は数えない（閉店まぎわにレジを Enter で連打していた分で、次の日が始まらないように） */
+const ENTER_ARM_MS = 1000;
+
+/**
+ * body が画面にあり、いちばん上の画面であるあいだ、Enter で fn を呼ぶ（PC の近道）。
+ * ボタンに焦点があってもボタンを押さずに fn だけ呼ぶ。body が消えたら外れる。
+ */
+function onEnterWhileOpen(body: HTMLElement, fn: () => void): void {
+  const armedAt = performance.now() + ENTER_ARM_MS;
+  const onKey = (ev: KeyboardEvent) => {
+    if (!body.isConnected) return document.removeEventListener('keydown', onKey, true);
+    if (ev.key !== 'Enter' || ev.repeat || performance.now() < armedAt || isTypingEvent(ev) || !modalStack.length || !modalStack[modalStack.length - 1].wrap.contains(body)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    document.removeEventListener('keydown', onKey, true);
+    fn();
+  };
+  document.addEventListener('keydown', onKey, true);
 }
 
 /** 自動で次の日を開店するまでの秒数 */
