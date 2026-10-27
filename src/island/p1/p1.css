@@ -2459,3 +2459,414 @@ button.isl-mis {
     margin-left: 12px;
   }
 }
+
+/* ================================================================ スキルツリー（引っぱって動かせる木） */
+#isl-ui .isl-sheet-box:has(.isl-tree) {
+  width: min(1400px, 100%);
+  height: 100%;
+}
+#isl-ui .isl-sheet-body.is-tree {
+  display: block;
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.isl-tree {
+  position: relative;
+  height: 100%;
+  min-height: 360px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, #22325a, #0f1626 75%);
+}
+.isl-tree-vp {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.isl-tree-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.isl-tree-lines {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.isl-tree-lines line {
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.28;
+}
+.isl-tree-lines line.is-on {
+  opacity: 0.9;
+}
+.isl-tree-root,
+.isl-tree-hub,
+.isl-tree-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.isl-tree-root {
+  display: grid;
+  justify-items: center;
+  width: 112px;
+  padding: 6px;
+  border: 3px solid var(--isl-gold);
+  border-radius: 18px;
+  background: #1d2a44;
+  box-shadow: 0 0 24px rgba(242, 181, 68, 0.35);
+  color: var(--isl-gold);
+}
+.isl-tree-root img {
+  width: 88px;
+  height: 56px;
+}
+.isl-tree-hub {
+  display: grid;
+  justify-items: center;
+  min-width: 84px;
+  padding: 4px 10px;
+  border: 2px solid var(--br);
+  border-radius: 999px;
+  background: #0f1626;
+  color: var(--br);
+  font-size: 13px;
+  line-height: 1.2;
+}
+.isl-tree-hub small {
+  color: var(--isl-dim);
+  font-size: 10px;
+}
+.isl-tree-node {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 1px;
+  width: 92px;
+  height: 92px;
+  padding: 5px 4px 4px;
+  border: 3px solid var(--br);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #34497a, #1d2a44);
+  color: var(--isl-text);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+.isl-tree-node img,
+.isl-tree-node .px,
+.isl-tree-node .isl-tree-emoji {
+  width: 52px;
+  height: 40px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.isl-tree-emoji {
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+}
+.isl-tree-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+.isl-tree-cost {
+  font-size: 10px;
+  color: var(--isl-gold);
+}
+.isl-tree-mark {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--isl-line);
+  border-radius: 50%;
+  background: var(--isl-good);
+  color: var(--isl-ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+.isl-tree-node.is-locked {
+  filter: grayscale(0.9) brightness(0.6);
+  border-style: dashed;
+}
+.isl-tree-node.is-locked .isl-tree-mark {
+  background: #5a6480;
+  font-size: 11px;
+}
+.isl-tree-node.is-poor {
+  opacity: 0.85;
+}
+.isl-tree-node.is-open {
+  box-shadow: 0 0 0 3px rgba(111, 208, 140, 0.4), 0 0 16px rgba(111, 208, 140, 0.45);
+  animation: isl-tree-open 1.6s ease-in-out infinite alternate;
+}
+@keyframes isl-tree-open {
+  to {
+    box-shadow: 0 0 0 5px rgba(111, 208, 140, 0.15), 0 0 22px rgba(111, 208, 140, 0.6);
+  }
+}
+.isl-tree-node.is-done {
+  background: linear-gradient(180deg, #4d5f3a, #2b3b2a);
+}
+.isl-tree-node.is-sel {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+  z-index: 2;
+}
+.isl-tree-tip {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  pointer-events: none;
+}
+.isl-tree-tip:empty {
+  display: none;
+}
+.isl-tree-chips {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+.isl-tree-tip:not(:empty) ~ .isl-tree-chips {
+  top: 92px;
+}
+.isl-tree-chip {
+  display: grid;
+  flex: none;
+  padding: 3px 10px;
+  border: 2px solid var(--br);
+  border-radius: 10px;
+  background: rgba(15, 22, 38, 0.85);
+  color: var(--isl-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.isl-tree-chip b {
+  font-size: 13px;
+  color: var(--br);
+}
+.isl-tree-chip small {
+  font-size: 10px;
+  color: var(--isl-dim);
+}
+.isl-tree-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 120px;
+  display: grid;
+  gap: 4px;
+}
+.isl-tree-zoom .isl-btn {
+  min-width: 44px;
+  padding: 4px 8px;
+}
+.isl-tree-detail {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 14px;
+  background: rgba(29, 42, 68, 0.96);
+}
+.isl-tree-detail > p {
+  margin: 0;
+  font-size: 13px;
+}
+.isl-tree-dtop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.isl-tree-dtop p {
+  margin: 2px 0;
+  font-size: 13px;
+}
+.isl-tree-dtop b {
+  font-size: 16px;
+}
+.isl-tree-dtop small {
+  display: block;
+  font-size: 11px;
+}
+.isl-tree-dicon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border: 3px solid var(--br);
+  border-radius: 12px;
+  background: #1d2a44;
+}
+.isl-tree-dicon img,
+.isl-tree-dicon .px,
+.isl-tree-dicon .isl-tree-emoji {
+  width: 52px;
+  height: 46px;
+  object-fit: contain;
+}
+@media (max-width: 599px) {
+  .isl-tree-detail {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .isl-tree-zoom {
+    bottom: 170px;
+  }
+}
+
+/* ================================================================ 他店でバイト */
+.isl-side-sum {
+  display: grid;
+  gap: 2px;
+}
+.isl-side-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+}
+.isl-side-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.isl-side-b {
+  width: 72px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.isl-side-worker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: #1d2a44;
+}
+
+/* ================================================================ PC：事業別メニューを右に縦並び（#isl-ui.is-rail） */
+#isl-ui.is-rail .isl-foot {
+  top: 0;
+  left: auto;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+#isl-ui.is-rail .isl-tabbar {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  width: 104px;
+  padding: max(10px, env(safe-area-inset-top)) 8px 10px;
+  border-top: 0;
+  border-left: 2px solid var(--isl-line);
+}
+#isl-ui.is-rail .isl-tabgroup {
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+}
+#isl-ui.is-rail .isl-tab {
+  flex: none;
+  padding: 10px 2px 8px;
+}
+#isl-ui.is-rail .isl-tab i {
+  font-size: 22px;
+}
+#isl-ui.is-rail .isl-tab.is-center {
+  width: auto;
+  margin: 10px 0;
+}
+#isl-ui.is-rail .isl-tab.is-guide::after {
+  content: '👉';
+  top: 50%;
+  left: -34px;
+  animation-name: isl-point-x;
+}
+@keyframes isl-point-x {
+  from {
+    transform: translate(0, -50%);
+  }
+  to {
+    transform: translate(6px, -50%);
+  }
+}
+#isl-ui.is-rail .isl-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: max(10px, env(safe-area-inset-top)) 10px 12px;
+  border-top: 0;
+  border-left: 2px solid var(--isl-line);
+  overflow-y: auto;
+}
+#isl-ui.is-rail .isl-panel[hidden] {
+  display: none;
+}
+#isl-ui.is-rail .isl-subs {
+  flex-direction: column;
+  overflow: visible;
+}
+#isl-ui.is-rail .isl-sub {
+  flex: none;
+  min-width: 0;
+}
+#isl-ui.is-rail .isl-panel .isl-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+  overflow: visible;
+}
+#isl-ui.is-rail .isl-panel .isl-cards[hidden] {
+  display: none;
+}
+#isl-ui.is-rail .isl-panel .isl-card {
+  width: auto;
+}
+#isl-ui.is-rail .isl-hud {
+  right: calc(var(--rail-w, 0px) + 8px);
+}
+#isl-ui.is-rail .isl-sheet {
+  right: var(--rail-w, 0px);
+}
+#isl-ui.is-rail .isl-missions {
+  right: calc(var(--rail-w, 0px) + 8px);
+}
+#isl-ui.is-rail .isl-picker {
+  right: var(--rail-w, 0px);
+}
+#isl-ui.is-rail .isl-tab .is-full {
+  display: none;
+}
+#isl-ui.is-rail .isl-tab .is-short {
+  display: inline;
+}

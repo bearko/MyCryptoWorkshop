@@ -5,9 +5,10 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
-import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, refundOf, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
-import { investList, jobOptions, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
-import { bar, btn, h, heroName, money, select, skuIcon, skuName } from './ui';
+import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, refundOf, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { pickHero } from './heroui';
+import { investList, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
+import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
 
 export interface TileHooks {
   /** 移転先を選ぶモードへ */
@@ -131,7 +132,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
         goods.append(c);
       });
       if (!goods.childElementCount) goods.append(h('small', 'isl-warn', t('並べる商品が決まっていません', 'No product chosen')));
-      body.append(goods, h('small', 'isl-dim', t(`裏に置ける数 ${storageCap(b)}・利益率は維持費も含めた月の数字（今月の粗利率は素材代とアルバイト代だけ）`, `Backroom ${storageCap(b)}. Last month’s margin includes upkeep; this month’s counts materials and part-timers only.`)));
+      body.append(goods, h('small', 'isl-dim', t(`裏に置ける数 ${storageCap(b, s)}・利益率は維持費も含めた月の数字（今月の粗利率は素材代とアルバイト代だけ）`, `Backroom ${storageCap(b, s)}. Last month’s margin includes upkeep; this month’s counts materials and part-timers only.`)));
     }
   } else if (kind === 'warehouse') {
     stat(grid, t('置き場所（全体）', 'Storage (total)'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`), 'is-wide');
@@ -242,25 +243,46 @@ function rival(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTM
     box.append(h('p', '', t(`${heroName(who.hero)}が調査中：次の段階まで約 ${days} 日`, `${heroName(who.hero)} is researching: ~${days} days to the next stage`)), bar((done - prev) / (next - prev), 'var(--isl-gold)'));
   } else {
     const row = h('div', 'isl-row');
-    const ops = jobOptions(s).filter((o) => o.value === `intel:${rid}`);
-    if (ops.length)
-      row.append(
-        select(
-          s.staff.map((x) => ({ value: x.hero, label: `${heroName(x.hero)}（${t('調査', 'Research')} ${Math.round(speed(x, 'intel') * 53)}）` })), // i18n-ja
-          null,
-          (v) => {
+    row.append(
+      btn(t('ヒーローを調査に出す', 'Send a hero to research'), () =>
+        pickHero(ctx.root, s, {
+          title: t(`${company}を調査する`, `Research ${company}`),
+          task: 'intel',
+          current: null,
+          onPick: (v) => {
+            if (v == null) return;
             assign(s, v, 'intel', rid);
             ctx.toast(t(`${heroName(v)}が${company}の調査を始めました`, `${heroName(v)} started researching ${company}`));
             ctx.save();
             ctx.refresh();
             hooks.redraw();
           },
-          t('ヒーローを調査に出す…', 'Send a hero to research…'),
-        ),
-      );
+        }),
+      ),
+    );
     box.append(row, h('small', 'isl-dim', t('調査は INT と AGI が高いヒーローが得意です。調査中はほかの仕事をしません。', 'High INT and AGI heroes research best. They do nothing else meanwhile.')));
   }
   body.append(box);
+
+  // 他店でバイト：ヒーローをこのお店で働かせて、日給をもらう
+  const side = h('div', 'isl-intel');
+  side.append(h('h4', '', t('このお店でバイト', 'Work part-time here')));
+  const workers = s.staff.filter((x) => x.task === 'side' && x.target === rid);
+  for (const w of workers) {
+    const r = h('div', 'isl-row');
+    r.append(h('span', '', t(`${heroName(w.hero)}がバイト中（日給 ${money(sidePay(w))}）`, `${heroName(w.hero)} working (${money(sidePay(w))}/day)`)), btn(t('呼び戻す', 'Call back'), () => {
+      assign(s, w.hero, null);
+      ctx.save();
+      ctx.refresh();
+      hooks.redraw();
+    }));
+    side.append(r);
+  }
+  side.append(
+    btn(t('ヒーローをバイトに出す', 'Send a hero to work here'), () => sendSide(ctx, rid, company, hooks.redraw), 'is-on'),
+    h('small', 'isl-dim', t('日給がもらえ、ときどき能力が上がります。バイト中は自社の仕事をしません。', 'Earns a daily wage and sometimes raises a stat. They skip company work meanwhile.')),
+  );
+  body.append(side);
 
   const acts = h('div', 'isl-row isl-pop-acts');
   for (const label of [t('妨害工作', 'Sabotage'), t('買収提案', 'Acquisition offer')]) {
@@ -271,4 +293,24 @@ function rival(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTM
   body.append(acts, h('small', 'isl-dim', t('妨害工作と買収提案は、スキルツリーで解放する予定です（準備中）。', 'Sabotage and acquisitions will unlock in the skill tree (coming soon).')));
   void skuParts;
   return body;
+}
+
+/** ヒーローを他社のお店へバイトに出す（引き出しで選ぶ） */
+export function sendSide(ctx: Ctx, rid: string, company: string, done: () => void) {
+  const s = ctx.s();
+  pickHero(ctx.root, s, {
+    title: t(`${company}でバイト`, `Part-time at ${company}`),
+    task: 'side',
+    current: null,
+    note: t('販売が得意なヒーローほど日給が高くなります。待機中のヒーローを出すと、自社の仕事が空きません。', 'Better sellers earn more. Sending a free hero keeps your own jobs covered.'),
+    onPick: (v) => {
+      if (v == null) return;
+      assign(s, v, 'side', rid);
+      const st = staffOf(s, v);
+      ctx.toast(t(`${heroName(v)}が${company}でバイトを始めました（日給 ${money(st ? sidePay(st) : 0)}）`, `${heroName(v)} started part-time at ${company} (${money(st ? sidePay(st) : 0)}/day)`));
+      ctx.save();
+      ctx.refresh();
+      done();
+    },
+  });
 }

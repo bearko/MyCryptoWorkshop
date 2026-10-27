@@ -11,7 +11,6 @@ import {
   ADS,
   PROC,
   procNeed,
-  BRANCHES,
   DEV,
   INTEL,
   INVESTS,
@@ -25,7 +24,6 @@ import {
   PRODUCTS,
   RIVALS,
   SHOP,
-  SKILLS,
   TASKS,
   UNCOMMON,
   WORLD_COMPANIES,
@@ -81,7 +79,6 @@ import {
   poolFree,
   poolUsed,
   hire,
-  learn,
   market,
   matPrice,
   monthRevenue,
@@ -696,10 +693,10 @@ export function openBuy(ctx: Ctx) {
         card.append(spot);
       } else {
         const scout = s.staff.find((x) => x.task === 'explore' && x.target === m);
-        if (scout) card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / MATS[m].exploreDays));
+        if (scout) card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / (MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))));
         else {
           const r = h('div', 'isl-row');
-          r.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${MATS[m].exploreDays} 日〜）`, `No route (scouting from ${MATS[m].exploreDays} days)`)));
+          r.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${Math.round(MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))} 日〜）`, `No route (scouting from ${Math.round(MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))} days)`)));
           r.append(
             btn(t('ヒーローを開拓に出す', 'Send a scout'), () =>
               pickHero(ctx.root, s, {
@@ -1024,44 +1021,6 @@ export function openRanking(ctx: Ctx, tab: 'area' | 'land' | 'world' = 'area') {
 }
 
 // ---------------------------------------------------------------- スキル
-
-/** スキルの枝が太くするサプライチェーンの段 */
-const SKILL_STAGE: Partial<Record<string, string>> = { buy: t('① 調達', '① Buy'), craft: t('② 製造', '② Craft'), logi: t('③ 物流', '③ Haul'), shop: t('④ 販売', '④ Sell') };
-
-export function openSkills(ctx: Ctx, focus?: string) {
-  open(ctx, t('スキルツリー', 'Skill tree'), (body) => {
-    const s = ctx.s();
-    mineTip(ctx, 'skills', body);
-    body.append(h('p', 'isl-dim', t('会社の資金で、お店・工房・物流・調達・人材を強くします。', 'Spend company funds to grow shops, workshop, logistics, buying and people.')));
-    const cols = h('div', 'isl-skills');
-    for (const br of BRANCHES) {
-      const col = h('div', `isl-skill-col ${focus === br.key ? 'is-focus' : ''}`);
-      const head = h('h3', '', br.name);
-      const stage = SKILL_STAGE[br.key];
-      if (stage) head.append(h('span', 'isl-tag is-good', stage));
-      col.append(head);
-      for (const k of SKILLS.filter((x) => x.branch === br.key)) {
-        const done = has(s, k.id);
-        const blocked = k.requires?.some((r) => !has(s, r));
-        const card = h('div', `isl-skill ${done ? 'is-done' : blocked ? 'is-locked' : ''}`);
-        card.append(h('b', '', k.name), h('small', '', k.note));
-        if (blocked) card.append(h('small', 'isl-dim', t(`先に：${k.requires!.map((r) => SKILLS.find((x) => x.id === r)?.name).join('・')}`, `Needs: ${k.requires!.map((r) => SKILLS.find((x) => x.id === r)?.name).join(', ')}`)));
-        const b = btn(done ? t('習得済み', 'Learned') : money(k.cost), () => {
-          const e = learn(s, k.id);
-          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
-          else if (!e) ctx.toast(t(`「${k.name}」を習得しました`, `Learned: ${k.name}`));
-          after(ctx);
-        }, done ? '' : 'is-on');
-        b.disabled = done || !!blocked || s.money < k.cost;
-        card.append(b);
-        col.append(card);
-      }
-      cols.append(col);
-    }
-    body.append(cols);
-  });
-  if (focus) requestAnimationFrame(() => ctx.root.querySelector('.isl-skill-col.is-focus')?.scrollIntoView({ block: 'start' }));
-}
 
 // ---------------------------------------------------------------- 月の報告・他社の店
 

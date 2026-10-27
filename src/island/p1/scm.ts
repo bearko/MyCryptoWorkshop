@@ -9,7 +9,8 @@ import { DEF } from '../defs';
 import { MAT_KEYS, MATS, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
 import { bottleneck, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
-import { after, mineTip, open, openAds, openBuy, openHire, openShop, openSkills, openStaff, openWorkshop, type Ctx } from './screens';
+import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
+import { openSkills } from './tree';
 import { bar, btn, h, heroIcon, matIcon, money, skuIcon, skuName } from './ui';
 
 type Lamp = 'ok' | 'warn' | 'stop';
@@ -300,7 +301,7 @@ export function openSupply(ctx: Ctx) {
       const f1 = h('div', 'isl-field');
       f1.append(h('small', '', t('棚', 'Shelf')), bar(on / 10, on ? 'var(--isl-good)' : 'var(--isl-bad)'), h('small', 'isl-dim', `${on}`));
       const f2 = h('div', 'isl-field');
-      f2.append(h('small', '', t('裏', 'Back')), bar(back / storageCap(b)), h('small', 'isl-dim', `${back}`));
+      f2.append(h('small', '', t('裏', 'Back')), bar(back / storageCap(b, s)), h('small', 'isl-dim', `${back}`));
       const f3 = h('div', 'isl-field');
       f3.append(h('small', '', t('認知度', 'Known')), bar(sh.aw ?? 1, 'var(--isl-gold)'), h('small', 'isl-dim', `${Math.round((sh.aw ?? 1) * 100)}%`));
       bars.append(f1, f2, f3);
