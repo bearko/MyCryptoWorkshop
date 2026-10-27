@@ -180,3 +180,128 @@ if __name__ == '__main__':
         sh=Image.new('RGBA',(200*len(sp),200),(0,0,0,0))
         for i,l in enumerate(sp): sh.alpha_composite(l[side],(i*200,0))
         sh.save(FX+f'sparkle_{side}.png')
+
+
+# ---------------------------------------------------------------- 道路（フェーズ 1）
+# 隣のマスに道路があるかの 4 ビット（1:-j 右上, 2:+i 右下, 4:+j 左下, 8:-i 左上）ごとに 1 枚。
+# 舗装の上に、つながる向きへ中央の破線、つながらない辺に縁石を描く。高さは敷地と同じ（側面 6）。
+def roads():
+    out = os.path.join(ROOT, 'public', 'island', 'tiles') + '/'
+    mids = {1: (150, 86.5), 2: (150, 141.5), 4: (50, 141.5), 8: (50, 86.5)}
+    edges = {1: ((100, 59), (200, 114)), 2: ((200, 114), (100, 169)), 4: ((100, 169), (0, 114)), 8: ((0, 114), (100, 59))}
+    for mask in range(16):
+        im = Image.new('RGBA', (200, 200), (0, 0, 0, 0))
+        p = im.load()
+        r = random.Random(100 + mask)
+        for y in range(200):
+            for x in range(200):
+                d = abs(x + 0.5 - 100) / 100 + abs(y + 0.5 - 114) / 55
+                if d <= 1:
+                    c = (86, 88, 98, 255) if r.random() > 0.12 else (78, 80, 90, 255)
+                    p[x, y] = c
+                elif y > 114 and abs(x + 0.5 - 100) <= 100:
+                    yb = 114 + 55 * (1 - abs(x + 0.5 - 100) / 100)
+                    if y <= yb + 6:
+                        p[x, y] = (70, 72, 80, 255) if x < 100 else (96, 98, 108, 255)
+                    elif y <= yb + 7:
+                        p[x, y] = (38, 34, 36, 255)
+        # 縁石：つながらない辺の内側に明るい帯
+        for bit, (a, b) in edges.items():
+            if mask & bit:
+                continue
+            for k in range(0, 101):
+                t = k / 100
+                x = a[0] + (b[0] - a[0]) * t
+                y = a[1] + (b[1] - a[1]) * t
+                for dd in range(1, 6):
+                    # 辺から中心へ寄せる
+                    xx = round(x + (100 - x) * dd / 55 * 0.55 * (100 / 100))
+                    yy = round(y + (114 - y) * dd / 55)
+                    if 0 <= xx < 200 and 0 <= yy < 200 and p[xx, yy][3]:
+                        p[xx, yy] = (176, 176, 184, 255) if dd < 5 else (120, 120, 130, 255)
+        # 中央の破線
+        for bit, (mx, my) in mids.items():
+            if not mask & bit:
+                continue
+            for k in range(0, 56):
+                t = k / 55
+                x = round(100 + (mx - 100) * t)
+                y = round(114 + (my - 114) * t)
+                if (k // 5) % 2 == 0:
+                    for dx in (0, 1):
+                        p[x + dx, y] = (236, 214, 120, 255)
+        im.save(out + f'road{mask}.png')
+
+
+# ---------------------------------------------------------------- 素材のアイコン（24×24）
+def items():
+    out = os.path.join(ROOT, 'public', 'island', 'items') + '/'
+    os.makedirs(out, exist_ok=True)
+    OL = (38, 34, 36, 255)
+
+    def icon(name, draw):
+        im = Image.new('RGBA', (24, 24), (0, 0, 0, 0))
+        draw(im.load())
+        # 外周に線
+        src = im.copy().load()
+        for y in range(24):
+            for x in range(24):
+                if src[x, y][3] == 0 and any(0 <= x + dx < 24 and 0 <= y + dy < 24 and src[x + dx, y + dy][3] and src[x + dx, y + dy] != OL for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                    im.putpixel((x, y), OL)
+        im.save(out + name + '.png')
+
+    def rect(p, x0, y0, x1, y1, c):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                p[x, y] = c
+
+    def iron(p):  # インゴット
+        for y in range(9, 17):
+            w = 4 if y < 11 else 2
+            rect(p, 3 + (11 - min(y, 11)), y, 21 - (11 - min(y, 11)), y + 1, (168, 172, 184, 255) if y < 11 else (128, 132, 146, 255))
+        rect(p, 5, 9, 19, 11, (204, 208, 218, 255))
+
+    def wood(p):  # 丸太 2 本
+        for cx, cy in ((8, 13), (16, 13)):
+            for y in range(24):
+                for x in range(24):
+                    if (x - cx) ** 2 + (y - cy) ** 2 <= 20:
+                        p[x, y] = (150, 98, 54, 255) if (x - cx) ** 2 + (y - cy) ** 2 > 8 else (214, 168, 108, 255)
+        rect(p, 8, 7, 16, 9, (120, 76, 40, 255))
+
+    def clay(p):
+        for y in range(24):
+            for x in range(24):
+                if ((x - 12) / 9) ** 2 + ((y - 14) / 6) ** 2 <= 1:
+                    p[x, y] = (196, 108, 70, 255) if y > 12 else (222, 140, 96, 255)
+
+    def glass(p):
+        rect(p, 6, 4, 18, 20, (150, 210, 236, 255))
+        rect(p, 8, 6, 10, 12, (232, 248, 255, 255))
+        rect(p, 6, 12, 18, 13, (110, 170, 200, 255))
+
+    def cloth(p):
+        rect(p, 4, 8, 20, 18, (150, 96, 190, 255))
+        rect(p, 4, 8, 20, 10, (190, 140, 226, 255))
+        rect(p, 4, 14, 20, 15, (120, 70, 160, 255))
+
+    def paper(p):
+        rect(p, 6, 5, 18, 19, (246, 240, 222, 255))
+        for y in (8, 11, 14):
+            rect(p, 8, y, 16, y + 1, (180, 170, 150, 255))
+
+    def gem(p):
+        pts = [(12, 4), (19, 10), (12, 20), (5, 10)]
+        for y in range(24):
+            for x in range(24):
+                if abs(x - 12) / 7 + abs(y - 11) / 8 <= 1:
+                    p[x, y] = (210, 40, 70, 255) if x >= 12 else (240, 90, 110, 255)
+        p[10, 7] = (255, 220, 230, 255)
+
+    for n, f in (('iron', iron), ('wood', wood), ('clay', clay), ('glass', glass), ('cloth', cloth), ('paper', paper), ('gem', gem)):
+        icon(n, f)
+
+
+if __name__ == '__main__' and os.environ.get('ISLAND_P1', '1') == '1':
+    roads()
+    items()

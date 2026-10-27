@@ -189,6 +189,8 @@ const heroes = heroSource
     passive: h.passive?.name?.ja ?? '',
     passiveEn: en(h.passive?.name?.en),
     attributes: (h.attributes ?? []).map((a) => a.name.ja),
+    // 島づくりの従業員の適性（HP はスタミナ）。最大レベルの値
+    stats: h.max_level_stats ? { hp: h.max_level_stats.hp, phy: h.max_level_stats.phy, int: h.max_level_stats.int, agi: h.max_level_stats.agi } : null,
     image: sprite('hero', h.image_file_path),
     cx: bodyCenterX(h.image_file_path),
   }));

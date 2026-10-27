@@ -2,6 +2,8 @@
 
 工房とは別のページ（`island.html`）で遊ぶ、島の町づくりシミュレーションの試作です。PixelLab で生成した建物の絵を、斜め上から見た地図に並べて島を育てます。工房のセーブとは別に、このブラウザに保存されます（`mycryptoisland.save.v1`）。
 
+> いまの `?test=2` はフェーズ 1「新天地で実績を上げろ」（[ISLAND_PHASE1.md](ISLAND_PHASE1.md)）を開きます。この自由建築モードはテスト用に `island.html?test=2&mode=free` で開けます（フェーズ 1 のメニュー「テスト」からも行けます）。
+
 ## 開き方
 
 - `https://workshop.bearko.games/?test=2` で直接開く（工房の読み込みより先に `island.html?test=2` へ移る）
