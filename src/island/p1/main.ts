@@ -11,7 +11,7 @@ import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { MATS, MISSIONS, P1_BUILDINGS, P1B, PRODUCT, skuParts, type Mat } from './data';
+import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, skuParts, type Mat } from './data';
 import {
   allowedDirs,
   build,
@@ -267,7 +267,8 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   ],
   sys: [
     { key: 'invest', name: t('設備投資', 'Investment'), note: t('建物ごとの設備', 'Per-building upgrades'), go: () => openInvest(ctx), needs: 'workshop' },
-    { key: 'settings', name: t('設定', 'Settings'), note: t('言語・案内・音', 'Language, guide, sound'), go: () => openSettings() },
+    { key: 'pace', name: t('進行速度', 'Game speed'), note: t('標準・1.5 倍・2 倍', 'Normal, 1.5×, 2×'), go: () => openPace() },
+    { key: 'settings', name: t('設定', 'Settings'), note: t('言語・案内・音・人通り', 'Language, guide, sound, crowd'), go: () => openSettings() },
     { key: 'save', name: t('セーブ', 'Save'), note: t('やり直す・工房へ', 'Restart, back'), go: () => openSaveMenu() },
     ...(TEST ? [{ key: 'test', name: t('テスト', 'Test'), note: '?test=2', go: () => openTest() }] : []),
   ],
@@ -778,9 +779,50 @@ function openSettings() {
       },
     ],
     [vol.bgm > 0 ? t('BGM を消す', 'BGM off') : t('BGM を流す', 'BGM on'), () => setVol({ bgm: vol.bgm > 0 ? 0 : 1 })],
+    [
+      t(`街の人通り：${CROWD_LEVELS[crowdLevel].name}`, `Crowd: ${CROWD_LEVELS[crowdLevel].name}`),
+      () => {
+        crowdLevel = (crowdLevel + 1) % CROWD_LEVELS.length;
+        try {
+          localStorage.setItem(CROWD_KEY, CROWD_LEVELS[crowdLevel].key);
+        } catch {
+          // 保存できなくても切り替える
+        }
+        toast(t(`街の人通り：${CROWD_LEVELS[crowdLevel].name}（重いときは少なく）`, `Crowd: ${CROWD_LEVELS[crowdLevel].name} (lower it if the game feels slow)`));
+        openSettings();
+      },
+    ],
     [vol.se > 0 ? t('効果音を消す', 'Sound effects off') : t('効果音を出す', 'Sound effects on'), () => setVol({ se: vol.se > 0 ? 0 : 1 })],
     [t('閉じる', 'Close'), () => undefined, 'is-on'],
   ]);
+}
+
+/** 進行速度：標準・1.5 倍・2 倍（スキルで選べるようになる） */
+function openPace() {
+  const now = s.pace ?? 1;
+  modal(
+    t('進行速度', 'Game speed'),
+    t(`いまは ${now} 倍（1 日 ${(dayMs() / 1000).toFixed(1)} 秒・ひと月 ${Math.round((dayMs() * 30) / 1000)} 秒）。速くするには、スキルツリー（経営）の「業務の効率化」「業務の自動化」が要ります。⏩ はその場だけの早送りです。`, `Now ${now}× (a day is ${(dayMs() / 1000).toFixed(1)} s, a month ${Math.round((dayMs() * 30) / 1000)} s). Faster speeds need the Operations skills. ⏩ is a temporary fast-forward.`),
+    [
+      ...PACES.map((x): [string, () => void, string?] => {
+        const ok = !x.skill || s.skills.includes(x.skill);
+        return [
+          !ok ? t(`${x.v} 倍（スキルで解放）`, `${x.v}× (skill)`) : x.v === 1 ? t('標準', 'Normal') : t(`${x.v} 倍`, `${x.v}×`),
+          () => {
+            if (!ok) {
+              toast(t('スキルツリーの「経営」で解放できます', 'Unlock it in the Operations skills'));
+              return;
+            }
+            s.pace = x.v;
+            save();
+            renderAll();
+          },
+          x.v === now ? 'is-on' : '',
+        ];
+      }),
+      [t('閉じる', 'Close'), () => undefined],
+    ],
+  );
 }
 
 function setVol(v: Partial<typeof vol>) {
@@ -984,7 +1026,8 @@ addEventListener('visibilitychange', () => {
 
 // ---------------------------------------------------------------- 時間
 
-const DAY_MS = 600;
+/** 1 日の長さ（ms）。標準 1.2 秒で、スキルで選べる進行速度で短くなる */
+const dayMs = () => DAY_BASE_MS / (s.pace ?? 1);
 let acc = 0;
 
 // ---------------------------------------------------------------- 地図の上の動き（サイクルを見せる）
@@ -1024,9 +1067,78 @@ function addCoin(uid: number, yen: number, t: number) {
   anim.coins.set(uid, list);
   sound.play('sale', 0.35);
 }
+// ---------------------------------------------------------------- 街の人通り（他社のお客さん・駅を行き交う人・散歩する人）
+
+const CROWD_KEY = 'mycryptoisland.p1.crowd';
+const CROWD_LEVELS = [
+  { key: 'many', n: 30, name: t('多い', 'Busy') },
+  { key: 'normal', n: 18, name: t('ふつう', 'Normal') },
+  { key: 'few', n: 8, name: t('少ない', 'Quiet') },
+  { key: 'none', n: 0, name: t('なし', 'Off') },
+] as const;
+let crowdLevel = 1;
+try {
+  const k = CROWD_LEVELS.findIndex((x) => x.key === localStorage.getItem(CROWD_KEY));
+  if (k >= 0) crowdLevel = k;
+} catch {
+  // 既定はふつう
+}
+let nextCrowd = 0;
+let roadCells: [number, number][] = [];
+const anyOf = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+/** 道のりのひとつ（他社のお店へ・駅と家・散歩） */
+function crowdPath(): [number, number][] | null {
+  if (!roadCells.length) for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) if (ground(s, i, j) === 'road') roadCells.push([i, j]);
+  const homes = s.buildings.filter((b) => b.owner === 'town' && DEF[b.id].cat === 'home');
+  const near = (b: { i: number; j: number }) => [...homes].sort((x, y) => Math.abs(x.i - b.i) + Math.abs(x.j - b.j) - (Math.abs(y.i - b.i) + Math.abs(y.j - b.j))).slice(0, 10);
+  const r = Math.random();
+  if (r < 0.4) {
+    // 他社のお店：強い会社ほどお客さんが多い。入っていく人と、出てきて帰る人
+    const stores = s.buildings.filter((b) => RIVALS.some((x) => x.id === b.owner));
+    if (!stores.length || !homes.length) return null;
+    const weight = (b: (typeof stores)[number]) => Object.values(s.rivals.find((x) => x.id === b.owner)?.sells ?? {}).reduce<number>((a, v) => a + (v ?? 0), 0.5);
+    let w = Math.random() * stores.reduce((a, b) => a + weight(b), 0);
+    let store = stores[0];
+    for (const b of stores) if ((w -= weight(b)) <= 0) {
+      store = b;
+      break;
+    }
+    const home = anyOf(near(store));
+    const p = pathOf(doorOf(home), doorOf(store));
+    return p && Math.random() < 0.4 ? [...p].reverse() : p;
+  }
+  if (r < 0.7) {
+    // 駅を行き交う人
+    const st = s.buildings.find((b) => b.id === 'station');
+    if (!st || !homes.length) return null;
+    const p = pathOf(doorOf(st), doorOf(anyOf(homes)));
+    return p && Math.random() < 0.5 ? [...p].reverse() : p;
+  }
+  // 散歩：道路の上をぶらぶら（ときどき公園へ）
+  const park = s.buildings.find((b) => b.id === 'park');
+  const a = anyOf(roadCells);
+  const b = park && Math.random() < 0.35 ? doorOf(park) : anyOf(roadCells.filter(([i, j]) => Math.abs(i - a[0]) + Math.abs(j - a[1]) > 4 && Math.abs(i - a[0]) + Math.abs(j - a[1]) < 14));
+  return b ? pathOf(a, b) : null;
+}
+/** 人通りを目標の人数に保つ（はじめは歩いている途中の人も置いて、街がすぐにぎわうように） */
+function tickCrowd() {
+  const target = CROWD_LEVELS[crowdLevel].n;
+  anim.crowd = anim.crowd.filter((w) => anim.clock < w.t0 + w.dur);
+  if (anim.crowd.length >= target) return;
+  // 最初（とても少ないとき）は、歩いている途中の人を置いてすぐにぎわわせる
+  const fresh = anim.crowd.length < target / 3;
+  if (!fresh && anim.clock < nextCrowd) return;
+  nextCrowd = anim.clock + 120 + Math.random() * 160;
+  const p = crowdPath();
+  if (!p || p.length < 3) return;
+  const dur = p.length * (340 + Math.random() * 140);
+  anim.crowd.push({ hero: anyOf(GUESTS) ?? 1001, path: p, t0: fresh ? anim.clock - Math.random() * dur * 0.7 : anim.clock, dur });
+}
+
 /** 時計を進めて、着いたお客さんの売上を出す */
 function tickAnim(dtGame: number) {
   anim.clock += dtGame;
+  tickCrowd();
   for (const w of anim.walkers) {
     if (!w.done && anim.clock >= w.t0 + w.dur) {
       w.done = true;
@@ -1041,12 +1153,12 @@ function tickAnim(dtGame: number) {
   const wh = wholesaler(s);
   if (trip && ws && wh) {
     const path = pathOf(doorOf(ws), doorOf(wh));
-    const k = Math.max(0, Math.min(1, (trip.total - trip.left + acc / DAY_MS) / trip.total));
+    const k = Math.max(0, Math.min(1, (trip.total - trip.left + acc / dayMs()) / trip.total));
     const carry = (Object.keys(trip.cargo)[0] ?? null) as Mat | null;
     anim.buyer = path ? { hero: trip.hero, path, k, carry } : null;
   } else anim.buyer = null;
 }
-const animating = () => anim.walkers.length > 0 || !!anim.buyer || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
+const animating = () => anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
 let lastDraw = 0;
 let last = performance.now();
 let lastWater = -1;
@@ -1126,11 +1238,12 @@ function frame(now: number) {
   }
   if (!held) acc += dt * speed;
   if (!held && speed > 0) tickAnim(dt * speed);
-  anim.frac = held || speed === 0 ? anim.frac : Math.min(1, acc / DAY_MS);
+  anim.frac = held || speed === 0 ? anim.frac : Math.min(1, acc / dayMs());
   anim.speed = speed || 1;
+  anim.dayMs = dayMs();
   let changed = false;
-  while (acc >= DAY_MS && speed > 0) {
-    acc -= DAY_MS;
+  while (acc >= dayMs() && speed > 0) {
+    acc -= dayMs();
     changed = true;
     advance(1);
   }
@@ -1187,6 +1300,7 @@ requestAnimationFrame(frame);
   },
   dirs: (id: string, i: number, j: number) => allowedDirs(s, id, i, j),
   placing: () => (placing ? { ...placing } : null),
+  anim: () => anim,
   pop: (i: number, j: number) => {
     openPop(i, j);
     renderAll();

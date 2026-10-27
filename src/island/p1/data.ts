@@ -180,7 +180,7 @@ export const STORE = { base: 60, warehouse: 200 };
 
 export interface Skill {
   id: string;
-  branch: 'shop' | 'craft' | 'logi' | 'buy' | 'people';
+  branch: 'shop' | 'craft' | 'logi' | 'buy' | 'people' | 'ops';
   name: string;
   note: string;
   cost: number;
@@ -209,6 +209,8 @@ export const SKILLS: Skill[] = [
   { id: 'stock2', branch: 'buy', name: t('大口契約', 'Bulk contracts'), note: t('月の調達の上限 +60%', 'Monthly buying limit +60%'), cost: 8000, requires: ['stock1', 'bulk'] },
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる', 'Hire heroes'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
+  { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
+  { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
 ];
 export const SKILL: Record<string, Skill> = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 export const BRANCHES: { key: Skill['branch']; name: string }[] = [
@@ -217,6 +219,7 @@ export const BRANCHES: { key: Skill['branch']; name: string }[] = [
   { key: 'logi', name: t('物流', 'Logistics') },
   { key: 'buy', name: t('調達', 'Buying') },
   { key: 'people', name: t('人材', 'People') },
+  { key: 'ops', name: t('経営', 'Operations') },
 ];
 
 /** 雇える候補（Common のヒーロー）。月の初めに入れ替わる */
@@ -320,3 +323,10 @@ export const PAY = { bonusBase: 800, bonusRate: 0.3, raiseSpeed: 0.05, raiseWage
 export const PROC = { maxLv: 100, base: 100, perLv: 20, expBase: 50, expPerLv: 10, perBuy: 5 };
 /** 次のランクまでの経験値 */
 export const procNeed = (lv: number) => PROC.expBase + PROC.expPerLv * lv;
+
+// ---------------------------------------------------------------- ゲームの進行速度
+
+/** 1 日の長さ（ms、標準）。体感に合わせて 1.2 秒（ひと月 36 秒） */
+export const DAY_BASE_MS = 1200;
+/** 進行速度（システム → 進行速度）。1.5 倍・2 倍はスキルで選べるようになる */
+export const PACES: { v: number; skill?: string }[] = [{ v: 1 }, { v: 1.5, skill: 'pace1' }, { v: 2, skill: 'pace2' }];
