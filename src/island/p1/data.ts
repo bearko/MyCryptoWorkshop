@@ -172,6 +172,12 @@ export const START_STAFF = [10001, 10002, 10003];
  * 毎日 grow の確率で、能力値（INT・AGI・PHY のどれか）が 1 上がる。資金が rescue 以下になるとマインちゃんが紹介する。
  */
 export const SIDE = { pay: 180, grow: 0.04, rescue: 10000 };
+/**
+ * 関所（ランドのふち）。通行料を払うと開通し、次のランドセクタへ行けるようになる。
+ * 通行料 ＝ このエリアで 1 位の他社の先月の売上 × mult（round G 単位で切り上げ）。倍率はテストプレイで決める。
+ * at は置く場所の目安（東のふち、横の道路の出口のそば）。
+ */
+export const GATE = { mult: 1, round: 1000, at: [15, 8] as [number, number] };
 /** 1 日働くとスタミナが減る量と、休むと戻る量 */
 export const STAMINA = { work: 10, rest: 30, tired: 0.15, back: 0.8 };
 /** 雇ったヒーローの月給（基準）。能力の合計に比例 */

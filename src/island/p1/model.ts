@@ -11,6 +11,7 @@ import {
   STORE,
   DEV,
   ENTRY_AFTER,
+  GATE,
   PROC,
   procNeed,
   HIRE_POOL,
@@ -152,6 +153,8 @@ export interface Flags {
   clearSeen: boolean;
   /** 資金が少なくなったときに、マインちゃんがバイトを紹介した */
   side?: boolean;
+  /** チュートリアルの「初売上までの流れ」を見た */
+  tour?: boolean;
 }
 
 export interface P1State {
@@ -192,6 +195,8 @@ export interface P1State {
   tutV?: number;
   /** 今月のバイト代（他店でバイト） */
   sideMonth?: number;
+  /** 関所の通行料を払って開通したか */
+  gateOpen?: boolean;
   /** アンコモンを開発した商品 */
   dev: string[];
   /** 開発中の商品 */
@@ -376,6 +381,7 @@ function populate(s: P1State) {
   placeTown(s, 'park', r, 'town', [9, 9]);
   placeTown(s, 'police', r, 'town', [13, 4]);
   placeTown(s, 'wholesale', r, 'town', [1, 14]);
+  placeTown(s, GATE_ID, r, 'town', GATE.at);
   const near: [number, number][] = [[4, 4], [10, 5], [5, 10], [10, 10]];
   RIVALS.forEach((rv, k) => placeTown(s, rv.store, r, rv.id, near[k]));
   const homes = ['house', 'cottage', 'garage_house', 'japanese_house', 'apartment', 'manor'];
@@ -656,6 +662,42 @@ export function doorOf(b: PBuilding): [number, number] {
   return frontCells(b.id, b.i, b.j, b.dir)[0] ?? [b.i, b.j];
 }
 export const wholesaler = (s: P1State) => s.buildings.find((b) => b.id === 'wholesale') ?? null;
+
+// ---------------------------------------------------------------- 関所
+
+/** 関所の建物（絵は仮に警備の詰所を借りている。docs/ISLAND_ART_TODO.md） */
+export const GATE_ID = 'guard';
+export const isGate = (b: PBuilding) => b.id === GATE_ID && b.owner === 'town';
+export const gateOf = (s: P1State) => s.buildings.find(isGate) ?? null;
+
+/** 他社のひと月の売上の見込み（自社が無いとき）。先月の締めがまだ無いときに使う */
+function rivalMonthGuess(s: P1State): Record<string, number> {
+  const out: Record<string, number> = Object.fromEntries(s.rivals.map((r) => [r.id, r.base]));
+  for (const p of PRODUCTS) {
+    const rv = rivalOffers(s, p.key);
+    const month = capture(s, p.key, rv);
+    rv.forEach((o, n) => (out[o.rid] += month[n] * p.price));
+  }
+  return out;
+}
+
+/** 通行料：このエリアで 1 位の他社の先月の売上くらい（締めがまだなら見込み） */
+export function gateToll(s: P1State): number {
+  const last = s.rivals.every((r) => s.rivalLast[r.id]) ? Object.fromEntries(s.rivals.map((r) => [r.id, s.rivalLast[r.id].total])) : rivalMonthGuess(s);
+  const top = Math.max(0, ...Object.values(last));
+  return Math.ceil((top * GATE.mult) / GATE.round) * GATE.round;
+}
+
+/** 通行料を払って関所を開ける。払えたら true */
+export function openGate(s: P1State): boolean {
+  if (s.gateOpen) return false;
+  const toll = gateToll(s);
+  if (s.money < toll) return false;
+  s.money -= toll;
+  s.monthCost.build += toll;
+  s.gateOpen = true;
+  return true;
+}
 
 export const myWorkshop = (s: P1State) => s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0) ?? null;
 export const myShops = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop' && b.left <= 0);
@@ -1110,6 +1152,35 @@ export function shopArea(s: P1State, b: PBuilding) {
   });
   const mine = myShops(s).filter((x) => x.uid !== b.uid && Math.abs(x.i - b.i) + Math.abs(x.j - b.j) <= MARKET.d0);
   return { homes, rivals: rivals.map((r) => r.id), mine: mine.length, way: oneWay(s, b) };
+}
+
+/**
+ * いますぐ 1 便出す（チュートリアルの流れの案内で、荷車が走るところを見せる）。
+ * ふだんはお店の裏が半分以上埋まっていると出さないが、ここでは工房にある商品を積めるだけ積む。出せたら true
+ */
+export function forceHaul(s: P1State): boolean {
+  const ws = myWorkshop(s);
+  const shop = myShops(s)[0];
+  const st = s.staff.find((x) => x.task === 'transport');
+  if (!ws || !shop || !st) return false;
+  if (s.trips.some((t) => t.to === shop.uid && !t.dropped)) return true;
+  const sh = s.shops[shop.uid];
+  const cargo: Partial<Record<Sku, number>> = {};
+  let load = 0;
+  for (const x of sh.shelves) {
+    if (!x) continue;
+    const n = Math.min(s.stock[x] ?? 0, cartCap(s) - load);
+    if (n <= 0) continue;
+    cargo[x] = n;
+    s.stock[x] = (s.stock[x] ?? 0) - n;
+    load += n;
+  }
+  if (!load) return false;
+  st.resting = false;
+  const way = oneWay(s, shop, ws);
+  const days = Math.max(1, (way.days * 2) / speed(st, 'transport'));
+  s.trips.push({ hauler: st.hero, from: way.from?.uid, to: shop.uid, cargo, left: days, total: days });
+  return true;
 }
 
 /** 物流拠点の下見：ここに建てたら、自社のお店ごとの片道の日数がどう変わるか */
@@ -1585,6 +1656,8 @@ export function deserializeP1(json: string): P1State | null {
     const s: P1State = { ...extras(), ...o, open, ground: g };
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
+    // 以前のセーブ：関所が無ければ建てておく
+    if (!gateOf(s)) placeTown(s, GATE_ID, rng(s.seed + 13), 'town', GATE.at);
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに
     if (!(o as Partial<P1State>).dev && s.skills.includes('pot')) s.dev = PRODUCTS.map((p) => p.key);
     s.monthCost.ads ??= 0;
@@ -1600,11 +1673,12 @@ export function deserializeP1(json: string): P1State | null {
 
 // ---------------------------------------------------------------- 地図の吹き出し（自社の施設）
 
-export type Stop = 'noCrafter' | 'crafterRest' | 'noItem' | 'noMats' | 'full' | 'noHauler' | 'noProduct' | 'noClerk' | 'clerkRest' | 'soldOut';
+export type Stop = 'gateShut' | 'gateOpen' | 'noCrafter' | 'crafterRest' | 'noItem' | 'noMats' | 'full' | 'noHauler' | 'noProduct' | 'noClerk' | 'clerkRest' | 'soldOut';
 /** 施設のようす：動いているなら作っている／売っている商品、止まっているなら理由（error＝止まっている、warn＝流れが詰まりかけ） */
-export type FacilityStatus = { kind: 'craft' | 'sell'; items: Sku[] } | { level: 'error' | 'warn'; stop: Stop };
+export type FacilityStatus = { kind: 'craft' | 'sell'; items: Sku[] } | { level: 'error' | 'warn' | 'info'; stop: Stop };
 
 export function facilityStatus(s: P1State, b: PBuilding): FacilityStatus | null {
+  if (isGate(b)) return s.gateOpen ? { level: 'info', stop: 'gateOpen' } : { level: 'warn', stop: 'gateShut' };
   if (b.owner !== 'me' || b.left > 0) return null;
   const kind = P1B[b.id]?.kind;
   if (kind === 'workshop') {

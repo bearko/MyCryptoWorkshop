@@ -2939,3 +2939,100 @@ button.isl-mis {
   font-weight: 700;
   line-height: 1.45;
 }
+
+/* システムの画面（設定・進行速度・セーブ） */
+.isl-sys-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.isl-sys-list .isl-btn {
+  padding: 10px 12px;
+}
+
+/* ================================================================ 初売上までの流れの案内（スキップできない） */
+#isl-ui > .isl-tour {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--hud-h, 56px) + 6px) 12px calc(var(--foot-h, 0px) + 16px);
+  pointer-events: auto;
+}
+#isl-ui > .isl-tour[hidden] {
+  display: none;
+}
+#isl-ui.is-tour .isl-missions,
+#isl-ui.is-tour .isl-advisor,
+#isl-ui.is-tour .isl-point {
+  display: none !important;
+}
+.isl-tour-steps {
+  display: flex;
+  gap: 6px;
+}
+.isl-tour-step {
+  padding: 4px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: rgba(29, 42, 68, 0.9);
+  color: var(--isl-dim);
+  font-size: 13px;
+  font-weight: 700;
+}
+.isl-tour-step.is-on {
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+  transform: scale(1.12);
+}
+.isl-tour-step.is-done {
+  color: var(--isl-good);
+}
+.isl-tour-box {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 2px 10px;
+  width: min(560px, 100%);
+  min-height: 130px;
+  padding: 12px 14px 10px 6px;
+  border: 3px solid var(--isl-line);
+  border-radius: 16px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  animation: isl-up 0.2s ease-out;
+}
+.isl-tour-box .isl-talk-text {
+  margin: 4px 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.isl-tour-wait {
+  grid-column: 2;
+  justify-self: end;
+  color: #8a7d63;
+  animation: isl-blink 1.2s steps(2) infinite;
+}
+@media (max-width: 599px) {
+  .isl-tour-box {
+    grid-template-columns: 70px 1fr;
+  }
+  .isl-tour-box .isl-talk-mine {
+    width: 70px;
+    height: 94px;
+    margin-top: -30px;
+  }
+  .isl-tour-box .isl-talk-text {
+    font-size: 15px;
+  }
+  .isl-tour-step {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+}
