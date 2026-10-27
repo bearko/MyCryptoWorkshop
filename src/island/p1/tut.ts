@@ -8,7 +8,7 @@
  * 進み具合は P1State.tut（段の番号、TUT_DONE で終わり）。各段は done() が真になったら次へ進む。
  */
 import { t } from '../../i18n';
-import { myShops, type P1State } from './model';
+import { DAYS, myShops, type P1State } from './model';
 
 export const TUT_DONE = 99;
 
@@ -25,6 +25,14 @@ export interface TutPage {
 
 export interface TutStep {
   id: string;
+  /** 右上の「ミッション」に出す、いまやること（短く） */
+  goal: (s: P1State) => string;
+  /** 小さなチェック（全部そろうと進む段の、途中の手ごたえ） */
+  checks?: [string, (s: P1State, seen: Set<string>) => boolean][];
+  /** 段をクリアしたときのマインちゃんのひとこと */
+  praise?: string;
+  /** 下の帯で、光らせる所のほかに開けてよいメニュー（チュートリアル中はほかをロック） */
+  open?: string[];
   /** 地図の上の吹き出しの一言（いまやること） */
   say: (s: P1State) => string;
   /** 吹き出しのボタン */
@@ -41,12 +49,17 @@ export interface TutStep {
   done: (s: P1State, seen: Set<string>) => boolean;
 }
 
+/** 月の締めまでの日数（開店前は 30） */
+const monthLeft = (s: P1State) => (s.open == null ? DAYS : DAYS - ((s.day - s.open) % DAYS));
+
 const anyShop = (s: P1State) => s.buildings.some((b) => b.owner === 'me' && (b.id === 'general_store' || b.id === 'import' || b.id === 'boutique'));
 const sold = (s: P1State) => Object.values(s.monthUnits).some((n) => (n ?? 0) > 0) || s.reports.length > 0;
 
 export const TUT: TutStep[] = [
   {
     id: 'workshop',
+    goal: (_s) => t('工房を建てる', 'Build the workshop'),
+    praise: t('いい場所！ 工事が始まったよ。', 'Nice spot! Construction has started.'),
     intro: {
       pages: [
         { text: t('ここが[[新天地]]のランド！ 今日から、私たちの新しい商売が始まるよ。', 'This is the [[new land]]! Our new business starts today.') },
@@ -56,7 +69,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('建てる場所を選ぶ', 'Choose a spot'),
     },
-    say: () => t('光っている[[工房]]を選んで、道路沿いの空き地に置こう！', 'Pick the glowing [[Workshop]] and place it on a lot by the road!'),
+    say: () => t('[[工房]]は、エクステを作る場所。光っている工房を選んで、道路沿いに置こう！', 'The [[workshop]] is where Extensions are made. Pick the glowing one and place it by a road!'),
     act: [t('建築を開く', 'Open Build'), 'build'],
     hl: 'plan:build',
     card: 'workshop',
@@ -64,12 +77,16 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'wsWait',
+    goal: (_s) => t('工房の完成を待つ（⏩ で早送り）', 'Wait for the workshop (⏩ to speed up)'),
+    praise: t('工房が完成！', 'The workshop is ready!'),
     say: () => t('工事中だよ。右上の [[⏩]] で、時間を早められるよ。', 'Under construction. [[⏩]] at the top speeds time up.'),
     hl: 'speed',
     done: (s) => s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0),
   },
   {
     id: 'craft',
+    goal: (_s) => t('工房で作るものを決める', 'Start crafting in the workshop'),
+    praise: t('センスを作り始めたよ！', 'Sensu crafting has started!'),
     intro: {
       pages: [
         { text: t('工房ができた！ 実はね、前の世界から [[3 人]]がついてきてくれたんだ。', 'The workshop is ready! Actually, [[three friends]] followed us from the old world.'), show: 'crew' },
@@ -78,7 +95,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('頼んでみる', 'Ask them'),
     },
-    say: () => t('工房を開いて、器用な[[MCHアーティスト]]に作業台を頼もう。', 'Open the workshop and ask the handy [[MCH Artist]] to take the bench.'),
+    say: () => t('作業台にヒーローを置くと、エクステを作ってくれるよ。工房を開いて、[[MCHアーティスト]]に頼もう！', 'A hero on the bench crafts Extensions. Open the workshop and ask [[MCH Artist]]!'),
     act: [t('工房を開く', 'Open workshop'), 'workshop'],
     tips: {
       workshop: (s) =>
@@ -86,10 +103,16 @@ export const TUT: TutStep[] = [
           ? t('光っている四角をタップして、[[MCHアーティスト]]を選ぼう！', 'Tap the glowing square and choose [[MCH Artist]]!')
           : t('次は作るもの。持ってきた素材で作れる[[センス]]がおすすめだよ！', 'Now what to make. [[Sensu]] works with the materials we brought!'),
     },
+    checks: [
+      [t('作業台に職人を置く', 'Put a crafter on the bench'), (s) => s.slots.some((sl) => sl.worker != null)],
+      [t('作るエクステを選ぶ', 'Choose what to make'), (s) => s.slots.some((sl) => !!sl.sku)],
+    ],
     done: (s) => s.slots.some((sl) => sl.worker != null && !!sl.sku),
   },
   {
     id: 'mats',
+    goal: (_s) => t('卸問屋で素材を買い足す', 'Top up materials at the wholesaler'),
+    praise: t('これで当分、作り続けられるね！', 'That keeps the bench busy for a while!'),
     intro: {
       pages: [
         { text: t('作り始めたね！ でも、持ってきた[[素材]]はほんの少しだけ。', 'Crafting has started! But we only brought a few [[materials]].') },
@@ -97,7 +120,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('調達を開く', 'Open buying'),
     },
-    say: () => t('「SCM」→「調達」で、[[素材]]を買い足そう。', 'Top up [[materials]] under SCM → Buy.'),
+    say: () => t('[[素材]]が切れると、工房は止まってしまう。「SCM」→「調達」で買い足そう！', 'Without [[materials]], the workshop stops. Top up under SCM → Buy!'),
     act: [t('調達を開く', 'Open buying'), 'buy'],
     hl: 'scm:buy',
     tips: {
@@ -106,11 +129,17 @@ export const TUT: TutStep[] = [
           ? t('買えた！ 画面を閉じて、次へ進もう。', 'Done! Close this screen to move on.')
           : t('光っているボタンで、作るのに使う[[素材]]を 10 個買おう！', 'Tap the glowing button to buy 10 of the [[material]] you craft with!'),
     },
+    checks: [
+      [t('素材を 10 個買う', 'Buy 10 materials'), (s) => s.proc.bought > 0],
+      [t('調達の画面を閉じる', 'Close the buying screen'), (_s, seen) => seen.has('buy')],
+    ],
     done: (s, seen) => s.proc.bought > 0 && seen.has('buy'),
   },
   {
     id: 'shop',
-    say: () => t('次は、作ったものを売る[[お店]]を建てよう！', 'Next, build a [[shop]] to sell what you make!'),
+    goal: (_s) => t('お店を建てる', 'Build a shop'),
+    praise: t('お店の工事が始まったよ！', 'Shop construction has started!'),
+    say: () => t('作ったエクステは、[[お店]]で売るよ。光っている「よろず屋」を道路沿いに建てよう！', 'Extensions are sold in a [[shop]]. Build the glowing General store by a road!'),
     act: [t('建築を開く', 'Open Build'), 'build'],
     hl: 'plan:build',
     card: 'general_store',
@@ -118,25 +147,35 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'shopWait',
+    goal: (_s) => t('お店の完成を待つ（⏩ で早送り）', 'Wait for the shop (⏩ to speed up)'),
+    praise: t('お店が完成！', 'The shop is ready!'),
     say: () => t('お店の工事中だよ。[[⏩]] で早めよう。', 'The shop is being built. Speed up with [[⏩]].'),
     hl: 'speed',
     done: (s) => myShops(s).length > 0,
   },
   {
     id: 'sell',
+    goal: (_s) => t('お店の開店準備をする', 'Get the shop ready'),
+    praise: t('開店準備ばっちり！', 'The shop is all set!'),
     intro: {
       pages: [{ text: t('お店ができた！ 話し上手の[[MCHタクティシャン]]に、店番を頼もう。', 'The shop is open! Let’s ask the smooth-talking [[MCH Tactician]] to mind it.'), show: 'crew', hero: 10002 }],
       ok: t('お店を開く', 'Open the shop'),
     },
-    say: () => t('お店を開いて、並べるものと店員を決めよう。', 'Open the shop and choose what to sell and who sells it.'),
+    say: () => t('店員がいないと、お店は開かないよ。お店を開いて、並べるものと店員を決めよう！', 'No clerk, no business. Open the shop and choose what to sell and who sells it!'),
     act: [t('お店を開く', 'Open shop'), 'shop'],
     tips: {
       shop: () => t('光っている四角をタップして、[[主力商品]]と[[店員]]を決めよう！', 'Tap the glowing squares to set the [[main product]] and the [[clerk]]!'),
     },
+    checks: [
+      [t('並べる主力商品を決める', 'Choose the main product'), (s) => myShops(s).some((b) => !!s.shops[b.uid].shelves[0])],
+      [t('店員を置く', 'Put a clerk in'), (s) => myShops(s).some((b) => s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)],
+    ],
     done: (s) => myShops(s).some((b) => !!s.shops[b.uid].shelves[0] && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)),
   },
   {
     id: 'haul',
+    goal: (_s) => t('運ぶ人を決める', 'Choose who carries goods'),
+    praise: t('荷車が走り出したよ！', 'The cart is on its way!'),
     intro: {
       pages: [
         { text: t('あれ、工房でできた品がお店に届かない……。運ぶ人がいないんだ！', 'Hm? The goods from the workshop never reach the shop… Nobody carries them!') },
@@ -144,7 +183,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('配置を開く', 'Open Staff'),
     },
-    say: () => t('「人事」→「ヒーローの配置」で、[[MCHウォーリアー]]に運ぶのを頼もう。', 'Under HR → Assign heroes, ask [[MCH Warrior]] to haul.'),
+    say: () => t('工房の品は、誰かが運ばないとお店に並ばないよ。「人事」→「ヒーローの配置」で[[MCHウォーリアー]]に頼もう！', 'Goods only reach the shop if someone carries them. Ask [[MCH Warrior]] under HR → Assign heroes!'),
     act: [t('配置を開く', 'Open Staff'), 'staff'],
     hl: 'hr:staff',
     tips: {
@@ -154,12 +193,15 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'firstSale',
-    say: () => t('これで全部つながった！ [[⏩]] で、お客さんを待とう。', 'Everything is connected! Press [[⏩]] and wait for customers.'),
+    goal: (_s) => t('最初の 1 個を売る（⏩ で早送り）', 'Make your first sale (⏩ to speed up)'),
+    say: () => t('工房 → 荷車 → お店がつながった！ [[⏩]] で、お客さんが来るのを待とう。', 'Workshop → cart → shop, all connected! Press [[⏩]] and wait for customers.'),
     hl: 'speed',
     done: sold,
   },
   {
     id: 'scm',
+    goal: (_s) => t('SCM ダッシュボードを見る', 'Check the SCM dashboard'),
+    praise: t('これで流れの見方はばっちり！', 'Now you know how to read the flow!'),
     intro: {
       pages: [
         { text: t('[[初売上]]、おめでとう！ 作って、運んで、売れた！', 'Your [[first sale]]! Made, carried and sold!'), show: 'cycle' },
@@ -168,7 +210,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('見てみる', 'Take a look'),
     },
-    say: () => t('「SCM」→「サプライチェーン」で、流れ全体を見てみよう。', 'See the whole flow under SCM → Supply chain.'),
+    say: () => t('どこが詰まっているかは、ダッシュボードでひと目で分かるよ。「SCM」→「サプライチェーン」を開こう！', 'The dashboard shows at a glance where things jam. Open SCM → Supply chain!'),
     act: [t('ダッシュボードを開く', 'Open the dashboard'), 'scm'],
     hl: 'scm:flow',
     tips: {
@@ -178,13 +220,18 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'month',
+    goal: (s) => t(`1 か月目を締める（あと ${monthLeft(s)} 日）`, `Close month one (${monthLeft(s)} days left)`),
+    praise: t('1 か月、おつかれさま！', 'Month one, done!'),
     say: () => t('あとは月末まで [[⏩]] で見守ろう。詰まったら、ダッシュボードで直してね。', 'Now watch with [[⏩]] until the month ends. If something jams, fix it on the dashboard.'),
     act: [t('ダッシュボード', 'Dashboard'), 'scm'],
     hl: 'speed',
+    open: ['scm', 'hr'],
     done: (s) => s.reports.length > 0,
   },
   {
     id: 'ranking',
+    goal: (_s) => t('企業ランキングを見る', 'Check the company ranking'),
+    praise: t('ライバルが分かったね！', 'Now you know your rivals!'),
     intro: {
       pages: [
         { text: t('1 か月目、おつかれさま！ この売上を、まわりの会社と比べてみよう。', 'Month one, done! Let’s compare these sales with the other companies.') },
@@ -202,6 +249,7 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'skills',
+    goal: (_s) => t('スキルツリーを見る', 'Check the skill tree'),
     intro: {
       pages: [
         { text: t('売上を伸ばすカギは、流れの[[詰まり]]をなくすこと。', 'The key to more sales: clear the [[jams]] in the flow.') },
@@ -224,6 +272,23 @@ export const TUT_END: TutPage[] = [
   { text: t('見習い期間はここまで！ ここからは、あなたの思うままに。', 'That’s the end of the apprentice month! From here, it’s all yours.') },
   { text: t('このランドに、名前を轟かせよう！', 'Let’s make our name known across this land!') },
 ];
+
+/**
+ * 段の並びを変えたら上げる。セーブの段の番号が古い並びのものなら、条件を見て今いるべき段に置き直す
+ * （古い番号のままだと、まだ工房で何も作っていないのに「素材」の段になる、などが起きる）。
+ */
+export const TUT_VERSION = 2;
+
+export function tutFix(s: P1State) {
+  if (typeof s.tut !== 'number' || s.tut >= TUT_DONE || s.tutV === TUT_VERSION) {
+    s.tutV = TUT_VERSION;
+    return;
+  }
+  let k = 0;
+  while (k < TUT.length && TUT[k].done(s, new Set())) k++;
+  s.tut = k;
+  s.tutV = TUT_VERSION;
+}
 
 /** 以前のセーブ（チュートリアルが無かったころ）：工房があれば案内は済み */
 export function tutOf(s: P1State): number {

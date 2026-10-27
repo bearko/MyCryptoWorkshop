@@ -40,6 +40,9 @@ import {
   turn,
   type P1State,
   type PlaceErr,
+  activeMissions,
+  claim,
+  missionProgress,
 } from './model';
 import { newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -69,8 +72,8 @@ import {
 import { openSupply } from './scm';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { TUT, TUT_DONE, TUT_END, tutOf, type TutGo, type TutPage } from './tut';
-import { btn, h, heroIcon, heroName, matIcon, money, rich, skuIcon } from './ui';
+import { TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
+import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
 const q = new URLSearchParams(location.search);
 const TEST = q.get('test') === '2';
@@ -90,6 +93,8 @@ function load(): P1State {
   return newP1();
 }
 let s = load();
+// チュートリアルの段の並びが変わっていたら、今いるべき段に置き直す
+tutFix(s);
 function save() {
   try {
     localStorage.setItem(SAVE, serializeP1(s));
@@ -290,7 +295,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   ],
   mkt: [
     { key: 'ads', name: t('宣伝広報', 'Advertising'), note: t('売り場を強くする', 'Boost your shops'), go: () => openAds(ctx), needs: 'workshop' },
-    { key: 'missions', name: t('依頼', 'Requests'), note: t('ミッションの確認', 'Missions'), go: () => openMissions(ctx) },
+    { key: 'missions', name: t('依頼', 'Requests'), note: t('受ける・報酬', 'Accept, rewards'), go: () => openMissions(ctx) },
     { key: 'data', name: t('市場調査データ', 'Market data'), note: t('売れ筋・ニーズ', 'Demand and sellers'), go: () => openData(ctx) },
     { key: 'ranking', name: t('企業ランキング', 'Ranking'), note: t('エリア・ランド・世界', 'Area, land, world'), go: () => openRanking(ctx) },
   ],
@@ -345,6 +350,7 @@ const needWs = () => {
 /** 下の帯のタブ：押すと 1 つ目のサブタブの画面まで開く。もう一度押すと閉じる */
 function pickMenu(m: Menu) {
   const ws = !!myWorkshop(s);
+  if (menuLocked(m)) return lockedNote();
   if (m !== 'plan' && m !== 'mkt' && m !== 'sys' && !ws) return needWs();
   closePop();
   if (menu === m) return closeMenu();
@@ -357,12 +363,16 @@ function pickMenu(m: Menu) {
     renderAll();
     return;
   }
-  const first = SUBS[m].find((x) => !(x.needs === 'workshop' && !ws)) ?? SUBS[m][0];
+  // チュートリアル中は、いま開いてほしい小メニューから開く
+  const [hm, hk] = (tutStep()?.hl ?? '').split(':');
+  const target = hm === m && hk ? SUBS[m].find((x) => x.key === hk) : undefined;
+  const first = target ?? SUBS[m].find((x) => !(x.needs === 'workshop' && !ws) && !subLocked(m, x.key)) ?? SUBS[m][0];
   openSub(first);
 }
 
 /** サブタブ：画面を切り替える（下の帯は出したまま） */
 function openSub(x: Sub) {
+  if (menu && menu !== 'skill' && subLocked(menu, x.key)) return lockedNote();
   if (x.needs === 'workshop' && !myWorkshop(s)) return needWs();
   sub = x.key;
   if (x.key !== 'build' && placing && !placing.move) placing = null;
@@ -392,12 +402,15 @@ function renderFoot() {
   const tk = tutOf(s);
   const step = tk < TUT_DONE ? TUT[tk] : undefined;
   const [hm, hk] = (step?.hl ?? '').split(':');
-  for (const m of Object.keys(tabBtns) as Menu[]) tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
+  for (const m of Object.keys(tabBtns) as Menu[]) {
+    tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
+    tabBtns[m].classList.toggle('is-lock', menuLocked(m));
+  }
   speedBtns[2].classList.toggle('is-guide', hm === 'speed' && speed !== 4);
   if (!menu || menu === 'skill') return;
   subRow.replaceChildren(
     ...SUBS[menu as Exclude<Menu, 'skill'>].map((x) => {
-      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''} ${hm === menu && hk === x.key && sub !== x.key ? 'is-guide' : ''}`);
+      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''} ${hm === menu && hk === x.key && sub !== x.key ? 'is-guide' : ''} ${subLocked(menu as Menu, x.key) ? 'is-lock' : ''}`);
       b.type = 'button';
       b.append(h('b', '', x.name), h('small', '', x.note));
       if (x.key === 'missions' && ready) b.classList.add('has-dot');
@@ -720,6 +733,134 @@ function openBuildTab() {
   renderAll();
 }
 
+// ---------------------------------------------------------------- チュートリアル中のロック
+
+const tutStep = (): TutStep | undefined => {
+  const k = tutOf(s);
+  return k < TUT_DONE ? TUT[k] : undefined;
+};
+
+/** チュートリアル中、いまの段で使わないメニューはロック（システムはいつでも開ける） */
+function menuLocked(m: Menu): boolean {
+  const st = tutStep();
+  if (!st || m === 'sys') return false;
+  const [hm] = (st.hl ?? '').split(':');
+  return hm !== m && !(st.open ?? []).includes(m);
+}
+
+/** 光らせている小メニューがあれば、同じメニューのほかの小メニューはロック */
+function subLocked(m: Menu, key: string): boolean {
+  const st = tutStep();
+  if (!st || m === 'sys') return false;
+  const [hm, hk] = (st.hl ?? '').split(':');
+  if (hm === m) return !!hk && hk !== key;
+  return menuLocked(m);
+}
+
+function lockedNote() {
+  const st = tutStep();
+  sfx.play('error');
+  if (st) toast(plain(t(`いまは「${st.goal(s)}」をしよう！`, `For now: ${st.goal(s)}!`)));
+}
+
+// ---------------------------------------------------------------- 右上の「ミッション」（いまやること・受けた依頼）
+
+const missionBox = h('div', 'isl-missions');
+let missionKey = '';
+let missionFold = false;
+/** いまクリアした段（チェックと取り消し線を見せてから、次の段へ入れ替える） */
+let cleared: { goal: string; checks: string[]; until: number } | null = null;
+/** いま付いたチェック（この 1 回の描き直しだけ、ポンと出す） */
+let justChecked = new Set<string>();
+let prevChecks = new Map<string, boolean>();
+
+function renderMissions() {
+  const st = tutStep();
+  const now = performance.now();
+  const showCleared = !!cleared && now < cleared.until;
+  // 小さなチェックが付いた瞬間に音
+  if (st?.checks && !showCleared) {
+    for (const [label, ok] of st.checks) {
+      const v = ok(s, tutSeen);
+      const key = `${st.id}:${label}`;
+      if (v && prevChecks.get(key) === false) {
+        justChecked.add(key);
+        sfx.play('check');
+      }
+      prevChecks.set(key, v);
+    }
+  }
+  const active = activeMissions(s);
+  const items: unknown[] = [missionFold, showCleared ? cleared : null, st && !showCleared ? [st.id, st.goal(s), (st.checks ?? []).map(([l, ok]) => [l, ok(s, tutSeen)])] : null, active.map((m) => [m.id, s.missions[m.id], missionProgress(s, m.id)]), [...justChecked]];
+  const key = JSON.stringify(items);
+  missionBox.hidden = !!placing || (!st && !showCleared && !active.length);
+  if (key === missionKey) return;
+  missionKey = key;
+  const head = h('button', 'isl-missions-head');
+  head.type = 'button';
+  head.append(h('b', '', t('ミッション', 'Missions')), h('span', '', missionFold ? '▸' : '▾'));
+  head.addEventListener('click', () => {
+    missionFold = !missionFold;
+    renderMissions();
+  });
+  const list = h('div', 'isl-missions-list');
+  list.hidden = missionFold;
+  if (showCleared && cleared) {
+    const row = h('div', 'isl-mis is-tut is-cleared');
+    row.append(h('span', 'isl-mis-box', '✓'), h('b', 'isl-mis-text', cleared.goal), h('span', 'isl-mis-stamp', t('クリア！', 'Clear!')));
+    for (const label of cleared.checks) row.append(h('small', 'isl-mis-check is-on', `✓ ${label}`));
+    list.append(row);
+  } else if (st) {
+    const row = h('button', `isl-mis is-tut ${cleared ? 'is-new' : ''}`);
+    row.type = 'button';
+    row.append(h('span', 'isl-mis-box', ''), h('b', 'isl-mis-text', st.goal(s)));
+    for (const [label, ok] of st.checks ?? []) {
+      const v = ok(s, tutSeen);
+      const k2 = `${st.id}:${label}`;
+      row.append(h('small', `isl-mis-check ${v ? 'is-on' : ''} ${justChecked.has(k2) ? 'is-just' : ''}`, (v ? '✓ ' : '· ') + label));
+    }
+    if (st.act) {
+      row.append(h('small', 'isl-mis-go', `${st.act[0]} ▶`));
+      row.addEventListener('click', () => tutGo(st.act![1]));
+    }
+    list.append(row);
+  }
+  for (const m of active) {
+    const done = s.missions[m.id] === 'done';
+    const row = h('div', `isl-mis ${done ? 'is-done' : ''}`);
+    row.append(h('span', 'isl-mis-box', done ? '✓' : ''), h('b', 'isl-mis-text', m.title));
+    const pr = missionProgress(s, m.id);
+    row.append(h('small', 'isl-dim', pr && !done ? t(`${m.text}（${pr[0]} / ${pr[1]}）`, `${m.text} (${pr[0]} / ${pr[1]})`) : m.text));
+    if (done)
+      row.append(
+        btn(t(`報酬 ${money(m.reward)} を受け取る`, `Claim ${money(m.reward)}`), () => {
+          if (!claim(s, m.id)) {
+            sfx.play('clear');
+            toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
+          }
+          save();
+          renderAll();
+        }, 'is-on'),
+      );
+    list.append(row);
+  }
+  justChecked = new Set();
+  missionBox.replaceChildren(head, list);
+}
+
+/** マインちゃんのほめ言葉（上に少しだけ出る） */
+function praise(text: string) {
+  const e = h('div', 'isl-praise');
+  const im = h('img');
+  im.src = assetUrl('mch/Image/Characters/navi_ain_cross_01_smile.png');
+  im.alt = '';
+  const p = h('p');
+  p.append(rich(text));
+  e.append(im, p);
+  root.append(e);
+  setTimeout(() => e.remove(), 2600);
+}
+
 /** 下の帯の小メニューをコードから開く（チュートリアルの吹き出し・撮影スクリプト用） */
 function goSub(m: Exclude<Menu, 'skill'>, key: string) {
   const x = SUBS[m].find((y) => y.key === key);
@@ -734,6 +875,8 @@ function goSub(m: Exclude<Menu, 'skill'>, key: string) {
 let tutSeen = new Set<string>();
 let tutOpen: string | null = null;
 let tutIntro = -1;
+/** クリアの手ごたえを見せてから、次の会話を出す */
+let tutIntroAfter = 0;
 
 function tutGo(go: TutGo) {
   const shop = myShops(s)[0];
@@ -779,12 +922,19 @@ function tutTick() {
     tutSeen = new Set();
   }
   if (moved) {
+    const done = TUT[k - 1];
     s.tut = k;
     save();
+    // クリアの手ごたえ：右上のミッションにチェックと取り消し線、音、マインちゃんのひとこと
+    cleared = { goal: done.goal(s), checks: (done.checks ?? []).map(([l]) => l), until: performance.now() + 1500 };
+    tutIntroAfter = performance.now() + 1500;
+    sfx.play('clear');
+    if (done.praise) praise(done.praise);
+    setTimeout(() => renderAll(), 1550);
     if (sheetOpen()) refreshSheet();
   }
   if (k >= TUT.length) {
-    if (!tutFree()) return;
+    if (!tutFree() || performance.now() < tutIntroAfter) return;
     s.tut = TUT_DONE;
     save();
     talk(TUT_END, t('はじめる', 'Let’s go'), () => {
@@ -799,7 +949,7 @@ function tutTick() {
     s.skills.push('hire');
     save();
   }
-  if (st.intro && tutIntro !== k && tutFree()) {
+  if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
     tutIntro = k;
     talk(st.intro.pages, st.intro.ok, () => (st.act ? tutGo(st.act[1]) : renderAll()));
   }
@@ -928,6 +1078,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (closed) return { text: t(`${DEF[closed.id].name}に店員がいないので休業中です。店員かアルバイトを決めましょう。販売は INT の高いヒーローが得意です。`, `${DEF[closed.id].name} is closed: nobody on the floor. Choose a clerk or part-timer. High-INT heroes sell best.`), action: [t('お店を開く', 'Open shop'), () => openShop(ctx, closed.uid)] };
   if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t(`工房の物置（${STORE.base} 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。`, `The workshop stockroom (${STORE.base}) is full: you can’t buy materials or store goods. Build a warehouse under Build.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (MISSIONS.some((m) => s.missions[m.id] === 'done')) return { text: t('依頼を達成しました！「マーケティング」→「依頼」で報酬を受け取りましょう。', 'You completed a request! Claim the reward under Marketing → Requests.'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
+  if (!activeMissions(s).length && !MISSIONS.some((m) => s.missions[m.id] === 'claimed')) return { text: t('町の人から[[依頼]]が届いているよ。「マーケティング」→「依頼」で受けてみよう！', 'People in town sent you [[requests]]. Accept one under Marketing → Requests!'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
   if (!s.reports.length) return { text: t('準備ができました！お店を開いた日から 1 か月ごとに売上を締めます。流れが詰まっていないかは「SCM」→「サプライチェーン」で確かめられます。', 'All set! Sales close every month from the day your shop opened. Check for bottlenecks under SCM → Supply chain.'), action: [t('サプライチェーンを見る', 'Open supply chain'), () => openSupply(ctx)] };
   // 1 か月たってから
   const low = (Object.keys(MATS) as (keyof typeof MATS)[]).find((m) => s.slots.some((sl) => sl.sku && PRODUCT[skuParts(sl.sku)[0]].recipe[skuParts(sl.sku)[1]][m] && (s.mats[m] ?? 0) < 10));
@@ -1138,13 +1289,14 @@ function layout() {
 function renderAll() {
   dirty = true;
   tutTick();
+  renderMissions();
   renderHud();
   renderFoot();
   renderPlace();
   renderAdvisor();
   layout();
 }
-root.append(hud, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
+root.append(hud, missionBox, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
 // 始めたばかりなら、建築の帯を開いておく
 if (!s.buildings.some((b) => b.owner === 'me')) {
   menu = 'plan';

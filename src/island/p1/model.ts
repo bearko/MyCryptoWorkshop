@@ -179,6 +179,8 @@ export interface P1State {
   flags: Flags;
   /** 最初の 1 か月のチュートリアルの段（tut.ts。99 で終わり。以前のセーブには無い） */
   tut?: number;
+  /** tut の段の並びの版（tut.ts の TUT_VERSION） */
+  tutV?: number;
   /** アンコモンを開発した商品 */
   dev: string[];
   /** 開発中の商品 */
@@ -191,7 +193,8 @@ export interface P1State {
   rivalProd: Record<string, Partial<Record<string, number>>>;
   rivalLast: Record<string, { total: number; by: Partial<Record<string, number>> }>;
   /** 依頼：達成した・報酬を受け取った */
-  missions: Partial<Record<string, 'done' | 'claimed'>>;
+  /** 依頼：受けた（accepted）→ 達成（done）→ 報酬を受け取った（claimed）。無ければまだ受けていない */
+  missions: Partial<Record<string, 'accepted' | 'done' | 'claimed'>>;
   /** 今月売れた数（商品ごと）・アンコモンを売った数（合計） */
   monthUnits: Partial<Record<string, number>>;
   unitsU: number;
@@ -309,6 +312,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     cleared: false,
     flags: { data: false, ranking: false, clearSeen: false },
     tut: 0,
+    tutV: 2,
     ...extras(),
   };
   populate(s);
@@ -870,8 +874,37 @@ function missionMet(s: P1State, id: string): boolean {
   }
   return false;
 }
-/** 今見せる依頼：達成して受け取っていないものと、まだのものを上から 3 つ */
-export const openMissions = (s: P1State) => [...MISSIONS.filter((m) => s.missions[m.id] === 'done'), ...MISSIONS.filter((m) => !s.missions[m.id]).slice(0, 3)];
+/** 同時に受けられる依頼の数 */
+export const MISSION_MAX = 3;
+/** 受けて進行中・達成した依頼（右上のミッションに出す） */
+export const activeMissions = (s: P1State) => MISSIONS.filter((m) => s.missions[m.id] === 'accepted' || s.missions[m.id] === 'done');
+/** まだ受けていない依頼（上から 3 つ） */
+export const offeredMissions = (s: P1State) => MISSIONS.filter((m) => !s.missions[m.id]).slice(0, 3);
+/** 依頼の画面に出すもの：受けたもの・達成したもの、そのあとにまだ受けていないもの */
+export const openMissions = (s: P1State) => [...activeMissions(s), ...offeredMissions(s)];
+
+/** 依頼を受ける。受けた時点で条件を満たしていれば、次の日に達成になる */
+export function accept(s: P1State, id: string): string | null {
+  if (s.missions[id]) return 'done';
+  if (MISSIONS.filter((m) => s.missions[m.id] === 'accepted').length >= MISSION_MAX) return 'full';
+  s.missions[id] = 'accepted';
+  return null;
+}
+
+/** 数で決まる依頼の進み具合（無ければ null） */
+export function missionProgress(s: P1State, id: string): [number, number] | null {
+  switch (id) {
+    case 'sensu100':
+      return [Math.min(15, s.monthUnits.Sensu ?? 0), 15];
+    case 'lantern50':
+      return [Math.min(10, s.monthUnits.Lantern ?? 0), 10];
+    case 'uncommon':
+      return [Math.min(5, s.unitsU), 5];
+    case 'two_shops':
+      return [Math.min(2, myShops(s).length), 2];
+  }
+  return null;
+}
 export function claim(s: P1State, id: string): string | null {
   const m = MISSIONS.find((x) => x.id === id);
   if (!m || s.missions[id] !== 'done') return 'not-yet';
@@ -1223,7 +1256,7 @@ export function step(s: P1State): DayResult {
 
 function checkMissions(s: P1State, res: DayResult) {
   for (const m of MISSIONS) {
-    if (s.missions[m.id] || !missionMet(s, m.id)) continue;
+    if (s.missions[m.id] !== 'accepted' || !missionMet(s, m.id)) continue;
     s.missions[m.id] = 'done';
     res.missions.push(m.id);
   }

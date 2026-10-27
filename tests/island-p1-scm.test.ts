@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assign, bottleneck, build, canPlaceAt, allowedDirs, deserializeP1, newP1, serializeP1, setShelf, stageCaps, startCraft, step, type P1State } from '../src/island/p1/model';
-import { TUT, TUT_DONE, tutOf } from '../src/island/p1/tut';
+import { TUT, TUT_DONE, TUT_VERSION, tutFix, tutOf } from '../src/island/p1/tut';
 
 function lot(s: P1State, id: string): [number, number, 'rd' | 'ld' | 'ru' | 'lu'] {
   for (let j = 0; j < s.n; j++)
@@ -85,5 +85,19 @@ describe('チュートリアル', () => {
     assign(s, 10001, 'transport');
     expect(at('haul')).toBe(true);
     expect(at('scm', ['scm'])).toBe(true);
+  });
+  it('段の並びが変わる前のセーブは、条件を見て今いるべき段に置き直す', () => {
+    const s = newP1(1);
+    setup(s);
+    // 古い並びの番号（工房はあるが、まだ何も作っていない）
+    s.tut = 3;
+    delete s.tutV;
+    tutFix(s);
+    expect(TUT[s.tut].id).toBe('craft');
+    expect(s.tutV).toBe(TUT_VERSION);
+    // 版が同じなら触らない
+    s.tut = 5;
+    tutFix(s);
+    expect(s.tut).toBe(5);
   });
 });
