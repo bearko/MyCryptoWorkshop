@@ -38,7 +38,6 @@ import {
   sku,
   skuParts,
   skuPrice,
-  speedOf,
   type Mat,
   type Rar,
   type Sku,
@@ -193,6 +192,8 @@ export interface P1State {
   tut?: number;
   /** tut の段の並びの版（tut.ts の TUT_VERSION） */
   tutV?: number;
+  /** 能力値の版（2：全ヒーロー中の最大が 100 になるように縮めた） */
+  statV?: number;
   /** 今月のバイト代（他店でバイト） */
   sideMonth?: number;
   /** 関所の通行料を払って開通したか */
@@ -329,6 +330,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     flags: { data: false, ranking: false, clearSeen: false },
     tut: 0,
     tutV: 3,
+    statV: 2,
     ...extras(),
   };
   populate(s);
@@ -391,18 +393,45 @@ function populate(s: P1State) {
 
 // ---------------------------------------------------------------- 従業員
 
+/**
+ * 能力値の縮め方：MCH の値のままだと高ランクのヒーローは 100 を超えるので、
+ * PHY・INT・AGI それぞれ、全ヒーロー中の最大が 100 になるように掛ける。HP はスタミナに使うのでそのまま。
+ */
+type StatKey = 'phy' | 'int' | 'agi';
+const STAT_KEYS: StatKey[] = ['phy', 'int', 'agi'];
+let statMax: Record<StatKey, number> | null = null;
+export function heroStatMax(): Record<StatKey, number> {
+  if (statMax) return statMax;
+  const m: Record<StatKey, number> = { phy: 1, int: 1, agi: 1 };
+  for (const h of heroById.values() as Iterable<unknown>) {
+    const st = (h as { stats?: Stats }).stats;
+    if (st) for (const k of STAT_KEYS) m[k] = Math.max(m[k], st[k]);
+  }
+  return (statMax = m);
+}
+/** MCH の能力値 → このゲームの能力値（0〜100） */
+export function scaleStats(raw: Stats): Stats {
+  const m = heroStatMax();
+  return { hp: raw.hp, phy: Math.round((raw.phy * 100) / m.phy), int: Math.round((raw.int * 100) / m.int), agi: Math.round((raw.agi * 100) / m.agi) };
+}
+
 export function heroStats(id: number): Stats {
   const h = heroById.get(id) as unknown as { stats?: Stats } | undefined;
-  return h?.stats ?? { hp: 150, phy: 50, int: 50, agi: 50 };
+  return scaleStats(h?.stats ?? { hp: 150, phy: 50, int: 50, agi: 50 });
 }
+
+/** 速さ 1.0 の基準：見習いの MCHアーティストの製造の適性 */
+let aptBase = 0;
+export const speedOf = (apt: number) => apt / (aptBase ||= aptitude(heroStats(START_STAFF[2]), 'craft') || 28);
 
 function newStaff(hero: number, wage: number): Staff {
   const stats = heroStats(hero);
   return { hero, stats, stamina: stats.hp, task: null, target: null, resting: false, wage, explore: 0 };
 }
 
+/** 月給は MCH の能力値のまま（縮める前）の合計で決める */
 export const wageOf = (hero: number) => {
-  const s = heroStats(hero);
+  const s = (heroById.get(hero) as unknown as { stats?: Stats } | undefined)?.stats ?? { hp: 150, phy: 50, int: 50, agi: 50 };
   return Math.round((s.phy + s.int + s.agi) * WAGE_PER_STAT);
 };
 
@@ -1656,6 +1685,11 @@ export function deserializeP1(json: string): P1State | null {
     const s: P1State = { ...extras(), ...o, open, ground: g };
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
+    // 以前のセーブ：能力値が MCH の値のままなら縮める（バイトで上がったぶんも同じ割合で）
+    if ((s.statV ?? 1) < 2) {
+      for (const st of s.staff) st.stats = scaleStats(st.stats);
+      s.statV = 2;
+    }
     // 以前のセーブ：関所が無ければ建てておく
     if (!gateOf(s)) placeTown(s, GATE_ID, rng(s.seed + 13), 'town', GATE.at);
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに

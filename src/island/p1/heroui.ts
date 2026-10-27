@@ -11,17 +11,21 @@ import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } fro
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time') };
 
 /**
- * 適性のランク：0〜100 の数（100 を超えたら 100）を G・F・E・D・C・B・A・S の 8 段に。
- * 見習いの 3 人（53 前後）は D。
+ * 適性のランク：0〜100 の数を G・F・E・D・C・B・A・S の 8 段に。
+ * 見習いの 3 人は G〜F（得意な仕事だけ F）。最初に雇えるコモンは良くて E、D があればすごい。
+ * S はレジェンダリーの得意な仕事くらい。区切りは RANK_AT。
  */
 export const RANKS = ['G', 'F', 'E', 'D', 'C', 'B', 'A', 'S'] as const;
 export type Rank = (typeof RANKS)[number];
+/** F・E・D・C・B・A・S になる適性の下限 */
+export const RANK_AT = [30, 42, 55, 62, 69, 77, 85];
 export const aptN = (apt: number) => Math.max(0, Math.min(100, Math.round(apt)));
 export function rankOf(apt: number): Rank {
   const n = aptN(apt);
-  return n >= 90 ? 'S' : n >= 80 ? 'A' : n >= 70 ? 'B' : n >= 60 ? 'C' : n >= 50 ? 'D' : n >= 40 ? 'E' : n >= 30 ? 'F' : 'G';
+  for (let k = RANKS.length - 1; k > 0; k--) if (n >= RANK_AT[k - 1]) return RANKS[k];
+  return 'G';
 }
-/** ランクと数（「D 53」） */
+/** ランクと数（「E 45」） */
 export function rankEl(apt: number): HTMLElement {
   const r = rankOf(apt);
   const e = h('span', `isl-rankv is-${r.toLowerCase()}`);
