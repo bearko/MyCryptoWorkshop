@@ -18,7 +18,7 @@ type Branch = Skill['branch'];
 const LAYOUT: Record<Branch, { angle: number; rows: string[][]; color: string; stage?: string }> = {
   buy: { angle: -150, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['route_cloth', 'stock1', 'bulk'], ['route_paper', 'swift', 'eye', 'tidy'], ['scoutmap', 'route_gem', 'stock2', 'bulk2', 'rack'], ['stock3']] },
   craft: { angle: -90, color: '#f2b544', stage: t('② 製造', '② Craft'), rows: [['bench2', 'jig'], ['pot', 'chair', 'jig2'], ['bench3']] },
-  logi: { angle: -30, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['cart2', 'loading'], ['cart3', 'truck', 'shortcut', 'backroom'], ['hub']] },
+  logi: { angle: -30, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['cart2', 'loading'], ['cart3', 'truck', 'hub', 'shortcut', 'backroom']] },
   shop: { angle: 30, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['shelf1', 'host', 'parttime'], ['shelf2', 'shop2', 'display'], ['shop3']] },
   ops: { angle: 90, color: '#c49bff', rows: [['pace1'], ['pace2']] },
   people: { angle: 150, color: '#ff8fb0', rows: [['hire', 'lounge']] },

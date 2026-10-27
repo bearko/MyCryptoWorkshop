@@ -10,7 +10,7 @@ import { center, diamond, drawArt, drawBuilding, drawCell, image, type Camera, t
 import { cells, frontCell, type Dir } from '../sim';
 import { PRODUCT, skuParts, type Sku } from './data';
 import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
-import { craftDays, facilityStatus, ground, isRoad, myWorkshop, speed, staffOf, type P1State, type Stop } from './model';
+import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, type P1State, type Stop } from './model';
 
 export interface P1Ghost {
   id: string;
@@ -18,6 +18,8 @@ export interface P1Ghost {
   j: number;
   dir: Dir;
   ok: boolean;
+  /** お店を置くとき：商圏（近いマスほど濃く） */
+  area?: boolean;
 }
 
 function roadMask(s: P1State, i: number, j: number) {
@@ -104,6 +106,15 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     for (let j = 0; j < s.n; j++)
       for (let i = 0; i < s.n; i++) if (!placeable.has(j * s.n + i) && visible(i, j)) diamond(ctx, i, j, 'rgba(14,18,30,0.55)');
 
+  // お店を置くとき：お客さんが来やすい範囲（商圏）を金色に。近いほど濃い
+  if (ghost?.area)
+    for (let j = ghost.j - 6; j <= ghost.j + 6; j++)
+      for (let i = ghost.i - 6; i <= ghost.i + 6; i++) {
+        const d = Math.abs(i - ghost.i) + Math.abs(j - ghost.j);
+        if (d > 6 || !ground(s, i, j) || !visible(i, j)) continue;
+        diamond(ctx, i, j, `rgba(255,205,90,${(0.55 * reach(d)).toFixed(3)})`);
+      }
+
   const sel = selected != null ? s.buildings.find((b) => b.uid === selected) : null;
   if (sel) for (const [x, y] of cells(DEF[sel.id], sel.i, sel.j, sel.dir)) diamond(ctx, x, y, 'rgba(255,230,120,0.35)');
   else if (cell) diamond(ctx, cell[0], cell[1], 'rgba(255,230,120,0.45)');
@@ -140,21 +151,21 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       },
     });
   }
-  // 運搬中の荷車：工房からお店へ、進み具合の位置
+  // 運搬中の荷車：工房（か物流拠点）からお店へ、道路をたどって行き来する
   const ws = myWorkshop(s);
   if (ws) {
     for (const t of s.trips) {
       const to = s.buildings.find((b) => b.uid === t.to);
+      const from = (t.from != null ? s.buildings.find((b) => b.uid === t.from) : null) ?? ws;
       if (!to) continue;
+      const path = tripPath(s, doorOf(from), doorOf(to));
       const k = 1 - t.left / t.total;
-      // 行きと帰りを往復で
+      // 行き（荷物あり）と帰り（空）
       const f = k < 0.5 ? k * 2 : (1 - k) * 2;
-      const [ai, aj] = frontCell(DEF[ws.id], ws.i, ws.j, ws.dir);
-      const [bi, bj] = frontCell(DEF[to.id], to.i, to.j, to.dir);
-      const i = ai + (bi - ai) * f;
-      const j = aj + (bj - aj) * f;
-      const c = center(i, j);
-      items.push({ depth: (i + j) * 1000 + i + 0.7, draw: () => cart(ctx, c.x, c.y + 20) });
+      const p = path.length > 1 ? along(path, f) : { i: path[0]?.[0] ?? from.i, j: path[0]?.[1] ?? from.j, di: 0, dj: 0 };
+      if (!visible(Math.round(p.i), Math.round(p.j))) continue;
+      const c = center(p.i, p.j);
+      items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.7, draw: () => cart(ctx, c.x, c.y + 20) });
     }
   }
   // 歩いているヒーロー（お客さん・調達係）
@@ -326,3 +337,15 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
   ctx.restore();
 }
 
+
+/** 荷車の道（工房・拠点 → お店）。道路は変わらないので覚えておく */
+const tripPaths = new Map<string, [number, number][]>();
+function tripPath(s: P1State, a: [number, number], b: [number, number]): [number, number][] {
+  const key = `${s.seed}:${a}:${b}`;
+  let p = tripPaths.get(key);
+  if (!p) {
+    p = roadPath(s, a, b) ?? [a, b];
+    tripPaths.set(key, p);
+  }
+  return p;
+}

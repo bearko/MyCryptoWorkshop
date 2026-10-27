@@ -44,6 +44,8 @@ import {
   type Stats,
   type Task,
   SIDE,
+  MARKET,
+  DEPOT,
 } from './data';
 
 export type Ground = 'grass' | 'road';
@@ -108,6 +110,10 @@ export interface ShopState {
 
 export interface Trip {
   hauler: number;
+  /** 出たところ（工房か物流拠点の uid。以前のセーブには無い＝工房） */
+  from?: number;
+  /** 荷物を下ろした（行きが終わった）。帰りは空の荷車 */
+  dropped?: boolean;
   to: number;
   cargo: Partial<Record<Sku, number>>;
   left: number;
@@ -657,7 +663,6 @@ export const myShops = (s: P1State) => s.buildings.filter((b) => b.owner === 'me
 /** 運搬係 1 人が同時に出せる便・1 便に積める数・運ぶ日数の倍率（スキル） */
 export const cartsOf = (s: P1State) => 1 + (has(s, 'cart2') ? 1 : 0) + (has(s, 'cart3') ? 1 : 0);
 export const cartCap = (s: P1State) => Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1) * (has(s, 'loading') ? 1.3 : 1));
-const haulRate = (s: P1State) => (has(s, 'hub') ? 0.7 : 1) * (has(s, 'shortcut') ? 0.85 : 1);
 const benchCount = (s: P1State) => 1 + (has(s, 'bench2') ? 1 : 0) + (has(s, 'bench3') ? 1 : 0);
 export const shelfCount = (s: P1State, id: string) => (P1B[id]?.shelves ?? 1) + (has(s, 'shelf1') ? 1 : 0) + (has(s, 'shelf2') ? 1 : 0);
 export const partMax = (s: P1State) => SHOP.partTimeMax + (has(s, 'parttime') ? 2 : 0);
@@ -979,6 +984,180 @@ function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku): number {
 
 export const dist = (a: PBuilding, b: PBuilding) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
 
+// ---------------------------------------------------------------- 商圏（お客さんの住む場所とお店の距離）
+
+export interface Source {
+  i: number;
+  j: number;
+  pop: number;
+}
+let srcCache: { key: string; list: Source[]; total: number } | null = null;
+/** お客さんの住む場所（住宅と駅）。町の建物は動かないので、建物の数が変わったときだけ作り直す */
+export function sources(s: P1State): { list: Source[]; total: number } {
+  const key = `${s.seed}:${s.buildings.length}`;
+  if (srcCache?.key === key) return srcCache;
+  const list = s.buildings.filter((b) => b.owner === 'town' && MARKET.pop[b.id]).map((b) => ({ i: b.i, j: b.j, pop: MARKET.pop[b.id] }));
+  srcCache = { key, list, total: list.reduce((a, x) => a + x.pop, 0) || 1 };
+  return srcCache;
+}
+/** 距離が離れると、お客さんが来にくくなる（d0 マスで半分） */
+export const reach = (d: number) => 1 / (1 + (d / MARKET.d0) ** 2);
+
+/** 商品を売っているお店 1 つ（自社の棚・他社のお店）。g：会社（'me' か他社の id） */
+export interface Offer {
+  i: number;
+  j: number;
+  w: number;
+  g: string;
+}
+
+/**
+ * 商品 key について、お店ごとのひと月に来るお客さんの数（個）。
+ * 住む場所ごとに、会社ごとの「いちばん来やすいお店」の強さで会社を選び（同じ会社のお店が近くに何軒あっても強さは足されない）、
+ * 選んだ会社のお店のあいだでは、来やすさに応じて分かれる。だから同じ所に自社のお店を固めても、お客さんは増えず取り合いになる。
+ */
+export function capture(s: P1State, key: string, offers: Offer[]): number[] {
+  const out = offers.map(() => 0);
+  if (!offers.length) return out;
+  const { list, total } = sources(s);
+  const demand = (s.demand[key] ?? 0) * MARKET.pot;
+  const w = offers.map(() => 0);
+  const groups = [...new Set(offers.map((o) => o.g))];
+  for (const k of list) {
+    const dk = (demand * k.pop) / total;
+    offers.forEach((o, n) => (w[n] = o.w * reach(Math.abs(o.i - k.i) + Math.abs(o.j - k.j))));
+    let sum = MARKET.outside;
+    const gmax: Record<string, number> = {};
+    const gsum: Record<string, number> = {};
+    for (const g of groups) {
+      gmax[g] = 0;
+      gsum[g] = 0;
+    }
+    offers.forEach((o, n) => {
+      gmax[o.g] = Math.max(gmax[o.g], w[n]);
+      gsum[o.g] += w[n];
+    });
+    for (const g of groups) sum += gmax[g];
+    offers.forEach((o, n) => {
+      if (gsum[o.g] > 0) out[n] += ((dk * gmax[o.g]) / sum) * (w[n] / gsum[o.g]);
+    });
+  }
+  return out;
+}
+
+/** 他社のお店（商品を売っている強さつき） */
+export function rivalOffers(s: P1State, key: string): (Offer & { rid: string })[] {
+  const out: (Offer & { rid: string })[] = [];
+  for (const r of s.rivals) {
+    const w = (r.sells[key] ?? 0) * MARKET.rivalPull;
+    if (w <= 0) continue;
+    const b = s.buildings.find((x) => x.owner === r.id);
+    if (b) out.push({ i: b.i, j: b.j, w, g: r.id, rid: r.id });
+  }
+  return out;
+}
+
+/** 自社の棚（stocked：棚に商品があるものだけ。false なら並んでいるとして見込む） */
+function myOffers(s: P1State, key: string, stocked: boolean) {
+  const out: (Offer & { b: PBuilding; sh: ShopState; x: Sku })[] = [];
+  for (const b of myShops(s)) {
+    const sh = s.shops[b.uid];
+    for (const x of sh.shelves) {
+      if (!x || skuParts(x)[0] !== key) continue;
+      if (stocked && (sh.shelf[x] ?? 0) <= 0) continue;
+      const w = pull(s, b, sh, x) * (sh.aw ?? 1);
+      if (w > 0) out.push({ i: b.i, j: b.j, w, g: 'me', b, sh, x });
+    }
+  }
+  return out;
+}
+
+/** 道のりのマス数（道路をたどる。つながっていなければまっすぐの距離） */
+const pathCache = new Map<string, number>();
+export function pathLen(s: P1State, a: PBuilding, b: PBuilding): number {
+  const da = doorOf(a);
+  const db = doorOf(b);
+  const key = `${s.seed}:${da}:${db}`;
+  let n = pathCache.get(key);
+  if (n == null) {
+    const p = roadPath(s, da, db);
+    n = p ? p.length - 1 : Math.abs(da[0] - db[0]) + Math.abs(da[1] - db[1]);
+    pathCache.set(key, n);
+  }
+  return n;
+}
+/** 荷車で、片道に何日（速さ 1 の運搬係） */
+const legDays = (s: P1State, n: number) => (n / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'shortcut') ? 0.85 : 1);
+export const myDepots = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'depot' && b.left <= 0);
+/** お店まで片道の日数と、どこから出すか（工房か、近い物流拠点。拠点までは定期便で速い） */
+export function oneWay(s: P1State, shop: PBuilding, ws = myWorkshop(s), depots = myDepots(s)): { days: number; from: PBuilding | null } {
+  if (!ws) return { days: 0, from: null };
+  let best = { days: legDays(s, pathLen(s, ws, shop)), from: ws as PBuilding | null };
+  for (const d of depots) {
+    const days = legDays(s, pathLen(s, ws, d)) * DEPOT.link + legDays(s, pathLen(s, d, shop));
+    if (days < best.days) best = { days, from: d };
+  }
+  return best;
+}
+
+/** いまあるお店の商圏：近くの家・近くの競合（同じ商品を売る他社）・工房（拠点）からの片道 */
+export function shopArea(s: P1State, b: PBuilding) {
+  const keys = new Set((s.shops[b.uid]?.shelves ?? []).filter((x): x is Sku => !!x).map((x) => skuParts(x)[0]));
+  const homes = sources(s).list.filter((k) => Math.abs(k.i - b.i) + Math.abs(k.j - b.j) <= MARKET.d0).length;
+  const rivals = s.rivals.filter((r) => {
+    const rb = s.buildings.find((x) => x.owner === r.id);
+    return rb && Math.abs(rb.i - b.i) + Math.abs(rb.j - b.j) <= MARKET.d0 * 1.5 && [...keys].some((k) => (r.sells[k] ?? 0) > 0);
+  });
+  const mine = myShops(s).filter((x) => x.uid !== b.uid && Math.abs(x.i - b.i) + Math.abs(x.j - b.j) <= MARKET.d0);
+  return { homes, rivals: rivals.map((r) => r.id), mine: mine.length, way: oneWay(s, b) };
+}
+
+/** 物流拠点の下見：ここに建てたら、自社のお店ごとの片道の日数がどう変わるか */
+export function depotInfo(s: P1State, i: number, j: number, dir: Dir): { shop: PBuilding; before: number; after: number }[] {
+  const ws = myWorkshop(s);
+  if (!ws) return [];
+  const fake: PBuilding = { uid: -1, id: 'logistics', i, j, dir, left: 0, owner: 'me' };
+  return myShops(s).map((shop) => ({ shop, before: oneWay(s, shop, ws).days, after: oneWay(s, shop, ws, [...myDepots(s), fake]).days }));
+}
+
+/** 出店の下見：ここにお店を建てたら、ひと月に何個売れそうか・他社と自社のお店からどれだけ取るか・工房から何日か */
+export interface SiteInfo {
+  key: string;
+  units: number;
+  fromRivals: number;
+  fromMine: number;
+  homes: number;
+  rivals: number;
+  days: number;
+}
+export function siteInfo(s: P1State, id: string, i: number, j: number, dir: Dir): SiteInfo | null {
+  const def = P1B[id];
+  if (!def || def.kind !== 'shop') return null;
+  const made = [...new Set(s.slots.map((x) => x.sku).filter((x): x is Sku => !!x).map((x) => skuParts(x)[0]))];
+  const keys = made.length ? made : [recommend(s)];
+  let best: SiteInfo | null = null;
+  const fake: PBuilding = { uid: -1, id, i, j, dir, left: 0, owner: 'me' };
+  for (const key of keys) {
+    const mine = myOffers(s, key, false);
+    const rv = rivalOffers(s, key);
+    const before = capture(s, key, [...mine, ...rv]);
+    const w = (def.pull ?? 1) * (has(s, 'host') ? 1.15 : 1);
+    const after = capture(s, key, [...mine, ...rv, { i, j, w, g: 'me' }]);
+    const units = after[after.length - 1];
+    const fromMine = mine.reduce((a, _, n) => a + before[n] - after[n], 0);
+    const fromRivals = rv.reduce((a, _, n) => a + before[mine.length + n] - after[mine.length + n], 0);
+    if (!best || units > best.units) best = { key, units, fromRivals, fromMine, homes: 0, rivals: 0, days: 0 };
+  }
+  if (!best) return null;
+  best.homes = sources(s).list.filter((k) => Math.abs(k.i - i) + Math.abs(k.j - j) <= MARKET.d0).length;
+  best.rivals = s.rivals.filter((r) => {
+    const b = s.buildings.find((x) => x.owner === r.id);
+    return b && Math.abs(b.i - i) + Math.abs(b.j - j) <= MARKET.d0 * 1.5 && (r.sells[best!.key] ?? 0) > 0;
+  }).length;
+  best.days = oneWay(s, fake).days;
+  return best;
+}
+
 // ---------------------------------------------------------------- 1 日
 
 export interface DayResult {
@@ -1049,7 +1228,7 @@ export function step(s: P1State): DayResult {
     const path = st ? roadPath(s, doorOf(ws0), doorOf(shopB)) : null;
     if (st && path) {
       const sp = speed(st, 'buy');
-      const days = Math.max(2, Math.round((((path.length * 2) / TRANSPORT.cellsPerDay) / sp) * (has(s, 'swift') ? 0.7 : 1)));
+      const days = Math.max(2, Math.round((((path.length * 2) / TRANSPORT.walkPerDay) / sp) * (has(s, 'swift') ? 0.7 : 1)));
       // 往復の日数ぶん（＋端数の持ち越し）を、月の量から買う
       const cargo: Partial<Record<Mat, number>> = {};
       const lv = s.proc.lv;
@@ -1114,7 +1293,7 @@ export function step(s: P1State): DayResult {
         if (s.trips.some((t) => t.to === shop.uid && t.hauler === st.hero)) continue;
         const cargo: Partial<Record<Sku, number>> = {};
         let load = 0;
-        const inbound = (x: Sku) => s.trips.filter((t) => t.to === shop.uid).reduce((a, t) => a + (t.cargo[x] ?? 0), 0);
+        const inbound = (x: Sku) => s.trips.filter((t) => t.to === shop.uid && !t.dropped).reduce((a, t) => a + (t.cargo[x] ?? 0), 0);
         for (const x of sh.shelves) {
           if (!x || load >= cap) continue;
           const room = capB - (sh.storage[x] ?? 0) - inbound(x);
@@ -1125,15 +1304,19 @@ export function step(s: P1State): DayResult {
           load += want;
         }
         if (load > 0) {
-          const days = Math.max(1, (dist(ws, shop) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * haulRate(s) * 2) / speed(st, 'transport');
-          s.trips.push({ hauler: st.hero, to: shop.uid, cargo, left: days, total: days });
+          // 往復の日数：道のりで決まる（遠いお店ほどかかる。物流拠点が近ければそこから）
+          const way = oneWay(s, shop, ws);
+          const days = Math.max(1, (way.days * 2) / speed(st, 'transport'));
+          s.trips.push({ hauler: st.hero, from: way.from?.uid, to: shop.uid, cargo, left: days, total: days });
           working.add(st.hero);
         }
       }
     }
   }
   for (const t of s.trips) t.left -= 1;
-  for (const t of s.trips.filter((x) => x.left <= 0)) {
+  // 行きが終わったら荷物を下ろす（帰りは空の荷車）
+  for (const t of s.trips.filter((x) => !x.dropped && x.left <= x.total / 2)) {
+    t.dropped = true;
     const sh = s.shops[t.to];
     let n = 0;
     for (const [x, q] of Object.entries(t.cargo)) {
@@ -1221,24 +1404,13 @@ export function step(s: P1State): DayResult {
     s.money -= sh.part * SHOP.partTimeWage;
     sh.cost += sh.part * SHOP.partTimeWage;
   }
+  // 売れる：住む場所ごとに、近くて強いお店へお客さんが分かれる（棚が空のお店には来ない＝他社へ流れる）
   for (const p of PRODUCTS) {
-    const daily = (s.demand[p.key] ?? 0) / DAYS;
-    const offers: { b: PBuilding; sh: ShopState; x: Sku; w: number }[] = [];
-    for (const b of shops) {
-      const sh = s.shops[b.uid];
-      for (const x of sh.shelves) {
-        if (!x || skuParts(x)[0] !== p.key) continue;
-        const w = (sh.shelf[x] ?? 0) > 0 ? pull(s, b, sh, x) : 0;
-        if (w > 0) offers.push({ b, sh, x, w });
-      }
-    }
-    const mine = offers.reduce((a, o) => a + o.w, 0);
-    const rivals = s.rivals.reduce((a, r) => a + (r.sells[p.key] ?? 0), 0);
-    const total = mine + rivals;
-    if (total <= 0) continue;
-    for (const o of offers) {
-      // 新しいお店は知られていないぶん売れにくい（認知度）
-      const want = ((daily * o.w) / total) * (o.sh.aw ?? 1) + (o.sh.carry[o.x] ?? 0);
+    const mine = myOffers(s, p.key, true);
+    const rv = rivalOffers(s, p.key);
+    const month = capture(s, p.key, [...mine, ...rv]);
+    mine.forEach((o, n) => {
+      const want = month[n] / DAYS + (o.sh.carry[o.x] ?? 0);
       const sold = Math.min(Math.floor(want), o.sh.shelf[o.x] ?? 0);
       o.sh.carry[o.x] = Math.min(1, want - sold);
       o.sh.shelf[o.x] = (o.sh.shelf[o.x] ?? 0) - sold;
@@ -1250,14 +1422,13 @@ export function step(s: P1State): DayResult {
       for (let k = 0; k < sold; k++) res.sales.push({ uid: o.b.uid, yen: skuPrice(o.x), sku: o.x });
       s.monthUnits[p.key] = (s.monthUnits[p.key] ?? 0) + sold;
       if (skuParts(o.x)[1] === 'U') s.unitsU += sold;
-    }
-    for (const r of s.rivals) {
-      if (!r.sells[p.key]) continue;
-      const yen = ((daily * (r.sells[p.key] ?? 0)) / total) * p.price;
-      s.rivalSales[r.id] += yen;
-      const m = (s.rivalProd[r.id] ??= {});
+    });
+    rv.forEach((o, n) => {
+      const yen = (month[mine.length + n] / DAYS) * p.price;
+      s.rivalSales[o.rid] += yen;
+      const m = (s.rivalProd[o.rid] ??= {});
       m[p.key] = (m[p.key] ?? 0) + yen;
-    }
+    });
   }
 
   // スタミナ
@@ -1501,7 +1672,7 @@ function haulDays(s: P1State, st: Staff): number {
   const ws = myWorkshop(s);
   const shops = myShops(s);
   if (!ws || !shops.length) return 0;
-  const d = shops.reduce((a, b) => a + Math.max(1, (dist(ws, b) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * haulRate(s) * 2) / speed(st, 'transport'), 0) / shops.length;
+  const d = shops.reduce((a, b) => a + Math.max(1, (oneWay(s, b, ws).days * 2) / speed(st, 'transport')), 0) / shops.length;
   return Math.max(1, d);
 }
 
@@ -1509,16 +1680,10 @@ function haulDays(s: P1State, st: Staff): number {
 export function salesPotential(s: P1State): number {
   let units = 0;
   for (const p of PRODUCTS) {
-    const daily = (s.demand[p.key] ?? 0) / DAYS;
-    const offers: { w: number; aw: number }[] = [];
-    for (const b of myShops(s)) {
-      const sh = s.shops[b.uid];
-      for (const x of sh.shelves) if (x && skuParts(x)[0] === p.key) offers.push({ w: pull(s, b, sh, x), aw: sh.aw ?? 1 });
-    }
-    const mine = offers.reduce((a, o) => a + o.w, 0);
-    const total = mine + s.rivals.reduce((a, r) => a + (r.sells[p.key] ?? 0), 0);
-    if (total <= 0) continue;
-    for (const o of offers) units += ((daily * o.w) / total) * o.aw * DAYS;
+    const mine = myOffers(s, p.key, false);
+    if (!mine.length) continue;
+    const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
+    for (let n = 0; n < mine.length; n++) units += month[n];
   }
   return units;
 }

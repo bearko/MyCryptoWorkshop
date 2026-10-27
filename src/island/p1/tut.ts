@@ -160,6 +160,9 @@ export const TUT: TutStep[] = [
     act: [t('建築を開く', 'Open Build'), 'build'],
     hl: 'plan:build',
     card: 'general_store',
+    tips: {
+      place: () => t('お客さんは近いお店に来るよ。[[家の多い所]]で、工房から近い場所がおすすめ。置く前に出る「見込み」を見比べてね！', 'Customers go to nearby shops. A spot with [[many homes]], close to the workshop, is best. Compare the forecast before you build!'),
+    },
     done: anyShop,
   },
   {

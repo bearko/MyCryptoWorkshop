@@ -90,14 +90,14 @@ export const RIVALS: RivalDef[] = [
 ];
 
 /** ライバルが月ごとに強くなる割合と、自社が独り占めしている商品に新しく参入するまでの月数 */
-export const RIVAL_GROWTH = 0.005;
+export const RIVAL_GROWTH = 0.012;
 export const ENTRY_AFTER = 4;
 
 // ---------------------------------------------------------------- 建てられる建物
 
 export interface P1Building {
   id: string;
-  kind: 'workshop' | 'shop' | 'food' | 'warehouse';
+  kind: 'workshop' | 'shop' | 'food' | 'warehouse' | 'depot';
   cost: number;
   days: number;
   upkeep: number;
@@ -115,6 +115,7 @@ export const P1_BUILDINGS: P1Building[] = [
   { id: 'workshop', kind: 'workshop', cost: 0, days: 4, upkeep: 800 },
   { id: 'general_store', kind: 'shop', cost: 3000, days: 5, upkeep: 1200, shelves: 1, pull: 1 },
   { id: 'warehouse', kind: 'warehouse', cost: 4000, days: 5, upkeep: 600 },
+  { id: 'logistics', kind: 'depot', cost: 6000, days: 6, upkeep: 900, requires: 'hub' },
   { id: 'import', kind: 'shop', cost: 8000, days: 8, upkeep: 2000, shelves: 2, pull: 1.15, requires: 'shop2' },
   { id: 'boutique', kind: 'shop', cost: 15000, days: 10, upkeep: 3200, shelves: 2, pull: 1.35, requires: 'shop3' },
   { id: 'ramen', kind: 'food', cost: 1800, days: 6, upkeep: 300, soon: true },
@@ -178,10 +179,30 @@ export const WAGE_PER_STAT = 3;
 
 // ---------------------------------------------------------------- 運搬・お店
 
-export const TRANSPORT = { cap: 10, cellsPerDay: 8 };
+/** 荷車は 1 日に道を cellsPerDay マス（遠いお店ほど運ぶ日数がかかる）。調達係は歩いて walkPerDay マス */
+export const TRANSPORT = { cap: 10, cellsPerDay: 2.5, walkPerDay: 8 };
+
+/**
+ * 商圏（docs/ISLAND_PHASE1.md「商圏と出店」）。
+ * 住宅と駅にお客さんが住んでいて、商品ごとの需要を持つ。お客さんは近いお店・強いお店ほど行き、
+ * 遠いと「買わない」を選ぶ（outside）。お店への引き寄せ = 売り場の強さ ÷ (1 + (距離 / d0)²)。
+ * - 他社の近くで同じ商品を売ると、同じお客さんの取り合い（他社の売上も減る）
+ * - 自社のお店どうしを近くに置くと、自社で取り合う
+ * - 散らばらせると、まだ取られていないお客さんに届くが、工房から遠くなって運ぶのに日数がかかる
+ * pot：エリアの需要（PRODUCTS.demand）に掛ける倍率（お店が近くにないと買われないぶん、もとの需要より多めに持つ）
+ */
+export const MARKET = {
+  d0: 2.5,
+  outside: 0.3,
+  pot: 2.2,
+  rivalPull: 1.1,
+  pop: { station: 6, apartment: 3, manor: 1.5, house: 1, cottage: 1, garage_house: 1, japanese_house: 1 } as Record<string, number>,
+};
+/** 物流拠点：工房 → 拠点はトラックの定期便（距離 × link）、拠点 → お店は荷車 */
+export const DEPOT = { link: 0.3 };
 export const SHOP = { shelfCap: 10, storageCap: 20, displayPerDay: 6, partTimeDisplay: 4, partTimeWage: 30, partTimeMax: 1, noStaff: 0 };
 /** 新しいお店の認知度：開店した日は 0.2、1 日 0.02 ずつ上がって 1 まで（売れる数にかかる） */
-export const AWARE = { start: 0.2, perDay: 0.02 };
+export const AWARE = { start: 0.35, perDay: 0.025 };
 /** 保管：工房の物置（素材と、運ぶ前の商品の合計）と、倉庫 1 つで増える数。いっぱいだと調達もクラフトもできない */
 export const STORE = { base: 80, warehouse: 200 };
 
@@ -216,7 +237,7 @@ export const SKILLS: Skill[] = [
   { id: 'shortcut', branch: 'logi', name: t('近道の地図', 'Shortcut map'), note: t('運ぶ日数 −15%', 'Hauling −15% days'), cost: 3500, requires: ['loading'] },
   { id: 'cart3', branch: 'logi', name: t('荷車をさらに増やす', 'Third cart'), note: t('運搬係 1 人が同時に 3 便', 'Three trips at once per hauler'), cost: 7000, requires: ['cart2'] },
   { id: 'backroom', branch: 'logi', name: t('お店の裏倉庫', 'Shop stockrooms'), note: t('お店の裏に置ける数 +20', 'Shop back storage +20'), cost: 4000, requires: ['loading'] },
-  { id: 'hub', branch: 'logi', name: t('物流拠点', 'Logistics hub'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 12000, requires: ['truck'] },
+  { id: 'hub', branch: 'logi', name: t('物流拠点', 'Logistics hub'), note: t('物流拠点を建てられる（工房から遠いお店への便が速くなる）', 'Lets you build logistics hubs (faster runs to far shops)'), cost: 5000, requires: ['loading'] },
   { id: 'route_cloth', branch: 'buy', name: t('布のルート', 'Cloth route'), note: t('布を買えるようになる', 'Lets you buy cloth'), cost: 2000 },
   { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000, requires: ['route_cloth'] },
   { id: 'route_gem', branch: 'buy', name: t('宝石のルート', 'Gem route'), note: t('宝石を買えるようになる', 'Lets you buy gems'), cost: 6000, requires: ['route_paper'] },

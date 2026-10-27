@@ -7,7 +7,7 @@ import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { MAT_KEYS, MATS, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
-import { bottleneck, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { bottleneck, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
@@ -96,6 +96,14 @@ export function openSupply(ctx: Ctx) {
     if (!haulers.length && shops.length) worse('haul', 'stop', t('物流の担当がいないので、商品がお店に届きません。', 'No hauler: goods never reach the shops.'));
     else if (haulers.every((x) => x.resting) && haulers.length) worse('haul', 'warn', t('運搬係が全員休憩中です。', 'All haulers are resting.'));
     if (stock > TRANSPORT.cap * 2) worse('haul', 'warn', t(`工房に運ぶ前の商品が ${stock} 個たまっています。`, `${stock} goods are waiting at the workshop.`));
+    // 工房から遠いお店：運ぶのに日数がかかる（物流拠点・トラックで縮む）
+    for (const b of shops) {
+      const way = oneWay(s, b);
+      if (way.days > 2.5) {
+        worse('haul', 'warn', t(`${DEF[b.id].name}は工房から遠く、片道 ${way.days.toFixed(1)} 日かかります。`, `${DEF[b.id].name} is far: ${way.days.toFixed(1)} days one way.`));
+        if (!issues.haul.acts.some((a) => a[2] === 'hub')) issues.haul.acts.push(has(s, 'hub') ? [t('物流拠点を建てる', 'Build a hub'), () => ctx.build?.('logistics'), 'hub'] : [t('物流拠点を調べる', 'About hubs'), () => openSkills(ctx, 'logi'), 'hub']);
+      }
+    }
     // ④ 販売
     if (!shops.length) {
       worse('sell', 'stop', t('お店がありません。', 'No shop yet.'));
@@ -277,7 +285,9 @@ export function openSupply(ctx: Ctx) {
     for (const tp of s.trips) {
       const to = s.buildings.find((b) => b.uid === tp.to);
       const r = h('div', 'isl-field');
-      r.append(heroIcon(tp.hauler, 24), h('span', '', `🛒 → ${to ? DEF[to.id].name : ''}`), bar(1 - tp.left / tp.total, 'var(--isl-gold)'));
+      const from = tp.from != null ? s.buildings.find((b) => b.uid === tp.from) : null;
+      const via = from && from.id !== 'workshop' ? t('（拠点から）', ' (from hub)') : '';
+      r.append(heroIcon(tp.hauler, 24), h('span', '', tp.dropped ? t(`🛒 帰り道${via}`, `🛒 returning${via}`) : `🛒 → ${to ? DEF[to.id].name : ''}${via}`), bar(1 - tp.left / tp.total, 'var(--isl-gold)'), h('small', 'isl-dim', t(`あと ${Math.ceil(tp.left)} 日`, `${Math.ceil(tp.left)} d left`)));
       carts.append(r);
     }
     if (!s.trips.length) carts.append(h('small', 'isl-dim', t('いま走っている荷車はありません', 'No carts on the road')));
@@ -306,6 +316,8 @@ export function openSupply(ctx: Ctx) {
       f3.append(h('small', '', t('認知度', 'Known')), bar(sh.aw ?? 1, 'var(--isl-gold)'), h('small', 'isl-dim', `${Math.round((sh.aw ?? 1) * 100)}%`));
       bars.append(f1, f2, f3);
       r.append(bars);
+      const area = shopArea(s, b);
+      r.append(h('small', `isl-scm-area ${area.rivals.length || area.mine ? 'is-warn' : ''}`, t(`近くの家 ${area.homes}・競合 ${area.rivals.length}・片道 ${area.way.days.toFixed(1)} 日${area.mine ? `・自社の店と近い` : ''}`, `${area.homes} homes · ${area.rivals.length} rivals · ${area.way.days.toFixed(1)} d${area.mine ? ' · near own shop' : ''}`)));
       r.addEventListener('click', () => openShop(ctx, b.uid));
       shopRows.append(r);
     }

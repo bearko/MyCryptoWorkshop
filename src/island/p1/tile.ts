@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
-import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, refundOf, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
@@ -29,11 +29,12 @@ const DESC: Record<string, string> = {
   boutique: t('棚が 2 つあり、売り場がとても強いお店です。', 'A shop with two shelves and strong pull.'),
   greengrocer: t('野菜や日用品を扱う、町の古いお店。', 'An old neighborhood shop for produce and daily goods.'),
   watch: t('小物も扱う、町の老舗。', 'A long-standing shop that also sells small goods.'),
-  station: t('列車が止まる駅。人の行き来がいちばん多い場所です。', 'The train station, the busiest spot in the area.'),
+  station: t('列車が止まる駅。人の行き来がいちばん多く、駅の近くのお店にはお客さんがたくさん来ます。', 'The train station, the busiest spot in the area.'),
   park: t('住民の憩いの場。休日は家族連れでにぎわいます。', 'Where residents relax. Busy with families on holidays.'),
   police: t('エリアの安全を守る交番。', 'The police box that keeps the area safe.'),
+  logistics: t('工房からトラックの定期便で商品を運び、近くのお店へ荷車で届ける物流拠点。工房から遠いお店の便が速くなります。', 'A hub: a truck shuttles goods here from the workshop, and carts deliver to nearby shops. Speeds up runs to far shops.'),
 };
-const HOME = t('エリアの住民が暮らす家。住民はお店の大事なお客さんです。', 'Homes of the area’s residents, your shops’ customers.');
+const HOME = t('エリアの住民が暮らす家。住民は近いお店ほどよく行きます（集合住宅は人が多い）。', 'Homes of the area’s residents. They shop at nearby stores (apartments hold more people).');
 
 function meta(rows: [string, string][]): HTMLElement {
   const m = h('div', 'isl-pop-meta');
@@ -123,6 +124,12 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       stat(grid, t('今月の粗利率', 'Gross margin'), rate(sh.rev, sh.cost));
       stat(grid, t('先月の売上', 'Last month'), sh.last ? money(sh.last.rev) : '—');
       stat(grid, t('先月の利益率', 'Last month margin'), sh.last ? rate(sh.last.rev, sh.last.cost) : '—');
+      // 商圏：近くの家・競合・自社の店、工房（拠点）からの片道
+      const area = shopArea(s, b);
+      stat(grid, t('近くの家', 'Homes nearby'), t(`${area.homes} 軒`, `${area.homes}`));
+      stat(grid, t('近くの競合', 'Rivals nearby'), area.rivals.length ? area.rivals.map((r) => rivalName(r)).join(t('・', ', ')) : t('なし', 'None'), area.rivals.length ? 'is-bad' : '');
+      stat(grid, t('工房から', 'From workshop'), area.way.from && area.way.from.id !== 'workshop' ? t(`片道 ${area.way.days.toFixed(1)} 日（物流拠点から）`, `${area.way.days.toFixed(1)} d (via hub)`) : t(`片道 ${area.way.days.toFixed(1)} 日`, `${area.way.days.toFixed(1)} d one way`), area.way.days > 2.5 ? 'is-bad' : '');
+      if (area.mine) stat(grid, t('近くの自社の店', 'Own shops nearby'), t(`${area.mine} 軒（お客さんを取り合う）`, `${area.mine} (they share customers)`), 'is-bad');
       body.append(grid);
       const goods = h('div', 'isl-stock');
       sh.shelves.forEach((x) => {
@@ -134,6 +141,10 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       if (!goods.childElementCount) goods.append(h('small', 'isl-warn', t('並べる商品が決まっていません', 'No product chosen')));
       body.append(goods, h('small', 'isl-dim', t(`裏に置ける数 ${storageCap(b, s)}・利益率は維持費も含めた月の数字（今月の粗利率は素材代とアルバイト代だけ）`, `Backroom ${storageCap(b, s)}. Last month’s margin includes upkeep; this month’s counts materials and part-timers only.`)));
     }
+  } else if (kind === 'depot') {
+    const served = myShops(s).filter((x) => oneWay(s, x).from?.uid === b.uid);
+    stat(grid, t('ここから運ぶお店', 'Shops served from here'), served.length ? served.map((x) => DEF[x.id].name).join(t('・', ', ')) : t('なし（工房からのほうが近い）', 'None (the workshop is closer)'), 'is-wide');
+    body.append(grid, h('small', 'isl-dim', t('工房からここまではトラックの定期便で速く運び、ここから近くのお店へ荷車で届けます。遠くにお店を出したら、そのそばに建てましょう。', 'A truck shuttles goods here from the workshop; carts deliver from here to nearby shops. Build one near your far shops.')));
   } else if (kind === 'warehouse') {
     stat(grid, t('置き場所（全体）', 'Storage (total)'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`), 'is-wide');
     body.append(grid);
@@ -263,6 +274,9 @@ function rival(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTM
     box.append(row, h('small', 'isl-dim', t('調査は INT と AGI が高いヒーローが得意です。調査中はほかの仕事をしません。', 'High INT and AGI heroes research best. They do nothing else meanwhile.')));
   }
   body.append(box);
+
+  // 出店の作戦：近くで同じ商品を売ると、このお店のお客さんを取り合える
+  box.append(h('small', 'isl-dim', t('このお店の近くで同じ商品を売ると、お客さんを取り合えます（このお店の売上も減ります）。離れた場所に出せば、取り合わずに新しいお客さんに届きます。', 'Selling the same items near this store means fighting over its customers (its sales drop too). A shop farther away reaches new customers instead.')));
 
   // 他店でバイト：ヒーローをこのお店で働かせて、日給をもらう
   const side = h('div', 'isl-intel');
