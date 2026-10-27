@@ -95,7 +95,7 @@ import {
   type P1State,
   type Report,
 } from './model';
-import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName } from './ui';
+import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
 import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, pickExt, pickHero, profitPerDay, slot } from './heroui';
 
 export interface Ctx {
@@ -123,7 +123,9 @@ export function mineTip(ctx: Ctx, screen: string, body: HTMLElement) {
   const mi = h('img');
   mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
   mi.alt = '';
-  tip.append(mi, h('p', '', text));
+  const p = h('p');
+  p.append(rich(text));
+  tip.append(mi, p);
   body.append(tip);
 }
 
@@ -539,6 +541,27 @@ export function openBuy(ctx: Ctx) {
   open(ctx, t('調達', 'Buying'), (body) => {
     const s = ctx.s();
     mineTip(ctx, 'buy', body);
+    // 見習い期間（チュートリアルの「素材」の段）：作るのに使う素材を手で買うところだけ見せる
+    if (ctx.step?.() === 'mats') {
+      const card = h('div', 'isl-card2');
+      card.append(h('h3', '', t('素材を買い足す（卸問屋）', 'Top up materials (wholesaler)')));
+      for (const { m } of procMats(s)) {
+        const row = h('div', 'isl-row');
+        row.append(matIcon(m, 36), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}`, `have ${s.mats[m] ?? 0}`)));
+        const b = btn(t(`10 個買う（${money(matPrice(s, m) * 10)}）`, `Buy 10 (${money(matPrice(s, m) * 10)})`), () => {
+          const e = buy(s, m, 10);
+          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+          else if (e === 'storage') ctx.toast(t('置き場所がありません', 'No storage room'));
+          else if (!e) ctx.toast(t(`${MATS[m].name}を 10 個買いました`, `Bought 10 ${MATS[m].name}`));
+          after(ctx);
+        }, 'is-on is-guide');
+        b.disabled = s.money < matPrice(s, m) * 10 || poolFree(s) < 10;
+        row.append(b);
+        card.append(row);
+      }
+      body.append(card);
+      return;
+    }
     // ランクと上限
     const rank = h('div', 'isl-card2');
     const need = procNeed(s.proc.lv);

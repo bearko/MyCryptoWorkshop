@@ -20,7 +20,7 @@ export interface TileHooks {
 }
 
 const DESC: Record<string, string> = {
-  warehouse: t('素材と、お店へ運ぶ前の商品をしまっておく倉庫。1 棟で置き場所が 200 個ふえます。倉庫が無いと、工房の物置（60 個）を超えては調達できません。', 'Stores materials and goods waiting to be hauled. Each adds 200 spaces; without one you can only stock 60 in the workshop.'),
+  warehouse: t('素材と、お店へ運ぶ前の商品をしまっておく倉庫。1 棟で置き場所が 200 個ふえます。倉庫が無いと、工房の物置（80 個）を超えては調達できません。', 'Stores materials and goods waiting to be hauled. Each adds 200 spaces; without one you can only stock 80 in the workshop.'),
   wholesale: t('素材を卸している問屋。調達係は工房からここまで歩いて買い付けに来ます。', 'The wholesaler that sells materials. Your buyer walks here from the workshop.'),
   workshop: t('Workshop から引き継いだ本店。作業台で商品をクラフトし、できた商品を倉庫に置きます。', 'Your head office, brought over from the Workshop. Crafters make goods here and store them.'),
   general_store: t('小さな物販店。最初は棚 1 つ。店員かアルバイトがいると開店します。', 'A small retail shop with one shelf to start. Opens when a clerk or part-timer is there.'),

@@ -280,6 +280,8 @@ const audio = {
   bgmTree: use('Audio/BGM/land.mp3'),
   bgmRaid: use('Audio/BGM/raid.mp3'),
   bgmCompany: use('Audio/BGM/pvp.mp3'),
+  // アイランド（工房の会社づくり）の BGM。SE の棚にあるが 1 分 48 秒の曲
+  bgmCraft: use('Audio/SE/Actions/craft.mp3'),
   craft: use('Audio/SE/Actions/production.mp3'),
   rare: use('Audio/SE/Actions/open_treasure.mp3'),
   sale: use('Audio/SE/Actions/cp-mining-complete.mp3'),

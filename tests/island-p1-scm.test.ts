@@ -59,14 +59,13 @@ describe('チュートリアル', () => {
     const old = deserializeP1(JSON.stringify(o))!;
     expect(tutOf(old)).toBe(TUT_DONE);
   });
-  it('段は流れの順に並び、建てる → 置く → 売る で進む', () => {
+  it('段は「建てる → 作る → 素材 → お店 → 売る → 運ぶ」の順に、1 つずつ進む', () => {
     const ids = TUT.map((x) => x.id);
-    expect(ids.indexOf('craft')).toBeLessThan(ids.indexOf('haul'));
-    expect(ids.indexOf('haul')).toBeLessThan(ids.indexOf('sell'));
-    expect(ids.indexOf('sell')).toBeLessThan(ids.indexOf('buyer'));
-    expect(ids.indexOf('scm')).toBeLessThan(ids.indexOf('skills'));
+    for (const [a, b] of [['workshop', 'craft'], ['craft', 'mats'], ['mats', 'shop'], ['shop', 'sell'], ['sell', 'haul'], ['haul', 'firstSale'], ['firstSale', 'scm'], ['scm', 'skills']]) expect(ids.indexOf(a)).toBeLessThan(ids.indexOf(b));
+    // 会話は 1 枚 2 文まで（「。」「！」「？」で数える）
+    for (const st of TUT) for (const pg of st.intro?.pages ?? []) expect((pg.text.match(/[。！？]/g) ?? []).length).toBeLessThanOrEqual(2);
     const s = newP1(1);
-    const at = (id: string) => TUT[ids.indexOf(id)].done(s, new Set());
+    const at = (id: string, seen: string[] = []) => TUT[ids.indexOf(id)].done(s, new Set(seen));
     expect(at('workshop')).toBe(false);
     const uid = setup(s);
     expect(at('workshop')).toBe(true);
@@ -74,13 +73,17 @@ describe('チュートリアル', () => {
     assign(s, 10003, 'craft', 0);
     s.slots[0].sku = 'Sensu:C';
     expect(at('craft')).toBe(true);
-    expect(at('haul')).toBe(false);
-    assign(s, 10001, 'transport');
-    expect(at('haul')).toBe(true);
+    expect(at('mats', ['buy'])).toBe(false);
+    s.proc.bought = 10;
+    expect(at('mats')).toBe(false);
+    expect(at('mats', ['buy'])).toBe(true);
     expect(at('sell')).toBe(false);
     setShelf(s, uid, 0, 'Sensu:C');
     assign(s, 10002, 'shop', uid);
     expect(at('sell')).toBe(true);
-    expect(TUT[ids.indexOf('scm')].done(s, new Set(['scm']))).toBe(true);
+    expect(at('haul')).toBe(false);
+    assign(s, 10001, 'transport');
+    expect(at('haul')).toBe(true);
+    expect(at('scm', ['scm'])).toBe(true);
   });
 });
