@@ -5,12 +5,13 @@
 import '../island.css';
 import './p1.css';
 import { Sound } from '../../audio';
+import { heroById } from '../../game/catalog';
 import { isEn, setLang, t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { MATS, MISSIONS, P1_BUILDINGS, P1B, PRODUCT, skuParts } from './data';
+import { MATS, MISSIONS, P1_BUILDINGS, P1B, PRODUCT, skuParts, type Mat } from './data';
 import {
   allowedDirs,
   build,
@@ -20,7 +21,12 @@ import {
   date,
   daysToClose,
   deserializeP1,
+  doorOf,
+  myWarehouses,
+  poolFree,
   ground,
+  roadPath,
+  wholesaler,
   monthRevenue,
   moveCost,
   myShops,
@@ -35,6 +41,7 @@ import {
   type P1State,
   type PlaceErr,
 } from './model';
+import { newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
 import {
   closeSheet,
@@ -65,7 +72,8 @@ import { btn, h, money } from './ui';
 
 const q = new URLSearchParams(location.search);
 const TEST = q.get('test') === '2';
-const SAVE = 'mycryptoisland.p1.v1';
+// 経済の数字を大きく変えたので v2（v1 のセーブは使わない）
+const SAVE = 'mycryptoisland.p1.v2';
 const GUIDE = 'mycryptoisland.p1.guide';
 const SOUND = 'mycryptoisland.p1.sound';
 
@@ -163,6 +171,11 @@ const ctx: Ctx = {
   save,
   refresh: () => renderAll(),
   toast,
+  dismissed: () => {
+    menu = null;
+    sub = null;
+    renderAll();
+  },
 };
 
 // ---------------------------------------------------------------- 上の帯
@@ -232,7 +245,7 @@ interface Sub {
 }
 const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   plan: [
-    { key: 'build', name: t('建築', 'Build'), note: t('工房・お店を建てる', 'Workshop and shops'), go: () => toggleSub('build') },
+    { key: 'build', name: t('建築', 'Build'), note: t('工房・お店・倉庫', 'Workshop, shops, storage'), go: () => undefined },
     { key: 'dev', name: t('商品開発', 'Products'), note: t('アンコモンを開発', 'Develop Uncommons'), go: () => openDev(ctx), needs: 'workshop' },
     { key: 'ma', name: 'M&A', note: t('買収・提携（準備中）', 'Deals (coming soon)'), go: () => openMA(ctx) },
   ],
@@ -255,7 +268,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   sys: [
     { key: 'invest', name: t('設備投資', 'Investment'), note: t('建物ごとの設備', 'Per-building upgrades'), go: () => openInvest(ctx), needs: 'workshop' },
     { key: 'settings', name: t('設定', 'Settings'), note: t('言語・案内・音', 'Language, guide, sound'), go: () => openSettings() },
-    { key: 'data', name: t('セーブ', 'Save'), note: t('やり直す・工房へ', 'Restart, back'), go: () => openSaveMenu() },
+    { key: 'save', name: t('セーブ', 'Save'), note: t('やり直す・工房へ', 'Restart, back'), go: () => openSaveMenu() },
     ...(TEST ? [{ key: 'test', name: t('テスト', 'Test'), note: '?test=2', go: () => openTest() }] : []),
   ],
 };
@@ -299,32 +312,40 @@ const needWs = () => {
   toast(t('まずは工房を建てましょう', 'Build the workshop first'));
 };
 
+/** 下の帯のタブ：押すと 1 つ目のサブタブの画面まで開く。もう一度押すと閉じる */
 function pickMenu(m: Menu) {
   const ws = !!myWorkshop(s);
+  if (m !== 'plan' && m !== 'mkt' && m !== 'sys' && !ws) return needWs();
+  closePop();
+  if (menu === m) return closeMenu();
+  if (placing && !placing.move) placing = null;
+  menu = m;
+  sub = null;
   if (m === 'skill') {
-    if (!ws) return needWs();
-    menu = null;
-    sub = null;
+    closeSheet();
     openSkills(ctx);
     renderAll();
     return;
   }
-  if (!ws && (m === 'hr' || m === 'scm')) return needWs();
-  closePop();
-  if (menu === m) {
-    menu = null;
-    sub = null;
-  } else {
-    menu = m;
-    sub = null;
-  }
-  if (placing && !placing.move && sub !== 'build') placing = null;
+  const first = SUBS[m].find((x) => !(x.needs === 'workshop' && !ws)) ?? SUBS[m][0];
+  openSub(first);
+}
+
+/** サブタブ：画面を切り替える（下の帯は出したまま） */
+function openSub(x: Sub) {
+  if (x.needs === 'workshop' && !myWorkshop(s)) return needWs();
+  sub = x.key;
+  if (x.key !== 'build' && placing && !placing.move) placing = null;
+  closeSheet();
+  x.go();
   renderAll();
 }
 
-function toggleSub(k: string) {
-  sub = sub === k ? null : k;
-  if (sub !== 'build') placing = null;
+function closeMenu() {
+  menu = null;
+  sub = null;
+  if (placing && !placing.move) placing = null;
+  closeSheet();
   renderAll();
 }
 
@@ -336,19 +357,15 @@ function renderFoot() {
   tabBtns.skill.classList.toggle('is-off', !ws);
   const ready = MISSIONS.some((m) => s.missions[m.id] === 'done');
   tabBtns.mkt.classList.toggle('has-dot', ready);
-  panel.hidden = !menu || !!placing?.move;
-  if (!menu) return;
+  panel.hidden = !menu || menu === 'skill' || !!placing?.move;
+  if (!menu || menu === 'skill') return;
   subRow.replaceChildren(
     ...SUBS[menu as Exclude<Menu, 'skill'>].map((x) => {
       const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''}`);
       b.type = 'button';
       b.append(h('b', '', x.name), h('small', '', x.note));
       if (x.key === 'missions' && ready) b.classList.add('has-dot');
-      b.addEventListener('click', () => {
-        if (x.needs === 'workshop' && !ws) return needWs();
-        x.go();
-        if (x.key !== 'build') renderAll();
-      });
+      b.addEventListener('click', () => openSub(x));
       return b;
     }),
   );
@@ -682,6 +699,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (sh && !sh.shelves[0]) return { text: t(`お店で、主力商品を「${rec}」に、店員を決めましょう。販売は INT の高い MCHタクティシャンが得意です。`, `In the shop, set ${rec} as the main product and choose a clerk. MCH Tactician, with high INT, sells best.`), action: [t('お店を開く', 'Open shop'), () => shop && openShop(ctx, shop.uid)] };
   const closed = myShops(s).find((b) => s.shops[b.uid].staff == null && s.shops[b.uid].part === 0);
   if (closed) return { text: t(`${DEF[closed.id].name}に店員がいないので休業中です。店員かアルバイトを決めましょう。販売は INT の高いヒーローが得意です。`, `${DEF[closed.id].name} is closed: nobody on the floor. Choose a clerk or part-timer. High-INT heroes sell best.`), action: [t('お店を開く', 'Open shop'), () => openShop(ctx, closed.uid)] };
+  if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t('工房の物置（60 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。', 'The workshop stockroom (60) is full: you can’t buy materials or store goods. Build a warehouse under Build.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (MISSIONS.some((m) => s.missions[m.id] === 'done')) return { text: t('依頼を達成しました！「マーケティング」→「依頼」で報酬を受け取りましょう。', 'You completed a request! Claim the reward under Marketing → Requests.'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
   if (!s.reports.length) return { text: t('準備ができました！お店を開いた日から 1 か月ごとに売上を締めます。流れが詰まっていないかは「SCM」→「サプライチェーン」で確かめられます。', 'All set! Sales close every month from the day your shop opened. Check for bottlenecks under SCM → Supply chain.'), action: [t('サプライチェーンを見る', 'Open supply chain'), () => openSupply(ctx)] };
   // 1 か月たってから
@@ -826,6 +844,9 @@ function openTest() {
 
 function layout() {
   const top = hud.getBoundingClientRect().bottom + 8;
+  // 画面（札）は上の帯の下から下の帯の上まで。まわりに地図が少し見える
+  root.style.setProperty('--hud-h', `${Math.round(top)}px`);
+  root.style.setProperty('--foot-h', `${Math.round(innerHeight - foot.getBoundingClientRect().top)}px`);
   const bottom = innerHeight - foot.getBoundingClientRect().top + 8;
   advisor.style.bottom = `${bottom}px`;
   toasts.style.top = `${placing ? selBox.getBoundingClientRect().bottom + 8 : top}px`;
@@ -965,6 +986,68 @@ addEventListener('visibilitychange', () => {
 
 const DAY_MS = 600;
 let acc = 0;
+
+// ---------------------------------------------------------------- 地図の上の動き（サイクルを見せる）
+
+const anim = newAnim();
+const pathCache = new Map<string, [number, number][] | null>();
+function pathOf(a: [number, number], b: [number, number]) {
+  const k = `${a}|${b}|${s.seed}`;
+  if (!pathCache.has(k)) pathCache.set(k, roadPath(s, a, b));
+  return pathCache.get(k) ?? null;
+}
+/** お客さんになるヒーロー（Common） */
+const GUESTS = [1001, 1002, 1003, 1005, 1006, 1008, 1009, 1011, 1013, 1014, 1016, 1018].filter((id) => heroById.has(id));
+
+/** 売れたら、近くの家からお客さんが歩いてきて、着いたら売上が浮かぶ */
+function spawnCustomers(sales: { uid: number; yen: number }[]) {
+  sales.forEach((x, k) => {
+    const shop = s.buildings.find((b) => b.uid === x.uid);
+    const homes = s.buildings.filter((b) => b.owner === 'town' && DEF[b.id].cat === 'home');
+    let path: [number, number][] | null = null;
+    if (shop && homes.length && anim.walkers.length < 40) {
+      const near = [...homes].sort((a, b) => Math.abs(a.i - shop.i) + Math.abs(a.j - shop.j) - (Math.abs(b.i - shop.i) + Math.abs(b.j - shop.j))).slice(0, 10);
+      const home = near[Math.floor(Math.random() * near.length)];
+      path = pathOf(doorOf(home), doorOf(shop));
+    }
+    if (!path || path.length < 2) {
+      addCoin(x.uid, x.yen, anim.clock);
+      return;
+    }
+    anim.walkers.push({ hero: GUESTS[Math.floor(Math.random() * GUESTS.length)] ?? 1001, path, t0: anim.clock + k * 260, dur: Math.max(900, path.length * 190), uid: x.uid, yen: x.yen });
+  });
+}
+function addCoin(uid: number, yen: number, t: number) {
+  const list = anim.coins.get(uid) ?? [];
+  list.push({ yen, t });
+  while (list.length > 12) list.shift();
+  anim.coins.set(uid, list);
+  sound.play('sale', 0.35);
+}
+/** 時計を進めて、着いたお客さんの売上を出す */
+function tickAnim(dtGame: number) {
+  anim.clock += dtGame;
+  for (const w of anim.walkers) {
+    if (!w.done && anim.clock >= w.t0 + w.dur) {
+      w.done = true;
+      if (w.uid != null && w.yen != null) addCoin(w.uid, w.yen, anim.clock);
+    }
+  }
+  anim.walkers = anim.walkers.filter((w: Walker) => !w.done);
+  anim.plus = anim.plus.filter((p) => anim.clock - p.t < 1500);
+  // 調達係：往復の進み
+  const trip = s.buyTrip;
+  const ws = myWorkshop(s);
+  const wh = wholesaler(s);
+  if (trip && ws && wh) {
+    const path = pathOf(doorOf(ws), doorOf(wh));
+    const k = Math.max(0, Math.min(1, (trip.total - trip.left + acc / DAY_MS) / trip.total));
+    const carry = (Object.keys(trip.cargo)[0] ?? null) as Mat | null;
+    anim.buyer = path ? { hero: trip.hero, path, k, carry } : null;
+  } else anim.buyer = null;
+}
+const animating = () => anim.walkers.length > 0 || !!anim.buyer || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
+let lastDraw = 0;
 let last = performance.now();
 let lastWater = -1;
 
@@ -979,6 +1062,9 @@ function advance(days: number) {
       sound.play('rare');
     }
     if (r.crafted.length) sound.play('craft', 0.7);
+    const wsb = myWorkshop(s);
+    if (wsb) for (const m of r.made) anim.plus.push({ uid: wsb.uid, n: m.n, t: anim.clock });
+    if (r.sales.length) spawnCustomers(r.sales);
     if (r.missions.length) sound.play('buff');
     if (r.procLv) {
       toast(t(`調達ランクが Lv.${r.procLv} に上がりました`, `Buying rank is now Lv.${r.procLv}`));
@@ -1039,6 +1125,9 @@ function frame(now: number) {
     statDate.classList.toggle('is-held', held);
   }
   if (!held) acc += dt * speed;
+  if (!held && speed > 0) tickAnim(dt * speed);
+  anim.frac = held || speed === 0 ? anim.frac : Math.min(1, acc / DAY_MS);
+  anim.speed = speed || 1;
   let changed = false;
   while (acc >= DAY_MS && speed > 0) {
     acc -= DAY_MS;
@@ -1067,11 +1156,14 @@ function frame(now: number) {
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
   const wf = waterFrame(now);
   if (changed || fx.length || wf !== lastWater || loading()) dirty = true;
+  // 動いているものがあるときは、30 コマ/秒ほどで描き直す
+  if (!held && speed > 0 && now - lastDraw > 33 && animating()) dirty = true;
   lastWater = wf;
   if (dirty) {
     dirty = false;
     const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr() } : null;
-    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable());
+    lastDraw = now;
+    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim);
     placePop();
     placeGhostUi();
   }

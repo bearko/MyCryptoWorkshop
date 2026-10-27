@@ -116,6 +116,8 @@ export function getExtension(id: number): Extension {
 }
 
 const facesRight = new Set<number>(content.facesRightIds);
+/** The hero's sprite faces right (most face left). */
+export const heroFacesRight = (id: number) => facesRight.has(id);
 
 const toHero = (h: (typeof raw.heroes)[number]): Hero => ({
   id: h.id,

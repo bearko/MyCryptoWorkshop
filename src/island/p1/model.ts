@@ -7,6 +7,8 @@ import { DEF } from '../defs';
 import { cells, type Dir } from '../sim';
 import {
   ADS,
+  AWARE,
+  STORE,
   DEV,
   ENTRY_AFTER,
   PROC,
@@ -99,6 +101,8 @@ export interface ShopState {
   cost: number;
   /** 先月の売上と費用 */
   last: { rev: number; cost: number } | null;
+  /** 認知度（0.2〜1）。開店したてのお店は知られていないので売れにくい */
+  aw?: number;
 }
 
 export interface Trip {
@@ -199,6 +203,15 @@ export interface P1State {
   /** 工房の稼働（作業台×日のうち、動いていた数）。今月と先月 */
   util: { work: number; cap: number };
   utilLast: { work: number; cap: number } | null;
+  /** 調達係の買い付け：工房から卸問屋へ行って帰る（帰ると素材が届く） */
+  buyTrip: BuyTrip | null;
+}
+
+export interface BuyTrip {
+  hero: number;
+  left: number;
+  total: number;
+  cargo: Partial<Record<Mat, number>>;
 }
 
 export interface Proc {
@@ -299,7 +312,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
 }
 
 /** フェーズ 1 のあとから足した項目の初期値（古いセーブにも足す） */
-function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' | 'rivalLast' | 'missions' | 'monthUnits' | 'unitsU' | 'ws' | 'proc' | 'matUsed' | 'matUsedLast' | 'util' | 'utilLast'> {
+function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' | 'rivalLast' | 'missions' | 'monthUnits' | 'unitsU' | 'ws' | 'proc' | 'matUsed' | 'matUsedLast' | 'util' | 'utilLast' | 'buyTrip'> {
   return {
     dev: [],
     lab: null,
@@ -316,6 +329,7 @@ function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' |
     matUsedLast: null,
     util: { work: 0, cap: 0 },
     utilLast: null,
+    buyTrip: null,
   };
 }
 
@@ -341,6 +355,7 @@ function populate(s: P1State) {
   placeTown(s, 'station', r, 'town', [7, 1]);
   placeTown(s, 'park', r, 'town', [9, 9]);
   placeTown(s, 'police', r, 'town', [13, 4]);
+  placeTown(s, 'wholesale', r, 'town', [1, 14]);
   const near: [number, number][] = [[4, 4], [10, 5], [5, 10], [10, 10]];
   RIVALS.forEach((rv, k) => placeTown(s, rv.store, r, rv.id, near[k]));
   const homes = ['house', 'cottage', 'garage_house', 'japanese_house', 'apartment', 'manor'];
@@ -447,7 +462,7 @@ export function canBuild(s: P1State, id: string): PlaceErr | null {
   if (b.soon) return 'soon';
   if (b.requires && !has(s, b.requires)) return 'locked';
   if (b.kind === 'workshop' && s.buildings.some((x) => x.owner === 'me' && x.id === 'workshop')) return 'limit';
-  if (b.kind === 'shop' && !s.buildings.some((x) => x.owner === 'me' && x.id === 'workshop')) return 'locked';
+  if (b.kind !== 'workshop' && !s.buildings.some((x) => x.owner === 'me' && x.id === 'workshop')) return 'locked';
   if (s.money < b.cost) return 'money';
   return null;
 }
@@ -573,7 +588,50 @@ export function invest(s: P1State, uid: number, id: string): string | null {
   return null;
 }
 
-export const storageCap = (b: PBuilding) => SHOP.storageCap + 100 * invLv(b, 'backroom');
+export const storageCap = (b: PBuilding) => SHOP.storageCap + 20 * invLv(b, 'backroom');
+
+// ---------------------------------------------------------------- 保管（工房の物置と倉庫）
+
+export const myWarehouses = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && b.id === 'warehouse' && b.left <= 0);
+/** 素材と、お店へ運ぶ前の商品を置ける数の合計 */
+export const poolCap = (s: P1State) => STORE.base + STORE.warehouse * myWarehouses(s).length;
+const sum = (o: Partial<Record<string, number>>) => Object.values(o).reduce<number>((a, n) => a + (n ?? 0), 0);
+/** いま置いている数（買い付けて運んでいる素材も含む） */
+export const poolUsed = (s: P1State) => sum(s.mats) + sum(s.stock) + (s.buyTrip ? sum(s.buyTrip.cargo) : 0);
+export const poolFree = (s: P1State) => Math.max(0, poolCap(s) - poolUsed(s));
+
+/** 区画の道路を通る道のり（入口の前のマスから入口の前のマスまで。見つからなければ null） */
+export function roadPath(s: P1State, from: [number, number], to: [number, number]): [number, number][] | null {
+  const key = (i: number, j: number) => j * s.n + i;
+  const prev = new Map<number, number>();
+  const q: [number, number][] = [from];
+  prev.set(key(...from), -1);
+  while (q.length) {
+    const [i, j] = q.shift()!;
+    if (i === to[0] && j === to[1]) {
+      const out: [number, number][] = [];
+      let k = key(i, j);
+      while (k !== -1) {
+        out.unshift([k % s.n, Math.floor(k / s.n)]);
+        k = prev.get(k)!;
+      }
+      return out;
+    }
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di;
+      const nj = j + dj;
+      if (!isRoad(s, ni, nj) || prev.has(key(ni, nj))) continue;
+      prev.set(key(ni, nj), key(i, j));
+      q.push([ni, nj]);
+    }
+  }
+  return null;
+}
+/** 建物の入口の前の道路のマス */
+export function doorOf(b: PBuilding): [number, number] {
+  return frontCells(b.id, b.i, b.j, b.dir)[0] ?? [b.i, b.j];
+}
+export const wholesaler = (s: P1State) => s.buildings.find((b) => b.id === 'wholesale') ?? null;
 
 export const myWorkshop = (s: P1State) => s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0) ?? null;
 export const myShops = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop' && b.left <= 0);
@@ -586,7 +644,7 @@ function syncSlots(s: P1State) {
   while (myWorkshop(s) && s.slots.length < benchCount(s)) s.slots.push({ sku: null, worker: null, progress: 0, running: false, repeat: true });
 }
 function syncShop(s: P1State, b: PBuilding) {
-  const sh = (s.shops[b.uid] ??= { uid: b.uid, shelves: [], staff: null, part: 0, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0, cost: 0, last: null });
+  const sh = (s.shops[b.uid] ??= { uid: b.uid, shelves: [], staff: null, part: 0, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0, cost: 0, last: null, aw: AWARE.start });
   while (sh.shelves.length < shelfCount(s, b.id)) sh.shelves.push(null);
 }
 
@@ -616,6 +674,7 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   if (!s.routes.includes(m)) return 'route';
   if (qty <= 0) return null;
   if (qty > procLeft(s)) return 'cap';
+  if (qty > poolFree(s)) return 'storage';
   const cost = matPrice(s, m) * qty;
   if (cost > s.money) return 'money';
   s.money -= cost;
@@ -714,6 +773,9 @@ export function craftCheck(s: P1State, x: Sku, worker: number | null): string | 
     if (!st || aptitude(st.stats, 'craft') < UNCOMMON.minCraft) return 'skill';
   }
   for (const [m, q] of Object.entries(recipeOf(x))) if ((s.mats[m as Mat] ?? 0) < (q ?? 0)) return 'mats';
+  // できた商品を置く場所（素材を使ったぶんは空く）
+  const freed = Object.values(recipeOf(x)).reduce<number>((a, q) => a + (q ?? 0), 0);
+  if (poolUsed(s) - freed + batchOf(x) > poolCap(s)) return 'full';
   return null;
 }
 
@@ -787,7 +849,7 @@ function missionMet(s: P1State, id: string): boolean {
     case 'first_sale':
       return Object.values(s.monthUnits).some((n) => (n ?? 0) > 0) || s.reports.some((r) => r.revenue > 0);
     case 'sensu100':
-      return (s.monthUnits.Sensu ?? 0) >= 100;
+      return (s.monthUnits.Sensu ?? 0) >= 15;
     case 'ad':
       return ADS.some((a) => (s.ads[a.id] ?? 0) > 0);
     case 'two_shops':
@@ -795,9 +857,9 @@ function missionMet(s: P1State, id: string): boolean {
     case 'research':
       return Object.keys(s.intel).some((r) => intelLv(s, r) >= 1);
     case 'lantern50':
-      return (s.monthUnits.Lantern ?? 0) >= 50;
+      return (s.monthUnits.Lantern ?? 0) >= 10;
     case 'uncommon':
-      return s.unitsU >= 10;
+      return s.unitsU >= 5;
     case 'rank3':
       return s.reports.some((r) => r.rank <= 3);
   }
@@ -879,11 +941,17 @@ export interface DayResult {
   developed: string[];
   /** 調達ランクが上がった */
   procLv?: number;
+  /** 調達係が持ち帰った素材 */
+  arrived?: Partial<Record<Mat, number>>;
+  /** 1 ロットできた（作業台の番号と数） */
+  made: { slot: number; sku: Sku; n: number }[];
+  /** 売れた（お店と金額。1 個ずつ） */
+  sales: { uid: number; yen: number; sku: Sku }[];
 }
 
 export function step(s: P1State): DayResult {
   s.day++;
-  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null, missions: [], intel: [], developed: [] };
+  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null, missions: [], intel: [], developed: [], made: [], sales: [] };
 
   // 工事
   for (const b of s.buildings) {
@@ -907,29 +975,54 @@ export function step(s: P1State): DayResult {
   const shops = myShops(s);
   const working = new Set<number>();
 
-  // 調達：調達係がいれば、月の量を 30 日に分けて毎日買う（月の上限と資金の中で）
-  const buyers = s.staff.filter((x) => x.task === 'buy' && !x.resting);
-  if (buyers.length) {
-    const gain = buyers.reduce((a, x) => a + speed(x, 'buy'), 0);
-    let any = false;
-    for (const { m } of procMats(s)) {
-      const want = procQty(s, m) / DAYS + (s.proc.carry[m] ?? 0);
-      let n = Math.floor(want);
-      s.proc.carry[m] = want - n;
-      n = Math.min(n, procLeft(s), Math.floor(s.money / Math.max(1, matPrice(s, m))));
-      if (n > 0) {
-        const lv = s.proc.lv;
-        buy(s, m, n, gain);
-        any = true;
+  // 調達：調達係が工房から卸問屋まで歩いて行き、往復のあいだに要る量を買って帰る（月の上限・資金・置き場所の中で）
+  const ws0 = myWorkshop(s);
+  const shopB = wholesaler(s);
+  if (s.buyTrip) {
+    const st = staffOf(s, s.buyTrip.hero);
+    if (st && !st.resting) {
+      working.add(st.hero);
+      s.buyTrip.left -= 1;
+    }
+    if (s.buyTrip.left <= 0 || !st || st.task !== 'buy') {
+      // 帰ってきた（途中で外されたときも、買った素材は届ける）
+      for (const [m, n] of Object.entries(s.buyTrip.cargo)) s.mats[m as Mat] = (s.mats[m as Mat] ?? 0) + (n ?? 0);
+      res.arrived = { ...s.buyTrip.cargo };
+      s.buyTrip = null;
+    }
+  } else if (ws0 && shopB) {
+    const st = s.staff.find((x) => x.task === 'buy' && !x.resting);
+    const path = st ? roadPath(s, doorOf(ws0), doorOf(shopB)) : null;
+    if (st && path) {
+      const sp = speed(st, 'buy');
+      const days = Math.max(2, Math.round(((path.length * 2) / TRANSPORT.cellsPerDay) / sp));
+      // 往復の日数ぶん（＋端数の持ち越し）を、月の量から買う
+      const cargo: Partial<Record<Mat, number>> = {};
+      const lv = s.proc.lv;
+      let free = poolFree(s);
+      for (const { m } of procMats(s)) {
+        const want = (procQty(s, m) / DAYS) * days + (s.proc.carry[m] ?? 0);
+        let n = Math.floor(want);
+        s.proc.carry[m] = want - n;
+        n = Math.min(n, procLeft(s), free, Math.floor(s.money / Math.max(1, matPrice(s, m))));
+        if (n <= 0) continue;
+        if (buy(s, m, n, sp)) continue;
+        free -= n;
+        // buy() は手元に足すので、運んでいる荷物に移す
+        s.mats[m] = (s.mats[m] ?? 0) - n;
+        cargo[m] = n;
+      }
+      if (Object.keys(cargo).length) {
+        s.buyTrip = { hero: st.hero, left: days, total: days, cargo };
+        working.add(st.hero);
         if (s.proc.lv > lv) res.procLv = s.proc.lv;
       }
     }
-    if (any) for (const x of buyers) working.add(x.hero);
   }
 
   // クラフト
   if (ws) s.util.cap += s.slots.length;
-  s.slots.forEach((sl) => {
+  s.slots.forEach((sl, slotIdx) => {
     const st = sl.worker != null ? staffOf(s, sl.worker) : null;
     if (!sl.running && sl.repeat && sl.sku && st && !st.resting && !craftCheck(s, sl.sku, sl.worker)) {
       consume(s, sl.sku);
@@ -945,6 +1038,7 @@ export function step(s: P1State): DayResult {
       s.ws.made += batchOf(sl.sku);
       s.ws.value += batchOf(sl.sku) * skuPrice(sl.sku);
       res.crafted.push(sl.sku);
+      res.made.push({ slot: slotIdx, sku: sl.sku, n: batchOf(sl.sku) });
       sl.running = false;
       sl.progress = 0;
     }
@@ -1050,6 +1144,7 @@ export function step(s: P1State): DayResult {
       }
     }
     const open = (st && !st.resting) || sh.part > 0;
+    if (open) sh.aw = Math.min(1, (sh.aw ?? 1) + AWARE.perDay);
     const empty = sh.shelves.some((x) => x && (sh.shelf[x] ?? 0) <= 0);
     if (open) sh.sat = empty ? Math.max(0.5, sh.sat - 0.01) : Math.min(1, sh.sat + 0.02);
     s.monthCost.part += sh.part * SHOP.partTimeWage;
@@ -1072,7 +1167,8 @@ export function step(s: P1State): DayResult {
     const total = mine + rivals;
     if (total <= 0) continue;
     for (const o of offers) {
-      const want = (daily * o.w) / total + (o.sh.carry[o.x] ?? 0);
+      // 新しいお店は知られていないぶん売れにくい（認知度）
+      const want = ((daily * o.w) / total) * (o.sh.aw ?? 1) + (o.sh.carry[o.x] ?? 0);
       const sold = Math.min(Math.floor(want), o.sh.shelf[o.x] ?? 0);
       o.sh.carry[o.x] = Math.min(1, want - sold);
       o.sh.shelf[o.x] = (o.sh.shelf[o.x] ?? 0) - sold;
@@ -1081,6 +1177,7 @@ export function step(s: P1State): DayResult {
       s.monthSales[p.key] = (s.monthSales[p.key] ?? 0) + yen;
       o.sh.rev += yen;
       o.sh.cost += sold * unitCost(s, o.x);
+      for (let k = 0; k < sold; k++) res.sales.push({ uid: o.b.uid, yen: skuPrice(o.x), sku: o.x });
       s.monthUnits[p.key] = (s.monthUnits[p.key] ?? 0) + sold;
       if (skuParts(o.x)[1] === 'U') s.unitsU += sold;
     }
@@ -1243,6 +1340,8 @@ export function deserializeP1(json: string): P1State | null {
     for (let j = 0; j < o.n; j++) for (let i = 0; i < o.n; i++) g.push(ROAD_LINES.includes(i) || ROAD_LINES.includes(j) ? 'road' : 'grass');
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
+    // 以前のセーブ：卸問屋が無ければ建てておく
+    if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに
     if (!(o as Partial<P1State>).dev && s.skills.includes('pot')) s.dev = PRODUCTS.map((p) => p.key);
     s.monthCost.ads ??= 0;
@@ -1258,7 +1357,7 @@ export function deserializeP1(json: string): P1State | null {
 
 // ---------------------------------------------------------------- 地図の吹き出し（自社の施設）
 
-export type Stop = 'noCrafter' | 'crafterRest' | 'noItem' | 'noMats' | 'noHauler' | 'noProduct' | 'noClerk' | 'clerkRest' | 'soldOut';
+export type Stop = 'noCrafter' | 'crafterRest' | 'noItem' | 'noMats' | 'full' | 'noHauler' | 'noProduct' | 'noClerk' | 'clerkRest' | 'soldOut';
 /** 施設のようす：動いているなら作っている／売っている商品、止まっているなら理由（error＝止まっている、warn＝流れが詰まりかけ） */
 export type FacilityStatus = { kind: 'craft' | 'sell'; items: Sku[] } | { level: 'error' | 'warn'; stop: Stop };
 
@@ -1276,7 +1375,9 @@ export function facilityStatus(s: P1State, b: PBuilding): FacilityStatus | null 
       if (!sl || sl.worker == null) return { level: 'error', stop: 'noCrafter' };
       if (staffOf(s, sl.worker)?.resting) return { level: 'error', stop: 'crafterRest' };
       if (!sl.sku) return { level: 'error', stop: 'noItem' };
-      if (craftCheck(s, sl.sku, sl.worker) === 'mats') return { level: 'error', stop: 'noMats' };
+      const why = craftCheck(s, sl.sku, sl.worker);
+      if (why === 'mats') return { level: 'error', stop: 'noMats' };
+      if (why === 'full') return { level: 'error', stop: 'full' };
       return { level: 'error', stop: 'noItem' };
     }
     const stock = Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0);

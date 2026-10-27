@@ -17,16 +17,16 @@ export interface MatDef {
 }
 
 export const MATS: Record<Mat, MatDef> = {
-  iron: { name: t('鉄', 'Iron'), price: 30, open: true, exploreDays: 0 },
-  wood: { name: t('木材', 'Wood'), price: 12, open: true, exploreDays: 0 },
-  clay: { name: t('粘土', 'Clay'), price: 10, open: true, exploreDays: 0 },
-  glass: { name: t('ガラス', 'Glass'), price: 25, open: true, exploreDays: 0 },
-  cloth: { name: t('布', 'Cloth'), price: 35, open: false, exploreDays: 10 },
-  paper: { name: t('紙', 'Paper'), price: 20, open: false, exploreDays: 10 },
+  iron: { name: t('鉄', 'Iron'), price: 150, open: true, exploreDays: 0 },
+  wood: { name: t('木材', 'Wood'), price: 60, open: true, exploreDays: 0 },
+  clay: { name: t('粘土', 'Clay'), price: 50, open: true, exploreDays: 0 },
+  glass: { name: t('ガラス', 'Glass'), price: 600, open: true, exploreDays: 0 },
+  cloth: { name: t('布', 'Cloth'), price: 180, open: false, exploreDays: 10 },
+  paper: { name: t('紙', 'Paper'), price: 100, open: false, exploreDays: 10 },
   gem: { name: t('宝石', 'Gems'), price: 120, open: false, exploreDays: 20 },
 };
 
-export const START_MATS: Partial<Record<Mat, number>> = { iron: 20, wood: 40, clay: 20, glass: 15 };
+export const START_MATS: Partial<Record<Mat, number>> = { iron: 10, wood: 24, clay: 12, glass: 9 };
 
 export type Rar = 'C' | 'U';
 
@@ -37,21 +37,21 @@ export interface ProductDef {
   /** Common と Uncommon のエクステの id（絵と名前） */
   ext: Record<Rar, number>;
   price: number;
-  /** 1 回のクラフトでできる数（Common。Uncommon はその半分） */
+  /** 1 回のクラフト（1 ロット）でできる数（Common。Uncommon はその半分） */
   batch: number;
   /** クラフトの日数（製造の適性 1.0 のとき） */
   days: number;
   recipe: Record<Rar, Partial<Record<Mat, number>>>;
-  /** エリアの月の需要（個） */
+  /** エリアの月の需要（個）。新しいお店は認知度のぶんしか売れない */
   demand: number;
 }
 
 export const PRODUCTS: ProductDef[] = [
-  { key: 'Sensu', name: t('センス', 'Sensu'), ext: { C: 1032, U: 2032 }, price: 90, batch: 20, days: 2, recipe: { C: { wood: 3 }, U: { wood: 3, paper: 2 } }, demand: 260 },
-  { key: 'Mallet', name: t('マレット', 'Mallet'), ext: { C: 1073, U: 2073 }, price: 110, batch: 20, days: 3, recipe: { C: { wood: 2, iron: 1 }, U: { wood: 2, iron: 2, gem: 1 } }, demand: 120 },
-  { key: 'Node-Doll', name: t('ノード・ドール', 'Node-Doll'), ext: { C: 1107, U: 2107 }, price: 140, batch: 20, days: 3, recipe: { C: { clay: 3, glass: 1 }, U: { clay: 3, cloth: 2 } }, demand: 90 },
-  { key: 'Lantern', name: t('ランタン', 'Lantern'), ext: { C: 1150, U: 2150 }, price: 130, batch: 20, days: 3, recipe: { C: { iron: 1, glass: 2 }, U: { iron: 2, glass: 2, gem: 1 } }, demand: 300 },
-  { key: 'Scissors', name: t('鋏', 'Scissors'), ext: { C: 1171, U: 2171 }, price: 100, batch: 20, days: 2, recipe: { C: { iron: 3 }, U: { iron: 3, gem: 1 } }, demand: 220 },
+  { key: 'Sensu', name: t('センス', 'Sensu'), ext: { C: 1032, U: 2032 }, price: 900, batch: 4, days: 3, recipe: { C: { wood: 6 }, U: { wood: 6, paper: 4 } }, demand: 20 },
+  { key: 'Mallet', name: t('マレット', 'Mallet'), ext: { C: 1073, U: 2073 }, price: 1100, batch: 4, days: 4, recipe: { C: { wood: 4, iron: 2 }, U: { wood: 4, iron: 4, gem: 1 } }, demand: 12 },
+  { key: 'Node-Doll', name: t('ノード・ドール', 'Node-Doll'), ext: { C: 1107, U: 2107 }, price: 1400, batch: 3, days: 4, recipe: { C: { clay: 6, glass: 1 }, U: { clay: 6, cloth: 4 } }, demand: 8 },
+  { key: 'Lantern', name: t('ランタン', 'Lantern'), ext: { C: 1150, U: 2150 }, price: 1300, batch: 4, days: 4, recipe: { C: { iron: 2, glass: 3 }, U: { iron: 4, glass: 4, gem: 1 } }, demand: 30 },
+  { key: 'Scissors', name: t('鋏', 'Scissors'), ext: { C: 1171, U: 2171 }, price: 1000, batch: 4, days: 3, recipe: { C: { iron: 5 }, U: { iron: 5, gem: 1 } }, demand: 22 },
 ];
 export const PRODUCT: Record<string, ProductDef> = Object.fromEntries(PRODUCTS.map((p) => [p.key, p]));
 
@@ -83,21 +83,21 @@ export interface RivalDef {
 }
 
 export const RIVALS: RivalDef[] = [
-  { id: 'lamp', name: t('ランタン堂', 'Lantern House'), sells: { Lantern: 1.6, Scissors: 1.5 }, base: 10000, store: 'import', margin: 0.18 },
+  { id: 'lamp', name: t('ランタン堂', 'Lantern House'), sells: { Lantern: 1.6, Scissors: 1.5 }, base: 7000, store: 'import', margin: 0.18 },
   { id: 'kane', name: t('カネモノ商会', 'Kanemono Trading'), sells: { Lantern: 1, Mallet: 1 }, base: 9000, store: 'general_store', margin: 0.12 },
   { id: 'hibana', name: t('ヒバナ雑貨', 'Hibana Goods'), sells: { Scissors: 1, 'Node-Doll': 1 }, base: 8000, store: 'greengrocer', margin: 0.15 },
   { id: 'marumi', name: t('マルミ商店', 'Marumi Store'), sells: { Lantern: 1 }, base: 6000, store: 'watch', margin: 0.08 },
 ];
 
 /** ライバルが月ごとに強くなる割合と、自社が独り占めしている商品に新しく参入するまでの月数 */
-export const RIVAL_GROWTH = 0.01;
+export const RIVAL_GROWTH = 0.005;
 export const ENTRY_AFTER = 4;
 
 // ---------------------------------------------------------------- 建てられる建物
 
 export interface P1Building {
   id: string;
-  kind: 'workshop' | 'shop' | 'food';
+  kind: 'workshop' | 'shop' | 'food' | 'warehouse';
   cost: number;
   days: number;
   upkeep: number;
@@ -114,6 +114,7 @@ export interface P1Building {
 export const P1_BUILDINGS: P1Building[] = [
   { id: 'workshop', kind: 'workshop', cost: 0, days: 4, upkeep: 800 },
   { id: 'general_store', kind: 'shop', cost: 3000, days: 5, upkeep: 1200, shelves: 1, pull: 1 },
+  { id: 'warehouse', kind: 'warehouse', cost: 4000, days: 5, upkeep: 600 },
   { id: 'import', kind: 'shop', cost: 8000, days: 8, upkeep: 2000, shelves: 2, pull: 1.15, requires: 'shop2' },
   { id: 'boutique', kind: 'shop', cost: 15000, days: 10, upkeep: 3200, shelves: 2, pull: 1.35, requires: 'shop3' },
   { id: 'ramen', kind: 'food', cost: 1800, days: 6, upkeep: 300, soon: true },
@@ -164,12 +165,16 @@ export const START_STAFF = [10001, 10002, 10003];
 /** 1 日働くとスタミナが減る量と、休むと戻る量 */
 export const STAMINA = { work: 10, rest: 30, tired: 0.15, back: 0.8 };
 /** 雇ったヒーローの月給（基準）。能力の合計に比例 */
-export const WAGE_PER_STAT = 6;
+export const WAGE_PER_STAT = 3;
 
 // ---------------------------------------------------------------- 運搬・お店
 
-export const TRANSPORT = { cap: 20, cellsPerDay: 8 };
-export const SHOP = { shelfCap: 30, storageCap: 200, displayPerDay: 15, partTimeDisplay: 8, partTimeWage: 60, partTimeMax: 1, noStaff: 0 };
+export const TRANSPORT = { cap: 10, cellsPerDay: 8 };
+export const SHOP = { shelfCap: 10, storageCap: 20, displayPerDay: 6, partTimeDisplay: 4, partTimeWage: 30, partTimeMax: 1, noStaff: 0 };
+/** 新しいお店の認知度：開店した日は 0.2、1 日 0.02 ずつ上がって 1 まで（売れる数にかかる） */
+export const AWARE = { start: 0.2, perDay: 0.02 };
+/** 保管：工房の物置（素材と、運ぶ前の商品の合計）と、倉庫 1 つで増える数。いっぱいだと調達もクラフトもできない */
+export const STORE = { base: 60, warehouse: 200 };
 
 // ---------------------------------------------------------------- スキルツリー
 
@@ -254,7 +259,7 @@ export interface Invest {
 export const INVESTS: Invest[] = [
   { id: 'sign', kind: 'shop', name: t('看板を出す', 'Signboard'), note: t('このお店の売り場の強さ +10%（1 段ごと）', 'This shop’s pull +10% per level'), cost: [2000, 4000, 8000] },
   { id: 'fixtures', kind: 'shop', name: t('陳列の什器', 'Display fixtures'), note: t('棚に並べる速さ +30%（1 段ごと）', 'Shelving speed +30% per level'), cost: [2500, 5000] },
-  { id: 'backroom', kind: 'shop', name: t('裏の倉庫を広げる', 'Bigger backroom'), note: t('裏に置ける数 +100（1 段ごと）', 'Backroom +100 per level'), cost: [1500, 3000] },
+  { id: 'backroom', kind: 'shop', name: t('裏の倉庫を広げる', 'Bigger backroom'), note: t('裏に置ける数 +20（1 段ごと）', 'Backroom +20 per level'), cost: [1500, 3000] },
   { id: 'tools', kind: 'workshop', name: t('道具の新調', 'New tools'), note: t('クラフトの日数 −10%（1 段ごと）', 'Crafting −10% days per level'), cost: [3000, 6000, 12000] },
   { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
 ];
@@ -266,7 +271,7 @@ export const MOVE = { rate: 0.5, min: 2000, days: 0.5, refund: 0.3 };
 // ---------------------------------------------------------------- 商品開発・宣伝・調査・依頼・給与
 
 /** アンコモンの開発：値段は Common の値段 × 40、10 日（「魔法の釜」が要る） */
-export const DEV = { rate: 40, days: 10 };
+export const DEV = { rate: 4, days: 10 };
 
 export interface Ad {
   id: string;
@@ -294,12 +299,12 @@ export interface Mission {
 }
 export const MISSIONS: Mission[] = [
   { id: 'first_sale', from: t('町内会', 'Neighborhood council'), title: t('はじめての売上', 'First sale'), text: t('お店で商品を 1 つ売る', 'Sell one item in your shop'), reward: 1000 },
-  { id: 'sensu100', from: t('近所の住民', 'A neighbor'), title: t('夏祭りにセンスを', 'Fans for the festival'), text: t('ひと月にセンスを 100 個売る', 'Sell 100 Sensu in one month'), reward: 3000 },
+  { id: 'sensu100', from: t('近所の住民', 'A neighbor'), title: t('夏祭りにセンスを', 'Fans for the festival'), text: t('ひと月にセンスを 15 個売る', 'Sell 15 Sensu in one month'), reward: 3000 },
   { id: 'ad', from: t('町内会', 'Neighborhood council'), title: t('お店を知ってほしい', 'Let people know'), text: t('宣伝広報をする', 'Run an ad'), reward: 1000 },
   { id: 'two_shops', from: t('商店会', 'Merchants’ association'), title: t('通りににぎわいを', 'Liven up the street'), text: t('お店を 2 軒にする', 'Open a second shop'), reward: 3000 },
   { id: 'research', from: t('商店会', 'Merchants’ association'), title: t('ライバルを知る', 'Know your rivals'), text: t('他社のお店を調査する', 'Research a rival store'), reward: 1500 },
-  { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 50 個売る', 'Sell 50 Lanterns in one month'), reward: 3000 },
-  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 10 個売る', 'Sell 10 Uncommons in total'), reward: 5000 },
+  { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 10 個売る', 'Sell 10 Lanterns in one month'), reward: 3000 },
+  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000 },
   { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000 },
 ];
 

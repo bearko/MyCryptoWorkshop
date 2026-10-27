@@ -68,7 +68,7 @@ export function bar(v: number, color = 'var(--isl-good)'): HTMLElement {
 }
 
 /** 下から出る大きな札（工房・お店・調達など）。閉じると消える */
-export function sheet(root: HTMLElement, title: string, onClose: () => void): { body: HTMLElement; close: () => void; el: HTMLElement } {
+export function sheet(root: HTMLElement, title: string, onClose: () => void, onUser?: () => void): { body: HTMLElement; close: () => void; el: HTMLElement } {
   const el = h('div', 'isl-sheet');
   const box = h('div', 'isl-sheet-box');
   const head = h('div', 'isl-sheet-head');
@@ -76,12 +76,17 @@ export function sheet(root: HTMLElement, title: string, onClose: () => void): { 
     el.remove();
     onClose();
   };
-  head.append(h('h2', '', title), btn('✕', close));
+  // ✕ や外側を押して閉じたとき（別の札に切り替えるときは呼ばない）
+  const userClose = () => {
+    close();
+    onUser?.();
+  };
+  head.append(h('h2', '', title), btn('✕', userClose));
   const body = h('div', 'isl-sheet-body');
   box.append(head, body);
   el.append(box);
   el.addEventListener('click', (e) => {
-    if (e.target === el) close();
+    if (e.target === el) userClose();
   });
   root.append(el);
   return { body, close, el };

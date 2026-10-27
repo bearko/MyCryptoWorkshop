@@ -118,6 +118,8 @@ const ALL: Def[] = [
   D('power', t('発電所', 'Power plant'), 'biz', { size: 2, jobs: 20, cost: 14000, days: 16, upkeep: 400, appeal: -2, boost: { industry: 0.25 }, unlock: 120 }),
   D('inn', t('旅館', 'Japanese inn'), 'biz', { jobs: 6, income: 600, kind: 'tourism', cost: 4000, days: 8, upkeep: 60, appeal: 1, unlock: 40 }),
   D('hotel', t('ホテル', 'Hotel'), 'biz', { tall: true, jobs: 20, income: 1900, kind: 'tourism', cost: 16000, days: 16, upkeep: 260, appeal: 1, unlock: 200 }),
+  D('warehouse', t('倉庫', 'Warehouse'), 'biz', { jobs: 3, cost: 4000, days: 6, upkeep: 60, unlock: 20 }),
+  D('wholesale', t('卸問屋', 'Wholesaler'), 'biz', { tall: true, jobs: 10, income: 800, kind: 'industry', cost: 8000, days: 12, upkeep: 120, unlock: 120 }),
   D('trading', t('商社', 'Trading company'), 'biz', { tall: true, jobs: 25, income: 1600, kind: 'industry', cost: 14000, days: 14, upkeep: 220, boost: { tourism: 0.1 }, unlock: 150 }),
   D('harbor', t('港と海運', 'Harbor'), 'biz', { size: 2, jobs: 25, income: 1400, kind: 'industry', cost: 11000, days: 14, upkeep: 180, boost: { immigration: 5, tourism: 0.15 }, unlock: 60, coastal: true }),
   D('survey', t('調査室', 'Survey office'), 'biz', { jobs: 6, cost: 3000, days: 6, upkeep: 60, boost: { industry: 0.05, tourism: 0.05 }, unlock: 100 }),
