@@ -2,7 +2,7 @@ import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
 export type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
-type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany';
+type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany' | 'bgmCraft';
 
 /** Loudness of each sound at the 100% setting (the final volume is this × the setting). */
 const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5, clean: 0.4, zap: 0.5 };
@@ -20,11 +20,21 @@ export class Sound {
   private lastPlayed = new Map<Se, number>();
   private unlocked = false;
 
-  /** Called on user gestures; only the first call starts the BGM (later taps must not restart it). */
+  /**
+   * Called on user gestures. Starts the BGM, and retries on later gestures while it is still paused
+   * (a phone's first touch may not count as a user activation, so play() can be refused once).
+   * A BGM that is already playing is never restarted.
+   */
   unlock(): void {
-    if (this.unlocked) return;
     this.unlocked = true;
-    if (this.bgmKey) this.playBgm(this.bgmKey, true);
+    if (!this.bgmKey || this.bgmLevel <= 0) return;
+    if (!this.bgm) this.playBgm(this.bgmKey, true);
+    else if (this.bgm.paused) void this.bgm.play().catch(() => undefined);
+  }
+
+  /** BGM が実際に鳴っているか（確認用） */
+  bgmPlaying(): boolean {
+    return !!this.bgm && !this.bgm.paused;
   }
 
   /** いま流している（流すはずの）BGM */

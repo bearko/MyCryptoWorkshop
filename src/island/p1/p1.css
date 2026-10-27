@@ -1907,3 +1907,163 @@ button.isl-ext-card {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* ================================================================ マインちゃんの会話（1 枚 1 メッセージ） */
+.isl-modal.isl-talk {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 12px calc(var(--foot-h, 0px) + 16px);
+  background: rgba(10, 14, 24, 0.5);
+  z-index: 7;
+}
+.isl-modal.isl-talk > div {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.isl-talk-stage {
+  display: flex;
+  justify-content: center;
+  animation: isl-up 0.2s ease-out;
+}
+.isl-talk-stage[hidden] {
+  display: none;
+}
+.isl-modal.isl-talk > .isl-talk-box {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 2px 10px;
+  width: min(560px, 100%);
+  min-height: 150px;
+  padding: 12px 14px 10px 6px;
+  border: 3px solid var(--isl-line);
+  border-radius: 16px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  animation: isl-up 0.16s ease-out;
+}
+.isl-talk-mine {
+  grid-row: 1 / 4;
+  align-self: end;
+  width: 92px;
+  height: 123px;
+  margin-top: -40px;
+  image-rendering: pixelated;
+}
+.isl-talk-name {
+  justify-self: start;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+  font-size: 12px;
+}
+.isl-modal .isl-talk-text {
+  margin: 4px 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.isl-em {
+  color: #c0581f;
+}
+.isl-advisor .isl-em,
+.isl-mine-tip .isl-em {
+  color: #c0581f;
+}
+.isl-talk-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.isl-talk-foot .isl-dim {
+  color: #8a7d63;
+}
+.isl-crew {
+  display: flex;
+  gap: 10px;
+}
+.isl-crew-one {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 104px;
+  padding: 8px 4px 6px;
+  border: 2px solid var(--isl-line);
+  border-radius: 14px;
+  background: #2b3b5e;
+  text-align: center;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.isl-crew-one b {
+  font-size: 12px;
+}
+.isl-crew-one small {
+  font-size: 11px;
+  color: var(--isl-gold);
+}
+.isl-crew-one.is-back {
+  opacity: 0.4;
+  transform: scale(0.92);
+}
+.isl-crew-one.is-on {
+  border-color: var(--isl-gold);
+  box-shadow: 0 0 0 3px rgba(242, 181, 68, 0.35);
+  transform: translateY(-4px);
+}
+.isl-talk-stage .isl-cycle {
+  margin: 0;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--isl-panel);
+}
+.isl-gift {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 12px 22px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 14px;
+  background: var(--isl-panel);
+  animation: isl-gift 0.5s ease-out;
+}
+.isl-gift-icon {
+  font-size: 40px;
+}
+.isl-gift small {
+  color: var(--isl-dim);
+}
+@keyframes isl-gift {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+  }
+}
+@media (max-width: 599px) {
+  .isl-modal.isl-talk > .isl-talk-box {
+    grid-template-columns: 70px 1fr;
+  }
+  .isl-talk-mine {
+    width: 70px;
+    height: 94px;
+    margin-top: -30px;
+  }
+  .isl-modal .isl-talk-text {
+    font-size: 15px;
+  }
+  .isl-crew-one {
+    width: 96px;
+  }
+}

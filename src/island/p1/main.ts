@@ -11,7 +11,7 @@ import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, skuParts, type Mat } from './data';
+import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, skuParts, STORE, type Mat } from './data';
 import {
   allowedDirs,
   build,
@@ -68,8 +68,8 @@ import {
 } from './screens';
 import { openSupply } from './scm';
 import { tileContent } from './tile';
-import { TUT, TUT_DONE, TUT_END, tutOf, type TutGo, type TutStep } from './tut';
-import { btn, h, matIcon, money, skuIcon } from './ui';
+import { TUT, TUT_DONE, TUT_END, tutOf, type TutGo, type TutPage } from './tut';
+import { btn, h, heroIcon, heroName, matIcon, money, rich, skuIcon } from './ui';
 
 const q = new URLSearchParams(location.search);
 const TEST = q.get('test') === '2';
@@ -113,10 +113,10 @@ try {
   // 既定は両方あり
 }
 sound.setVolumes(vol);
-sound.playBgm('bgmTree');
+sound.playBgm('bgmCraft');
 // ブラウザは最初の操作まで音を出せない
-addEventListener('pointerdown', () => sound.unlock(), { capture: true });
-addEventListener('keydown', () => sound.unlock(), { capture: true });
+// スマホは指を離したとき（pointerup・touchend・click）がユーザーの操作として数えられる。鳴るまで毎回試す
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) addEventListener(ev, () => sound.unlock(), { capture: true });
 
 const canvas = document.getElementById('isl-map') as HTMLCanvasElement;
 const ctx2 = canvas.getContext('2d')!;
@@ -719,8 +719,6 @@ function tutGo(go: TutGo) {
   else if (go === 'shop') {
     if (shop) openShop(ctx, shop.uid);
   } else if (go === 'staff') goSub('hr', 'staff');
-  else if (go === 'hire') goSub('hr', 'hire');
-  else if (go === 'data') goSub('mkt', 'data');
   else if (go === 'ranking') goSub('mkt', 'ranking');
   else if (go === 'buy') goSub('scm', 'buy');
   else if (go === 'scm') goSub('scm', 'flow');
@@ -760,54 +758,101 @@ function tutTick() {
   if (moved) {
     s.tut = k;
     save();
-    sound.play('helper', 0.5);
     if (sheetOpen()) refreshSheet();
   }
   if (k >= TUT.length) {
     if (!tutFree()) return;
     s.tut = TUT_DONE;
     save();
-    modal(TUT_END.title, TUT_END.body, [[t('遊びつづける', 'Keep playing'), () => ((speed = 1), renderAll()), 'is-on']], true);
+    talk(TUT_END, t('はじめる', 'Let’s go'), () => {
+      speed = 1;
+      renderAll();
+    });
     return;
   }
   const st = TUT[k];
-  // 調達係の段：雇えるように「人材の募集」を贈る
-  if (st.id === 'buyer' && !s.skills.includes('hire')) {
+  // 初売上のお祝い：ヒーローを雇えるように「人材の募集」を贈る
+  if (st.id === 'scm' && !s.skills.includes('hire')) {
     s.skills.push('hire');
     save();
   }
   if (st.intro && tutIntro !== k && tutFree()) {
     tutIntro = k;
-    showTutIntro(st, k);
+    talk(st.intro.pages, st.intro.ok, () => (st.act ? tutGo(st.act[1]) : renderAll()));
   }
 }
 
-function showTutIntro(st: TutStep, k: number) {
-  const intro = st.intro!;
-  const body = h('div');
-  body.append(h('p', '', intro.body));
-  if (intro.cycle) body.append(cycleEl());
-  const acts: [string, () => void, string?][] = [];
-  if (k === 0) {
-    acts.push([
-      intro.ok,
-      () => {
-        s.tut = 1;
-        save();
-        renderAll();
-      },
-      'is-on',
-    ]);
-    acts.push([
-      t('案内なしで遊ぶ', 'Play without the guide'),
-      () => {
-        s.tut = TUT_DONE;
-        save();
-        renderAll();
-      },
-    ]);
-  } else acts.push([intro.ok, () => (st.act ? tutGo(st.act[1]) : renderAll()), 'is-on']);
-  modal(intro.title, body, acts, true);
+/**
+ * マインちゃんの会話：1 枚 1 メッセージ。押すと次の枚、最後の枚は ok のボタン。
+ * 開いているあいだは時間が止まる（.isl-modal）。
+ */
+function talk(pages: TutPage[], ok: string, then: () => void) {
+  const m = h('div', 'isl-modal isl-talk');
+  const stage = h('div', 'isl-talk-stage');
+  const box = h('div', 'isl-talk-box');
+  const mine = h('img', 'isl-talk-mine');
+  mine.alt = '';
+  const name = h('b', 'isl-talk-name', t('マインちゃん', 'Mine-chan'));
+  const text = h('p', 'isl-talk-text');
+  const foot = h('div', 'isl-talk-foot');
+  box.append(mine, name, text, foot);
+  m.append(stage, box);
+  let k = 0;
+  const show = () => {
+    const pg = pages[k];
+    const last = k === pages.length - 1;
+    mine.src = assetUrl(last ? 'mch/Image/Characters/navi_ain_cross_01_smile.png' : 'mch/Image/Characters/navi_ain_speak_00_talk.png');
+    text.replaceChildren(rich(pg.text));
+    stage.replaceChildren();
+    if (pg.show === 'crew') stage.append(crewEl(pg.hero));
+    else if (pg.show === 'cycle') stage.append(cycleEl());
+    else if (pg.show === 'gift') stage.append(giftEl());
+    stage.hidden = !pg.show;
+    foot.replaceChildren(h('small', 'isl-dim', `${k + 1} / ${pages.length}`));
+    foot.append(
+      last
+        ? btn(ok, () => {
+            m.remove();
+            then();
+          }, 'is-on')
+        : btn(t('次へ ▶', 'Next ▶'), () => next()),
+    );
+  };
+  const next = () => {
+    if (k < pages.length - 1) {
+      k++;
+      show();
+    }
+  };
+  // 文のあたりを押しても次へ（最後の枚はボタンで）
+  box.addEventListener('click', (e) => {
+    if (!(e.target instanceof HTMLButtonElement)) next();
+  });
+  show();
+  root.append(m);
+}
+
+/** 前の世界からついてきた 3 人（hero を前に出す） */
+function crewEl(hero?: number): HTMLElement {
+  const row = h('div', 'isl-crew');
+  const role: Record<number, string> = {
+    10003: t('手先が器用', 'Handy'),
+    10002: t('話し上手', 'Smooth talker'),
+    10001: t('力持ち', 'Strong'),
+  };
+  for (const id of [10003, 10002, 10001]) {
+    const c = h('div', `isl-crew-one ${hero == null || hero === id ? '' : 'is-back'} ${hero === id ? 'is-on' : ''}`);
+    c.append(heroIcon(id, 72), h('b', '', heroName(id)), h('small', '', role[id]));
+    row.append(c);
+  }
+  return row;
+}
+
+/** お祝いの品（スキル「人材の募集」） */
+function giftEl(): HTMLElement {
+  const c = h('div', 'isl-gift');
+  c.append(h('span', 'isl-gift-icon', '🎁'), h('b', '', t('人材の募集', 'Recruiting')), h('small', '', t('ヒーローを雇えるようになる', 'You can hire heroes')));
+  return c;
 }
 
 /** ①調達 → ②製造 → ③物流 → ④販売 の図。担当がいる段に ✓ */
@@ -846,7 +891,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const rec = PRODUCT[recommend(s)].name;
   if (!ws) return { text: t('新天地へようこそ！まずは Workshop から引き継いだ「工房」を建てましょう。下の「営業企画」→「建築」から工房を選び、道路に面した空き地へ。入口は道路の方にしか向けられません。', 'Welcome to the new land! First, build the Workshop you brought from home: Planning → Build, then place it on a lot facing a road — the entrance can only face the road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (ws.left > 0) return { text: t('工房の工事中です。⏩ で時間を早められます。地図のマスを押すと、建物の詳しい情報が見られます。', 'The workshop is under construction. ⏩ speeds things up. Tap any tile on the map for details.') };
-  if (!s.flags.data) return { text: t('何を売るか決める前に、市場データを見てみましょう。今売れている商品、まだ誰も扱っていない商品、国民のニーズが分かります（「マーケティング」→「市場調査データ」）。', 'Before choosing what to sell, check the market data (Marketing → Market data): what sells now, what nobody sells yet, and what people want.'), action: [t('データを見る', 'Open data'), () => openData(ctx)] };
+  if (!s.flags.data) return { text: t('[[市場データ]]で、売れ筋と、まだ誰も売っていない商品が分かるよ（「マーケティング」→「市場調査データ」）。', 'The [[market data]] shows what sells and what nobody sells yet (Marketing → Market data).'), action: [t('データを見る', 'Open data'), () => openData(ctx)] };
   if (!shops.length) return { text: t(`データによると「${rec}」がよさそう！次はお店（よろず屋）を建てましょう。道路に面した場所に。`, `The data says ${rec} looks promising! Next, build a shop (General store) facing a road.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (shops.every((b) => b.left > 0)) return { text: t('お店の工事中です。開店した日から 1 か月目の営業が始まります。その間に工房で商品を作り始めましょう。', 'The shop is being built. Your first business month starts the day it opens. Start crafting meanwhile.'), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx)] };
   const crafting = s.slots.some((sl) => sl.running);
@@ -858,7 +903,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (sh && !sh.shelves[0]) return { text: t(`お店で、主力商品を「${rec}」に、店員を決めましょう。販売は INT の高い MCHタクティシャンが得意です。`, `In the shop, set ${rec} as the main product and choose a clerk. MCH Tactician, with high INT, sells best.`), action: [t('お店を開く', 'Open shop'), () => shop && openShop(ctx, shop.uid)] };
   const closed = myShops(s).find((b) => s.shops[b.uid].staff == null && s.shops[b.uid].part === 0);
   if (closed) return { text: t(`${DEF[closed.id].name}に店員がいないので休業中です。店員かアルバイトを決めましょう。販売は INT の高いヒーローが得意です。`, `${DEF[closed.id].name} is closed: nobody on the floor. Choose a clerk or part-timer. High-INT heroes sell best.`), action: [t('お店を開く', 'Open shop'), () => openShop(ctx, closed.uid)] };
-  if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t('工房の物置（60 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。', 'The workshop stockroom (60) is full: you can’t buy materials or store goods. Build a warehouse under Build.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
+  if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t(`工房の物置（${STORE.base} 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。`, `The workshop stockroom (${STORE.base}) is full: you can’t buy materials or store goods. Build a warehouse under Build.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (MISSIONS.some((m) => s.missions[m.id] === 'done')) return { text: t('依頼を達成しました！「マーケティング」→「依頼」で報酬を受け取りましょう。', 'You completed a request! Claim the reward under Marketing → Requests.'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
   if (!s.reports.length) return { text: t('準備ができました！お店を開いた日から 1 か月ごとに売上を締めます。流れが詰まっていないかは「SCM」→「サプライチェーン」で確かめられます。', 'All set! Sales close every month from the day your shop opened. Check for bottlenecks under SCM → Supply chain.'), action: [t('サプライチェーンを見る', 'Open supply chain'), () => openSupply(ctx)] };
   // 1 か月たってから
@@ -882,7 +927,8 @@ function renderAdvisor() {
   const tip = tutorial();
   if (tip.text === hiddenTip) return;
   advisor.hidden = false;
-  const p = h('p', '', tip.text);
+  const p = h('p');
+  p.append(rich(tip.text));
   p.addEventListener('click', () => {
     hiddenTip = tip.text;
     advisor.hidden = true;
@@ -1484,5 +1530,6 @@ requestAnimationFrame(frame);
   menu: (m: Menu | null) => (m ? pickMenu(m) : ((menu = null), renderAll())),
   /** 下の帯の小メニューを開く（撮影スクリプト用） */
   sub: goSub,
+  bgm: () => ({ key: sound.currentBgm(), playing: sound.bgmPlaying() }),
   tick: () => renderAll(),
 };

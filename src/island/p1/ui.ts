@@ -24,6 +24,19 @@ export function btn(text: string, on: () => void, cls = ''): HTMLButtonElement {
 export const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 export const money = (n: number) => `${fmt(n)} G`;
 
+/** マインちゃんの文：[[ ]] で囲んだ固有名詞に色をつける */
+export function rich(text: string): DocumentFragment {
+  const f = document.createDocumentFragment();
+  text.split(/\[\[(.+?)\]\]/).forEach((part, k) => {
+    if (!part) return;
+    f.append(k % 2 ? h('b', 'isl-em', part) : document.createTextNode(part));
+  });
+  return f;
+}
+
+/** [[ ]] を外した文（トーストなど色をつけない所） */
+export const plain = (text: string) => text.replace(/\[\[(.+?)\]\]/g, '$1');
+
 export function heroName(id: number): string {
   const x = heroById.get(id);
   return x ? (isEn ? x.nameEn : x.name) : `#${id}`;

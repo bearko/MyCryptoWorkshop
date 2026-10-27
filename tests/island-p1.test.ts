@@ -373,11 +373,11 @@ describe('フェーズ 1：調達', () => {
     expect(s.utilLast!.cap).toBeGreaterThan(0);
   });
 
-  it('倉庫が無いと、工房の物置（60）を超えては買えない', () => {
+  it('倉庫が無いと、工房の物置（80）を超えては買えない', () => {
     const s = newP1(5);
     s.money = 1e6;
-    expect(buy(s, 'wood', 10)).toBe('storage');
+    expect(buy(s, 'wood', 30)).toBe('storage');
     roomy(s, 1);
-    expect(buy(s, 'wood', 10)).toBeNull();
+    expect(buy(s, 'wood', 30)).toBeNull();
   });
 });

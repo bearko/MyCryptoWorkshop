@@ -174,7 +174,7 @@ export const SHOP = { shelfCap: 10, storageCap: 20, displayPerDay: 6, partTimeDi
 /** 新しいお店の認知度：開店した日は 0.2、1 日 0.02 ずつ上がって 1 まで（売れる数にかかる） */
 export const AWARE = { start: 0.2, perDay: 0.02 };
 /** 保管：工房の物置（素材と、運ぶ前の商品の合計）と、倉庫 1 つで増える数。いっぱいだと調達もクラフトもできない */
-export const STORE = { base: 60, warehouse: 200 };
+export const STORE = { base: 80, warehouse: 200 };
 
 // ---------------------------------------------------------------- スキルツリー
 
