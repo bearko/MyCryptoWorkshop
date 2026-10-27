@@ -46,6 +46,8 @@ export interface Anim {
   coins: Map<number, { yen: number; t: number }[]>;
   /** 工房の「＋数」 */
   plus: { uid: number; n: number; t: number }[];
+  /** チュートリアルの流れの案内：スポットライトを当てるマス（まわりを暗く） */
+  spot?: { i: number; j: number; r: number } | null;
 }
 
 export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, dayMs: 1200, walkers: [], crowd: [], buyer: null, coins: new Map(), plus: [] });

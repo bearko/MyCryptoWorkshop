@@ -191,6 +191,25 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
+  // スポットライト：見せたいところのまわりを暗く
+  if (anim?.spot) {
+    const c = center(anim.spot.i, anim.spot.j);
+    const cy = c.y - 30;
+    const r = anim.spot.r;
+    const g = ctx.createRadialGradient(c.x, cy, r * 0.55, c.x, cy, r * 1.25);
+    g.addColorStop(0, 'rgba(8,12,22,0)');
+    g.addColorStop(1, 'rgba(8,12,22,0.62)');
+    ctx.fillStyle = g;
+    ctx.fillRect(left - pad, top0 - pad, right - left + pad * 2, bottom - top0 + pad * 2);
+    ctx.strokeStyle = 'rgba(255,214,110,0.75)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([14, 10]);
+    ctx.lineDashOffset = -now / 40;
+    ctx.beginPath();
+    ctx.ellipse(c.x, cy + 10, r * 0.62, r * 0.36, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.restore();
   drawBubbles(ctx, s, cam, w, h, dpr, anim);
 }
@@ -199,6 +218,8 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
 
 /** 2 行に分けて、吹き出しの幅をせまく */
 const STOP: Record<Stop, [string, string]> = {
+  gateShut: [t('関所', 'Gate'), t('通行止め', 'closed')],
+  gateOpen: [t('関所', 'Gate'), t('開通', 'open')],
   noCrafter: [t('職人', 'No'), t('不在', 'crafter')],
   crafterRest: [t('職人', 'Crafter'), t('休憩中', 'resting')],
   noItem: [t('作る物', 'Nothing'), t('未定', 'to make')],
@@ -210,7 +231,7 @@ const STOP: Record<Stop, [string, string]> = {
   clerkRest: [t('店員', 'Clerk'), t('休憩中', 'resting')],
   soldOut: [t('在庫', 'Sold'), t('切れ', 'out')],
 };
-const BUBBLE = { craft: '#6fd08c', sell: '#f2b544', error: '#e0524f', warn: '#f39a3c', line: '#0f1626' };
+const BUBBLE = { craft: '#6fd08c', sell: '#f2b544', error: '#e0524f', warn: '#f39a3c', info: '#7cc6f2', line: '#0f1626' };
 const FONT = "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif";
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -304,7 +325,7 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
         tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
       }
       const bw = Math.max(tw + 10, bh * 0.9);
-      const { x, y } = bubble(ctx, sx, sy, bw, bh, st.level === 'error' ? BUBBLE.error : BUBBLE.warn);
+      const { x, y } = bubble(ctx, sx, sy, bw, bh, BUBBLE[st.level]);
       ctx.fillStyle = st.level === 'error' ? '#fff' : BUBBLE.line;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';

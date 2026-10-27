@@ -12,6 +12,7 @@
 | id | 名前 | 使う場所 | いまの状態 | 大きさ | PixelLab への指示（正面 / 背面） |
 |---|---|---|---|---|---|
 | warehouse | 倉庫 | フェーズ 1 の建築（置き場所 +200） | `scripts/island/warehouse.py` でコードで描いた煉瓦の倉庫 | 1 マス | 正面：a brick warehouse with a dark gable roof, a wide gray roller shutter door on the front, stacked wooden crates and a pallet by the door, paved front ／ 背面：replace the roller shutter with a plain brick wall with a small wooden door and two small windows |
+| gate（いまは guard を流用） | 関所 | ランドのふち（東）。通行料を払うと開通して、となりのランドセクタへ行ける | 「警備の詰所」（guard）の絵を流用。開通しても絵は変わらない（吹き出しだけ変わる） | 1 マス | 正面：a traditional checkpoint gate at the edge of a town: a wooden gatehouse with a tiled roof, a heavy closed wooden gate across a paved road, a striped barrier pole, a small guard booth and a toll sign with a coin icon ／ 背面：the same gatehouse seen from behind, gate closed, with a road leading away. 開通後の差分：gate doors wide open and the barrier pole raised |
 | wholesale | 卸問屋 | 区画の端（調達係が歩いて買い付けに行く） | 商社（trading）の絵を流用 | 1 マス・高い | 正面：an old three-story wholesale merchant house with a dark tiled roof, a wide open ground floor stacked with sacks, barrels and crates of raw materials (iron ingots, lumber, clay, glass), a large hanging sign with a scale icon, paved front ／ 背面：remove the open front and the sign, and show a plain wall with a loading door and stacked lumber |
 
 ## 優先度 中（コードで描いた小物。いまのままでも遊べる）

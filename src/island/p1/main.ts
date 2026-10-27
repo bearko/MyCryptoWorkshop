@@ -42,11 +42,16 @@ import {
   type PlaceErr,
   activeMissions,
   claim,
+  forceHaul,
+  recipeOf,
   depotInfo,
   missionProgress,
   siteInfo,
+  gateOf,
+  gateToll,
+  openGate,
 } from './model';
-import { newAnim, type Walker } from './anim';
+import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
 import {
   closeSheet,
@@ -69,6 +74,7 @@ import {
   rivalName,
   sheetOpen,
   type Ctx,
+  open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
 import { openSkills } from './tree';
@@ -744,6 +750,7 @@ function renderPop() {
     },
     close: () => closePop(),
     redraw: () => renderPop(),
+    gate: () => payGate(),
   });
   popTitle.textContent = title;
   popBody.replaceChildren(body);
@@ -752,6 +759,37 @@ function renderPop() {
   placePop();
   dirty = true;
 }
+/** 関所の通行料を払って開通する */
+function payGate() {
+  const toll = gateToll(s);
+  if (!openGate(s)) {
+    sfx.play('error');
+    return;
+  }
+  sfx.play('spend');
+  setTimeout(() => sfx.play('win'), 160);
+  closePop();
+  save();
+  renderAll();
+  const g = gateOf(s);
+  if (g) centerOn(g.i, g.j);
+  talk(
+    [
+      { text: t(`通行料 ${money(toll)} を納めて、[[関所]]が開いたよ！`, `You paid the ${money(toll)} toll and the [[gate]] is open!`) },
+      { text: t('この先は、となりのランドセクタ。新しいお客さんと、新しいライバルが待っているはずだよ。', 'Beyond lies the next land sector, with new customers and new rivals.') },
+      { text: t('次のセクタの準備はまだ途中なんだ。整うまで、このエリアで会社を育てておこうね！', 'The next sector is still being prepared. Until then, keep growing the company here!') },
+    ],
+    t('楽しみ！', 'Can’t wait!'),
+    () => renderAll(),
+  );
+}
+
+/** 関所のマスを開く（カメラも寄せる） */
+function showGate() {
+  const g = gateOf(s);
+  if (g) openPop(g.i, g.j);
+}
+
 /** 吹き出しを、マスの真下に（しっぽはマスを指す） */
 function placePop() {
   if (!pop || popEl.hidden) return;
@@ -759,10 +797,14 @@ function placePop() {
   const [i, j] = b ? [b.i, b.j] : pop;
   const sx = ((i - j) * 100 - cam.x) * cam.zoom + W / 2;
   const sy = ((i + j) * 55 - cam.y) * cam.zoom + H / 2;
-  const w = Math.min(400, W - 16);
-  const left = Math.max(8, Math.min(W - w - 8, sx - w / 2));
+  // PC は右端に縦のメニュー（下には無い）。そのぶん横を空け、下は画面の端まで使う
+  const fr = foot.getBoundingClientRect();
+  const rail = fr.height > fr.width;
+  const right = rail ? fr.left : W;
+  const w = Math.min(400, right - 16);
+  const left = Math.max(8, Math.min(right - w - 8, sx - w / 2));
   const top = sy + 40 * cam.zoom + 12;
-  const bottom = foot.getBoundingClientRect().top - 8;
+  const bottom = rail ? H - 8 : fr.top - 8;
   popEl.style.width = `${w}px`;
   popEl.style.left = `${left}px`;
   popEl.style.top = `${top}px`;
@@ -1019,6 +1061,7 @@ function tutTick() {
     sideIntro();
     return;
   }
+  if (tour) return;
   if (s.tut !== k) s.tut = k;
   if (tutOpen && !sheetOpen()) {
     tutSeen.add(tutOpen);
@@ -1071,6 +1114,11 @@ function tutTick() {
     s.skills.push('hire');
     save();
   }
+  // 初売上までの流れを、地図の上で順に見せる（スキップできない）
+  if (st.id === 'firstSale' && !s.flags.tour && tutFree() && performance.now() >= tutIntroAfter) {
+    startTour();
+    return;
+  }
   if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
     tutIntro = k;
     talk(st.intro.pages, st.intro.ok, () => {
@@ -1095,6 +1143,173 @@ function sideIntro() {
     t('バイトを探す', 'Find work'),
     () => goSub('plan', 'side'),
   );
+}
+
+// ---------------------------------------------------------------- 初売上までの流れの案内（①調達 → ②製造 → ③物流 → ④販売。スキップできない）
+
+type TourKey = 'intro' | 'buy' | 'craft' | 'haul' | 'sell' | 'end';
+type TourEv = 'made' | 'dropped' | 'sold';
+interface TourStage {
+  key: TourKey;
+  label: string;
+  /** はじめの一言・できごとのあとの一言 */
+  say: string;
+  then?: string;
+  /** 待つできごと（無ければ一言を読む時間だけ） */
+  wait?: TourEv;
+  /** ゲームの速さ（できごとを待つあいだ） */
+  speed: number;
+}
+const TOUR: TourStage[] = [
+  { key: 'intro', label: '', say: t('準備ばっちり！ ここから、エクステが売れるまでの流れを一緒に見てみよう。', 'All set! Let’s watch how an Extension gets from start to sale.'), speed: 0 },
+  { key: 'buy', label: t('① 調達', '① Buy'), say: t('まずは[[① 調達]]。卸問屋から、工房へ素材が届くよ。', 'First, [[① Buy]]: materials travel from the wholesaler to the workshop.'), then: t('素材がないと、工房は何も作れないんだ。', 'Without materials, the workshop can’t make anything.'), speed: 0.3 },
+  { key: 'craft', label: t('② 製造', '② Craft'), say: t('[[② 製造]]。職人が作業台でセンスを作っているよ。建物のまわりの輪が一周したら、できあがり！', '[[② Craft]]: the crafter is making Sensu. When the ring around the building completes, a batch is done!'), then: t('できた！ 作るには、何日か時間がかかるんだね。', 'Done! Crafting takes a few days.'), wait: 'made', speed: 1 },
+  { key: 'haul', label: t('③ 物流', '③ Haul'), say: t('[[③ 物流]]。できたセンスを、荷車がお店まで運ぶよ。', '[[③ Haul]]: a cart carries the Sensu to the shop.'), then: t('お店に着いた！ 遠いお店ほど、運ぶのに日数がかかるよ。', 'Delivered! The farther the shop, the longer it takes.'), wait: 'dropped', speed: 1 },
+  { key: 'sell', label: t('④ 販売', '④ Sell'), say: t('[[④ 販売]]。棚に並んだら、お客さんが来るのを待とう。', '[[④ Sell]]: once it’s on the shelf, we wait for customers.'), then: t('売れた！ お客さんが買ってくれて、はじめて売上になるんだ。', 'Sold! Sales only happen when a customer buys.'), wait: 'sold', speed: 4 },
+  { key: 'end', label: '', say: t('① 調達 → ② 製造 → ③ 物流 → ④ 販売。どれか 1 つでも止まると、売上も止まるよ。', '① Buy → ② Craft → ③ Haul → ④ Sell. If any one stops, sales stop too.'), speed: 0 },
+];
+/** 一言を読む時間（ミリ秒） */
+const TOUR_READ = 3200;
+/** できごとを待つ長さの上限（来なければ先へ） */
+const TOUR_WAIT = 45000;
+
+let tourReport: Parameters<typeof showReport>[0] | null = null;
+let tour: { k: number; t0: number; ev: number | null; deliver?: { t0: number; dur: number; hero: number; mat: Mat } } | null = null;
+const tourEl = h('div', 'isl-tour');
+tourEl.hidden = true;
+
+function startTour() {
+  closeSheet();
+  closePop();
+  menu = null;
+  sub = null;
+  placing = null;
+  tour = { k: 0, t0: performance.now(), ev: null };
+  root.classList.add('is-tour');
+  tourEl.hidden = false;
+  tourStage();
+}
+
+/** 段に入る：カメラを寄せ、速さを決め、一言を出す */
+function tourStage() {
+  if (!tour) return;
+  const st = TOUR[tour.k];
+  tour.t0 = performance.now();
+  tour.ev = null;
+  speed = st.speed;
+  renderHud();
+  if (st.key === 'buy') {
+    const mat = (s.slots.find((x) => x.sku)?.sku ? (Object.keys(recipeOf(s.slots.find((x) => x.sku)!.sku!))[0] as Mat) : 'wood') ?? 'wood';
+    tour.deliver = { t0: performance.now(), dur: 4200, hero: GUESTS[3] ?? 1004, mat };
+    const wh = wholesaler(s);
+    if (wh) tween = { x0: cam.x, y0: cam.y, x1: (wh.i - wh.j) * 100, y1: (wh.i + wh.j) * 55 - 40, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 0.7 : 0.95, dur: 900 };
+  } else {
+    tour.deliver = undefined;
+    if (st.key === 'haul') forceHaul(s);
+    if (st.key === 'craft' || st.key === 'haul') focusOn('workshop');
+    if (st.key === 'sell') focusOn('shop');
+  }
+  tourRender();
+}
+
+function tourOn(ev: TourEv | null, ev2: TourEv | null = null) {
+  if (!tour) return;
+  const st = TOUR[tour.k];
+  if (tour.ev == null && st.wait && (ev === st.wait || ev2 === st.wait)) {
+    tour.ev = performance.now();
+    // ゆっくりにして、一言を読んでもらう（動きは止めない）
+    speed = 0.3;
+    sfx.play('check');
+    tourRender();
+  }
+}
+
+/** 毎フレーム：カメラで追いかける・時間で先へ進む */
+function tourFrame(now: number) {
+  if (!tour) return;
+  const st = TOUR[tour.k];
+  // 荷車・届ける人を追いかける
+  let target: [number, number] | null = null;
+  if (st.key === 'buy' && anim.buyer) {
+    const p = along(anim.buyer.path, anim.buyer.k > 0.5 ? (1 - anim.buyer.k) * 2 : anim.buyer.k * 2);
+    target = [p.i, p.j];
+  }
+  if (st.key === 'haul') {
+    const trip = s.trips.find((x) => !x.dropped && myShops(s).some((b) => b.uid === x.to));
+    const to = trip ? s.buildings.find((b) => b.uid === trip.to) : null;
+    const from = trip ? ((trip.from != null ? s.buildings.find((b) => b.uid === trip.from) : null) ?? myWorkshop(s)) : null;
+    if (trip && to && from) {
+      const path = pathOf(doorOf(from), doorOf(to));
+      if (path && path.length > 1) {
+        const k = Math.min(1, (1 - (trip.left - acc / dayMs()) / trip.total) * 2);
+        const p = along(path, Math.max(0, k));
+        target = [p.i, p.j];
+      }
+    }
+  }
+  // スポットライト：届ける人・荷車を追い、工房・お店は建物に
+  const bld = st.key === 'craft' || (st.key === 'haul' && !target) ? myWorkshop(s) : st.key === 'sell' ? myShops(s)[0] : null;
+  if (!target && bld) target = [bld.i, bld.j];
+  anim.spot = target ? { i: target[0], j: target[1], r: st.key === 'buy' || (st.key === 'haul' && !bld) ? 150 : 210 } : null;
+  if (target && !tween && (st.key === 'buy' || st.key === 'haul')) {
+    cam.x += ((target[0] - target[1]) * 100 - cam.x) * 0.08;
+    cam.y += ((target[0] + target[1]) * 55 - 30 - cam.y) * 0.08;
+  }
+  dirty = true;
+  // 次へ進む：待つできごとが無い段は読む時間、ある段はできごと（か上限）のあと読む時間
+  const read = st.key === 'buy' ? 4400 : TOUR_READ;
+  if (st.key === 'buy' && tour.ev == null && now - tour.t0 > 4300) {
+    tour.ev = now;
+    // 届いた素材：作業台で 2 回作れるぶん（この案内のあいだに、工房が止まらないように）
+    const sl = s.slots.find((x) => x.sku);
+    if (sl?.sku) for (const [m, q] of Object.entries(recipeOf(sl.sku))) s.mats[m as Mat] = Math.max(s.mats[m as Mat] ?? 0, (q ?? 0) * 2);
+    sfx.play('check');
+    tourRender();
+  }
+  if (st.wait && tour.ev == null && now - tour.t0 > TOUR_WAIT) {
+    tour.ev = now;
+    tourRender();
+  }
+  const ready = st.wait || st.key === 'buy' ? tour.ev != null && now - tour.ev > TOUR_READ : now - tour.t0 > read;
+  if (!ready) return;
+  if (tour.k < TOUR.length - 1) {
+    tour.k++;
+    tourStage();
+    return;
+  }
+  // おしまい
+  tour = null;
+  anim.spot = null;
+  root.classList.remove('is-tour');
+  tourEl.hidden = true;
+  s.flags.tour = true;
+  speed = 1;
+  save();
+  renderAll();
+  if (tourReport) {
+    const r = tourReport;
+    tourReport = null;
+    showReport(r);
+  }
+}
+
+function tourRender() {
+  if (!tour) return;
+  const st = TOUR[tour.k];
+  const steps = h('div', 'isl-tour-steps');
+  TOUR.filter((x) => x.label).forEach((x) => {
+    const idx = TOUR.indexOf(x);
+    steps.append(h('span', `isl-tour-step ${idx === tour!.k ? 'is-on' : idx < tour!.k ? 'is-done' : ''}`, x.label));
+  });
+  const box = h('div', 'isl-talk-box isl-tour-box');
+  const mine = h('img', 'isl-talk-mine');
+  mine.src = assetUrl(tour.ev != null ? 'mch/Image/Characters/navi_ain_cross_01_smile.png' : 'mch/Image/Characters/navi_ain_speak_00_talk.png');
+  mine.alt = '';
+  const text = h('p', 'isl-talk-text');
+  text.append(rich(tour.ev != null && st.then ? st.then : st.say));
+  const wait = h('small', 'isl-tour-wait', st.wait && tour.ev == null ? t('見守っていてね…', 'Watch…') : '');
+  box.append(mine, h('b', 'isl-talk-name', t('マインちゃん', 'Mine-chan')), text, wait);
+  tourEl.replaceChildren(steps, box);
 }
 
 /**
@@ -1232,7 +1447,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (low) return { text: t(`${MATS[low].name}が残り少なくなっています。「調達」で月の量を増やすか、いますぐ買い足しましょう（月の上限に注意）。`, `${MATS[low].name} is running low. Raise its monthly amount under Buy or buy some now (mind the monthly limit).`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
   if (s.staff.some((x) => x.resting)) return { text: t('休んでいる従業員がいます。「人事」→「給与・労務」の賞与ですぐ元気にできます。人手が足りないときは「人材登用」で雇えます。', 'Someone is resting. A bonus (HR → Pay & welfare) refreshes them at once; hire more under Recruiting.'), action: [t('給与・労務を開く', 'Open pay'), () => openPayroll(ctx)] };
   const last = s.reports[s.reports.length - 1];
-  if (s.cleared) return { text: t('エリア 1 位、おめでとうございます！フェーズ 2 は準備中です。このまま会社を育てられます。', 'Congratulations on #1 in the area! Phase 2 is coming. You can keep growing the company.') };
+  if (s.cleared && !s.gateOpen) return { text: t(`エリア 1 位、おめでとう！ランドのふちの[[関所]]は、通行料 ${money(gateToll(s))} で開通できるよ。開けると、となりのランドセクタへ進めるんだ。`, `Congratulations on #1 in the area! The [[gate]] at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), action: [t('関所を見る', 'View the gate'), () => showGate()] };
+  if (s.cleared) return { text: t('関所が開通しました！となりのランドセクタは準備中です。このまま会社を育てられます。', 'The gate is open! The next land sector is coming soon. Keep growing the company.') };
   if (!Object.keys(s.intel).length) {
     const top = last.area.find((x) => !x.me);
     return { text: t(`いまエリア ${last.rank} 位。他社のお店をタップすると「調査」で売上の中身が分かります。まずは${top?.name ?? '他社'}を調べてみましょう。`, `You are #${last.rank} in the area. Tap a rival store to research its sales. Try ${top?.name ?? 'a rival'} first.`) };
@@ -1286,8 +1502,32 @@ function modal(title: string, body: string | HTMLElement, actions: [string, () =
   root.append(m);
 }
 
+/**
+ * システムの画面（設定・進行速度・セーブ・テスト）。ほかの事業と同じく札で開くので、サブタブで切り替えられる。
+ * buttons は描き直すたびに作り直す（押したあとの表示が変わるため）
+ */
+function sysSheet(title: string, note: string, buttons: () => [string, () => void, string?][]) {
+  openSheet(ctx, title, (body) => {
+    body.append(h('p', 'isl-dim', note));
+    const list = h('div', 'isl-sys-list');
+    for (const [label, on, cls] of buttons())
+      list.append(
+        btn(
+          label,
+          () => {
+            on();
+            refreshSheet();
+            renderAll();
+          },
+          cls,
+        ),
+      );
+    body.append(list);
+  });
+}
+
 function openSettings() {
-  modal(t('設定', 'Settings'), t('言語・マインちゃんの案内・音を切り替えます。', 'Language, Mine-chan’s guide and sound.'), [
+  sysSheet(t('設定', 'Settings'), t('言語・マインちゃんの案内・音・街の人通りを切り替えます。', 'Language, Mine-chan’s guide, sound and crowd.'), () => [
     [isEn ? '日本語' : 'English', () => setLang(isEn ? 'ja' : 'en')], // i18n-ja
     [
       guideOn ? t('案内を隠す', 'Hide guide') : t('案内を出す', 'Show guide'),
@@ -1298,10 +1538,10 @@ function openSettings() {
         } catch {
           // 保存できなくても切り替える
         }
-        renderAll();
       },
     ],
     [vol.bgm > 0 ? t('BGM を消す', 'BGM off') : t('BGM を流す', 'BGM on'), () => setVol({ bgm: vol.bgm > 0 ? 0 : 1 })],
+    [vol.se > 0 ? t('効果音を消す', 'Sound effects off') : t('効果音を出す', 'Sound effects on'), () => setVol({ se: vol.se > 0 ? 0 : 1 })],
     [
       t(`街の人通り：${CROWD_LEVELS[crowdLevel].name}`, `Crowd: ${CROWD_LEVELS[crowdLevel].name}`),
       () => {
@@ -1312,10 +1552,8 @@ function openSettings() {
           // 保存できなくても切り替える
         }
         toast(t(`街の人通り：${CROWD_LEVELS[crowdLevel].name}（重いときは少なく）`, `Crowd: ${CROWD_LEVELS[crowdLevel].name} (lower it if the game feels slow)`));
-        openSettings();
       },
     ],
-    [vol.se > 0 ? t('効果音を消す', 'Sound effects off') : t('効果音を出す', 'Sound effects on'), () => setVol({ se: vol.se > 0 ? 0 : 1 })],
     ...(tutOf(s) < TUT_DONE
       ? [
           [
@@ -1323,23 +1561,20 @@ function openSettings() {
             () => {
               s.tut = TUT_DONE;
               save();
-              renderAll();
             },
           ] as [string, () => void],
         ]
       : []),
-    [t('閉じる', 'Close'), () => undefined, 'is-on'],
   ]);
 }
 
 /** 進行速度：標準・1.5 倍・2 倍（スキルで選べるようになる） */
 function openPace() {
-  const now = s.pace ?? 1;
-  modal(
+  sysSheet(
     t('進行速度', 'Game speed'),
-    t(`いまは ${now} 倍（1 日 ${(dayMs() / 1000).toFixed(1)} 秒・ひと月 ${Math.round((dayMs() * 30) / 1000)} 秒）。速くするには、スキルツリー（経営）の「業務の効率化」「業務の自動化」が要ります。⏩ はその場だけの早送りです。`, `Now ${now}× (a day is ${(dayMs() / 1000).toFixed(1)} s, a month ${Math.round((dayMs() * 30) / 1000)} s). Faster speeds need the Operations skills. ⏩ is a temporary fast-forward.`),
-    [
-      ...PACES.map((x): [string, () => void, string?] => {
+    t(`いまは ${s.pace ?? 1} 倍（1 日 ${(dayMs() / 1000).toFixed(1)} 秒・ひと月 ${Math.round((dayMs() * 30) / 1000)} 秒）。速くするには、スキルツリー（経営）の「業務の効率化」「業務の自動化」が要ります。⏩ はその場だけの早送りです。`, `Now ${s.pace ?? 1}× (a day is ${(dayMs() / 1000).toFixed(1)} s, a month ${Math.round((dayMs() * 30) / 1000)} s). Faster speeds need the Operations skills. ⏩ is a temporary fast-forward.`),
+    () =>
+      PACES.map((x): [string, () => void, string?] => {
         const ok = !x.skill || s.skills.includes(x.skill);
         return [
           !ok ? t(`${x.v} 倍（スキルで解放）`, `${x.v}× (skill)`) : x.v === 1 ? t('標準', 'Normal') : t(`${x.v} 倍`, `${x.v}×`),
@@ -1350,13 +1585,10 @@ function openPace() {
             }
             s.pace = x.v;
             save();
-            renderAll();
           },
-          x.v === now ? 'is-on' : '',
+          x.v === (s.pace ?? 1) ? 'is-on' : '',
         ];
       }),
-      [t('閉じる', 'Close'), () => undefined],
-    ],
   );
 }
 
@@ -1372,17 +1604,13 @@ function setVol(v: Partial<typeof vol>) {
 }
 
 function openSaveMenu() {
-  const before = speed;
-  speed = 0;
-  renderHud();
-  modal(t('セーブ', 'Save'), t('フェーズ 1「新天地で実績を上げろ」。進み具合はこのブラウザに自動で保存されます。', 'Phase 1: “Make your name in the new land”. Progress is saved in this browser automatically.'), [
-    [t('続ける', 'Resume'), () => ((speed = before || 1), renderHud()), 'is-on'],
+  sysSheet(t('セーブ', 'Save'), t('フェーズ 1「新天地で実績を上げろ」。進み具合はこのブラウザに自動で保存されます。', 'Phase 1: “Make your name in the new land”. Progress is saved in this browser automatically.'), () => [
     [
       t('最初から', 'Start over'),
       () =>
         modal(t('最初からやり直しますか？', 'Start over?'), t('いまの会社は消えます。', 'Your current company will be lost.'), [
           [t('やり直す', 'Start over'), () => restart(), 'is-danger'],
-          [t('やめる', 'Cancel'), () => ((speed = before || 1), renderHud())],
+          [t('やめる', 'Cancel'), () => undefined],
         ]),
     ],
     [t('工房へ戻る', 'Back to the Workshop'), () => location.assign(`${import.meta.env.BASE_URL}index.html`)],
@@ -1403,8 +1631,8 @@ function restart() {
 }
 
 function openTest() {
-  modal(t('テスト用', 'Test tools'), t('?test=2 のときだけ出ます。', 'Shown only with ?test=2.'), [
-    [t('資金 +50,000', 'Funds +50,000'), () => ((s.money += 50000), renderAll())],
+  sysSheet(t('テスト用', 'Test tools'), t('?test=2 のときだけ出ます。', 'Shown only with ?test=2.'), () => [
+    [t('資金 +50,000', 'Funds +50,000'), () => (s.money += 50000)],
     [
       t('工事をすべて終える', 'Finish all construction'),
       () => {
@@ -1447,7 +1675,7 @@ function renderAll() {
   renderAdvisor();
   layout();
 }
-root.append(hud, pointEl, missionBox, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
+root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
 // 始めたばかりなら、建築の帯を開いておく
 if (!s.buildings.some((b) => b.owner === 'me')) {
   menu = 'plan';
@@ -1610,6 +1838,7 @@ function addCoin(uid: number, yen: number, t: number) {
   while (list.length > 12) list.shift();
   anim.coins.set(uid, list);
   sfx.play('sale');
+  if (tour) tourOn('sold');
 }
 // ---------------------------------------------------------------- 街の人通り（他社のお客さん・駅を行き交う人・散歩する人）
 
@@ -1701,6 +1930,12 @@ function tickAnim(dtGame: number) {
     const carry = (Object.keys(trip.cargo)[0] ?? null) as Mat | null;
     anim.buyer = path ? { hero: trip.hero, path, k, carry } : null;
   } else anim.buyer = null;
+  // 流れの案内：卸問屋から工房へ、素材を届ける人
+  if (tour?.deliver && ws && wh) {
+    const path = pathOf(doorOf(ws), doorOf(wh));
+    const f = Math.min(1, (performance.now() - tour.deliver.t0) / tour.deliver.dur);
+    if (path) anim.buyer = { hero: tour.deliver.hero, path, k: 0.5 + f * 0.5, carry: tour.deliver.mat };
+  }
 }
 const animating = () => anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
 let lastDraw = 0;
@@ -1711,6 +1946,8 @@ let lastWater = -1;
 function advance(days: number) {
   ticking = true;
   for (let k = 0; k < days; k++) {
+    // 流れの案内を見ているあいだの日数は、最初の月の締めまでの日数に数えない（案内の途中や直後に締めが来ないように）
+    if (tour && s.open !== null && !s.reports.length) s.open++;
     const r = step(s);
     for (const b of r.finished) {
       fx.push({ uid: b.uid, start: performance.now() });
@@ -1721,6 +1958,7 @@ function advance(days: number) {
     const wsb = myWorkshop(s);
     if (wsb) for (const m of r.made) anim.plus.push({ uid: wsb.uid, n: m.n, t: anim.clock });
     if (r.sales.length) spawnCustomers(r.sales);
+    if (tour) tourOn(r.made.length > 0 ? 'made' : null, r.delivered.some((x) => x.n > 0 && myShops(s).some((b) => b.uid === x.to)) ? 'dropped' : null);
     if (r.missions.length) sfx.play('mission');
     for (const g of r.grew) toast(t(`${heroName(g.hero)}の ${g.stat.toUpperCase()} が 1 上がりました（バイトの経験）`, `${heroName(g.hero)}’s ${g.stat.toUpperCase()} rose by 1 (part-time work)`));
     if (r.procLv) {
@@ -1734,7 +1972,9 @@ function advance(days: number) {
     for (const id of r.missions) toast(t(`依頼「${MISSIONS.find((m) => m.id === id)?.title ?? ''}」を達成しました`, `Request done: ${MISSIONS.find((m) => m.id === id)?.title ?? ''}`));
     if (r.report) {
       save();
-      showReport(r.report);
+      // 流れの案内のあいだは、終わってから出す
+      if (tour) tourReport = r.report;
+      else showReport(r.report);
       break;
     }
   }
@@ -1766,7 +2006,7 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
     } else if (s.cleared && !s.flags.clearSeen) {
       s.flags.clearSeen = true;
       save();
-      modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t('エリアで売上 1 位になりました！新天地での実績は十分です。フェーズ 2 は準備中です。このまま会社を育てられます。', 'You are #1 in area sales! You have made your name in the new land. Phase 2 is coming; you can keep growing the company.'), [[t('続ける', 'Keep going'), () => ((speed = 1), renderHud()), 'is-on']], true);
+      modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`エリアで売上 1 位になりました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `You are #1 in area sales! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
     } else {
       speed = 1;
       renderHud();
@@ -1818,6 +2058,7 @@ function frame(now: number) {
     dirty = true;
   }
   updatePoint();
+  if (tour) tourFrame(now);
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
   const wf = waterFrame(now);
   if (changed || fx.length || wf !== lastWater || loading()) dirty = true;

@@ -62,7 +62,6 @@ export const hlOf = (st: TutStep, s: P1State) => (typeof st.hl === 'function' ? 
 const hired = (s: P1State) => s.staff.some((x) => ![10001, 10002, 10003].includes(x.hero));
 
 const anyShop = (s: P1State) => s.buildings.some((b) => b.owner === 'me' && (b.id === 'general_store' || b.id === 'import' || b.id === 'boutique'));
-const sold = (s: P1State) => Object.values(s.monthUnits).some((n) => (n ?? 0) > 0) || s.reports.length > 0;
 
 export const TUT: TutStep[] = [
   {
@@ -221,10 +220,9 @@ export const TUT: TutStep[] = [
   {
     id: 'firstSale',
     focus: 'shop',
-    goal: (_s) => t('最初の 1 個を売る（⏩ で早送り）', 'Make your first sale (⏩ to speed up)'),
-    say: () => t('工房 → 荷車 → お店がつながった！ [[⏩]] で、お客さんが来るのを待とう。', 'Workshop → cart → shop, all connected! Press [[⏩]] and wait for customers.'),
-    hl: 'speed',
-    done: sold,
+    goal: () => t('売れるまでの流れを見る', 'Watch how a sale happens'),
+    say: () => t('エクステが売れるまでの流れを、一緒に見てみよう！', 'Let’s watch how an Extension gets sold!'),
+    done: (s) => !!s.flags.tour,
   },
   {
     id: 'scm',

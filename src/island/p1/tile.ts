@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
-import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { gateToll, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
@@ -18,6 +18,8 @@ export interface TileHooks {
   close: () => void;
   /** 中身を作り直す */
   redraw: () => void;
+  /** 関所の通行料を払う */
+  gate: () => void;
 }
 
 const DESC: Record<string, string> = {
@@ -64,6 +66,7 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
   if (b.owner === 'me') return { title: name, body: mine(ctx, b, body, hooks) };
   if (b.owner === 'town') {
     const isHome = DEF[b.id].cat === 'home';
+    if (isGate(b)) return { title: t('関所', 'Gate'), body: gate(s, body, hooks) };
     if (b.id === 'wholesale') {
       body.append(meta([[t('建築者', 'Builder'), t('地元の工務店', 'Local builders')], [t('所有者', 'Owner'), t('卸問屋', 'Wholesaler')]]), h('p', '', DESC.wholesale));
       const trip = s.buyTrip;
@@ -79,6 +82,29 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
     return { title: name, body };
   }
   return { title: name, body: rival(ctx, b, body, hooks) };
+}
+
+/** 関所：通行料を払うと開通して、次のランドセクタへ行ける */
+function gate(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
+  body.append(meta([[t('管理者', 'Keeper'), t('ランドの自治体', 'Land government')], [t('この先', 'Beyond'), t('となりのランドセクタ', 'Next land sector')]]));
+  body.append(h('p', '', t('ランドのふちにある関所。この先は、まだ見ぬとなりのランドセクタです。まとまった通行料を納めると開通し、次のセクタへ進めるようになります。', 'A gate at the edge of the land. Beyond lies the next land sector. Pay the toll to open it and move on.')));
+  if (s.gateOpen) {
+    body.append(h('p', 'isl-gold', t('開通済み！次のランドセクタは準備中です。', 'Open! The next land sector is coming soon.')));
+    return body;
+  }
+  const toll = gateToll(s);
+  const grid = h('div', 'isl-pop-grid');
+  stat(grid, t('通行料', 'Toll'), money(toll), 'isl-gold');
+  stat(grid, t('資金', 'Funds'), money(s.money));
+  body.append(grid);
+  body.append(h('p', 'isl-dim', t('通行料は、このエリアで 1 位の会社のひと月の売上くらい。エリア 1 位を取れるくらい稼げたら、開けられます。', 'The toll is about one month of sales of the #1 company here. Once you earn like the area leader, you can open it.')));
+  const row = h('div', 'isl-row');
+  const pay = btn(t(`${money(toll)} を払って開通する`, `Pay ${money(toll)} to open`), () => hooks.gate(), 'is-on');
+  pay.disabled = s.money < toll;
+  row.append(pay);
+  body.append(row);
+  if (s.money < toll) body.append(h('small', 'isl-dim', t(`あと ${money(toll - s.money)} 足りません。`, `${money(toll - s.money)} short.`)));
+  return body;
 }
 
 function empty(s: P1State, i: number, j: number, body: HTMLElement, hooks: TileHooks) {
