@@ -43,6 +43,7 @@ import {
   type Sku,
   type Stats,
   type Task,
+  SIDE,
 } from './data';
 
 export type Ground = 'grass' | 'road';
@@ -143,6 +144,8 @@ export interface Flags {
   ranking: boolean;
   /** クリアのお祝いを見た */
   clearSeen: boolean;
+  /** 資金が少なくなったときに、マインちゃんがバイトを紹介した */
+  side?: boolean;
 }
 
 export interface P1State {
@@ -181,6 +184,8 @@ export interface P1State {
   tut?: number;
   /** tut の段の並びの版（tut.ts の TUT_VERSION） */
   tutV?: number;
+  /** 今月のバイト代（他店でバイト） */
+  sideMonth?: number;
   /** アンコモンを開発した商品 */
   dev: string[];
   /** 開発中の商品 */
@@ -399,6 +404,8 @@ function pickHires(s: P1State): number[] {
 
 export const has = (s: P1State, skill: string) => s.skills.includes(skill);
 export const staffOf = (s: P1State, hero: number) => s.staff.find((x) => x.hero === hero) ?? null;
+/** 他店でのバイトの日給 */
+export const sidePay = (st: Staff) => Math.round(SIDE.pay * speed(st, 'side'));
 export const speed = (st: Staff, task: Task) => speedOf(aptitude(st.stats, task)) * (1 + PAY.raiseSpeed * (st.lv ?? 0));
 
 /** 仕事を割り当てる。前の仕事からは外れる */
@@ -430,6 +437,8 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
     const r = target as string;
     if (!s.rivals.some((x) => x.id === r)) return 'no-rival';
     if (intelLv(s, r) >= INTEL.length) return 'done';
+  } else if (task === 'side') {
+    if (!s.rivals.some((x) => x.id === target)) return 'no-rival';
   }
   st.task = task;
   st.target = target;
@@ -597,13 +606,13 @@ export function invest(s: P1State, uid: number, id: string): string | null {
   return null;
 }
 
-export const storageCap = (b: PBuilding) => SHOP.storageCap + 20 * invLv(b, 'backroom');
+export const storageCap = (b: PBuilding, s?: P1State) => SHOP.storageCap + 20 * invLv(b, 'backroom') + (s && has(s, 'backroom') ? 20 : 0);
 
 // ---------------------------------------------------------------- 保管（工房の物置と倉庫）
 
 export const myWarehouses = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && b.id === 'warehouse' && b.left <= 0);
 /** 素材と、お店へ運ぶ前の商品を置ける数の合計 */
-export const poolCap = (s: P1State) => STORE.base + STORE.warehouse * myWarehouses(s).length;
+export const poolCap = (s: P1State) => STORE.base + (has(s, 'tidy') ? 40 : 0) + (STORE.warehouse + (has(s, 'rack') ? 100 : 0)) * myWarehouses(s).length;
 const sum = (o: Partial<Record<string, number>>) => Object.values(o).reduce<number>((a, n) => a + (n ?? 0), 0);
 /** いま置いている数（買い付けて運んでいる素材も含む） */
 export const poolUsed = (s: P1State) => sum(s.mats) + sum(s.stock) + (s.buyTrip ? sum(s.buyTrip.cargo) : 0);
@@ -645,6 +654,10 @@ export const wholesaler = (s: P1State) => s.buildings.find((b) => b.id === 'whol
 export const myWorkshop = (s: P1State) => s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0) ?? null;
 export const myShops = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop' && b.left <= 0);
 
+/** 運搬係 1 人が同時に出せる便・1 便に積める数・運ぶ日数の倍率（スキル） */
+export const cartsOf = (s: P1State) => 1 + (has(s, 'cart2') ? 1 : 0) + (has(s, 'cart3') ? 1 : 0);
+export const cartCap = (s: P1State) => Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1) * (has(s, 'loading') ? 1.3 : 1));
+const haulRate = (s: P1State) => (has(s, 'hub') ? 0.7 : 1) * (has(s, 'shortcut') ? 0.85 : 1);
 const benchCount = (s: P1State) => 1 + (has(s, 'bench2') ? 1 : 0) + (has(s, 'bench3') ? 1 : 0);
 export const shelfCount = (s: P1State, id: string) => (P1B[id]?.shelves ?? 1) + (has(s, 'shelf1') ? 1 : 0) + (has(s, 'shelf2') ? 1 : 0);
 export const partMax = (s: P1State) => SHOP.partTimeMax + (has(s, 'parttime') ? 2 : 0);
@@ -659,10 +672,10 @@ function syncShop(s: P1State, b: PBuilding) {
 
 // ---------------------------------------------------------------- 調達
 
-export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1));
+export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1));
 
 /** 月に買える素材の数の上限（ランクとスキル） */
-export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0)));
+export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0) + (has(s, 'stock3') ? 1 : 0)));
 export const procLeft = (s: P1State) => Math.max(0, procCap(s) - s.proc.bought);
 
 /** 経験値を足して、ランクを上げる。上がったら新しいランクを返す */
@@ -690,7 +703,7 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   s.monthCost.materials += cost;
   s.mats[m] = (s.mats[m] ?? 0) + qty;
   s.proc.bought += qty;
-  procExp(s, qty * gain + PROC.perBuy);
+  procExp(s, (qty * gain + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
   return null;
 }
 
@@ -728,9 +741,10 @@ export function fullUse(s: P1State): Partial<Record<Mat, number>> {
 export function procQty(s: P1State, m: Mat): number {
   const q = s.proc.qty[m];
   if (q && !q.auto) return q.n;
-  const last = s.matUsedLast?.[m];
-  if (last != null && last > 0) return last;
-  return fullUse(s)[m] ?? 0;
+  // 自動：先月の消費と、工房が 100% 動いたときの量の多いほう
+  // （先月が素材不足で少なかったときに、買う量まで減って抜け出せなくなるのを防ぐ）
+  const last = s.matUsedLast?.[m] ?? 0;
+  return Math.max(last, fullUse(s)[m] ?? 0);
 }
 export function setProcQty(s: P1State, m: Mat, n: number | null) {
   if (n == null) delete s.proc.qty[m];
@@ -815,7 +829,7 @@ export const batchOf = (x: Sku) => {
   return r === 'U' ? Math.ceil(PRODUCT[k].batch / 2) : PRODUCT[k].batch;
 };
 
-export const craftDays = (s: P1State, x: Sku) => PRODUCT[skuParts(x)[0]].days * (has(s, 'jig') ? 0.8 : 1) * (has(s, 'bench3') ? 0.8 : 1) * (1 - 0.1 * invLv(myWorkshop(s), 'tools'));
+export const craftDays = (s: P1State, x: Sku) => PRODUCT[skuParts(x)[0]].days * (has(s, 'jig') ? 0.8 : 1) * (has(s, 'jig2') ? 0.85 : 1) * (has(s, 'bench3') ? 0.8 : 1) * (1 - 0.1 * invLv(myWorkshop(s), 'tools'));
 
 /** 1 個あたりの素材代（いまの値段） */
 export const unitCost = (s: P1State, x: Sku) => Object.entries(recipeOf(x)).reduce((a, [m, q]) => a + matPrice(s, m as Mat) * (q ?? 0), 0) / batchOf(x);
@@ -985,11 +999,13 @@ export interface DayResult {
   made: { slot: number; sku: Sku; n: number }[];
   /** 売れた（お店と金額。1 個ずつ） */
   sales: { uid: number; yen: number; sku: Sku }[];
+  /** バイトで能力値が上がった */
+  grew: { hero: number; stat: keyof Stats }[];
 }
 
 export function step(s: P1State): DayResult {
   s.day++;
-  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null, missions: [], intel: [], developed: [], made: [], sales: [] };
+  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null, missions: [], intel: [], developed: [], made: [], sales: [], grew: [] };
 
   // 工事
   for (const b of s.buildings) {
@@ -1033,7 +1049,7 @@ export function step(s: P1State): DayResult {
     const path = st ? roadPath(s, doorOf(ws0), doorOf(shopB)) : null;
     if (st && path) {
       const sp = speed(st, 'buy');
-      const days = Math.max(2, Math.round(((path.length * 2) / TRANSPORT.cellsPerDay) / sp));
+      const days = Math.max(2, Math.round((((path.length * 2) / TRANSPORT.cellsPerDay) / sp) * (has(s, 'swift') ? 0.7 : 1)));
       // 往復の日数ぶん（＋端数の持ち越し）を、月の量から買う
       const cargo: Partial<Record<Mat, number>> = {};
       const lv = s.proc.lv;
@@ -1088,13 +1104,13 @@ export function step(s: P1State): DayResult {
       if (st.task !== 'transport' || st.resting) continue;
       const mine = s.trips.filter((t) => t.hauler === st.hero);
       if (mine.length) working.add(st.hero);
-      const carts = has(s, 'cart2') ? 2 : 1;
+      const carts = cartsOf(s);
       if (mine.length >= carts) continue;
-      const cap = Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1));
+      const cap = cartCap(s);
       for (const shop of shops) {
         if (s.trips.filter((t) => t.hauler === st.hero).length >= carts) break;
         const sh = s.shops[shop.uid];
-        const capB = storageCap(shop);
+        const capB = storageCap(shop, s);
         if (s.trips.some((t) => t.to === shop.uid && t.hauler === st.hero)) continue;
         const cargo: Partial<Record<Sku, number>> = {};
         let load = 0;
@@ -1109,7 +1125,7 @@ export function step(s: P1State): DayResult {
           load += want;
         }
         if (load > 0) {
-          const days = Math.max(1, (dist(ws, shop) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'hub') ? 0.7 : 1) * 2) / speed(st, 'transport');
+          const days = Math.max(1, (dist(ws, shop) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * haulRate(s) * 2) / speed(st, 'transport');
           s.trips.push({ hauler: st.hero, to: shop.uid, cargo, left: days, total: days });
           working.add(st.hero);
         }
@@ -1136,7 +1152,7 @@ export function step(s: P1State): DayResult {
     working.add(st.hero);
     st.explore += speed(st, 'explore');
     const m = st.target as Mat;
-    if (st.explore >= MATS[m].exploreDays) {
+    if (st.explore >= MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1)) {
       if (!s.routes.includes(m)) s.routes.push(m);
       res.routes.push(m);
       st.task = null;
@@ -1160,6 +1176,21 @@ export function step(s: P1State): DayResult {
     }
   }
 
+  // 他店でバイト：日給を受け取り、ときどき能力値が上がる
+  for (const st of s.staff) {
+    if (st.task !== 'side' || st.resting) continue;
+    working.add(st.hero);
+    const pay = sidePay(st);
+    s.money += pay;
+    s.sideMonth = (s.sideMonth ?? 0) + pay;
+    if (rng(s.seed + s.day * 131 + st.hero)() < SIDE.grow) {
+      const keys: (keyof Stats)[] = ['int', 'agi', 'phy'];
+      const k = keys[Math.floor(rng(s.seed + s.day * 977 + st.hero)() * 3)];
+      st.stats = { ...st.stats, [k]: st.stats[k] + 1 };
+      res.grew.push({ hero: st.hero, stat: k });
+    }
+  }
+
   // 商品開発
   if (s.lab && --s.lab.left <= 0) {
     if (!s.dev.includes(s.lab.key)) s.dev.push(s.lab.key);
@@ -1172,7 +1203,7 @@ export function step(s: P1State): DayResult {
     const sh = s.shops[b.uid];
     const st = sh.staff != null ? staffOf(s, sh.staff) : null;
     if (st && !st.resting) working.add(st.hero);
-    let cap = ((st && !st.resting ? SHOP.displayPerDay * speed(st, 'shop') : 0) + sh.part * SHOP.partTimeDisplay) * (1 + 0.3 * invLv(b, 'fixtures'));
+    let cap = ((st && !st.resting ? SHOP.displayPerDay * speed(st, 'shop') : 0) + sh.part * SHOP.partTimeDisplay) * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1);
     for (const x of sh.shelves) {
       if (!x || cap <= 0) continue;
       const move = Math.min(Math.floor(cap), sh.storage[x] ?? 0, SHOP.shelfCap - (sh.shelf[x] ?? 0));
@@ -1236,7 +1267,7 @@ export function step(s: P1State): DayResult {
       st.stamina = Math.min(st.stats.hp, st.stamina + restRate);
       if (st.stamina >= st.stats.hp * STAMINA.back) st.resting = false;
     } else if (working.has(st.hero)) {
-      const easy = st.task === 'craft' && invLv(ws, 'breakroom') > 0 ? 0.7 : 1;
+      const easy = st.task === 'craft' ? (invLv(ws, 'breakroom') > 0 ? 0.7 : 1) * (has(s, 'chair') ? 0.7 : 1) : 1;
       st.stamina = Math.max(0, st.stamina - STAMINA.work * easy);
       if (st.stamina <= st.stats.hp * STAMINA.tired) st.resting = true;
     } else st.stamina = Math.min(st.stats.hp, st.stamina + restRate / 2);
@@ -1271,6 +1302,7 @@ export function areaRanking(s: P1State, mine: number, rivals: Record<string, num
 }
 
 export function endMonth(s: P1State): Report {
+  s.sideMonth = 0;
   const month = Math.round((s.day - (s.open ?? 0)) / DAYS);
   const news: string[] = [];
   const upkeep = s.buildings.filter((b) => b.owner === 'me' && b.left <= 0).reduce((a, b) => a + (P1B[b.id]?.upkeep ?? 0), 0);
@@ -1469,7 +1501,7 @@ function haulDays(s: P1State, st: Staff): number {
   const ws = myWorkshop(s);
   const shops = myShops(s);
   if (!ws || !shops.length) return 0;
-  const d = shops.reduce((a, b) => a + Math.max(1, (dist(ws, b) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'hub') ? 0.7 : 1) * 2) / speed(st, 'transport'), 0) / shops.length;
+  const d = shops.reduce((a, b) => a + Math.max(1, (dist(ws, b) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * haulRate(s) * 2) / speed(st, 'transport'), 0) / shops.length;
   return Math.max(1, d);
 }
 
@@ -1505,8 +1537,8 @@ export function stageCaps(s: P1State): Record<Stage, StageCap> {
   const buy = { perMonth: Math.round(plan.units * ratio), stopped: !buyer && ratio * DAYS < 3 };
   const craft = { perMonth: Math.round(plan.units), stopped: !s.slots.some((sl) => sl.worker != null && sl.sku) };
   const haulers = s.staff.filter((x) => x.task === 'transport');
-  const carts = has(s, 'cart2') ? 2 : 1;
-  const cap = Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1));
+  const carts = cartsOf(s);
+  const cap = cartCap(s);
   const haul = { perMonth: Math.round(haulers.reduce((a, st) => a + (haulDays(s, st) ? (DAYS / haulDays(s, st)) * carts * cap : 0), 0)), stopped: !haulers.length };
   const sell = { perMonth: Math.round(salesPotential(s)), stopped: !myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x) && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)) };
   return { buy, craft, haul, sell };

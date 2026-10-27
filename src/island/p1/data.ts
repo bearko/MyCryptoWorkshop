@@ -124,7 +124,7 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
@@ -156,12 +156,21 @@ export function aptitude(s: Stats, task: Task): number {
       return 0.5 * s.int + 0.5 * s.agi;
     case 'buy':
       return 0.4 * s.int + 0.3 * s.phy + 0.3 * s.agi;
+    case 'side':
+      // 他店でのバイト：売り場の仕事なので販売と同じ
+      return 0.6 * s.int + 0.4 * s.agi;
   }
 }
 /** 適性 → 作業の速さ（53 で 1.0） */
 export const speedOf = (apt: number) => apt / 53;
 
 export const START_STAFF = [10001, 10002, 10003];
+
+/**
+ * 他店でバイト（資金が尽きたときの助け）。ヒーローを他社のお店で働かせ、1 日 pay × 販売の速さ を受け取る。
+ * 毎日 grow の確率で、能力値（INT・AGI・PHY のどれか）が 1 上がる。資金が rescue 以下になるとマインちゃんが紹介する。
+ */
+export const SIDE = { pay: 180, grow: 0.04, rescue: 10000 };
 /** 1 日働くとスタミナが減る量と、休むと戻る量 */
 export const STAMINA = { work: 10, rest: 30, tired: 0.15, back: 0.8 };
 /** 雇ったヒーローの月給（基準）。能力の合計に比例 */
@@ -193,20 +202,34 @@ export const SKILLS: Skill[] = [
   { id: 'parttime', branch: 'shop', name: t('アルバイトの採用', 'Part-time hiring'), note: t('アルバイトの上限 +2', 'Part-timers +2 per shop'), cost: 2500 },
   { id: 'shop2', branch: 'shop', name: t('輸入品店', 'Import store'), note: t('棚 2 の輸入品店を建てられる', 'Unlocks the import store (2 shelves)'), cost: 6000, requires: ['shelf1'] },
   { id: 'shelf2', branch: 'shop', name: t('棚をさらに増やす', 'Even more shelves'), note: t('お店の棚 +1', 'Shelves +1 per shop'), cost: 9000, requires: ['shelf1'] },
+  { id: 'display', branch: 'shop', name: t('品出しの名人', 'Shelving pros'), note: t('棚に並べる速さ +50%', 'Shelving speed +50%'), cost: 3500, requires: ['parttime'] },
   { id: 'shop3', branch: 'shop', name: t('ブティック', 'Boutique'), note: t('売り場が強いブティックを建てられる', 'Unlocks the boutique (strong pull)'), cost: 14000, requires: ['shop2', 'host'] },
   { id: 'bench2', branch: 'craft', name: t('作業台を増やす', 'Second workbench'), note: t('同時に 2 つクラフトできる', 'Craft two things at once'), cost: 5000 },
   { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better jigs'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
   { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 60 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 60+)'), cost: 10000, requires: ['bench2'] },
+  { id: 'jig2', branch: 'craft', name: t('型の工夫', 'Better molds'), note: t('クラフトの日数 −15%', 'Crafting −15% days'), cost: 7000, requires: ['jig'] },
+  { id: 'chair', branch: 'craft', name: t('職人の椅子', 'Crafter chairs'), note: t('職人のスタミナの減り −30%', 'Crafters tire 30% slower'), cost: 3000 },
   { id: 'bench3', branch: 'craft', name: t('工房を工場に', 'Workshop to factory'), note: t('作業台 +1・クラフトの日数 −20%', 'Workbench +1, crafting −20% days'), cost: 22000, requires: ['bench2', 'jig'] },
   { id: 'cart2', branch: 'logi', name: t('荷車を増やす', 'Second cart'), note: t('運搬係 1 人が同時に 2 便', 'Two trips at once per hauler'), cost: 3000 },
-  { id: 'truck', branch: 'logi', name: t('小型トラック', 'Small truck'), note: t('積める数 ×2.5・速さ ×1.5', 'Load ×2.5, speed ×1.5'), cost: 8000 },
+  { id: 'truck', branch: 'logi', name: t('小型トラック', 'Small truck'), note: t('積める数 ×2.5・速さ ×1.5', 'Load ×2.5, speed ×1.5'), cost: 8000, requires: ['cart2'] },
+  { id: 'loading', branch: 'logi', name: t('積み込みの工夫', 'Smart loading'), note: t('荷車に積める数 +30%', 'Cart load +30%'), cost: 2500 },
+  { id: 'shortcut', branch: 'logi', name: t('近道の地図', 'Shortcut map'), note: t('運ぶ日数 −15%', 'Hauling −15% days'), cost: 3500, requires: ['loading'] },
+  { id: 'cart3', branch: 'logi', name: t('荷車をさらに増やす', 'Third cart'), note: t('運搬係 1 人が同時に 3 便', 'Three trips at once per hauler'), cost: 7000, requires: ['cart2'] },
+  { id: 'backroom', branch: 'logi', name: t('お店の裏倉庫', 'Shop stockrooms'), note: t('お店の裏に置ける数 +20', 'Shop back storage +20'), cost: 4000, requires: ['loading'] },
   { id: 'hub', branch: 'logi', name: t('物流拠点', 'Logistics hub'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 12000, requires: ['truck'] },
   { id: 'route_cloth', branch: 'buy', name: t('布のルート', 'Cloth route'), note: t('布を買えるようになる', 'Lets you buy cloth'), cost: 2000 },
-  { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000 },
-  { id: 'route_gem', branch: 'buy', name: t('宝石のルート', 'Gem route'), note: t('宝石を買えるようになる', 'Lets you buy gems'), cost: 6000 },
+  { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000, requires: ['route_cloth'] },
+  { id: 'route_gem', branch: 'buy', name: t('宝石のルート', 'Gem route'), note: t('宝石を買えるようになる', 'Lets you buy gems'), cost: 6000, requires: ['route_paper'] },
   { id: 'bulk', branch: 'buy', name: t('まとめ買い', 'Bulk buying'), note: t('素材の値段 −15%', 'Materials −15%'), cost: 4000 },
   { id: 'stock1', branch: 'buy', name: t('調達枠の拡大', 'Bigger buying quota'), note: t('月の調達の上限 +30%', 'Monthly buying limit +30%'), cost: 3000 },
   { id: 'stock2', branch: 'buy', name: t('大口契約', 'Bulk contracts'), note: t('月の調達の上限 +60%', 'Monthly buying limit +60%'), cost: 8000, requires: ['stock1', 'bulk'] },
+  { id: 'bulk2', branch: 'buy', name: t('卸との信頼', 'Wholesaler trust'), note: t('素材の値段 さらに −10%', 'Materials −10% more'), cost: 7000, requires: ['bulk'] },
+  { id: 'stock3', branch: 'buy', name: t('年間契約', 'Annual contract'), note: t('月の調達の上限 +100%', 'Monthly buying limit +100%'), cost: 15000, requires: ['stock2'] },
+  { id: 'swift', branch: 'buy', name: t('早足の買い付け', 'Brisk buying trips'), note: t('調達係の往復の日数 −30%', 'Buyer round trips −30% days'), cost: 3000, requires: ['stock1'] },
+  { id: 'eye', branch: 'buy', name: t('目利き', 'Sharp eye'), note: t('調達ランクの経験 +50%', 'Buying rank exp +50%'), cost: 2500, requires: ['stock1'] },
+  { id: 'tidy', branch: 'buy', name: t('物置の整理', 'Tidy stockroom'), note: t('工房の物置 +40 個', 'Workshop stockroom +40'), cost: 2500, requires: ['bulk'] },
+  { id: 'rack', branch: 'buy', name: t('倉庫の高い棚', 'Tall racks'), note: t('倉庫 1 棟の置き場所 +100 個', 'Each warehouse +100'), cost: 6000, requires: ['tidy'] },
+  { id: 'scoutmap', branch: 'buy', name: t('開拓の手引き', 'Scouting guide'), note: t('ルートの開拓の日数 −40%', 'Scouting −40% days'), cost: 3000, requires: ['route_paper'] },
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる', 'Hire heroes'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
   { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },

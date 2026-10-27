@@ -11,7 +11,7 @@ import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, skuParts, STORE, type Mat } from './data';
+import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, SIDE, skuParts, STORE, type Mat } from './data';
 import {
   allowedDirs,
   build,
@@ -61,7 +61,6 @@ import {
   openRanking,
   openReport,
   openShop,
-  openSkills,
   openStaff,
   openWorkshop,
   refreshSheet,
@@ -70,6 +69,8 @@ import {
   type Ctx,
 } from './screens';
 import { openSupply } from './scm';
+import { openSkills } from './tree';
+import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
@@ -281,6 +282,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   plan: [
     { key: 'build', name: t('建築', 'Build'), note: t('工房・お店・倉庫', 'Workshop, shops, storage'), go: () => undefined },
     { key: 'dev', name: t('商品開発', 'Products'), note: t('アンコモンを開発', 'Develop Uncommons'), go: () => openDev(ctx), needs: 'workshop' },
+    { key: 'side', name: t('他店でバイト', 'Part-time'), note: t('資金が足りないとき', 'When funds run low'), go: () => openSide(ctx) },
     { key: 'ma', name: 'M&A', note: t('買収・提携（準備中）', 'Deals (coming soon)'), go: () => openMA(ctx) },
   ],
   hr: [
@@ -953,7 +955,10 @@ const tutFree = () => !placing && !sheetOpen() && !pop && !root.querySelector('.
 /** 段の条件を見て進める。新しい段に説明の札があれば、画面が空いたときに出す */
 function tutTick() {
   let k = tutOf(s);
-  if (k >= TUT_DONE) return;
+  if (k >= TUT_DONE) {
+    sideIntro();
+    return;
+  }
   if (s.tut !== k) s.tut = k;
   if (tutOpen && !sheetOpen()) {
     tutSeen.add(tutOpen);
@@ -1014,6 +1019,22 @@ function tutTick() {
       else renderAll();
     });
   }
+}
+
+/** 資金が少なくなったら、一度だけマインちゃんが「他店でバイト」を紹介する */
+function sideIntro() {
+  if (s.flags.side || s.money > SIDE.rescue || !tutFree() || !myWorkshop(s)) return;
+  s.flags.side = true;
+  save();
+  talk(
+    [
+      { text: t('資金が少なくなってきたね……。このままだと、素材もお給料も払えなくなっちゃう。', 'Funds are getting low… At this rate we can’t pay for materials or wages.') },
+      { text: t('そんなときは、ヒーローに[[他店でバイト]]してもらおう！ 日給がもらえて、腕が上がることもあるよ。', 'When that happens, send heroes to [[work part-time]] at other stores! They earn a daily wage and might even improve.') },
+      { text: t('「営業企画」→「他店でバイト」か、地図の他社のお店から頼めるよ。', 'Use Planning → Part-time, or tap a rival store on the map.') },
+    ],
+    t('バイトを探す', 'Find work'),
+    () => goSub('plan', 'side'),
+  );
 }
 
 /**
@@ -1132,7 +1153,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const crafting = s.slots.some((sl) => sl.running);
   const stockAny = Object.values(s.stock).some((n) => (n ?? 0) > 0) || s.trips.length > 0 || myShops(s).some((b) => Object.values(s.shops[b.uid].storage).some((n) => (n ?? 0) > 0) || Object.values(s.shops[b.uid].shelf).some((n) => (n ?? 0) > 0));
   if (!crafting && !stockAny) return { text: t(`工房で「${rec}」を作りましょう。職人はバランスの良い MCHアーティストが向いています。`, `Make ${rec} in the workshop. The well-balanced MCH Artist is the best crafter.`), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx)] };
-  if (!s.staff.some((x) => x.task === 'transport')) return { text: t('できた商品をお店へ運ぶ人を決めましょう（「人事」→「従業員」）。運搬は PHY の高い MCHウォーリアーが得意です。', 'Choose who hauls goods to the shop (HR → Staff). MCH Warrior, with high PHY, is the best hauler.'), action: [t('従業員を開く', 'Open staff'), () => openStaff(ctx)] };
+  if (!s.staff.some((x) => x.task === 'transport')) return { text: t('できた商品をお店へ運ぶ人を決めましょう（「人事」→「ヒーローの配置」）。運搬は PHY の高い MCHウォーリアーが得意です。', 'Choose who hauls goods to the shop (HR → Assign heroes). MCH Warrior, with high PHY, is the best hauler.'), action: [t('配置を開く', 'Open staff'), () => openStaff(ctx)] };
   const shop = myShops(s)[0];
   const sh = shop ? s.shops[shop.uid] : null;
   if (sh && !sh.shelves[0]) return { text: t(`お店で、主力商品を「${rec}」に、店員を決めましょう。販売は INT の高い MCHタクティシャンが得意です。`, `In the shop, set ${rec} as the main product and choose a clerk. MCH Tactician, with high INT, sells best.`), action: [t('お店を開く', 'Open shop'), () => shop && openShop(ctx, shop.uid)] };
@@ -1140,6 +1161,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (closed) return { text: t(`${DEF[closed.id].name}に店員がいないので休業中です。店員かアルバイトを決めましょう。販売は INT の高いヒーローが得意です。`, `${DEF[closed.id].name} is closed: nobody on the floor. Choose a clerk or part-timer. High-INT heroes sell best.`), action: [t('お店を開く', 'Open shop'), () => openShop(ctx, closed.uid)] };
   if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t(`工房の物置（${STORE.base} 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。`, `The workshop stockroom (${STORE.base}) is full: you can’t buy materials or store goods. Build a warehouse under Build.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (MISSIONS.some((m) => s.missions[m.id] === 'done')) return { text: t('依頼を達成しました！「マーケティング」→「依頼」で報酬を受け取りましょう。', 'You completed a request! Claim the reward under Marketing → Requests.'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
+  if (s.money <= SIDE.rescue && !s.staff.some((x) => x.task === 'side'))
+    return { text: t('資金が少なくなってきたね。ヒーローに[[他店でバイト]]してもらえば、日給でお金を稼げるよ。腕が上がることもあるんだ！', 'Funds are running low. Send a hero to [[work part-time]] at another store for a daily wage. They might even improve!'), action: [t('バイトを探す', 'Find work'), () => goSub('plan', 'side')] };
   if (!activeMissions(s).length && !MISSIONS.some((m) => s.missions[m.id] === 'claimed')) return { text: t('町の人から[[依頼]]が届いているよ。「マーケティング」→「依頼」で受けてみよう！', 'People in town sent you [[requests]]. Accept one under Marketing → Requests!'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
   if (!s.reports.length) return { text: t('準備ができました！お店を開いた日から 1 か月ごとに売上を締めます。流れが詰まっていないかは「SCM」→「サプライチェーン」で確かめられます。', 'All set! Sales close every month from the day your shop opened. Check for bottlenecks under SCM → Supply chain.'), action: [t('サプライチェーンを見る', 'Open supply chain'), () => openSupply(ctx)] };
   // 1 か月たってから
@@ -1337,12 +1360,18 @@ function openTest() {
 
 // ---------------------------------------------------------------- 配置
 
+/** 広い画面（PC）では、事業別メニューを画面の右に縦に並べる。スマホは下の帯のまま */
+const RAIL = matchMedia('(min-width: 1000px) and (min-height: 560px) and (orientation: landscape)');
+RAIL.addEventListener('change', () => renderAll());
 function layout() {
+  const rail = RAIL.matches;
+  root.classList.toggle('is-rail', rail);
+  root.style.setProperty('--rail-w', rail ? `${Math.round(foot.getBoundingClientRect().width)}px` : '0px');
   const top = hud.getBoundingClientRect().bottom + 8;
   // 画面（札）は上の帯の下から下の帯の上まで。まわりに地図が少し見える
   root.style.setProperty('--hud-h', `${Math.round(top)}px`);
-  root.style.setProperty('--foot-h', `${Math.round(innerHeight - foot.getBoundingClientRect().top)}px`);
-  const bottom = innerHeight - foot.getBoundingClientRect().top + 8;
+  root.style.setProperty('--foot-h', rail ? '0px' : `${Math.round(innerHeight - foot.getBoundingClientRect().top)}px`);
+  const bottom = rail ? 12 : innerHeight - foot.getBoundingClientRect().top + 8;
   advisor.style.bottom = `${bottom}px`;
   toasts.style.top = `${placing ? selBox.getBoundingClientRect().bottom + 8 : top}px`;
   selBox.style.top = `${hud.getBoundingClientRect().top}px`;
@@ -1633,6 +1662,7 @@ function advance(days: number) {
     if (wsb) for (const m of r.made) anim.plus.push({ uid: wsb.uid, n: m.n, t: anim.clock });
     if (r.sales.length) spawnCustomers(r.sales);
     if (r.missions.length) sfx.play('mission');
+    for (const g of r.grew) toast(t(`${heroName(g.hero)}の ${g.stat.toUpperCase()} が 1 上がりました（バイトの経験）`, `${heroName(g.hero)}’s ${g.stat.toUpperCase()} rose by 1 (part-time work)`));
     if (r.procLv) {
       toast(t(`調達ランクが Lv.${r.procLv} に上がりました`, `Buying rank is now Lv.${r.procLv}`));
       sfx.play('levelup');

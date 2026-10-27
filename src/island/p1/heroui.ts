@@ -8,7 +8,7 @@ import { MATS, PRODUCT, RIVALS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, t
 import { batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
-export const TASK_NAME: Record<Task, string> = Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>;
+export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time') };
 
 /**
  * 適性のランク：0〜100 の数（100 を超えたら 100）を G・F・E・D・C・B・A・S の 8 段に。
@@ -96,6 +96,8 @@ export function jobLabel(s: P1State, st: Staff): string {
       return t(`開拓・${MATS[st.target as Mat]?.name ?? ''}`, `Scout · ${MATS[st.target as Mat]?.name ?? ''}`);
     case 'intel':
       return t(`調査・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Research · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
+    case 'side':
+      return t(`バイト・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Part-time · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
     default:
       return t('待機中', 'Free');
   }

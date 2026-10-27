@@ -356,7 +356,7 @@ describe('フェーズ 1：調達', () => {
     expect(fullUse(s).wood).toBeGreaterThanOrEqual(45);
   });
 
-  it('調達係は卸問屋まで往復し、帰ると素材が届く。量は先月の消費が初期値', () => {
+  it('調達係は卸問屋まで往復し、帰ると素材が届く。量は先月の消費と 100% の量の多いほうが初期値', () => {
     const s = newP1(5);
     setup(s);
     roomy(s, 1);
@@ -376,9 +376,9 @@ describe('フェーズ 1：調達', () => {
     expect(arrived).toBe(cargo);
     setProcQty(s, 'wood', null);
     for (let k = 0; k < 40; k++) step(s);
-    // 締めのあとは先月の消費に合わせる
+    // 締めのあとは先月の消費と 100% の量の多いほう（素材不足の月があっても減りすぎない）
     expect(s.matUsedLast?.wood).toBeGreaterThan(0);
-    expect(procQty(s, 'wood')).toBe(s.matUsedLast!.wood);
+    expect(procQty(s, 'wood')).toBe(Math.max(s.matUsedLast!.wood ?? 0, fullUse(s).wood ?? 0));
     expect(s.utilLast!.cap).toBeGreaterThan(0);
   });
 
