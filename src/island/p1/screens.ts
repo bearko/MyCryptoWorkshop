@@ -4,7 +4,7 @@
  */
 import { t, isEn } from '../../i18n';
 import { assetUrl, drawRef } from '../../render/images';
-import { getExtension, heroById } from '../../game/catalog';
+import { getExtension, heroById, heroFacesRight } from '../../game/catalog';
 import raw from '../../generated/catalog.json';
 import { DEF } from '../defs';
 import {
@@ -27,6 +27,7 @@ import {
   SHOP,
   SKILLS,
   TASKS,
+  TRANSPORT,
   UNCOMMON,
   WORLD_COMPANIES,
   aptitude,
@@ -75,6 +76,10 @@ import {
   craftCheck,
   craftDays,
   has,
+  myWarehouses,
+  poolCap,
+  poolFree,
+  poolUsed,
   hire,
   learn,
   market,
@@ -102,6 +107,8 @@ export interface Ctx {
   /** 地図と上の帯を描き直す */
   refresh: () => void;
   toast: (text: string) => void;
+  /** ✕ や外側を押して札を閉じた（下の帯のメニューも閉じる） */
+  dismissed?: () => void;
 }
 
 /** 開いている札（1 日ごとに描き直す） */
@@ -118,11 +125,16 @@ export function closeSheet() {
 
 function open(ctx: Ctx, title: string, render: (body: HTMLElement) => void, onClose?: () => void) {
   closeSheet();
-  const sh = sheet(ctx.root, title, () => {
-    current = null;
-    onClose?.();
-    ctx.refresh();
-  });
+  const sh = sheet(
+    ctx.root,
+    title,
+    () => {
+      current = null;
+      onClose?.();
+      ctx.refresh();
+    },
+    () => ctx.dismissed?.(),
+  );
   const draw = () => {
     const y = sh.body.scrollTop;
     sh.body.replaceChildren();
@@ -144,6 +156,7 @@ const CRAFT_ERR: Record<string, string> = {
   dev: t('このアンコモンはまだ開発していません（営業企画 → 商品開発）', 'Develop this Uncommon first (Planning → Product development)'),
   skill: t(`アンコモンには製造の適性 ${UNCOMMON.minCraft} 以上の職人が要ります`, `Uncommons need a crafter with aptitude ${UNCOMMON.minCraft}+`),
   mats: t('素材が足りません（「調達」で買えます）', 'Not enough materials (buy them under Buy)'),
+  full: t('置き場所がいっぱいで、できた商品を置けません（倉庫を建てるか、お店へ運びましょう）', 'No room for finished goods (build a warehouse or haul to shops)'),
   worker: t('職人を割り当ててください', 'Assign a crafter first'),
   busy: t('作業中です', 'Already working'),
 };
@@ -280,6 +293,9 @@ function shopScene(s: P1State, uid: number): HTMLCanvasElement {
   ctx.imageSmoothingEnabled = false;
   const sh = s.shops[uid];
   const guests = [1001, 1002, 1005, 1008, 1011, 1014].filter((id) => heroById.has(id));
+  let walkers: { hero: number; x: number; goal: number; wait: number; bob: number; shelf: number; facing?: number }[] = [];
+  let nextAt = performance.now() + 600;
+  let lastT = performance.now();
   const view = new Image();
   view.src = assetUrl(raw.windowView);
   let raf = 0;
@@ -314,21 +330,48 @@ function shopScene(s: P1State, uid: number): HTMLCanvasElement {
     ctx.fillRect(210, 110, 100, 5);
     const staff = sh.staff != null ? heroById.get(sh.staff) : null;
     if (staff) drawRef(ctx, staff.image, 236, 58, 56, 56);
-    // お客さん：店員がいれば行き来する
-    if (staff || sh.part > 0) {
-      for (let k = 0; k < 3; k++) {
-        const tt = ((now / 1000 + k * 2.3) % 7) / 7;
-        const x = 330 - tt * 360;
-        const g = heroById.get(guests[(k + Math.floor(now / 7000)) % guests.length]);
-        if (g) {
-          ctx.save();
-          ctx.translate(x + 20, 124);
-          ctx.scale(-1, 1);
-          drawRef(ctx, g.image, -20, 0, 40, 40);
-          ctx.restore();
+    // お客さん（Workshop と同じ歩き方）：入口から入って棚を見て、レジで払って出ていく。ゆっくり来店する
+    const dt = Math.min(100, now - lastT);
+    lastT = now;
+    if ((staff || sh.part > 0) && now >= nextAt && walkers.length < 2) {
+      walkers.push({ hero: guests[Math.floor(Math.random() * guests.length)], x: 340, goal: 0, wait: 0, bob: 0, shelf: 60 + Math.random() * 80 });
+      nextAt = now + 4200 + Math.random() * 3000;
+    }
+    const STOPS = 3;
+    for (const w of walkers) {
+      const stop = [{ x: w.shelf, wait: 1600 }, { x: 196, wait: 900 }, { x: 350, wait: 0 }][w.goal];
+      if (w.wait > 0) w.wait -= dt;
+      else {
+        const dx = stop.x - w.x;
+        const step = Math.sign(dx) * Math.min(Math.abs(dx), (dt / 1000) * 70);
+        if (Math.abs(dx) > 1) {
+          w.x += step;
+          w.facing = dx < 0 ? -1 : 1;
+          w.bob += dt / 100;
+        } else {
+          w.wait = stop.wait;
+          w.goal++;
         }
       }
+      const g = heroById.get(w.hero);
+      if (!g) continue;
+      const walking = w.wait <= 0;
+      const hop = walking ? Math.abs(Math.sin(w.bob)) * 3 : 0;
+      const flip = heroFacesRight(w.hero) ? (w.facing ?? -1) < 0 : (w.facing ?? -1) > 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(w.x, 164, 12, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const px = w.x - (flip ? 64 - g.cx : g.cx) * (44 / 64);
+      if (flip) {
+        ctx.save();
+        ctx.translate(px + 44, 122 - hop);
+        ctx.scale(-1, 1);
+        drawRef(ctx, g.image, 0, 0, 44, 44);
+        ctx.restore();
+      } else drawRef(ctx, g.image, px, 122 - hop, 44, 44);
     }
+    walkers = walkers.filter((w) => w.goal < STOPS);
     raf = requestAnimationFrame(draw);
   };
   raf = requestAnimationFrame(draw);
@@ -413,6 +456,7 @@ export function openBuy(ctx: Ctx) {
       bar(s.proc.lv >= PROC.maxLv ? 1 : s.proc.exp / need, 'var(--isl-gold)'),
       h('p', 'isl-dim', s.proc.lv >= PROC.maxLv ? t('最高ランクです', 'Max rank') : t(`次のランクまで ${Math.ceil(need - s.proc.exp)}（買った数と買い付けの回数で上がります）`, `${Math.ceil(need - s.proc.exp)} to the next rank (raised by units and purchases)`)),
       h('p', 'isl-big', t(`今月 ${s.proc.bought} / ${procCap(s)} 個`, `This month ${s.proc.bought} / ${procCap(s)}`)),
+      h('p', poolFree(s) <= 0 ? 'isl-warn' : 'isl-dim', myWarehouses(s).length ? t(`置き場所（工房の物置＋倉庫 ${myWarehouses(s).length}）：${poolUsed(s)} / ${poolCap(s)} 個`, `Storage (workshop + ${myWarehouses(s).length} warehouse(s)): ${poolUsed(s)} / ${poolCap(s)}`) : t(`置き場所（工房の物置）：${poolUsed(s)} / ${poolCap(s)} 個。いっぱいになったら「建築」で倉庫を建てましょう`, `Storage (workshop): ${poolUsed(s)} / ${poolCap(s)}. Build a warehouse when it fills up`)),
       h('p', 'isl-dim', bonus ? t(`月に買える素材の数の上限です。ランクが上がると増えます（スキルで +${bonus}%）。`, `Monthly limit on materials bought. Grows with rank (skills +${bonus}%).`) : t('月に買える素材の数の上限です。ランクが上がると増えます。スキル「調達枠の拡大」でも増やせます。', 'Monthly limit on materials bought. Grows with rank and the “Bigger buying quota” skill.')),
     );
     body.append(rank);
@@ -441,7 +485,7 @@ export function openBuy(ctx: Ctx) {
       h(
         'p',
         buyer ? (buyer.resting ? 'isl-warn' : 'isl-dim') : 'isl-warn',
-        !buyer ? t('調達係がいないので、自動では買いません。下の量は、調達係を決めると毎日少しずつ買い付けます。', 'No buyer: nothing is bought automatically. Assign one to buy the amounts below a little every day.') : buyer.resting ? t('調達係が休憩中なので、いまは買い付けが止まっています。', 'The buyer is resting; buying is paused.') : t('下の「月の量」を 30 日に分けて、毎日買い付けます（月の上限と資金の中で）。適性が高いほど、ランクが早く上がります。', 'The monthly amounts below are bought a little each day (within the limit and funds). Higher aptitude raises the rank faster.'),
+        !buyer ? t('調達係がいないので、自動では買いません。下の量は、調達係を決めると毎日少しずつ買い付けます。', 'No buyer: nothing is bought automatically. Assign one to buy the amounts below a little every day.') : buyer.resting ? t('調達係が休憩中なので、いまは買い付けが止まっています。', 'The buyer is resting; buying is paused.') : t('調達係が工房から卸問屋まで歩いて行き、往復の日数ぶんの「月の量」を買って帰ります（月の上限・資金・置き場所の中で）。適性が高いほど速く歩き、ランクも早く上がります。', 'The buyer walks from the workshop to the wholesaler and brings back what the trip’s days need from the monthly amounts (within the limit, funds and storage). Higher aptitude walks faster and raises the rank faster.'),
       ),
     );
     const u = utilRate(s.utilLast);
@@ -525,9 +569,10 @@ export function openBuy(ctx: Ctx) {
             const e = buy(s, m, k);
             if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
             else if (e === 'cap') ctx.toast(t('今月の調達の上限を超えます', 'Over this month’s buying limit'));
+            else if (e === 'storage') ctx.toast(t('置き場所がありません（倉庫を建てましょう）', 'No storage room (build a warehouse)'));
             after(ctx);
           });
-          b.disabled = s.money < matPrice(s, m) * k || procLeft(s) < k;
+          b.disabled = s.money < matPrice(s, m) * k || procLeft(s) < k || poolFree(s) < k;
           spot.append(b);
         }
         card.append(spot);
@@ -873,7 +918,7 @@ function bottlenecks(s: P1State): string[] {
   const stock = Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0);
   const haulers = s.staff.filter((x) => x.task === 'transport' && !x.resting).length;
   if (stock > 0 && !haulers) out.push(t('運搬係がいない（休憩中）ので、工房に商品がたまっています。', 'No active hauler: goods are piling up in the workshop.'));
-  else if (stock > 150) out.push(t('工房に商品がたまっています。荷車・トラック・運搬係を増やしましょう。', 'Goods are piling up in the workshop. Add carts, trucks or haulers.'));
+  else if (stock > 40) out.push(t('工房に商品がたまっています。荷車・トラック・運搬係を増やしましょう。', 'Goods are piling up in the workshop. Add carts, trucks or haulers.'));
   for (const b of shops) {
     const sh = s.shops[b.uid];
     const st = sh.staff != null ? staffOf(s, sh.staff) : null;
@@ -907,7 +952,9 @@ export function openSupply(ctx: Ctx) {
       c.append(matIcon(m, 18), h('small', '', `${s.mats[m] ?? 0}`));
       mats.append(c);
     }
-    step(t('① 調達（素材）', '① Buy (materials)'), [mats]);
+    const buyer = s.staff.find((x) => x.task === 'buy');
+    const tripLine = !buyer ? t('調達係：いない（手で買う）', 'Buyer: none (buy by hand)') : s.buyTrip ? t(`調達係：${heroName(buyer.hero)}（卸問屋へ往復中・あと ${s.buyTrip.left} 日）`, `Buyer: ${heroName(buyer.hero)} (on a trip, ${s.buyTrip.left} d left)`) : t(`調達係：${heroName(buyer.hero)}（工房で待機）`, `Buyer: ${heroName(buyer.hero)} (at the workshop)`);
+    step(t('① 調達（素材）', '① Buy (materials)'), [mats, t(`置き場所 ${poolUsed(s)} / ${poolCap(s)} 個`, `Storage ${poolUsed(s)} / ${poolCap(s)}`), tripLine]);
     step(
       t('② クラフト（工房）', '② Craft (workshop)'),
       s.slots.map((sl, k) => {
@@ -919,7 +966,7 @@ export function openSupply(ctx: Ctx) {
     const stock = Object.entries(s.stock).filter(([, n]) => (n ?? 0) > 0) as [Sku, number][];
     step(t('③ 工房の倉庫', '③ Workshop storage'), stock.length ? stock.map(([x, n]) => `${skuName(x)} ×${n}`) : [t('空', 'empty')]);
     const haulers = s.staff.filter((x) => x.task === 'transport');
-    step(t('④ 運搬', '④ Haul'), [t(`運搬係 ${haulers.length} 人・運んでいる便 ${s.trips.length}`, `${haulers.length} haulers, ${s.trips.length} trips on the road`), t(`1 便 ${Math.round(20 * (has(s, 'truck') ? 2.5 : 1))} 個まで`, `Up to ${Math.round(20 * (has(s, 'truck') ? 2.5 : 1))} per trip`)]);
+    step(t('④ 運搬', '④ Haul'), [t(`運搬係 ${haulers.length} 人・運んでいる便 ${s.trips.length}`, `${haulers.length} haulers, ${s.trips.length} trips on the road`), t(`1 便 ${Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1))} 個まで`, `Up to ${Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1))} per trip`)]);
     step(
       t('⑤ 陳列（お店）', '⑤ Shelve (shops)'),
       myShops(s).map((b) => {

@@ -694,5 +694,23 @@
   "base": "1",
   "desc": "a small shrine for the guardian monkey: a stone statue of a monkey on a pedestal, a small wooden shrine with a curved roof, offering lanterns, trees around, a stone path",
   "back": null
+ },
+ {
+  "id": "warehouse",
+  "cat": "会社の施設",
+  "name": "倉庫",
+  "base": "1",
+  "desc": "a brick warehouse with a dark gable roof, a wide gray roller shutter door on the front, stacked wooden crates and a pallet by the door, paved front",
+  "back": "replace the roller shutter with a plain brick wall with a small wooden door and two small windows",
+  "note": "PixelLab の生成回数が尽きていたので、いまの絵は scripts/island/warehouse.py で描いたもの。回数が戻ったらこの指示で作り直す"
+ },
+ {
+  "id": "wholesale",
+  "cat": "会社の施設",
+  "name": "卸問屋",
+  "base": "1T",
+  "desc": "an old three-story wholesale merchant house with a dark tiled roof, a wide open ground floor stacked with sacks, barrels and crates of raw materials (iron ingots, lumber, clay, glass), a large hanging sign with a scale icon, paved front",
+  "back": "remove the open front and the sign, and show a plain wall with a loading door and stacked lumber",
+  "note": "いまの絵は商社（trading）の絵を流用。PixelLab の回数が戻ったらこの指示で作る"
  }
 ]

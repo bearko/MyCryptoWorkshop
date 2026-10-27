@@ -50,6 +50,11 @@ function lot(s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'
   throw new Error('no lot');
 }
 
+/** 倉庫を n 棟ぶん置いたことにする（保管の上限を広げる） */
+function roomy(s: P1State, n = 5) {
+  for (let k = 0; k < n; k++) s.buildings.push({ uid: s.nextUid++, id: 'warehouse', i: -10 - k, j: -10, dir: 'rd', left: 0, owner: 'me' });
+}
+
 /** 工房とお店を建てて、3 人を割り当てる */
 function setup(s: P1State) {
   const [a, b, d] = lot(s, 'workshop');
@@ -124,6 +129,8 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
     const s = newP1(3);
     setup(s);
     const artist = s.staff.find((x) => x.hero === 10003)!;
+    roomy(s);
+    s.mats.wood = 300;
     let rested = false;
     for (let k = 0; k < 40; k++) {
       step(s);
@@ -135,6 +142,7 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
   it('アンコモンは魔法の釜・商品開発と、製造の適性 60 以上の職人が要る', () => {
     const s = newP1(3);
     setup(s);
+    roomy(s);
     s.mats.paper = 10;
     s.money = 1e6;
     expect(craftCheck(s, 'Sensu:U', 10003)).toBe('pot');
@@ -147,8 +155,9 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
   it('独り占めが続くと他社が参入する', () => {
     const s = newP1(3);
     setup(s);
-    s.mats.wood = 1000;
-    for (let k = 0; k < 30 * 4; k++) step(s);
+    roomy(s);
+    s.mats.wood = 900;
+    for (let k = 0; k < 30 * 5; k++) step(s);
     expect(s.rivals.some((r) => (r.sells.Sensu ?? 0) > 0)).toBe(true);
     expect(s.reports.some((r) => r.news.length > 0)).toBe(true);
   });
@@ -210,7 +219,9 @@ describe('フェーズ 1：タイルの操作とメニューの仕組み', () =>
     const s = newP1(5);
     setup(s);
     s.money = 100000;
+    roomy(s);
     s.mats.paper = 50;
+    s.mats.wood = 100;
     expect(develop(s, 'Sensu')).toBe('pot');
     learn(s, 'bench2');
     learn(s, 'pot');
@@ -311,6 +322,7 @@ describe('フェーズ 1：調達', () => {
   it('月に買える数には上限があり、買うとランクが上がって上限が増える', () => {
     const s = newP1(5);
     s.money = 1e6;
+    roomy(s);
     expect(procCap(s)).toBe(100);
     expect(buy(s, 'wood', 101)).toBe('cap');
     expect(buy(s, 'wood', 100)).toBeNull();
@@ -335,22 +347,37 @@ describe('フェーズ 1：調達', () => {
     expect(fullUse(s).wood).toBeGreaterThanOrEqual(45);
   });
 
-  it('調達係がいると月の量を毎日分けて買い、量は先月の消費が初期値', () => {
+  it('調達係は卸問屋まで往復し、帰ると素材が届く。量は先月の消費が初期値', () => {
     const s = newP1(5);
     setup(s);
+    roomy(s, 1);
     s.mats.wood = 0;
     s.staff.push({ ...s.staff[0], hero: 99998, task: null, target: null });
     assign(s, 99998, 'buy');
     // 先月が無いときは 100% のときの消費
     expect(procQty(s, 'wood')).toBe(fullUse(s).wood);
     setProcQty(s, 'wood', 60);
-    for (let k = 0; k < 10; k++) step(s);
-    expect(s.proc.bought).toBe(20);
+    step(s);
+    expect(s.buyTrip).not.toBeNull();
+    const cargo = s.buyTrip!.cargo.wood ?? 0;
+    expect(cargo).toBeGreaterThan(0);
+    expect(s.mats.wood).toBe(0);
+    let arrived = 0;
+    for (let k = 0; k < 20 && !arrived; k++) arrived = step(s).arrived?.wood ?? 0;
+    expect(arrived).toBe(cargo);
     setProcQty(s, 'wood', null);
     for (let k = 0; k < 40; k++) step(s);
     // 締めのあとは先月の消費に合わせる
     expect(s.matUsedLast?.wood).toBeGreaterThan(0);
     expect(procQty(s, 'wood')).toBe(s.matUsedLast!.wood);
     expect(s.utilLast!.cap).toBeGreaterThan(0);
+  });
+
+  it('倉庫が無いと、工房の物置（60）を超えては買えない', () => {
+    const s = newP1(5);
+    s.money = 1e6;
+    expect(buy(s, 'wood', 10)).toBe('storage');
+    roomy(s, 1);
+    expect(buy(s, 'wood', 10)).toBeNull();
   });
 });

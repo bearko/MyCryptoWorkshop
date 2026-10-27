@@ -9,7 +9,8 @@ import { DEF } from '../defs';
 import { center, diamond, drawArt, drawBuilding, drawCell, image, type Camera, type Effect } from '../render';
 import { cells, frontCell, type Dir } from '../sim';
 import { PRODUCT, skuParts, type Sku } from './data';
-import { facilityStatus, ground, isRoad, myWorkshop, type P1State, type Stop } from './model';
+import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
+import { craftDays, facilityStatus, ground, isRoad, myWorkshop, speed, staffOf, type P1State, type Stop } from './model';
 
 export interface P1Ghost {
   id: string;
@@ -66,7 +67,7 @@ function edge(ctx: CanvasRenderingContext2D, i: number, j: number, color: string
   ctx.stroke();
 }
 
-export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null, placeable: Set<number> | null = null) {
+export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null, placeable: Set<number> | null = null, anim: Anim | null = null) {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#2f6fae';
@@ -156,10 +157,30 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       items.push({ depth: (i + j) * 1000 + i + 0.7, draw: () => cart(ctx, c.x, c.y + 20) });
     }
   }
+  // 歩いているヒーロー（お客さん・調達係）
+  if (anim) {
+    for (const wk of anim.walkers) {
+      const f = (anim.clock - wk.t0) / wk.dur;
+      if (f < 0 || f > 1) continue;
+      const p = along(wk.path, f);
+      // 家から出てくるとき・お店に入るときはふわっと
+      const alpha = Math.min(1, f / 0.08, (1 - f) / 0.08);
+      items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, wk.hero, p.i, p.j, p.di, p.dj, (anim.clock - wk.t0) / 90, alpha) });
+    }
+    const by = anim.buyer;
+    if (by && by.path.length > 1) {
+      // 行き（0〜0.5）は工房から卸問屋へ、帰り（0.5〜1）は荷物を持って戻る
+      const back = by.k > 0.5;
+      const f = back ? (1 - by.k) * 2 : by.k * 2;
+      const p = along(by.path, f);
+      const carry = back && by.carry ? image(`items/${by.carry}.png`) : null;
+      items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, by.hero, p.i, p.j, back ? -p.di : p.di, back ? -p.dj : p.dj, anim.clock / 90, 1, carry) });
+    }
+  }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
   ctx.restore();
-  drawBubbles(ctx, s, cam, w, h, dpr);
+  drawBubbles(ctx, s, cam, w, h, dpr, anim);
 }
 
 // ---------------------------------------------------------------- 自社の施設の上の吹き出し
@@ -170,6 +191,7 @@ const STOP: Record<Stop, [string, string]> = {
   crafterRest: [t('職人', 'Crafter'), t('休憩中', 'resting')],
   noItem: [t('作る物', 'Nothing'), t('未定', 'to make')],
   noMats: [t('素材', 'No'), t('不足', 'materials')],
+  full: [t('倉庫', 'Storage'), t('満杯', 'full')],
   noHauler: [t('運搬係', 'No'), t('不在', 'hauler')],
   noProduct: [t('商品', 'No'), t('未定', 'product')],
   noClerk: [t('店員', 'No'), t('不在', 'clerk')],
@@ -211,7 +233,7 @@ function bubble(ctx: CanvasRenderingContext2D, tipX: number, tipY: number, bw: n
   return { x, y };
 }
 
-function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number) {
+function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, anim: Anim | null) {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
@@ -244,6 +266,19 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
         const [key, r] = skuParts(k);
         drawRef(ctx, getExtension(PRODUCT[key].ext[r]).image, x + pad + n2 * (icon + 2), y + pad, icon, icon);
       });
+      // 製造：1 ロットの秒数で枠を分けて、進んだぶん色を付ける
+      if (st.kind === 'craft' && anim) {
+        const sl = s.slots.find((q) => q.running && q.sku);
+        const wk = sl?.worker != null ? staffOf(s, sl.worker) : null;
+        if (sl?.sku && wk && !wk.resting) {
+          const sp = speed(wk, 'craft');
+          const need = craftDays(s, sl.sku);
+          const p = Math.min(1, (sl.progress + sp * anim.frac) / need);
+          const secs = ((need / sp) * DAY_SECONDS) / Math.max(1, anim.speed);
+          const parts = Math.max(1, Math.min(12, Math.round(secs)));
+          drawRing(ctx, x, y, bw, bh, parts, Math.floor(p * parts + 1e-6));
+        }
+      }
     } else {
       // 商品の吹き出しと同じ高さで、2 行にして幅をせまく
       const lines = STOP[st.stop];
@@ -264,6 +299,31 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
       const lh = fs * 1.15;
       lines.forEach((l, k) => ctx.fillText(l, x + bw / 2, y + bh / 2 + (k - 0.5) * lh + 0.5));
     }
+    if (!anim) continue;
+    // 吹き出しの上：工房は「＋数」、お店は売上の連なり
+    const top = sy - (icon0 + pad * 2) - Math.max(4, Math.round((icon0 + pad * 2) * 0.18)) - 4;
+    const fs = Math.max(11, Math.min(16, tileW * 0.15));
+    for (const pl of anim.plus) {
+      if (pl.uid !== b.uid) continue;
+      const age = (anim.clock - pl.t) / PLUS_MS;
+      if (age < 0 || age > 1) continue;
+      floatText(ctx, `+${pl.n}`, sx, top - age * 18, fs + 2, '#b6ffcb', 1 - age * age);
+    }
+    const coins = anim.coins.get(b.uid);
+    if (coins?.length) {
+      const live = coins.filter((c) => anim.clock - c.t < COIN_MS).slice(-COIN_KEEP);
+      // 新しいものほど下。古いものほど上で薄く
+      live.forEach((c, k) => {
+        const idx = live.length - 1 - k;
+        const age = (anim.clock - c.t) / COIN_MS;
+        const rise = Math.min(1, (anim.clock - c.t) / 180) * 6;
+        const alpha = (1 - idx / COIN_KEEP) * Math.min(1, (1 - age) * 3);
+        floatText(ctx, `+${c.yen.toLocaleString('en-US')} G`, sx, top - idx * (fs + 3) - rise, fs, '#ffe27a', alpha);
+      });
+    }
   }
   ctx.restore();
 }
+
+/** 1 日の長さ（秒）。main.ts の DAY_MS と合わせる */
+export const DAY_SECONDS = 0.6;

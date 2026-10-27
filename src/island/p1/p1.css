@@ -916,3 +916,59 @@ button.isl-chip {
 .isl-pick:not(.is-on) {
   opacity: 0.6;
 }
+
+/* ---------------------------------------------------------------- 画面（札）は下の帯の上に。帯は出したまま */
+#isl-ui .isl-sheet {
+  inset: 0 0 var(--foot-h, 0) 0;
+  padding: var(--hud-h, 8px) 8px 8px;
+  background: rgba(10, 14, 24, 0.22);
+  z-index: 4;
+}
+#isl-ui .isl-sheet-box {
+  max-height: 100%;
+  border-bottom: 2px solid var(--isl-line);
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+#isl-ui .isl-sheet-body {
+  padding-bottom: 14px;
+}
+#isl-ui .isl-foot {
+  z-index: 5;
+}
+#isl-ui .isl-modal {
+  z-index: 7;
+}
+/* 画面を開いているあいだは、建物の一覧（カード）は出さない */
+#isl-ui:has(.isl-sheet) .isl-panel .isl-cards {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------- スマホで文字や絵を押しても選択しない */
+#isl-ui,
+#isl-ui *,
+#isl-map {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#isl-ui input,
+#isl-ui select {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+#isl-ui img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+html,
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* 中央のスキルツリーのボタンがサブタブにかからないように */
+#isl-ui .isl-panel {
+  padding-bottom: 24px;
+}

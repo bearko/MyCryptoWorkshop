@@ -5,8 +5,8 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
-import { allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, refundOf, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
-import { investList, jobOptions, openShop, openWorkshop, rivalName, type Ctx } from './screens';
+import { poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, refundOf, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { investList, jobOptions, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, select, skuIcon, skuName } from './ui';
 
 export interface TileHooks {
@@ -20,6 +20,8 @@ export interface TileHooks {
 }
 
 const DESC: Record<string, string> = {
+  warehouse: t('素材と、お店へ運ぶ前の商品をしまっておく倉庫。1 棟で置き場所が 200 個ふえます。倉庫が無いと、工房の物置（60 個）を超えては調達できません。', 'Stores materials and goods waiting to be hauled. Each adds 200 spaces; without one you can only stock 60 in the workshop.'),
+  wholesale: t('素材を卸している問屋。調達係は工房からここまで歩いて買い付けに来ます。', 'The wholesaler that sells materials. Your buyer walks here from the workshop.'),
   workshop: t('Workshop から引き継いだ本店。作業台で商品をクラフトし、できた商品を倉庫に置きます。', 'Your head office, brought over from the Workshop. Crafters make goods here and store them.'),
   general_store: t('小さな物販店。最初は棚 1 つ。店員かアルバイトがいると開店します。', 'A small retail shop with one shelf to start. Opens when a clerk or part-timer is there.'),
   import: t('棚が 2 つある輸入品店。売り場が少し強いお店です。', 'An import store with two shelves and a bit more pull.'),
@@ -60,6 +62,15 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
   if (b.owner === 'me') return { title: name, body: mine(ctx, b, body, hooks) };
   if (b.owner === 'town') {
     const isHome = DEF[b.id].cat === 'home';
+    if (b.id === 'wholesale') {
+      body.append(meta([[t('建築者', 'Builder'), t('地元の工務店', 'Local builders')], [t('所有者', 'Owner'), t('卸問屋', 'Wholesaler')]]), h('p', '', DESC.wholesale));
+      const trip = s.buyTrip;
+      if (trip) body.append(h('p', 'isl-dim', t(`${heroName(trip.hero)}が買い付けの途中です（あと ${trip.left} 日）。`, `${heroName(trip.hero)} is on a buying trip (${trip.left} days left).`)));
+      const row = h('div', 'isl-row');
+      row.append(btn(t('調達を開く', 'Open buying'), () => openBuy(ctx), 'is-on'));
+      body.append(row);
+      return { title: name, body };
+    }
     body.append(meta(isHome ? [[t('建築者', 'Builder'), t('地元の工務店', 'Local builders')], [t('所有者', 'Owner'), t('住民', 'Residents')]] : [[t('建築者', 'Builder'), t('エリアの自治体', 'Local government')], [t('所有者', 'Owner'), t('エリアの自治体', 'Local government')]]));
     body.append(h('p', '', isHome ? HOME : (DESC[b.id] ?? '')));
     if (isHome) body.append(h('p', 'isl-dim', t(`${DEF[b.id].homes} 世帯が暮らしています。`, `${DEF[b.id].homes} households live here.`)));
@@ -122,18 +133,23 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       if (!goods.childElementCount) goods.append(h('small', 'isl-warn', t('並べる商品が決まっていません', 'No product chosen')));
       body.append(goods, h('small', 'isl-dim', t(`裏に置ける数 ${storageCap(b)}・利益率は維持費も含めた月の数字（今月の粗利率は素材代とアルバイト代だけ）`, `Backroom ${storageCap(b)}. Last month’s margin includes upkeep; this month’s counts materials and part-timers only.`)));
     }
+  } else if (kind === 'warehouse') {
+    stat(grid, t('置き場所（全体）', 'Storage (total)'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`), 'is-wide');
+    body.append(grid);
   } else if (kind === 'workshop') {
     stat(grid, t('作業台', 'Benches'), `${s.slots.length}`);
     stat(grid, t('動いている作業台', 'Working'), `${s.slots.filter((x) => x.running).length}`);
     stat(grid, t('今月作った数', 'Made this month'), t(`${s.ws.made} 個`, `${s.ws.made}`));
     stat(grid, t('今月作った価値', 'Value made'), money(s.ws.value));
     stat(grid, t('先月作った数', 'Last month'), s.ws.last ? t(`${s.ws.last.made} 個`, `${s.ws.last.made}`) : '—');
-    stat(grid, t('倉庫の商品', 'In storage'), t(`${Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0)} 個`, `${Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0)}`));
+    stat(grid, t('置き場所', 'Storage'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`));
+    stat(grid, t('運ぶ前の商品', 'Goods to haul'), t(`${Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0)} 個`, `${Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0)}`));
     body.append(grid);
   }
 
   const acts = h('div', 'isl-row isl-pop-acts');
-  acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), 'is-on'));
+  if (kind === 'warehouse') acts.append(btn(t('調達を開く', 'Open buying'), () => openBuy(ctx), 'is-on'));
+  else acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), 'is-on'));
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));
   mv.disabled = s.money < moveCost(b);
   acts.append(mv);
@@ -154,7 +170,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       }, 'is-danger'),
     );
   body.append(acts, h('small', 'isl-dim', t(`移転すると約 ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} 日休業します。在庫と設備はそのままです。`, `Moving closes it for about ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} days; stock and upgrades stay.`)));
-  body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
+  if (kind === 'shop' || kind === 'workshop') body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
   return body;
 }
 
