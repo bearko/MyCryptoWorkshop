@@ -4,11 +4,12 @@
  */
 import '../island.css';
 import './p1.css';
+import { Sound } from '../../audio';
 import { isEn, setLang, t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
-import { type Dir } from '../sim';
+import { cells, type Dir } from '../sim';
 import { MATS, MISSIONS, P1_BUILDINGS, P1B, PRODUCT, skuParts } from './data';
 import {
   allowedDirs,
@@ -19,6 +20,7 @@ import {
   date,
   daysToClose,
   deserializeP1,
+  ground,
   monthRevenue,
   moveCost,
   myShops,
@@ -65,6 +67,7 @@ const q = new URLSearchParams(location.search);
 const TEST = q.get('test') === '2';
 const SAVE = 'mycryptoisland.p1.v1';
 const GUIDE = 'mycryptoisland.p1.guide';
+const SOUND = 'mycryptoisland.p1.sound';
 
 function load(): P1State {
   try {
@@ -90,6 +93,21 @@ try {
 } catch {
   // 既定は表示
 }
+
+// ---------------------------------------------------------------- 音（BGM と効果音は mycryptoheroes の音源）
+
+const sound = new Sound();
+let vol = { bgm: 1, se: 1 };
+try {
+  vol = { ...vol, ...(JSON.parse(localStorage.getItem(SOUND) ?? '{}') as Partial<typeof vol>) };
+} catch {
+  // 既定は両方あり
+}
+sound.setVolumes(vol);
+sound.playBgm('bgmTree');
+// ブラウザは最初の操作まで音を出せない
+addEventListener('pointerdown', () => sound.unlock(), { capture: true });
+addEventListener('keydown', () => sound.unlock(), { capture: true });
 
 const canvas = document.getElementById('isl-map') as HTMLCanvasElement;
 const ctx2 = canvas.getContext('2d')!;
@@ -167,10 +185,30 @@ const speedBox = h('div', 'isl-speed');
 speedBox.append(...speedBtns);
 hud.append(statMoney, statSales, statRank, statDate, h('div', 'isl-spacer'), speedBox);
 
+/** 資金の表示（減ったときは数字が下がっていく演出） */
+let shownMoney = s.money;
+let moneyAnim: { from: number; to: number; t0: number } | null = null;
+/** 日が進む間の増減は演出しない（買い物や建築など、操作で減ったときだけ） */
+let ticking = false;
+const moneyLabel = h('b');
+function moneyText(v: number) {
+  moneyLabel.textContent = money(v);
+}
 function renderHud() {
-  statMoney.className = `isl-stat ${s.money < 0 ? 'is-bad' : ''}`;
-  const lm = t('資金', 'Funds');
-  statMoney.innerHTML = `<small>${lm}</small><b>${money(s.money)}</b>`;
+  statMoney.className = `isl-stat ${s.money < 0 ? 'is-bad' : ''} ${moneyAnim ? 'is-spending' : ''}`;
+  if (!statMoney.firstChild) statMoney.append(h('small', '', t('資金', 'Funds')), moneyLabel);
+  const spent = shownMoney - s.money;
+  if (!ticking && spent >= 1 && !moneyAnim) {
+    moneyAnim = { from: shownMoney, to: s.money, t0: performance.now() };
+    const fly = h('span', 'isl-spend', `−${money(spent)}`);
+    statMoney.append(fly);
+    setTimeout(() => fly.remove(), 1200);
+    setTimeout(() => sound.play('hit', 0.7), 120);
+    statMoney.classList.add('is-spending');
+  } else if (!moneyAnim) {
+    shownMoney = s.money;
+    moneyText(s.money);
+  }
   const ls = t('今月の売上', 'Sales this month');
   statSales.innerHTML = `<small>${ls}</small><b>${money(monthRevenue(s))}</b>`;
   const last = s.reports[s.reports.length - 1];
@@ -216,7 +254,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   ],
   sys: [
     { key: 'invest', name: t('設備投資', 'Investment'), note: t('建物ごとの設備', 'Per-building upgrades'), go: () => openInvest(ctx), needs: 'workshop' },
-    { key: 'settings', name: t('設定', 'Settings'), note: t('言語・案内', 'Language, guide'), go: () => openSettings() },
+    { key: 'settings', name: t('設定', 'Settings'), note: t('言語・案内・音', 'Language, guide, sound'), go: () => openSettings() },
     { key: 'data', name: t('セーブ', 'Save'), note: t('やり直す・工房へ', 'Restart, back'), go: () => openSaveMenu() },
     ...(TEST ? [{ key: 'test', name: t('テスト', 'Test'), note: '?test=2', go: () => openTest() }] : []),
   ],
@@ -360,12 +398,9 @@ function renderBuild() {
           return;
         }
         selected = null;
-        closePop();
-        const [i, j] = buildAt ?? [Math.floor(s.n / 2), Math.floor(s.n / 2)];
-        placing = placing?.id === b.id && !placing.move ? null : { id: b.id, dir: 'rd', i, j };
+        const at = buildAt ?? undefined;
         buildAt = null;
-        if (placing) fitDir();
-        renderAll();
+        startPlacing(b.id, { at });
       });
       return c;
     }),
@@ -381,15 +416,82 @@ function fitDir() {
 }
 const placeErr = () => (placing ? (placing.move != null ? canMoveTo(s, placing.move, placing.i, placing.j, placing.dir) : canPlaceAt(s, placing.id, placing.i, placing.j, placing.dir)) : null);
 
+// 置くときの画面：右上に「選択中」と戻る、建物のそばに理由・建てる・回す
+const selBox = h('div', 'isl-selbox');
+const ghostUi = h('div', 'isl-ghost-ui');
 const placeBox = h('div', 'isl-place');
+placeBox.hidden = true;
+
+/** 置けるマス（置くときだけ。地図のほかのマスは暗くする） */
+let placeCache: { key: string; set: Set<number> } | null = null;
+function placeable(): Set<number> | null {
+  if (!placing) return null;
+  const key = `${placing.id}:${placing.move ?? ''}:${s.buildings.length}:${s.nextUid}`;
+  if (placeCache?.key === key) return placeCache.set;
+  const set = new Set<number>();
+  for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) if (allowedDirs(s, placing.id, i, j, placing.move).length) set.add(j * s.n + i);
+  placeCache = { key, set };
+  return set;
+}
+
+/** 画面の真ん中のマス */
+const centerCell = () => pick(cam, W, H, W / 2, H / 2);
+
+/** 置くモードを始める（at があればそのマスへ） */
+function startPlacing(id: string, opts: { move?: number; at?: [number, number]; dir?: Dir } = {}) {
+  closePop();
+  menu = null;
+  sub = null;
+  const [i, j] = opts.at ?? centerCell();
+  placing = { id, dir: opts.dir ?? 'rd', i, j, move: opts.move };
+  fitDir();
+  if (opts.at) tweenTo(i, j);
+  sound.play('fail', 0.6);
+  renderAll();
+}
+
+/** 置く建物を (i, j) へ。マスが変わったら音を鳴らす */
+function setGhost(i: number, j: number) {
+  if (!placing || (placing.i === i && placing.j === j)) return;
+  placing.i = i;
+  placing.j = j;
+  fitDir();
+  sound.play('fail', 0.6);
+  renderPlace();
+}
+
+/** マスを画面の真ん中へ動かす */
+function tweenTo(i: number, j: number) {
+  tween = { x0: cam.x, y0: cam.y, x1: (i - j) * 100, y1: (i + j) * 55, t0: performance.now() };
+}
+
+/** 置けない理由（短く。地図の建物のそばに出す） */
+function reasonOf(err: PlaceErr | null): string {
+  if (!err || !placing) return '';
+  if (err === 'ground') {
+    const onRoad = cells(DEF[placing.id], placing.i, placing.j, placing.dir).some(([x, y]) => ground(s, x, y) === 'road');
+    return onRoad ? t('道路には置けません', 'Not on a road') : t('ここには置けません', 'Can’t build here');
+  }
+  if (err === 'taken') return t('建物があります', 'Already built on');
+  if (err === 'road') return t('道路に面していません', 'Doesn’t face a road');
+  if (err === 'money') return t('資金が足りません', 'Not enough funds');
+  return ERR[err];
+}
+
 function tryPlace() {
   if (!placing) return;
+  const err = placeErr();
+  if (err) {
+    sound.play('debuff', 0.6);
+    return;
+  }
   const name = DEF[placing.id].name;
   if (placing.move != null) {
     const e = relocate(s, placing.move, placing.i, placing.j, placing.dir);
     if (e) toast(ERR[e]);
     else {
       toast(t(`${name}の移転を始めました`, `Moving ${name}`));
+      sound.play('build');
       placing = null;
       save();
     }
@@ -398,6 +500,7 @@ function tryPlace() {
     if (typeof r === 'string') toast(ERR[r]);
     else {
       toast(t(`${name}の工事を始めました（${P1B[placing.id].days} 日）`, `Started building: ${name} (${P1B[placing.id].days} days)`));
+      sound.play('build');
       placing = null;
       menu = null;
       sub = null;
@@ -408,32 +511,56 @@ function tryPlace() {
 }
 function renderPlace() {
   dirty = true;
-  placeBox.hidden = !placing;
+  root.classList.toggle('is-placing', !!placing);
   canvas.classList.toggle('is-placing', !!placing);
+  selBox.hidden = !placing;
+  ghostUi.hidden = !placing;
   if (!placing) return;
-  const err = placeErr();
-  const name = DEF[placing.id].name;
   const moving = placing.move != null;
-  const msg = err ? ERR[err] : moving ? t('— 移転先を選んで「ここへ移転」', '— pick the new spot, then Move here') : t('— 地図で場所を選んで「建てる」', '— pick a spot, then Build');
-  const r = h('div', 'isl-row');
-  const go = btn(moving ? t(`ここへ移転（${money(moveCost(s.buildings.find((b) => b.uid === placing!.move)!))}）`, `Move here (${money(moveCost(s.buildings.find((b) => b.uid === placing!.move)!))})`) : t('建てる', 'Build'), tryPlace, 'is-on');
-  go.disabled = !!err;
-  const rot = btn(t('向きを変える', 'Rotate'), () => {
-    if (!placing) return;
-    const ok = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf());
-    if (ok.length) placing.dir = ok[(ok.indexOf(placing.dir) + 1) % ok.length];
-    renderPlace();
-  });
-  rot.disabled = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf()).length < 2;
-  r.append(
-    go,
-    rot,
-    btn(t('やめる', 'Cancel'), () => {
+  const name = DEF[placing.id].name;
+  selBox.replaceChildren(
+    h('div', 'isl-sel-name', moving ? t(`移転：${name}`, `Moving: ${name}`) : t(`選択中：${name}`, `Selected: ${name}`)),
+    btn(t('戻る', 'Back'), () => {
+      const was = placing;
       placing = null;
+      // 建築から来たときは建物の一覧へ戻る
+      if (was && was.move == null) {
+        menu = 'plan';
+        sub = 'build';
+      }
       renderAll();
     }),
   );
-  placeBox.replaceChildren(h('p', '', `${name}  ${msg}`), h('p', 'isl-dim', t('道路に面していない場所には置けません。入口は道路の方にしか向けられません。', 'Buildings must face a road, and the entrance can only point toward it.')), r);
+  const err = placeErr();
+  const dirs = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf());
+  const row = h('div', 'isl-row');
+  if (err) row.append(h('span', 'isl-reason', reasonOf(err)));
+  else {
+    const cost = moving ? moveCost(s.buildings.find((b) => b.uid === placing!.move)!) : P1B[placing.id].cost;
+    row.append(btn(moving ? t(`ここへ移転 ${money(cost)}`, `Move here ${money(cost)}`) : cost ? t(`建てる ${money(cost)}`, `Build ${money(cost)}`) : t('建てる', 'Build'), tryPlace, 'is-on'));
+  }
+  if (dirs.length > 1)
+    row.append(
+      btn('↻', () => {
+        if (!placing) return;
+        const ok = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf());
+        if (ok.length) placing.dir = ok[(ok.indexOf(placing.dir) + 1) % ok.length];
+        sound.play('fail', 0.4);
+        renderPlace();
+      }, 'isl-rot'),
+    );
+  ghostUi.classList.toggle('is-bad', !!err);
+  ghostUi.replaceChildren(row);
+  placeGhostUi();
+}
+
+/** 理由・建てるボタンを、置く建物の真下に */
+function placeGhostUi() {
+  if (!placing || ghostUi.hidden) return;
+  const sx = ((placing.i - placing.j) * 100 - cam.x) * cam.zoom + W / 2;
+  const sy = ((placing.i + placing.j) * 55 - cam.y) * cam.zoom + H / 2;
+  ghostUi.style.left = `${Math.round(sx)}px`;
+  ghostUi.style.top = `${Math.round(sy + 60 * cam.zoom + 8)}px`;
 }
 
 // ---------------------------------------------------------------- マスの吹き出し
@@ -474,10 +601,7 @@ function renderPop() {
     move: (uid) => {
       const b = s.buildings.find((x) => x.uid === uid);
       if (!b) return;
-      closePop();
-      menu = null;
-      placing = { id: b.id, dir: b.dir, i: b.i, j: b.j, move: uid };
-      renderAll();
+      startPlacing(b.id, { move: uid, at: [b.i, b.j], dir: b.dir });
     },
     buildHere: (i, j) => {
       closePop();
@@ -619,7 +743,7 @@ function modal(title: string, body: string, actions: [string, () => void, string
 }
 
 function openSettings() {
-  modal(t('設定', 'Settings'), t('表示の言語と、マインちゃんの案内を切り替えます。', 'Switch the language and Mine-chan’s guide.'), [
+  modal(t('設定', 'Settings'), t('言語・マインちゃんの案内・音を切り替えます。', 'Language, Mine-chan’s guide and sound.'), [
     [isEn ? '日本語' : 'English', () => setLang(isEn ? 'ja' : 'en')], // i18n-ja
     [
       guideOn ? t('案内を隠す', 'Hide guide') : t('案内を出す', 'Show guide'),
@@ -633,8 +757,20 @@ function openSettings() {
         renderAll();
       },
     ],
+    [vol.bgm > 0 ? t('BGM を消す', 'BGM off') : t('BGM を流す', 'BGM on'), () => setVol({ bgm: vol.bgm > 0 ? 0 : 1 })],
+    [vol.se > 0 ? t('効果音を消す', 'Sound effects off') : t('効果音を出す', 'Sound effects on'), () => setVol({ se: vol.se > 0 ? 0 : 1 })],
     [t('閉じる', 'Close'), () => undefined, 'is-on'],
   ]);
+}
+
+function setVol(v: Partial<typeof vol>) {
+  vol = { ...vol, ...v };
+  sound.setVolumes(vol);
+  try {
+    localStorage.setItem(SOUND, JSON.stringify(vol));
+  } catch {
+    // 保存できなくても切り替える
+  }
 }
 
 function openSaveMenu() {
@@ -689,11 +825,9 @@ function openTest() {
 function layout() {
   const top = hud.getBoundingClientRect().bottom + 8;
   const bottom = innerHeight - foot.getBoundingClientRect().top + 8;
-  // 置くときの札は上に（地図の下半分は帯でふさがるので）
-  placeBox.style.top = `${top}px`;
-  placeBox.style.bottom = 'auto';
   advisor.style.bottom = `${bottom}px`;
-  toasts.style.top = `${placing ? placeBox.getBoundingClientRect().bottom + 8 : top}px`;
+  toasts.style.top = `${placing ? selBox.getBoundingClientRect().bottom + 8 : top}px`;
+  selBox.style.top = `${hud.getBoundingClientRect().top}px`;
   placePop();
 }
 function renderAll() {
@@ -704,7 +838,7 @@ function renderAll() {
   renderAdvisor();
   layout();
 }
-root.append(hud, toasts, advisor, placeBox, popEl, foot);
+root.append(hud, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
 // 始めたばかりなら、建築の帯を開いておく
 if (!s.buildings.some((b) => b.owner === 'me')) {
   menu = 'plan';
@@ -741,6 +875,7 @@ canvas.addEventListener('pointermove', (e) => {
     const [a, b] = [...pts.values()];
     cam.zoom = clampZoom((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.d);
     dirty = true;
+    if (placing) setGhost(...centerCell());
     return;
   }
   if (drag) {
@@ -751,17 +886,10 @@ canvas.addEventListener('pointermove', (e) => {
       cam.x = drag.cx - dx / cam.zoom;
       cam.y = drag.cy - dy / cam.zoom;
       dirty = true;
+      // 置くときは、地図を動かすと建物が画面の真ん中のマスへ
+      if (placing) setGhost(...centerCell());
     }
     return;
-  }
-  if (placing && e.pointerType === 'mouse') {
-    const [i, j] = local(e);
-    if (i !== placing.i || j !== placing.j) {
-      placing.i = i;
-      placing.j = j;
-      fitDir();
-      renderPlace();
-    }
   }
 });
 canvas.addEventListener('pointerup', (e) => {
@@ -775,16 +903,11 @@ canvas.addEventListener('pointerup', (e) => {
   if (!d || d.moved) return;
   const [i, j] = local(e);
   if (placing) {
-    if (e.pointerType === 'mouse' || (placing.i === i && placing.j === j)) {
-      placing.i = i;
-      placing.j = j;
-      fitDir();
-      tryPlace();
-    } else {
-      placing.i = i;
-      placing.j = j;
-      fitDir();
-      renderPlace();
+    // 置いている建物のマスをもう一度押すと建てる。ほかのマスなら、そこを真ん中にして建物を動かす
+    if (placing.i === i && placing.j === j) tryPlace();
+    else {
+      setGhost(i, j);
+      tweenTo(i, j);
     }
     return;
   }
@@ -807,6 +930,7 @@ canvas.addEventListener(
     const k = ZOOMS.findIndex((z) => z >= cam.zoom - 1e-6);
     cam.zoom = e.deltaY < 0 ? ZOOMS[Math.min(ZOOMS.length - 1, k + 1)] : ZOOMS[Math.max(0, k - (ZOOMS[k] === cam.zoom ? 1 : 0))];
     dirty = true;
+    if (placing) setGhost(...centerCell());
   },
   { passive: false },
 );
@@ -844,12 +968,16 @@ let lastWater = -1;
 
 /** 日を進める（報告が出たら止めて見せる） */
 function advance(days: number) {
+  ticking = true;
   for (let k = 0; k < days; k++) {
     const r = step(s);
     for (const b of r.finished) {
       fx.push({ uid: b.uid, start: performance.now() });
       toast(t(`${DEF[b.id].name}が完成しました！`, `${DEF[b.id].name} is complete!`));
+      sound.play('rare');
     }
+    if (r.crafted.length) sound.play('craft', 0.7);
+    if (r.missions.length) sound.play('buff');
     for (const x of r.crafted) toast(t(`${PRODUCT[skuParts(x)[0]].name}ができました`, `${PRODUCT[skuParts(x)[0]].name} crafted`));
     for (const m of r.routes) toast(t(`${MATS[m].name}のルートを開拓しました！`, `Opened a ${MATS[m].name} route!`));
     for (const x of r.intel) toast(t(`${rivalName(x.rid)}の調査が段階 ${x.lv} に進みました`, `Research on ${rivalName(x.rid)} reached stage ${x.lv}`));
@@ -864,10 +992,12 @@ function advance(days: number) {
   refreshSheet();
   if (pop && !(document.activeElement instanceof HTMLSelectElement && popEl.contains(document.activeElement))) renderPop();
   renderAll();
+  ticking = false;
 }
 
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;
+  sound.play(r.rank === 1 ? 'win' : 'helper');
   closePop();
   openReport(ctx, r, () => {
     if (!s.flags.ranking) {
@@ -900,6 +1030,17 @@ function frame(now: number) {
     changed = true;
     advance(1);
   }
+  if (moneyAnim) {
+    const k = Math.min(1, (now - moneyAnim.t0) / 700);
+    shownMoney = moneyAnim.from + (moneyAnim.to - moneyAnim.from) * (1 - (1 - k) ** 2);
+    moneyText(shownMoney);
+    if (k >= 1) {
+      shownMoney = moneyAnim.to;
+      moneyAnim = null;
+      statMoney.classList.remove('is-spending');
+      renderHud();
+    }
+  }
   if (tween) {
     const k = Math.min(1, (now - tween.t0) / 320);
     const e = 1 - (1 - k) ** 3;
@@ -915,8 +1056,9 @@ function frame(now: number) {
   if (dirty) {
     dirty = false;
     const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr() } : null;
-    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null);
+    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable());
     placePop();
+    placeGhostUi();
   }
   requestAnimationFrame(frame);
 }

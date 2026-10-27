@@ -769,3 +769,105 @@
     display: block;
   }
 }
+
+/* ---------------------------------------------------------------- 置くとき */
+#isl-ui.is-placing .isl-foot,
+#isl-ui.is-placing .isl-advisor,
+#isl-ui.is-placing .isl-speed,
+#isl-ui.is-placing .isl-pop,
+#isl-ui.is-placing .isl-place {
+  display: none !important;
+}
+.isl-selbox {
+  position: absolute;
+  right: 8px;
+  z-index: 3;
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+.isl-sel-name {
+  max-width: min(60vw, 320px);
+  padding: 8px 14px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: var(--isl-panel);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.isl-ghost-ui {
+  position: absolute;
+  z-index: 2;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.isl-ghost-ui .isl-row {
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+.isl-ghost-ui .isl-btn {
+  pointer-events: auto;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.isl-reason {
+  padding: 7px 12px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: #e0524f;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.isl-rot {
+  min-width: 44px;
+  padding: 0;
+  font-size: 20px;
+}
+.isl-stat {
+  position: relative;
+}
+.isl-stat.is-spending b {
+  color: #ff8a80;
+}
+.isl-spend {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0524f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: isl-spend 1.2s ease-out forwards;
+}
+@keyframes isl-spend {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, 4px);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 18px);
+  }
+}
+/* 置くときは上の帯を資金だけに（右上に「選択中」を出すため） */
+#isl-ui.is-placing .isl-hud .isl-stat:not(:first-child) {
+  display: none !important;
+}

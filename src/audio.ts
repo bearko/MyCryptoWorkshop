@@ -1,7 +1,7 @@
 import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
-type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
+export type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
 type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany';
 
 /** Loudness of each sound at the 100% setting (the final volume is this × the setting). */
@@ -61,14 +61,15 @@ export class Sound {
     if (this.bgm.paused && this.unlocked) void this.bgm.play().catch(() => undefined);
   }
 
-  play(key: Se): void {
+  /** gain: その場だけの音量（1 が標準） */
+  play(key: Se, gain = 1): void {
     if (this.seLevel <= 0 || !this.unlocked) return;
     // Throttle rapid repeats of the same effect.
     const now = performance.now();
     if (now - (this.lastPlayed.get(key) ?? 0) < 70) return;
     this.lastPlayed.set(key, now);
     const a = new Audio(assetUrl(audioFiles[key]));
-    a.volume = (SE_VOLUME[key] ?? 0.45) * this.seLevel;
+    a.volume = clamp01((SE_VOLUME[key] ?? 0.45) * this.seLevel * gain);
     void a.play().catch(() => undefined);
   }
 }
