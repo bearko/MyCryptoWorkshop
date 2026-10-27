@@ -4,8 +4,8 @@
  */
 import { assetUrl } from '../../render/images';
 
-export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win';
-const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win'];
+export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win' | 'check' | 'clear';
+const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win', 'check', 'clear'];
 
 /** 音ごとの大きさ（設定 100% のとき） */
 const GAIN: Partial<Record<Sfx, number>> = { tap: 0.35, page: 0.4, move: 0.5, sale: 0.45, craft: 0.5 };

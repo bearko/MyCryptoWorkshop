@@ -61,7 +61,11 @@ import {
   invest,
   investCost,
   invLv,
-  openMissions as missionList,
+  accept,
+  activeMissions,
+  MISSION_MAX,
+  missionProgress,
+  offeredMissions,
   raise,
   raiseStep,
   runAd,
@@ -545,7 +549,9 @@ export function openBuy(ctx: Ctx) {
     if (ctx.step?.() === 'mats') {
       const card = h('div', 'isl-card2');
       card.append(h('h3', '', t('素材を買い足す（卸問屋）', 'Top up materials (wholesaler)')));
-      for (const { m } of procMats(s)) {
+      // 作っているものの素材（まだ何も作っていなければ、ルートのある素材）
+      const mats = procMats(s).map((x) => x.m);
+      for (const m of mats.length ? mats : s.routes) {
         const row = h('div', 'isl-row');
         row.append(matIcon(m, 36), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}`, `have ${s.mats[m] ?? 0}`)));
         const b = btn(t(`10 個買う（${money(matPrice(s, m) * 10)}）`, `Buy 10 (${money(matPrice(s, m) * 10)})`), () => {
@@ -1253,26 +1259,50 @@ export function openAds(ctx: Ctx) {
 export function openMissions(ctx: Ctx) {
   open(ctx, t('依頼（ミッション）', 'Requests (missions)'), (body) => {
     const s = ctx.s();
-    body.append(h('p', 'isl-dim', t('エリアの人たちからの依頼です。達成すると報酬がもらえます。1 つ受け取ると次の依頼が届きます。', 'Requests from people in the area. Complete them for a reward; claiming one brings the next.')));
-    const list = missionList(s);
-    if (!list.length) body.append(h('p', '', t('いまある依頼はすべて片づけました！', 'All requests are done for now!')));
-    for (const m of list) {
-      const done = s.missions[m.id] === 'done';
-      const card = h('div', `isl-card2 isl-mission ${done ? 'is-done' : ''}`);
-      card.append(h('small', 'isl-dim', m.from), h('h3', '', m.title), h('p', '', m.text));
+    body.append(h('p', 'isl-dim', t(`エリアの人たちからの依頼です。受けた依頼は右上の「ミッション」に出て、達成すると報酬がもらえます（同時に ${MISSION_MAX} つまで）。`, `Requests from people in the area. Accepted ones appear under Missions at the top right; complete them for a reward (up to ${MISSION_MAX} at once).`)));
+    const card = (m: (typeof MISSIONS)[number]) => {
+      const st = s.missions[m.id];
+      const c = h('div', `isl-card2 isl-mission ${st === 'done' ? 'is-done' : ''} ${st === 'accepted' ? 'is-on' : ''}`);
+      c.append(h('small', 'isl-dim', m.from), h('h3', '', m.title), h('p', '', m.text));
+      const pr = missionProgress(s, m.id);
+      if (pr && st === 'accepted') {
+        const f = h('div', 'isl-field');
+        f.append(bar(pr[0] / pr[1], 'var(--isl-gold)'), h('small', 'isl-dim', `${pr[0]} / ${pr[1]}`));
+        c.append(f);
+      }
       const row = h('div', 'isl-row');
       row.append(h('b', 'isl-gold', t(`報酬 ${money(m.reward)}`, `Reward ${money(m.reward)}`)));
-      const b = btn(done ? t('報酬を受け取る', 'Claim') : t('達成していません', 'Not yet'), () => {
-        if (!claim(s, m.id)) ctx.toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
-        after(ctx);
-      }, done ? 'is-on' : '');
-      b.disabled = !done;
-      row.append(b);
-      card.append(row);
-      body.append(card);
+      if (st === 'done')
+        row.append(
+          btn(t('報酬を受け取る', 'Claim'), () => {
+            if (!claim(s, m.id)) ctx.toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
+            after(ctx);
+          }, 'is-on'),
+        );
+      else if (st === 'accepted') row.append(h('span', 'isl-tag is-good', t('進行中', 'In progress')));
+      else {
+        const b = btn(t('依頼を受ける', 'Accept'), () => {
+          const e = accept(s, m.id);
+          if (e === 'full') ctx.toast(t(`同時に受けられるのは ${MISSION_MAX} つまでです`, `Up to ${MISSION_MAX} at once`));
+          else if (!e) ctx.toast(t(`「${m.title}」を受けました。右上のミッションに出ます`, `Accepted “${m.title}”. It shows under Missions at the top right`));
+          after(ctx);
+        }, 'is-on');
+        row.append(b);
+      }
+      c.append(row);
+      return c;
+    };
+    const active = activeMissions(s);
+    if (active.length) {
+      body.append(h('h3', '', t('受けている依頼', 'Accepted')));
+      for (const m of active) body.append(card(m));
     }
+    const offers = offeredMissions(s);
+    body.append(h('h3', '', t('届いている依頼', 'Offers')));
+    if (!offers.length) body.append(h('p', 'isl-dim', t('いまは新しい依頼がありません。', 'No new requests right now.')));
+    for (const m of offers) body.append(card(m));
     const n = MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length;
-    body.append(h('p', 'isl-dim', t(`受け取った依頼 ${n} / ${MISSIONS.length}`, `Claimed ${n} / ${MISSIONS.length}`)));
+    body.append(h('p', 'isl-dim', t(`報酬を受け取った依頼 ${n} / ${MISSIONS.length}`, `Claimed ${n} / ${MISSIONS.length}`)));
   });
 }
 

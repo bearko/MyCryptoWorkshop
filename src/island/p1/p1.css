@@ -2067,3 +2067,238 @@ button.isl-ext-card {
     width: 96px;
   }
 }
+
+/* ================================================================ チュートリアル中のロック */
+.isl-tab.is-lock,
+.isl-sub.is-lock {
+  opacity: 0.32;
+  filter: grayscale(1);
+}
+
+/* ================================================================ 右上の「ミッション」 */
+.isl-missions {
+  position: absolute;
+  top: calc(var(--hud-h, 56px) + 2px);
+  right: 8px;
+  z-index: 2;
+  width: min(260px, 48vw);
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: var(--isl-panel);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.isl-missions[hidden] {
+  display: none;
+}
+.isl-missions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  background: #142038;
+  color: var(--isl-gold);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.isl-missions-list {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+}
+.isl-missions-list[hidden] {
+  display: none;
+}
+.isl-mis {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 2px 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #2b3b5e;
+  color: var(--isl-text);
+  font-family: inherit;
+  text-align: left;
+}
+button.isl-mis {
+  cursor: pointer;
+}
+.isl-mis > :not(.isl-mis-box) {
+  grid-column: 2;
+}
+.isl-mis-box {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 4px;
+  color: var(--isl-ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+.isl-mis.is-tut {
+  border-left: 4px solid var(--isl-gold);
+}
+.isl-mis-text {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.isl-mis-check {
+  font-size: 11px;
+  color: var(--isl-dim);
+}
+.isl-mis-check.is-on {
+  color: var(--isl-good);
+}
+.isl-mis-check.is-just {
+  animation: isl-pop 0.5s ease-out;
+}
+.isl-mis-go {
+  color: var(--isl-gold);
+  font-size: 11px;
+  font-weight: 700;
+}
+.isl-mis .isl-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.isl-mis.is-done .isl-mis-box,
+.isl-mis.is-cleared .isl-mis-box {
+  background: var(--isl-good);
+  border-color: var(--isl-good);
+}
+.isl-mis.is-cleared .isl-mis-box {
+  animation: isl-pop 0.45s ease-out;
+}
+.isl-mis.is-cleared .isl-mis-text {
+  color: var(--isl-dim);
+  background: linear-gradient(var(--isl-dim), var(--isl-dim)) no-repeat 0 55% / 0 2px;
+  animation: isl-strike 0.45s 0.15s ease-out forwards;
+}
+.isl-mis-stamp {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  padding: 1px 8px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 6px;
+  color: var(--isl-gold);
+  font-size: 12px;
+  font-weight: 900;
+  transform: rotate(-8deg);
+  animation: isl-stamp 0.4s 0.3s ease-out backwards;
+}
+.isl-mis.is-new {
+  animation: isl-up 0.35s ease-out;
+}
+@keyframes isl-pop {
+  0% {
+    transform: scale(0.4);
+  }
+  60% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes isl-strike {
+  to {
+    background-size: 100% 2px;
+  }
+}
+@keyframes isl-stamp {
+  from {
+    transform: rotate(-8deg) scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* マインちゃんのほめ言葉 */
+.isl-praise {
+  position: absolute;
+  top: calc(var(--hud-h, 56px) + 96px);
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, calc(100% - 24px));
+  padding: 6px 14px 6px 6px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: isl-praise 2.6s ease-out forwards;
+}
+.isl-praise img {
+  width: 40px;
+  height: 54px;
+  margin: -12px 0 -6px;
+  image-rendering: pixelated;
+}
+.isl-praise p {
+  margin: 0;
+  font-weight: 800;
+  font-size: 14px;
+}
+@keyframes isl-praise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -12px) scale(0.9);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (max-width: 599px) {
+  .isl-missions {
+    width: min(200px, 52vw);
+  }
+}
+/* 右上のミッションと重ならないように：トーストは左の列、ほめ言葉は地図の真ん中あたり */
+#isl-ui .isl-toasts {
+  top: calc(var(--hud-h, 56px) + 4px);
+}
+@media (max-width: 899px) {
+  #isl-ui .isl-toasts {
+    left: 8px;
+    transform: none;
+    justify-items: start;
+    max-width: calc(100% - min(260px, 48vw) - 28px);
+  }
+  #isl-ui .isl-toast {
+    border-radius: 14px;
+  }
+}
+@media (max-width: 599px) {
+  #isl-ui .isl-toasts {
+    max-width: calc(100% - min(200px, 52vw) - 24px);
+  }
+  .isl-praise {
+    top: 46%;
+  }
+}
+.isl-mis.is-cleared {
+  padding-bottom: 26px;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { aptitude } from '../src/island/p1/data';
 import {
+  accept,
   allowedDirs,
   assign,
   bonus,
@@ -247,11 +248,19 @@ describe('フェーズ 1：タイルの操作とメニューの仕組み', () =>
     expect(s.staff.find((x) => x.hero === 10002)!.task).toBeNull();
   });
 
-  it('依頼を達成すると報酬を受け取れる。宣伝は費用が宣伝費に入る', () => {
+  it('依頼は受けてから達成すると報酬を受け取れる。宣伝は費用が宣伝費に入る', () => {
     const s = newP1(5);
     setup(s);
     s.money = 20000;
     expect(claim(s, 'ad')).toBe('not-yet');
+    // 受けていない依頼は、条件を満たしても達成にならない
+    expect(runAd(s, 'event')).toBeNull();
+    expect(step(s).missions).not.toContain('ad');
+    s.ads = {};
+    s.monthCost.ads = 0;
+    s.money = 20000;
+    expect(accept(s, 'ad')).toBeNull();
+    expect(accept(s, 'ad')).toBe('done');
     expect(runAd(s, 'flyer')).toBeNull();
     expect(runAd(s, 'flyer')).toBe('busy');
     expect(s.monthCost.ads).toBe(1500);
