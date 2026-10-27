@@ -871,3 +871,20 @@
 #isl-ui.is-placing .isl-hud .isl-stat:not(:first-child) {
   display: none !important;
 }
+/* メニューなどを開いていて、時間が止まっている */
+.isl-stat.is-held::before {
+  content: '⏸';
+  margin-right: 6px;
+  color: var(--isl-gold);
+}
+/* 理由の札は押せない（下の地図のマスを押せるように） */
+.isl-ghost-ui .isl-row,
+.isl-ghost-ui .isl-reason {
+  pointer-events: none !important;
+}
+#isl-ui > .isl-ghost-ui {
+  pointer-events: none;
+}
+#isl-ui > .isl-ghost-ui .isl-btn {
+  pointer-events: auto;
+}

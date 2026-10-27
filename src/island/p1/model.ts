@@ -1112,3 +1112,45 @@ export function deserializeP1(json: string): P1State | null {
     return null;
   }
 }
+
+// ---------------------------------------------------------------- 地図の吹き出し（自社の施設）
+
+export type Stop = 'noCrafter' | 'crafterRest' | 'noItem' | 'noMats' | 'noHauler' | 'noProduct' | 'noClerk' | 'clerkRest' | 'soldOut';
+/** 施設のようす：動いているなら作っている／売っている商品、止まっているなら理由（error＝止まっている、warn＝流れが詰まりかけ） */
+export type FacilityStatus = { kind: 'craft' | 'sell'; items: Sku[] } | { level: 'error' | 'warn'; stop: Stop };
+
+export function facilityStatus(s: P1State, b: PBuilding): FacilityStatus | null {
+  if (b.owner !== 'me' || b.left > 0) return null;
+  const kind = P1B[b.id]?.kind;
+  if (kind === 'workshop') {
+    // 作業中か、続けて作る設定で次も作れる作業台（1 回ぶんができた直後も「作っている」とみなす）
+    const live = s.slots.filter((sl) => {
+      const st = sl.worker != null ? staffOf(s, sl.worker) : null;
+      return sl.sku && st && !st.resting && (sl.running || (sl.repeat && !craftCheck(s, sl.sku, sl.worker)));
+    });
+    if (!live.length) {
+      const sl = s.slots[0];
+      if (!sl || sl.worker == null) return { level: 'error', stop: 'noCrafter' };
+      if (staffOf(s, sl.worker)?.resting) return { level: 'error', stop: 'crafterRest' };
+      if (!sl.sku) return { level: 'error', stop: 'noItem' };
+      if (craftCheck(s, sl.sku, sl.worker) === 'mats') return { level: 'error', stop: 'noMats' };
+      return { level: 'error', stop: 'noItem' };
+    }
+    const stock = Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0);
+    const haulers = s.staff.some((x) => x.task === 'transport' && !x.resting);
+    if (stock > 0 && !haulers && myShops(s).length) return { level: 'warn', stop: 'noHauler' };
+    return { kind: 'craft', items: [...new Set(live.map((sl) => sl.sku!))].slice(0, 3) };
+  }
+  if (kind === 'shop') {
+    const sh = s.shops[b.uid];
+    if (!sh) return null;
+    const main = sh.shelves[0];
+    if (!main) return { level: 'error', stop: 'noProduct' };
+    const st = sh.staff != null ? staffOf(s, sh.staff) : null;
+    if (!st && sh.part === 0) return { level: 'error', stop: 'noClerk' };
+    if (st?.resting && sh.part === 0) return { level: 'error', stop: 'clerkRest' };
+    if ((sh.shelf[main] ?? 0) <= 0 && (sh.storage[main] ?? 0) <= 0) return { level: 'warn', stop: 'soldOut' };
+    return { kind: 'sell', items: [main] };
+  }
+  return null;
+}
