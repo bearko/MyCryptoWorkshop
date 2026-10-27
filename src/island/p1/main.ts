@@ -67,6 +67,7 @@ import {
   type Ctx,
 } from './screens';
 import { openSupply } from './scm';
+import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { TUT, TUT_DONE, TUT_END, tutOf, type TutGo, type TutPage } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, rich, skuIcon } from './ui';
@@ -114,9 +115,30 @@ try {
 }
 sound.setVolumes(vol);
 sound.playBgm('bgmCraft');
+// 効果音はコードで作った音（scripts/island/sfx.py）。BGM だけ mycryptoheroes の曲
+const sfx = new IslandSfx();
+sfx.level = vol.se;
 // ブラウザは最初の操作まで音を出せない
 // スマホは指を離したとき（pointerup・touchend・click）がユーザーの操作として数えられる。鳴るまで毎回試す
-for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) addEventListener(ev, () => sound.unlock(), { capture: true });
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'])
+  addEventListener(
+    ev,
+    () => {
+      sound.unlock();
+      sfx.unlock();
+    },
+    { capture: true },
+  );
+// ボタンを押したら軽いクリック音（会話の「次へ」はポン）
+addEventListener(
+  'click',
+  (e) => {
+    const b = e.target instanceof Element ? e.target.closest('button') : null;
+    if (!b || b.disabled) return;
+    sfx.play(b.closest('.isl-talk') ? 'page' : 'tap');
+  },
+  { capture: true },
+);
 
 const canvas = document.getElementById('isl-map') as HTMLCanvasElement;
 const ctx2 = canvas.getContext('2d')!;
@@ -223,7 +245,7 @@ function renderHud() {
     const fly = h('span', 'isl-spend', `−${money(spent)}`);
     statMoney.append(fly);
     setTimeout(() => fly.remove(), 1200);
-    sound.play('build');
+    sfx.play('spend');
     statMoney.classList.add('is-spending');
   } else if (!moneyAnim) {
     shownMoney = s.money;
@@ -479,7 +501,7 @@ function startPlacing(id: string, opts: { move?: number; at?: [number, number]; 
   placing = { id, dir: opts.dir ?? 'rd', i, j, move: opts.move };
   fitDir();
   if (opts.at) tweenTo(i, j);
-  sound.play('fail', 0.6);
+  sfx.play('move');
   renderAll();
 }
 
@@ -489,7 +511,7 @@ function setGhost(i: number, j: number) {
   placing.i = i;
   placing.j = j;
   fitDir();
-  sound.play('fail', 0.6);
+  sfx.play('move');
   renderPlace();
 }
 
@@ -515,7 +537,7 @@ function tryPlace() {
   if (!placing) return;
   const err = placeErr();
   if (err) {
-    sound.play('debuff', 0.6);
+    sfx.play('error');
     return;
   }
   const name = DEF[placing.id].name;
@@ -533,7 +555,8 @@ function tryPlace() {
     else {
       toast(t(`${name}の工事を始めました（${P1B[placing.id].days} 日）`, `Started building: ${name} (${P1B[placing.id].days} days)`));
       // お金が減るときは資金の演出で同じ音が鳴る。無料（工房）のときだけここで鳴らす
-      if (!P1B[placing.id].cost) sound.play('build');
+      if (!P1B[placing.id].cost) sfx.play('place');
+      else setTimeout(() => sfx.play('place'), 120);
       placing = null;
       menu = null;
       sub = null;
@@ -578,7 +601,7 @@ function renderPlace() {
         if (!placing) return;
         const ok = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf());
         if (ok.length) placing.dir = ok[(ok.indexOf(placing.dir) + 1) % ok.length];
-        sound.play('fail', 0.4);
+        sfx.play('move', 0.7);
         renderPlace();
       }, 'isl-rot'),
     );
@@ -1044,6 +1067,7 @@ function openPace() {
 function setVol(v: Partial<typeof vol>) {
   vol = { ...vol, ...v };
   sound.setVolumes(vol);
+  sfx.level = vol.se;
   try {
     localStorage.setItem(SOUND, JSON.stringify(vol));
   } catch {
@@ -1282,7 +1306,7 @@ function addCoin(uid: number, yen: number, t: number) {
   list.push({ yen, t });
   while (list.length > 12) list.shift();
   anim.coins.set(uid, list);
-  sound.play('sale', 0.35);
+  sfx.play('sale');
 }
 // ---------------------------------------------------------------- 街の人通り（他社のお客さん・駅を行き交う人・散歩する人）
 
@@ -1388,16 +1412,16 @@ function advance(days: number) {
     for (const b of r.finished) {
       fx.push({ uid: b.uid, start: performance.now() });
       toast(t(`${DEF[b.id].name}が完成しました！`, `${DEF[b.id].name} is complete!`));
-      sound.play('rare');
+      sfx.play('done');
     }
-    if (r.crafted.length) sound.play('craft', 0.7);
+    if (r.crafted.length) sfx.play('craft');
     const wsb = myWorkshop(s);
     if (wsb) for (const m of r.made) anim.plus.push({ uid: wsb.uid, n: m.n, t: anim.clock });
     if (r.sales.length) spawnCustomers(r.sales);
-    if (r.missions.length) sound.play('buff');
+    if (r.missions.length) sfx.play('mission');
     if (r.procLv) {
       toast(t(`調達ランクが Lv.${r.procLv} に上がりました`, `Buying rank is now Lv.${r.procLv}`));
-      sound.play('unlock', 0.7);
+      sfx.play('levelup');
     }
     for (const x of r.crafted) toast(t(`${PRODUCT[skuParts(x)[0]].name}ができました`, `${PRODUCT[skuParts(x)[0]].name} crafted`));
     for (const m of r.routes) toast(t(`${MATS[m].name}のルートを開拓しました！`, `Opened a ${MATS[m].name} route!`));
@@ -1418,7 +1442,7 @@ function advance(days: number) {
 
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;
-  sound.play(r.rank === 1 ? 'win' : 'helper');
+  sfx.play(r.rank === 1 ? 'win' : 'report');
   closePop();
   openReport(ctx, r, () => {
     if (tutOf(s) < TUT_DONE) {
@@ -1530,6 +1554,6 @@ requestAnimationFrame(frame);
   menu: (m: Menu | null) => (m ? pickMenu(m) : ((menu = null), renderAll())),
   /** 下の帯の小メニューを開く（撮影スクリプト用） */
   sub: goSub,
-  bgm: () => ({ key: sound.currentBgm(), playing: sound.bgmPlaying() }),
+  bgm: () => ({ key: sound.currentBgm(), playing: sound.bgmPlaying(), sfx: sfx.info() }),
   tick: () => renderAll(),
 };
