@@ -78,13 +78,15 @@ export interface RivalDef {
   base: number;
   /** 地図に置く店（建物の id） */
   store: string;
+  /** 利益率（調査で分かる） */
+  margin: number;
 }
 
 export const RIVALS: RivalDef[] = [
-  { id: 'lamp', name: t('ランタン堂', 'Lantern House'), sells: { Lantern: 1.6, Scissors: 1.5 }, base: 10000, store: 'import' },
-  { id: 'kane', name: t('カネモノ商会', 'Kanemono Trading'), sells: { Lantern: 1, Mallet: 1 }, base: 9000, store: 'general_store' },
-  { id: 'hibana', name: t('ヒバナ雑貨', 'Hibana Goods'), sells: { Scissors: 1, 'Node-Doll': 1 }, base: 8000, store: 'greengrocer' },
-  { id: 'marumi', name: t('マルミ商店', 'Marumi Store'), sells: { Lantern: 1 }, base: 6000, store: 'watch' },
+  { id: 'lamp', name: t('ランタン堂', 'Lantern House'), sells: { Lantern: 1.6, Scissors: 1.5 }, base: 10000, store: 'import', margin: 0.18 },
+  { id: 'kane', name: t('カネモノ商会', 'Kanemono Trading'), sells: { Lantern: 1, Mallet: 1 }, base: 9000, store: 'general_store', margin: 0.12 },
+  { id: 'hibana', name: t('ヒバナ雑貨', 'Hibana Goods'), sells: { Scissors: 1, 'Node-Doll': 1 }, base: 8000, store: 'greengrocer', margin: 0.15 },
+  { id: 'marumi', name: t('マルミ商店', 'Marumi Store'), sells: { Lantern: 1 }, base: 6000, store: 'watch', margin: 0.08 },
 ];
 
 /** ライバルが月ごとに強くなる割合と、自社が独り占めしている商品に新しく参入するまでの月数 */
@@ -121,12 +123,13 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
   { key: 'shop', name: t('販売', 'Sell'), note: t('INT 重視', 'Mostly INT') },
   { key: 'explore', name: t('開拓', 'Scout'), note: t('AGI 重視', 'Mostly AGI') },
+  { key: 'intel', name: t('調査', 'Research'), note: t('INT と AGI', 'INT and AGI') },
 ];
 
 export interface Stats {
@@ -147,6 +150,8 @@ export function aptitude(s: Stats, task: Task): number {
       return 0.6 * s.int + 0.4 * s.agi;
     case 'explore':
       return 0.5 * s.agi + 0.25 * s.phy + 0.25 * s.int;
+    case 'intel':
+      return 0.5 * s.int + 0.5 * s.agi;
   }
 }
 /** 適性 → 作業の速さ（53 で 1.0） */
@@ -183,7 +188,7 @@ export const SKILLS: Skill[] = [
   { id: 'shop3', branch: 'shop', name: t('ブティック', 'Boutique'), note: t('売り場が強いブティックを建てられる', 'Unlocks the boutique (strong pull)'), cost: 14000, requires: ['shop2', 'host'] },
   { id: 'bench2', branch: 'craft', name: t('作業台を増やす', 'Second workbench'), note: t('同時に 2 つクラフトできる', 'Craft two things at once'), cost: 5000 },
   { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better jigs'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
-  { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('アンコモンを作れる（製造の適性 60 以上の職人が要る）', 'Craft Uncommons (needs a crafter with aptitude 60+)'), cost: 10000, requires: ['bench2'] },
+  { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 60 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 60+)'), cost: 10000, requires: ['bench2'] },
   { id: 'bench3', branch: 'craft', name: t('工房を工場に', 'Workshop to factory'), note: t('作業台 +1・クラフトの日数 −20%', 'Workbench +1, crafting −20% days'), cost: 22000, requires: ['bench2', 'jig'] },
   { id: 'cart2', branch: 'logi', name: t('荷車を増やす', 'Second cart'), note: t('運搬係 1 人が同時に 2 便', 'Two trips at once per hauler'), cost: 3000 },
   { id: 'truck', branch: 'logi', name: t('小型トラック', 'Small truck'), note: t('積める数 ×2.5・速さ ×1.5', 'Load ×2.5, speed ×1.5'), cost: 8000 },
@@ -229,3 +234,69 @@ export const WORLD_COMPANIES: [string, number][] = [
   [t('ブルーベリー海運', 'Blueberry Shipping'), 2600000],
   [t('セージ・ラジオ', 'Sage Radio'), 1800000],
 ];
+
+// ---------------------------------------------------------------- 設備投資（建物ごと）
+
+export interface Invest {
+  id: string;
+  kind: 'shop' | 'workshop';
+  name: string;
+  note: string;
+  /** 段ごとの値段 */
+  cost: number[];
+}
+
+export const INVESTS: Invest[] = [
+  { id: 'sign', kind: 'shop', name: t('看板を出す', 'Signboard'), note: t('このお店の売り場の強さ +10%（1 段ごと）', 'This shop’s pull +10% per level'), cost: [2000, 4000, 8000] },
+  { id: 'fixtures', kind: 'shop', name: t('陳列の什器', 'Display fixtures'), note: t('棚に並べる速さ +30%（1 段ごと）', 'Shelving speed +30% per level'), cost: [2500, 5000] },
+  { id: 'backroom', kind: 'shop', name: t('裏の倉庫を広げる', 'Bigger backroom'), note: t('裏に置ける数 +100（1 段ごと）', 'Backroom +100 per level'), cost: [1500, 3000] },
+  { id: 'tools', kind: 'workshop', name: t('道具の新調', 'New tools'), note: t('クラフトの日数 −10%（1 段ごと）', 'Crafting −10% days per level'), cost: [3000, 6000, 12000] },
+  { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
+];
+export const INVEST: Record<string, Invest> = Object.fromEntries(INVESTS.map((x) => [x.id, x]));
+
+/** 移転は建てる値段の半分（最低 2,000 G）・工期の半分。撤去は建てる値段の 3 割が戻る */
+export const MOVE = { rate: 0.5, min: 2000, days: 0.5, refund: 0.3 };
+
+// ---------------------------------------------------------------- 商品開発・宣伝・調査・依頼・給与
+
+/** アンコモンの開発：値段は Common の値段 × 40、10 日（「魔法の釜」が要る） */
+export const DEV = { rate: 40, days: 10 };
+
+export interface Ad {
+  id: string;
+  name: string;
+  note: string;
+  cost: number;
+  days: number;
+  boost: number;
+}
+export const ADS: Ad[] = [
+  { id: 'flyer', name: t('チラシ配り', 'Flyers'), note: t('10 日間、自社のお店の売り場の強さ +15%', 'Your shops’ pull +15% for 10 days'), cost: 1500, days: 10, boost: 0.15 },
+  { id: 'poster', name: t('駅のポスター', 'Station posters'), note: t('30 日間、自社のお店の売り場の強さ +20%', 'Your shops’ pull +20% for 30 days'), cost: 5000, days: 30, boost: 0.2 },
+  { id: 'event', name: t('店頭イベント', 'In-store event'), note: t('5 日間、自社のお店の売り場の強さ +50%', 'Your shops’ pull +50% for 5 days'), cost: 4000, days: 5, boost: 0.5 },
+];
+
+/** 他社の調査：段階ごとに分かることが増える（調査の適性 53 で 1 日 1） */
+export const INTEL = [5, 12, 20];
+
+export interface Mission {
+  id: string;
+  from: string;
+  title: string;
+  text: string;
+  reward: number;
+}
+export const MISSIONS: Mission[] = [
+  { id: 'first_sale', from: t('町内会', 'Neighborhood council'), title: t('はじめての売上', 'First sale'), text: t('お店で商品を 1 つ売る', 'Sell one item in your shop'), reward: 1000 },
+  { id: 'sensu100', from: t('近所の住民', 'A neighbor'), title: t('夏祭りにセンスを', 'Fans for the festival'), text: t('ひと月にセンスを 100 個売る', 'Sell 100 Sensu in one month'), reward: 3000 },
+  { id: 'ad', from: t('町内会', 'Neighborhood council'), title: t('お店を知ってほしい', 'Let people know'), text: t('宣伝広報をする', 'Run an ad'), reward: 1000 },
+  { id: 'two_shops', from: t('商店会', 'Merchants’ association'), title: t('通りににぎわいを', 'Liven up the street'), text: t('お店を 2 軒にする', 'Open a second shop'), reward: 3000 },
+  { id: 'research', from: t('商店会', 'Merchants’ association'), title: t('ライバルを知る', 'Know your rivals'), text: t('他社のお店を調査する', 'Research a rival store'), reward: 1500 },
+  { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 50 個売る', 'Sell 50 Lanterns in one month'), reward: 3000 },
+  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 10 個売る', 'Sell 10 Uncommons in total'), reward: 5000 },
+  { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000 },
+];
+
+/** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */
+export const PAY = { bonusBase: 800, bonusRate: 0.3, raiseSpeed: 0.05, raiseWage: 0.15, raiseMax: 3 };
