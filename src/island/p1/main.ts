@@ -203,7 +203,7 @@ function renderHud() {
     const fly = h('span', 'isl-spend', `−${money(spent)}`);
     statMoney.append(fly);
     setTimeout(() => fly.remove(), 1200);
-    setTimeout(() => sound.play('hit', 0.7), 120);
+    sound.play('build');
     statMoney.classList.add('is-spending');
   } else if (!moneyAnim) {
     shownMoney = s.money;
@@ -491,7 +491,6 @@ function tryPlace() {
     if (e) toast(ERR[e]);
     else {
       toast(t(`${name}の移転を始めました`, `Moving ${name}`));
-      sound.play('build');
       placing = null;
       save();
     }
@@ -500,7 +499,8 @@ function tryPlace() {
     if (typeof r === 'string') toast(ERR[r]);
     else {
       toast(t(`${name}の工事を始めました（${P1B[placing.id].days} 日）`, `Started building: ${name} (${P1B[placing.id].days} days)`));
-      sound.play('build');
+      // お金が減るときは資金の演出で同じ音が鳴る。無料（工房）のときだけここで鳴らす
+      if (!P1B[placing.id].cost) sound.play('build');
       placing = null;
       menu = null;
       sub = null;
@@ -1020,10 +1020,19 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   });
 }
 
+const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal');
+let lastHeld = false;
+
 function frame(now: number) {
   const dt = Math.min(250, now - last);
   last = now;
-  if (!sheetOpen() || speed > 0) acc += dt * speed;
+  // 建てているとき・メニューや画面・吹き出しを開いているときは、ゲームの時間を止める
+  const held = uiHold();
+  if (held !== lastHeld) {
+    lastHeld = held;
+    statDate.classList.toggle('is-held', held);
+  }
+  if (!held) acc += dt * speed;
   let changed = false;
   while (acc >= DAY_MS && speed > 0) {
     acc -= DAY_MS;
@@ -1079,6 +1088,7 @@ requestAnimationFrame(frame);
     return null;
   },
   dirs: (id: string, i: number, j: number) => allowedDirs(s, id, i, j),
+  placing: () => (placing ? { ...placing } : null),
   pop: (i: number, j: number) => {
     openPop(i, j);
     renderAll();

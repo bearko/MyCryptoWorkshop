@@ -10,6 +10,7 @@ import {
   demolish,
   develop,
   deserializeP1,
+  facilityStatus,
   intelLv,
   invest,
   myWorkshop,
@@ -276,5 +277,24 @@ describe('フェーズ 1：タイルの操作とメニューの仕組み', () =>
     const o2 = deserializeP1(JSON.stringify(old))!;
     expect(o2.dev).toEqual([]);
     expect(o2.missions).toEqual({});
+  });
+});
+
+describe('フェーズ 1：地図の吹き出し', () => {
+  it('動いていれば作っている・売っている商品、止まっていれば理由', () => {
+    const s = newP1(5);
+    const uid = setup(s);
+    const ws = myWorkshop(s)!;
+    const shop = s.buildings.find((b) => b.uid === uid)!;
+    expect(facilityStatus(s, ws)).toEqual({ kind: 'craft', items: ['Sensu:C'] });
+    expect(facilityStatus(s, shop)).toEqual({ level: 'warn', stop: 'soldOut' });
+    for (let k = 0; k < 6; k++) step(s);
+    expect(facilityStatus(s, shop)).toEqual({ kind: 'sell', items: ['Sensu:C'] });
+    assign(s, 10002, null);
+    expect(facilityStatus(s, shop)).toEqual({ level: 'error', stop: 'noClerk' });
+    assign(s, 10003, null);
+    expect(facilityStatus(s, ws)).toEqual({ level: 'error', stop: 'noCrafter' });
+    // 他社や町の建物には出さない
+    expect(facilityStatus(s, s.buildings.find((b) => b.owner === 'town')!)).toBeNull();
   });
 });
