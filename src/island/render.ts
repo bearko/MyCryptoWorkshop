@@ -53,7 +53,7 @@ export function pick(cam: Camera, w: number, h: number, sx: number, sy: number):
 }
 
 /** 絵を基準点で置く。dir が左下・右上なら左右反転 */
-function drawArt(ctx: CanvasRenderingContext2D, im: HTMLImageElement, def: Def, b: { i: number; j: number; dir: Dir }, sx = 0, sw?: number) {
+export function drawArt(ctx: CanvasRenderingContext2D, im: HTMLImageElement, def: Def, b: { i: number; j: number; dir: Dir }, sx = 0, sw?: number) {
   if (!ok(im)) return;
   const w = sw ?? im.naturalWidth;
   const h = im.naturalHeight;
@@ -74,7 +74,7 @@ function drawArt(ctx: CanvasRenderingContext2D, im: HTMLImageElement, def: Def, 
 }
 
 /** 1 マスの絵（土台・足場・キラキラ）をマスに置く */
-function drawCell(ctx: CanvasRenderingContext2D, im: HTMLImageElement, i: number, j: number, frame = 0) {
+export function drawCell(ctx: CanvasRenderingContext2D, im: HTMLImageElement, i: number, j: number, frame = 0) {
   if (!ok(im)) return;
   const h = im.naturalHeight;
   const c = center(i, j);
@@ -90,7 +90,7 @@ function levels(def: Def): 3 | 4 | 5 {
   return def.size === 2 ? 4 : 3;
 }
 
-function diamond(ctx: CanvasRenderingContext2D, i: number, j: number, fill: string) {
+export function diamond(ctx: CanvasRenderingContext2D, i: number, j: number, fill: string) {
   const c = center(i, j);
   ctx.beginPath();
   ctx.moveTo(c.x, c.y - 55);
@@ -171,7 +171,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cam: Camera, w: nu
   ctx.restore();
 }
 
-function drawBuilding(ctx: CanvasRenderingContext2D, b: Building, def: Def, now: number, effect?: Effect) {
+export function drawBuilding(ctx: CanvasRenderingContext2D, b: Pick<Building, 'uid' | 'id' | 'i' | 'j' | 'dir' | 'left'>, def: Def, now: number, effect?: Effect) {
   if (b.left > 0) {
     // 工事中：更地の上に、進み具合に合わせた段まで足場を組む
     const lv = levels(def);
