@@ -72,7 +72,7 @@ import {
 import { openSupply } from './scm';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { actOf, hlOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
+import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
 const q = new URLSearchParams(location.search);
@@ -782,7 +782,7 @@ function renderMissions() {
   // 小さなチェックが付いた瞬間に音
   if (st?.checks && !showCleared) {
     for (const [label, ok] of st.checks) {
-      const v = ok(s, tutSeen);
+      const v = ok(s, seenNow());
       const key = `${st.id}:${label}`;
       if (v && prevChecks.get(key) === false) {
         justChecked.add(key);
@@ -792,7 +792,7 @@ function renderMissions() {
     }
   }
   const active = activeMissions(s);
-  const items: unknown[] = [missionFold, pendingClear, showCleared ? cleared : null, st && !showCleared ? [st.id, st.goal(s), (st.checks ?? []).map(([l, ok]) => [l, ok(s, tutSeen)])] : null, active.map((m) => [m.id, s.missions[m.id], missionProgress(s, m.id)]), [...justChecked]];
+  const items: unknown[] = [missionFold, pendingClear, showCleared ? cleared : null, st && !showCleared ? [st.id, st.goal(s), (st.checks ?? []).map(([l, ok]) => [l, ok(s, seenNow())])] : null, active.map((m) => [m.id, s.missions[m.id], missionProgress(s, m.id)]), [...justChecked]];
   const key = JSON.stringify(items);
   missionBox.hidden = !!placing || (!st && !showCleared && !active.length);
   if (key === missionKey) return;
@@ -822,7 +822,7 @@ function renderMissions() {
     row.type = 'button';
     row.append(h('span', 'isl-mis-box', ''), h('b', 'isl-mis-text', st.goal(s)));
     for (const [label, ok] of st.checks ?? []) {
-      const v = ok(s, tutSeen);
+      const v = ok(s, seenNow());
       const k2 = `${st.id}:${label}`;
       row.append(h('small', `isl-mis-check ${v ? 'is-on' : ''} ${justChecked.has(k2) ? 'is-just' : ''}`, (v ? '✓ ' : '· ') + label));
     }
@@ -883,6 +883,24 @@ function goSub(m: Exclude<Menu, 'skill'>, key: string) {
 /** この段に入ってから閉じた画面（「見た」の判定は閉じたときにする。読んでいる途中で案内が消えないように） */
 let tutSeen = new Set<string>();
 let tutOpen: string | null = null;
+/** 閉じた画面と、いま開いている画面（ミッションの小さなチェック用） */
+const seenNow = () => (tutOpen ? new Set([...tutSeen, tutOpen]) : tutSeen);
+
+// 地図の建物を指さす（チュートリアルで、建物の中を開いてほしいとき）
+const pointEl = h('div', 'isl-point', '👈');
+pointEl.hidden = true;
+function updatePoint() {
+  const what = pointOf(tutStep());
+  const b = what === 'workshop' ? myWorkshop(s) : what === 'shop' ? myShops(s)[0] : undefined;
+  const show = !!b && !placing && !pop && !sheetOpen() && !root.querySelector('.isl-modal');
+  pointEl.hidden = !show;
+  if (!show || !b) return;
+  const x = ((b.i - b.j) * 100 - cam.x) * cam.zoom + W / 2;
+  const y = ((b.i + b.j) * 55 - cam.y) * cam.zoom + H / 2;
+  // 建物の右横から指さす（上は施設の吹き出し、右上はミッションと重なるので）
+  pointEl.style.left = `${Math.round(x + 95 * cam.zoom)}px`;
+  pointEl.style.top = `${Math.round(y - 70 * cam.zoom)}px`;
+}
 let tutIntro = -1;
 /** クリアの手ごたえを見せてから、次の会話を出す */
 let tutIntroAfter = 0;
@@ -901,11 +919,14 @@ function focusOn(what: 'workshop' | 'shop') {
 }
 
 function tutGo(go: TutGo) {
-  const shop = myShops(s)[0];
   if (go === 'build') openBuildTab();
-  else if (go === 'workshop') openWorkshop(ctx);
-  else if (go === 'shop') {
-    if (shop) openShop(ctx, shop.uid);
+  else if (go === 'workshop' || go === 'shop') {
+    // 建物の中の画面は、地図の建物から開いてもらう（次から自分で開けるように）。ここではカメラを寄せて指さすだけ
+    closeSheet();
+    closePop();
+    menu = null;
+    sub = null;
+    focusOn(go);
   } else if (go === 'staff') goSub('hr', 'staff');
   else if (go === 'hire') goSub('hr', 'hire');
   else if (go === 'ranking') goSub('mkt', 'ranking');
@@ -954,6 +975,8 @@ function tutTick() {
   }
   // 地図が見えたら：建物へ寄って、右上のミッションにチェックと取り消し線、音、マインちゃんのひとこと。
   // 一拍おいてから（CELEBRATE_MS）、次の会話へ
+  // 建物の吹き出しから開いた画面を閉じたら、吹き出しも閉じて、地図でクリアを見せる
+  if (pendingClear && pop && !sheetOpen() && !placing) closePop();
   if (pendingClear && tutFree()) {
     const c = pendingClear;
     pendingClear = null;
@@ -1335,7 +1358,7 @@ function renderAll() {
   renderAdvisor();
   layout();
 }
-root.append(hud, missionBox, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
+root.append(hud, pointEl, missionBox, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
 // 始めたばかりなら、建築の帯を開いておく
 if (!s.buildings.some((b) => b.owner === 'me')) {
   menu = 'plan';
@@ -1704,6 +1727,7 @@ function frame(now: number) {
     if (k >= 1) tween = null;
     dirty = true;
   }
+  updatePoint();
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
   const wf = waterFrame(now);
   if (changed || fx.length || wf !== lastWater || loading()) dirty = true;

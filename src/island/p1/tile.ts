@@ -149,7 +149,12 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
 
   const acts = h('div', 'isl-row isl-pop-acts');
   if (kind === 'warehouse') acts.append(btn(t('調達を開く', 'Open buying'), () => openBuy(ctx), 'is-on'));
-  else acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), 'is-on'));
+  else {
+    // チュートリアル：建物の中の画面は、ここから開くと覚えてもらう
+    const step = ctx.step?.();
+    const guide = (step === 'craft' && kind === 'workshop') || (step === 'sell' && kind === 'shop');
+    acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), guide ? 'is-on is-guide' : 'is-on'));
+  }
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));
   mv.disabled = s.money < moveCost(b);
   acts.append(mv);

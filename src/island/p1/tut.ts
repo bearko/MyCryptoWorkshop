@@ -104,11 +104,15 @@ export const TUT: TutStep[] = [
         { text: t('実はね、前の世界から [[3 人]]がついてきてくれたんだ。', 'Actually, [[three friends]] followed us from the old world.'), show: 'crew' },
         { text: t('まだみんな[[見習い]]で、腕はこれから。でも、ついてきてくれた気持ちがうれしいよね。', 'They are all [[apprentices]], still learning. But I’m so glad they came along.'), show: 'crew' },
         { text: t('まずは器用な[[MCHアーティスト]]に、工房の作業台を頼んでみよう！', 'First, let’s ask the handy [[MCH Artist]] to take the workshop bench!'), show: 'crew', hero: 10003 },
+        { text: t('建物の中は、地図の建物をタップすると開けるよ。指さしている[[工房]]をタップしてみよう！', 'You open a building by tapping it on the map. Tap the [[workshop]] I’m pointing at!') },
       ],
-      ok: t('頼んでみる', 'Ask them'),
+      ok: t('やってみる', 'Let’s try'),
     },
-    say: () => t('作業台にヒーローを置くと、エクステを作ってくれるよ。工房を開いて、[[MCHアーティスト]]に頼もう！', 'A hero on the bench crafts Extensions. Open the workshop and ask [[MCH Artist]]!'),
-    act: [t('工房を開く', 'Open workshop'), 'workshop'],
+    say: (s) =>
+      s.slots.some((sl) => sl.worker != null)
+        ? t('次は作るもの。地図の[[工房]]をタップして「工房を開く」から、作るエクステを選ぼう！', 'Next, what to make. Tap the [[workshop]] on the map, then Open workshop, and pick an Extension!')
+        : t('地図の[[工房]]をタップして、吹き出しの「工房を開く」を押そう。中で[[MCHアーティスト]]に作業台を頼むよ！', 'Tap the [[workshop]] on the map, then Open workshop. Inside, ask [[MCH Artist]] to take the bench!'),
+    act: [t('工房の場所へ', 'Show the workshop'), 'workshop'],
     tips: {
       workshop: (s) =>
         s.slots[0].worker == null
@@ -116,6 +120,7 @@ export const TUT: TutStep[] = [
           : t('次は作るもの。持ってきた素材で作れる[[センス]]がおすすめだよ！', 'Now what to make. [[Sensu]] works with the materials we brought!'),
     },
     checks: [
+      [t('地図の工房をタップして開く', 'Tap the workshop and open it'), (_s, seen) => seen.has('workshop')],
       [t('作業台に職人を置く', 'Put a crafter on the bench'), (s) => s.slots.some((sl) => sl.worker != null)],
       [t('作るエクステを選ぶ', 'Choose what to make'), (s) => s.slots.some((sl) => !!sl.sku)],
     ],
@@ -175,15 +180,17 @@ export const TUT: TutStep[] = [
       pages: [
         { text: t('[[お店]]ができたね！ 工房で作ったエクステは、ここに並べて売るよ。', 'The [[shop]] is ready! Extensions from the workshop are sold here.') },
         { text: t('話し上手の[[MCHタクティシャン]]に、店番を頼もう。', 'Let’s ask the smooth-talking [[MCH Tactician]] to mind it.'), show: 'crew', hero: 10002 },
+        { text: t('工房と同じで、[[お店]]も地図でタップすると中を開けるよ。', 'Just like the workshop, tap the [[shop]] on the map to open it.') },
       ],
-      ok: t('お店を開く', 'Open the shop'),
+      ok: t('やってみる', 'Let’s try'),
     },
-    say: () => t('店員がいないと、お店は開かないよ。お店を開いて、並べるものと店員を決めよう！', 'No clerk, no business. Open the shop and choose what to sell and who sells it!'),
-    act: [t('お店を開く', 'Open shop'), 'shop'],
+    say: () => t('店員がいないと、お店は開かないよ。地図の[[お店]]をタップして「お店を開く」から、並べるものと店員を決めよう！', 'No clerk, no business. Tap the [[shop]] on the map, then Open shop, and choose what to sell and who sells it!'),
+    act: [t('お店の場所へ', 'Show the shop'), 'shop'],
     tips: {
       shop: () => t('光っている四角をタップして、[[主力商品]]と[[店員]]を決めよう！', 'Tap the glowing squares to set the [[main product]] and the [[clerk]]!'),
     },
     checks: [
+      [t('地図のお店をタップして開く', 'Tap the shop and open it'), (_s, seen) => seen.has('shop')],
       [t('並べる主力商品を決める', 'Choose the main product'), (s) => myShops(s).some((b) => !!s.shops[b.uid].shelves[0])],
       [t('店員を置く', 'Put a clerk in'), (s) => myShops(s).some((b) => s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)],
     ],
@@ -327,6 +334,9 @@ export const TUT_END: TutPage[] = [
  * （古い番号のままだと、まだ工房で何も作っていないのに「素材」の段になる、などが起きる）。
  */
 export const TUT_VERSION = 3;
+
+/** いまの段で、地図で指さす建物（中を開いてほしいとき） */
+export const pointOf = (st: TutStep | undefined): 'workshop' | 'shop' | null => (st?.id === 'craft' ? 'workshop' : st?.id === 'sell' ? 'shop' : null);
 
 export function tutFix(s: P1State) {
   if (typeof s.tut !== 'number' || s.tut >= TUT_DONE || s.tutV === TUT_VERSION) {

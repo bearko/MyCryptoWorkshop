@@ -2439,3 +2439,23 @@ button.isl-mis {
     opacity: 0;
   }
 }
+
+/* チュートリアル：地図の建物を指さす */
+.isl-point {
+  position: absolute;
+  z-index: 3;
+  font-size: 44px;
+  line-height: 1;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.5));
+  pointer-events: none !important;
+  animation: isl-point-bob 0.7s ease-in-out infinite alternate;
+}
+.isl-point[hidden] {
+  display: none;
+}
+@keyframes isl-point-bob {
+  to {
+    margin-left: 12px;
+  }
+}
