@@ -10,8 +10,74 @@ import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } fro
 
 export const TASK_NAME: Record<Task, string> = Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>;
 
-/** 適性を星 3 つで（53 で ★★、60 以上で ★★★） */
-export const stars = (apt: number) => (apt >= 60 ? '★★★' : apt >= 52 ? '★★☆' : apt >= 45 ? '★☆☆' : '☆☆☆');
+/**
+ * 適性のランク：0〜100 の数（100 を超えたら 100）を G・F・E・D・C・B・A・S の 8 段に。
+ * 見習いの 3 人（53 前後）は D。
+ */
+export const RANKS = ['G', 'F', 'E', 'D', 'C', 'B', 'A', 'S'] as const;
+export type Rank = (typeof RANKS)[number];
+export const aptN = (apt: number) => Math.max(0, Math.min(100, Math.round(apt)));
+export function rankOf(apt: number): Rank {
+  const n = aptN(apt);
+  return n >= 90 ? 'S' : n >= 80 ? 'A' : n >= 70 ? 'B' : n >= 60 ? 'C' : n >= 50 ? 'D' : n >= 40 ? 'E' : n >= 30 ? 'F' : 'G';
+}
+/** ランクと数（「D 53」） */
+export function rankEl(apt: number): HTMLElement {
+  const r = rankOf(apt);
+  const e = h('span', `isl-rankv is-${r.toLowerCase()}`);
+  e.append(h('b', '', r), h('small', '', `${aptN(apt)}`));
+  return e;
+}
+
+/** レーダーチャートの軸の順：サプライチェーンの 4 つ（調達 → 製造 → 運搬 → 販売）、そのあと開拓・調査 */
+const RADAR: Task[] = ['buy', 'craft', 'transport', 'shop', 'intel', 'explore'];
+const SVG = 'http://www.w3.org/2000/svg';
+const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>) => {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  return e;
+};
+
+/** 仕事ごとの適性のレーダーチャート。角ごとに仕事の名前とランク・数 */
+export function radar(stats: Parameters<typeof aptitude>[0], size = 210): SVGSVGElement {
+  const R = 62;
+  const cx = 105;
+  const cy = 100;
+  const root = svg('svg', { viewBox: '0 0 210 200', width: size, height: Math.round((size * 200) / 210), class: 'isl-radar', role: 'img' });
+  const pt = (k: number, r: number) => {
+    const a = -Math.PI / 2 + (k * 2 * Math.PI) / RADAR.length;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  };
+  // 目盛り（25・50・75・100）
+  for (const f of [0.25, 0.5, 0.75, 1]) root.append(svg('polygon', { points: RADAR.map((_, k) => pt(k, R * f).join(',')).join(' '), class: f === 1 ? 'isl-radar-edge' : 'isl-radar-ring' }));
+  RADAR.forEach((_, k) => {
+    const [x, y] = pt(k, R);
+    root.append(svg('line', { x1: cx, y1: cy, x2: x, y2: y, class: 'isl-radar-ring' }));
+  });
+  const vals = RADAR.map((task) => aptitude(stats, task));
+  root.append(svg('polygon', { points: vals.map((v, k) => pt(k, (R * aptN(v)) / 100).join(',')).join(' '), class: 'isl-radar-area' }));
+  vals.forEach((v, k) => {
+    const [x, y] = pt(k, (R * aptN(v)) / 100);
+    root.append(svg('circle', { cx: x, cy: y, r: 2.6, class: 'isl-radar-dot' }));
+  });
+  // 角のラベル：仕事の名前、その下にランクと数
+  RADAR.forEach((task, k) => {
+    const [x, y] = pt(k, R + 20);
+    const anchor = Math.abs(x - cx) < 4 ? 'middle' : x > cx ? 'start' : 'end';
+    const dx = anchor === 'start' ? -6 : anchor === 'end' ? 6 : 0;
+    const name = svg('text', { x: x + dx, y: y - 4, 'text-anchor': anchor, class: 'isl-radar-name' });
+    name.textContent = TASK_NAME[task];
+    const r = rankOf(vals[k]);
+    const val = svg('text', { x: x + dx, y: y + 10, 'text-anchor': anchor, class: `isl-radar-val is-${r.toLowerCase()}` });
+    const rk = svg('tspan', { class: 'isl-radar-rank' });
+    rk.textContent = r;
+    const n = svg('tspan', { dx: 3 });
+    n.textContent = `${aptN(vals[k])}`;
+    val.append(rk, n);
+    root.append(name, val);
+  });
+  return root;
+}
 
 /** いまの仕事（短く） */
 export function jobLabel(s: P1State, st: Staff): string {
@@ -52,7 +118,7 @@ export function slot(s: P1State, o: { label: string; task: Task; hero: number | 
   const st = o.hero != null ? staffOf(s, o.hero) : null;
   if (st) {
     const apt = Math.round(aptitude(st.stats, o.task));
-    b.append(heroIcon(st.hero, 52), h('b', 'isl-slot-name', heroName(st.hero)), h('span', 'isl-slot-apt', `${stars(apt)} ${apt}`), stamina(st));
+    b.append(heroIcon(st.hero, 52), h('b', 'isl-slot-name', heroName(st.hero)), rankEl(apt), stamina(st));
     if (st.resting) b.append(h('span', 'isl-slot-tag', t('休憩中', 'Resting')));
     if (o.onRemove) {
       const x = h('span', 'isl-slot-x', '×');
@@ -99,7 +165,7 @@ export function pickHero(root: HTMLElement, s: P1State, o: { title: string; task
       const free = st.task == null;
       const card = h('button', `isl-hero-pick ${st.hero === o.current ? 'is-on' : ''} ${free ? 'is-free' : ''}`);
       card.type = 'button';
-      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), h('span', 'isl-slot-apt', `${stars(apt)} ${apt}`), stamina(st), h('small', free ? 'isl-good' : 'isl-dim', st.hero === o.current ? t('いまの担当', 'Current') : jobLabel(s, st)));
+      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), rankEl(apt), stamina(st), h('small', free ? 'isl-good' : 'isl-dim', st.hero === o.current ? t('いまの担当', 'Current') : jobLabel(s, st)));
       if (Math.round(best) === apt) card.append(h('span', 'isl-best', t('いちばん向いている', 'Best fit')));
       card.addEventListener('click', () => {
         close();
