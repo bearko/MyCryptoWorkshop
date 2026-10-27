@@ -177,6 +177,8 @@ export interface P1State {
   hirePool: number[];
   cleared: boolean;
   flags: Flags;
+  /** 最初の 1 か月のチュートリアルの段（tut.ts。99 で終わり。以前のセーブには無い） */
+  tut?: number;
   /** アンコモンを開発した商品 */
   dev: string[];
   /** 開発中の商品 */
@@ -194,7 +196,7 @@ export interface P1State {
   monthUnits: Partial<Record<string, number>>;
   unitsU: number;
   /** 工房：今月作った数と価値・先月の結果 */
-  ws: { made: number; value: number; last: { made: number; value: number } | null };
+  ws: { made: number; value: number; last: { made: number; value: number } | null; hauled?: number };
   /** 調達：ランク・今月買った数・作りたいエクステ・追加の素材・素材ごとの月の量（auto＝先月の消費に合わせる） */
   proc: Proc;
   /** 素材の消費（今月・先月） */
@@ -306,6 +308,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     hirePool: [],
     cleared: false,
     flags: { data: false, ranking: false, clearSeen: false },
+    tut: 0,
     ...extras(),
   };
   populate(s);
@@ -1090,6 +1093,7 @@ export function step(s: P1State): DayResult {
       n += q ?? 0;
     }
     res.delivered.push({ to: t.to, n });
+    if (sh) s.ws.hauled = (s.ws.hauled ?? 0) + n;
   }
   s.trips = s.trips.filter((t) => t.left > 0);
 
@@ -1245,6 +1249,7 @@ export function endMonth(s: P1State): Report {
   }
   s.ws.last = { made: s.ws.made, value: Math.round(s.ws.value) };
   s.ws.made = 0;
+  s.ws.hauled = 0;
   s.ws.value = 0;
   s.rivalLast = Object.fromEntries(s.rivals.map((r) => [r.id, { total: Math.round(r.base + (s.rivalSales[r.id] ?? 0)), by: { ...(s.rivalProd[r.id] ?? {}) } }]));
   s.rivalProd = {};
@@ -1399,4 +1404,93 @@ export function facilityStatus(s: P1State, b: PBuilding): FacilityStatus | null 
     return { kind: 'sell', items: [main] };
   }
   return null;
+}
+
+// ---------------------------------------------------------------- SCM ダッシュボード：段ごとの能力（商品の数／月）
+
+export type Stage = 'buy' | 'craft' | 'haul' | 'sell';
+export interface StageCap {
+  /** ひと月に回せる商品の数（いまの体制のまま） */
+  perMonth: number;
+  /** 担当がいない・止まっている */
+  stopped: boolean;
+}
+
+/** 作業台の体制で、ひと月に作れる商品の数と、そのとき要る素材 */
+function craftPlan(s: P1State) {
+  let units = 0;
+  const need: Partial<Record<Mat, number>> = {};
+  for (const sl of s.slots) {
+    if (!sl.sku || sl.worker == null) continue;
+    const st = staffOf(s, sl.worker);
+    if (!st) continue;
+    const lots = (DAYS * speed(st, 'craft')) / craftDays(s, sl.sku);
+    units += lots * batchOf(sl.sku);
+    for (const [m, q] of Object.entries(recipeOf(sl.sku))) need[m as Mat] = (need[m as Mat] ?? 0) + lots * (q ?? 0);
+  }
+  return { units, need };
+}
+
+/** 往復の日数（運搬係 1 人・お店 1 軒あたりの平均） */
+function haulDays(s: P1State, st: Staff): number {
+  const ws = myWorkshop(s);
+  const shops = myShops(s);
+  if (!ws || !shops.length) return 0;
+  const d = shops.reduce((a, b) => a + Math.max(1, (dist(ws, b) / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'hub') ? 0.7 : 1) * 2) / speed(st, 'transport'), 0) / shops.length;
+  return Math.max(1, d);
+}
+
+/** お店の棚に商品があるとして、ひと月に売れそうな数（いまの売り場の強さ・認知度・ライバルで） */
+export function salesPotential(s: P1State): number {
+  let units = 0;
+  for (const p of PRODUCTS) {
+    const daily = (s.demand[p.key] ?? 0) / DAYS;
+    const offers: { w: number; aw: number }[] = [];
+    for (const b of myShops(s)) {
+      const sh = s.shops[b.uid];
+      for (const x of sh.shelves) if (x && skuParts(x)[0] === p.key) offers.push({ w: pull(s, b, sh, x), aw: sh.aw ?? 1 });
+    }
+    const mine = offers.reduce((a, o) => a + o.w, 0);
+    const total = mine + s.rivals.reduce((a, r) => a + (r.sells[p.key] ?? 0), 0);
+    if (total <= 0) continue;
+    for (const o of offers) units += ((daily * o.w) / total) * o.aw * DAYS;
+  }
+  return units;
+}
+
+export function stageCaps(s: P1State): Record<Stage, StageCap> {
+  const plan = craftPlan(s);
+  // 調達：調達係の月の量で、作業台の要る素材をどれだけまかなえるか（調達係がいなければ手元の素材だけ）
+  const buyer = s.staff.some((x) => x.task === 'buy' && !x.resting);
+  let ratio = Infinity;
+  for (const [m, q] of Object.entries(plan.need)) {
+    const have = buyer ? procQty(s, m as Mat) : s.mats[m as Mat] ?? 0;
+    ratio = Math.min(ratio, (q ?? 0) > 0 ? have / (q ?? 1) : Infinity);
+  }
+  if (!Number.isFinite(ratio)) ratio = plan.units > 0 ? 1 : 0;
+  // 調達係がいないときは手元の素材ぶんだけ（あと 3 日ぶんを切ったら止まっている扱い）
+  const buy = { perMonth: Math.round(plan.units * ratio), stopped: !buyer && ratio * DAYS < 3 };
+  const craft = { perMonth: Math.round(plan.units), stopped: !s.slots.some((sl) => sl.worker != null && sl.sku) };
+  const haulers = s.staff.filter((x) => x.task === 'transport');
+  const carts = has(s, 'cart2') ? 2 : 1;
+  const cap = Math.round(TRANSPORT.cap * (has(s, 'truck') ? 2.5 : 1));
+  const haul = { perMonth: Math.round(haulers.reduce((a, st) => a + (haulDays(s, st) ? (DAYS / haulDays(s, st)) * carts * cap : 0), 0)), stopped: !haulers.length };
+  const sell = { perMonth: Math.round(salesPotential(s)), stopped: !myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x) && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)) };
+  return { buy, craft, haul, sell };
+}
+
+/** いちばん細いところ（止まっている段があればそこ） */
+export function bottleneck(c: Record<Stage, StageCap>): Stage {
+  const order: Stage[] = ['buy', 'craft', 'haul', 'sell'];
+  const stopped = order.find((k) => c[k].stopped);
+  if (stopped) return stopped;
+  return order.reduce((a, k) => (c[k].perMonth < c[a].perMonth ? k : a), order[0]);
+}
+
+/** 手元の素材で、作業台があと何日動けるか（作業台が動いていなければ null） */
+export function matDays(s: P1State): number | null {
+  const plan = craftPlan(s);
+  let d = Infinity;
+  for (const [m, q] of Object.entries(plan.need)) if ((q ?? 0) > 0) d = Math.min(d, ((s.mats[m as Mat] ?? 0) / (q ?? 1)) * DAYS);
+  return Number.isFinite(d) ? d : null;
 }

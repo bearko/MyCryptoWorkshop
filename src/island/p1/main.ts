@@ -60,15 +60,16 @@ import {
   openShop,
   openSkills,
   openStaff,
-  openSupply,
   openWorkshop,
   refreshSheet,
   rivalName,
   sheetOpen,
   type Ctx,
 } from './screens';
+import { openSupply } from './scm';
 import { tileContent } from './tile';
-import { btn, h, money } from './ui';
+import { TUT, TUT_DONE, TUT_END, tutOf, type TutGo, type TutStep } from './tut';
+import { btn, h, matIcon, money, skuIcon } from './ui';
 
 const q = new URLSearchParams(location.search);
 const TEST = q.get('test') === '2';
@@ -171,6 +172,12 @@ const ctx: Ctx = {
   save,
   refresh: () => renderAll(),
   toast,
+  build: (id) => {
+    closeSheet();
+    startPlacing(id);
+  },
+  tip: (screen) => tutTip(screen),
+  step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
   dismissed: () => {
     menu = null;
     sub = null;
@@ -250,7 +257,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
     { key: 'ma', name: 'M&A', note: t('買収・提携（準備中）', 'Deals (coming soon)'), go: () => openMA(ctx) },
   ],
   hr: [
-    { key: 'staff', name: t('従業員', 'Staff'), note: t('仕事を割り当てる', 'Assign jobs'), go: () => openStaff(ctx) },
+    { key: 'staff', name: t('ヒーローの配置', 'Assign heroes'), note: t('4 つの仕事に置く', 'Four jobs'), go: () => openStaff(ctx) },
     { key: 'hire', name: t('人材登用', 'Recruiting'), note: t('ヒーローを雇う', 'Hire heroes'), go: () => openHire(ctx) },
     { key: 'pay', name: t('給与・労務', 'Pay & welfare'), note: t('給料・賞与・休み', 'Wages, bonuses, rest'), go: () => openPayroll(ctx) },
   ],
@@ -359,10 +366,16 @@ function renderFoot() {
   const ready = MISSIONS.some((m) => s.missions[m.id] === 'done');
   tabBtns.mkt.classList.toggle('has-dot', ready);
   panel.hidden = !menu || menu === 'skill' || !!placing?.move;
+  // チュートリアル：次に押すところを光らせる
+  const tk = tutOf(s);
+  const step = tk < TUT_DONE ? TUT[tk] : undefined;
+  const [hm, hk] = (step?.hl ?? '').split(':');
+  for (const m of Object.keys(tabBtns) as Menu[]) tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
+  speedBtns[2].classList.toggle('is-guide', hm === 'speed' && speed !== 4);
   if (!menu || menu === 'skill') return;
   subRow.replaceChildren(
     ...SUBS[menu as Exclude<Menu, 'skill'>].map((x) => {
-      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''}`);
+      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''} ${hm === menu && hk === x.key && sub !== x.key ? 'is-guide' : ''}`);
       b.type = 'button';
       b.append(h('b', '', x.name), h('small', '', x.note));
       if (x.key === 'missions' && ready) b.classList.add('has-dot');
@@ -404,7 +417,9 @@ function renderBuild() {
     ...P1_BUILDINGS.map((b) => {
       const err = canBuild(s, b.id);
       const locked = !!err && err !== 'money';
-      const c = h('button', `isl-card ${locked ? 'is-locked' : ''} ${placing?.id === b.id && !placing.move ? 'is-on' : ''}`);
+      const tk = tutOf(s);
+      const guide = tk < TUT_DONE && TUT[tk]?.card === b.id;
+      const c = h('button', `isl-card ${locked ? 'is-locked' : ''} ${placing?.id === b.id && !placing.move ? 'is-on' : ''} ${guide ? 'is-guide' : ''}`);
       c.type = 'button';
       const im = image(`b/${b.id}/rd.png`).cloneNode() as HTMLImageElement;
       im.alt = '';
@@ -682,7 +697,150 @@ function openBuildTab() {
   renderAll();
 }
 
+/** 下の帯の小メニューをコードから開く（チュートリアルの吹き出し・撮影スクリプト用） */
+function goSub(m: Exclude<Menu, 'skill'>, key: string) {
+  const x = SUBS[m].find((y) => y.key === key);
+  if (!x) return;
+  menu = m;
+  openSub(x);
+}
+
+// ---------------------------------------------------------------- チュートリアル（tut.ts の段を進める）
+
+/** この段に入ってから閉じた画面（「見た」の判定は閉じたときにする。読んでいる途中で案内が消えないように） */
+let tutSeen = new Set<string>();
+let tutOpen: string | null = null;
+let tutIntro = -1;
+
+function tutGo(go: TutGo) {
+  const shop = myShops(s)[0];
+  if (go === 'build') openBuildTab();
+  else if (go === 'workshop') openWorkshop(ctx);
+  else if (go === 'shop') {
+    if (shop) openShop(ctx, shop.uid);
+  } else if (go === 'staff') goSub('hr', 'staff');
+  else if (go === 'hire') goSub('hr', 'hire');
+  else if (go === 'data') goSub('mkt', 'data');
+  else if (go === 'ranking') goSub('mkt', 'ranking');
+  else if (go === 'buy') goSub('scm', 'buy');
+  else if (go === 'scm') goSub('scm', 'flow');
+  else if (go === 'skills') pickMenu('skill');
+  renderAll();
+}
+
+/** 画面の上のマインちゃんの一言。その段に決まった一言が無ければ、いまやることを言う */
+function tutTip(screen: string): string | null {
+  const k = tutOf(s);
+  if (k >= TUT_DONE || !TUT[k]) return null;
+  if (tutOpen && tutOpen !== screen) tutSeen.add(tutOpen);
+  tutOpen = screen;
+  const st = TUT[k];
+  const tip = st.tips?.[screen];
+  if (tip) return tip(s);
+  return st.intro && !st.act ? null : st.say(s);
+}
+
+const tutFree = () => !placing && !sheetOpen() && !pop && !root.querySelector('.isl-modal');
+
+/** 段の条件を見て進める。新しい段に説明の札があれば、画面が空いたときに出す */
+function tutTick() {
+  let k = tutOf(s);
+  if (k >= TUT_DONE) return;
+  if (s.tut !== k) s.tut = k;
+  if (tutOpen && !sheetOpen()) {
+    tutSeen.add(tutOpen);
+    tutOpen = null;
+  }
+  let moved = false;
+  while (k < TUT.length && TUT[k].done(s, tutSeen)) {
+    k++;
+    moved = true;
+    tutSeen = new Set();
+  }
+  if (moved) {
+    s.tut = k;
+    save();
+    sound.play('helper', 0.5);
+    if (sheetOpen()) refreshSheet();
+  }
+  if (k >= TUT.length) {
+    if (!tutFree()) return;
+    s.tut = TUT_DONE;
+    save();
+    modal(TUT_END.title, TUT_END.body, [[t('遊びつづける', 'Keep playing'), () => ((speed = 1), renderAll()), 'is-on']], true);
+    return;
+  }
+  const st = TUT[k];
+  // 調達係の段：雇えるように「人材の募集」を贈る
+  if (st.id === 'buyer' && !s.skills.includes('hire')) {
+    s.skills.push('hire');
+    save();
+  }
+  if (st.intro && tutIntro !== k && tutFree()) {
+    tutIntro = k;
+    showTutIntro(st, k);
+  }
+}
+
+function showTutIntro(st: TutStep, k: number) {
+  const intro = st.intro!;
+  const body = h('div');
+  body.append(h('p', '', intro.body));
+  if (intro.cycle) body.append(cycleEl());
+  const acts: [string, () => void, string?][] = [];
+  if (k === 0) {
+    acts.push([
+      intro.ok,
+      () => {
+        s.tut = 1;
+        save();
+        renderAll();
+      },
+      'is-on',
+    ]);
+    acts.push([
+      t('案内なしで遊ぶ', 'Play without the guide'),
+      () => {
+        s.tut = TUT_DONE;
+        save();
+        renderAll();
+      },
+    ]);
+  } else acts.push([intro.ok, () => (st.act ? tutGo(st.act[1]) : renderAll()), 'is-on']);
+  modal(intro.title, body, acts, true);
+}
+
+/** ①調達 → ②製造 → ③物流 → ④販売 の図。担当がいる段に ✓ */
+function cycleEl(): HTMLElement {
+  const row = h('div', 'isl-cycle');
+  const on = {
+    buy: s.staff.some((x) => x.task === 'buy'),
+    craft: s.slots.some((sl) => sl.worker != null && !!sl.sku),
+    haul: s.staff.some((x) => x.task === 'transport'),
+    sell: myShops(s).some((b) => s.shops[b.uid].staff != null || s.shops[b.uid].part > 0),
+  };
+  const items: [keyof typeof on, string, string, HTMLElement][] = [
+    ['buy', t('① 調達', '① Buy'), t('素材を買う', 'Buy materials'), matIcon('wood' as Mat, 36)],
+    ['craft', t('② 製造', '② Craft'), t('工房で作る', 'Craft'), skuIcon('Sensu:C', 36)],
+    ['haul', t('③ 物流', '③ Haul'), t('お店へ運ぶ', 'Deliver'), h('span', 'isl-cycle-emoji', '🛒')],
+    ['sell', t('④ 販売', '④ Sell'), t('お店で売る', 'Sell'), h('span', 'isl-cycle-emoji', '💰')],
+  ];
+  items.forEach(([k, name, note, icon], i) => {
+    const c = h('div', `isl-cycle-step ${on[k] ? 'is-on' : ''}`);
+    c.append(icon, h('b', '', name), h('small', '', note));
+    if (on[k]) c.append(h('span', 'isl-cycle-ok', '✓'));
+    row.append(c);
+    if (i < items.length - 1) row.append(h('span', 'isl-cycle-arrow', '▶'));
+  });
+  return row;
+}
+
 function tutorial(): { text: string; action?: [string, () => void] } {
+  const tk = tutOf(s);
+  if (tk < TUT_DONE && TUT[tk]) {
+    const st = TUT[tk];
+    return { text: st.say(s), action: st.act ? [st.act[0], () => tutGo(st.act![1])] : undefined };
+  }
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
   const rec = PRODUCT[recommend(s)].name;
@@ -735,7 +893,7 @@ function renderAdvisor() {
 
 // ---------------------------------------------------------------- システム・お祝い
 
-function modal(title: string, body: string, actions: [string, () => void, string?][], face = false) {
+function modal(title: string, body: string | HTMLElement, actions: [string, () => void, string?][], face = false) {
   const m = h('div', 'isl-modal');
   const box = h('div');
   const row = h('div', 'isl-row');
@@ -758,7 +916,7 @@ function modal(title: string, body: string, actions: [string, () => void, string
     head.append(im);
   }
   head.append(h('h2', '', title));
-  box.append(head, h('p', '', body), row);
+  box.append(head, typeof body === 'string' ? h('p', '', body) : body, row);
   m.append(box);
   root.append(m);
 }
@@ -793,6 +951,18 @@ function openSettings() {
       },
     ],
     [vol.se > 0 ? t('効果音を消す', 'Sound effects off') : t('効果音を出す', 'Sound effects on'), () => setVol({ se: vol.se > 0 ? 0 : 1 })],
+    ...(tutOf(s) < TUT_DONE
+      ? [
+          [
+            t('チュートリアルを終える', 'End the tutorial'),
+            () => {
+              s.tut = TUT_DONE;
+              save();
+              renderAll();
+            },
+          ] as [string, () => void],
+        ]
+      : []),
     [t('閉じる', 'Close'), () => undefined, 'is-on'],
   ]);
 }
@@ -897,6 +1067,7 @@ function layout() {
 }
 function renderAll() {
   dirty = true;
+  tutTick();
   renderHud();
   renderFoot();
   renderPlace();
@@ -1204,7 +1375,12 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   sound.play(r.rank === 1 ? 'win' : 'helper');
   closePop();
   openReport(ctx, r, () => {
-    if (!s.flags.ranking) {
+    if (tutOf(s) < TUT_DONE) {
+      // チュートリアル中は、ランキングの紹介を案内の段（tut.ts の ranking）で出す
+      s.flags.ranking = true;
+      save();
+      renderAll();
+    } else if (!s.flags.ranking) {
       s.flags.ranking = true;
       save();
       modal(
@@ -1306,4 +1482,7 @@ requestAnimationFrame(frame);
     renderAll();
   },
   menu: (m: Menu | null) => (m ? pickMenu(m) : ((menu = null), renderAll())),
+  /** 下の帯の小メニューを開く（撮影スクリプト用） */
+  sub: goSub,
+  tick: () => renderAll(),
 };
