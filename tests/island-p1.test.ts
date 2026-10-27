@@ -11,6 +11,14 @@ import {
   develop,
   deserializeP1,
   facilityStatus,
+  buy,
+  fullUse,
+  procCap,
+  procMats,
+  procQty,
+  setProcQty,
+  toggleProcExtra,
+  toggleProcItem,
   intelLv,
   invest,
   myWorkshop,
@@ -296,5 +304,53 @@ describe('フェーズ 1：地図の吹き出し', () => {
     expect(facilityStatus(s, ws)).toEqual({ level: 'error', stop: 'noCrafter' });
     // 他社や町の建物には出さない
     expect(facilityStatus(s, s.buildings.find((b) => b.owner === 'town')!)).toBeNull();
+  });
+});
+
+describe('フェーズ 1：調達', () => {
+  it('月に買える数には上限があり、買うとランクが上がって上限が増える', () => {
+    const s = newP1(5);
+    s.money = 1e6;
+    expect(procCap(s)).toBe(100);
+    expect(buy(s, 'wood', 101)).toBe('cap');
+    expect(buy(s, 'wood', 100)).toBeNull();
+    // 105 の経験値で Lv.2（上限 120）。今月はあと 20 個
+    expect(s.proc.lv).toBe(2);
+    expect(procCap(s)).toBe(120);
+    expect(buy(s, 'wood', 21)).toBe('cap');
+    expect(buy(s, 'wood', 20)).toBeNull();
+    learn(s, 'stock1');
+    expect(procCap(s)).toBe(Math.round((100 + 20 * (s.proc.lv - 1)) * 1.3));
+  });
+
+  it('作りたいエクステから買う素材が決まり、ほかの素材も足せる', () => {
+    const s = newP1(5);
+    setup(s);
+    expect(procMats(s).map((x) => x.m)).toEqual(['wood']);
+    toggleProcItem(s, 'Lantern:C');
+    expect(procMats(s).map((x) => x.m)).toEqual(['wood', 'iron', 'glass']);
+    toggleProcExtra(s, 'clay');
+    expect(procMats(s).find((x) => x.m === 'clay')?.from).toBe('extra');
+    // 100% のときの消費：センス（2 日・木材 3）を速さ 1 で 30 日 → 45
+    expect(fullUse(s).wood).toBeGreaterThanOrEqual(45);
+  });
+
+  it('調達係がいると月の量を毎日分けて買い、量は先月の消費が初期値', () => {
+    const s = newP1(5);
+    setup(s);
+    s.mats.wood = 0;
+    s.staff.push({ ...s.staff[0], hero: 99998, task: null, target: null });
+    assign(s, 99998, 'buy');
+    // 先月が無いときは 100% のときの消費
+    expect(procQty(s, 'wood')).toBe(fullUse(s).wood);
+    setProcQty(s, 'wood', 60);
+    for (let k = 0; k < 10; k++) step(s);
+    expect(s.proc.bought).toBe(20);
+    setProcQty(s, 'wood', null);
+    for (let k = 0; k < 40; k++) step(s);
+    // 締めのあとは先月の消費に合わせる
+    expect(s.matUsedLast?.wood).toBeGreaterThan(0);
+    expect(procQty(s, 'wood')).toBe(s.matUsedLast!.wood);
+    expect(s.utilLast!.cap).toBeGreaterThan(0);
   });
 });

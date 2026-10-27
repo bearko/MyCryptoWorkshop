@@ -9,6 +9,8 @@ import raw from '../../generated/catalog.json';
 import { DEF } from '../defs';
 import {
   ADS,
+  PROC,
+  procNeed,
   BRANCHES,
   DEV,
   INTEL,
@@ -39,6 +41,16 @@ import {
 } from './data';
 import {
   adBoost,
+  fullUse,
+  procCap,
+  procItems,
+  procLeft,
+  procMats,
+  procQty,
+  setProcQty,
+  toggleProcExtra,
+  toggleProcItem,
+  utilRate,
   areaRanking,
   assign,
   bonus,
@@ -390,43 +402,149 @@ export function openShop(ctx: Ctx, uid: number) {
 // ---------------------------------------------------------------- 調達
 
 export function openBuy(ctx: Ctx) {
-  open(ctx, t('調達', 'Buy materials'), (body) => {
+  open(ctx, t('調達', 'Buying'), (body) => {
     const s = ctx.s();
-    body.append(h('p', 'isl-dim', t('クラフトに使う素材を買います。ルートの無い素材は、従業員の「開拓」かスキルで買えるようになります。', 'Buy materials for crafting. Materials without a route open up by scouting (Staff) or skills.')));
-    for (const m of MAT_KEYS) {
+    // ランクと上限
+    const rank = h('div', 'isl-card2');
+    const need = procNeed(s.proc.lv);
+    const bonus = (has(s, 'stock1') ? 30 : 0) + (has(s, 'stock2') ? 60 : 0);
+    rank.append(
+      h('h3', '', t(`調達ランク Lv.${s.proc.lv}`, `Buying rank Lv.${s.proc.lv}`)),
+      bar(s.proc.lv >= PROC.maxLv ? 1 : s.proc.exp / need, 'var(--isl-gold)'),
+      h('p', 'isl-dim', s.proc.lv >= PROC.maxLv ? t('最高ランクです', 'Max rank') : t(`次のランクまで ${Math.ceil(need - s.proc.exp)}（買った数と買い付けの回数で上がります）`, `${Math.ceil(need - s.proc.exp)} to the next rank (raised by units and purchases)`)),
+      h('p', 'isl-big', t(`今月 ${s.proc.bought} / ${procCap(s)} 個`, `This month ${s.proc.bought} / ${procCap(s)}`)),
+      h('p', 'isl-dim', bonus ? t(`月に買える素材の数の上限です。ランクが上がると増えます（スキルで +${bonus}%）。`, `Monthly limit on materials bought. Grows with rank (skills +${bonus}%).`) : t('月に買える素材の数の上限です。ランクが上がると増えます。スキル「調達枠の拡大」でも増やせます。', 'Monthly limit on materials bought. Grows with rank and the “Bigger buying quota” skill.')),
+    );
+    body.append(rank);
+
+    // 調達係
+    const crew = h('div', 'isl-card2');
+    const buyer = s.staff.find((x) => x.task === 'buy');
+    const row = h('div', 'isl-field');
+    row.append(
+      h('span', '', t('調達係', 'Buyer')),
+      select(
+        s.staff.map((st) => ({ value: st.hero, label: staffLabel(s, st.hero, 'buy') })),
+        buyer?.hero ?? null,
+        (v) => {
+          for (const x of s.staff) if (x.task === 'buy' && x.hero !== v) assign(s, x.hero, null);
+          assign(s, v, 'buy');
+          ctx.toast(t(`${heroName(v)}が調達係になりました`, `${heroName(v)} is now the buyer`));
+          after(ctx);
+        },
+        t('（だれもいない）', '(nobody)'),
+      ),
+    );
+    if (buyer) row.append(btn(t('外す', 'Remove'), () => (assign(s, buyer.hero, null), after(ctx))));
+    crew.append(h('h3', '', t('自動の買い付け', 'Automatic buying')), row);
+    crew.append(
+      h(
+        'p',
+        buyer ? (buyer.resting ? 'isl-warn' : 'isl-dim') : 'isl-warn',
+        !buyer ? t('調達係がいないので、自動では買いません。下の量は、調達係を決めると毎日少しずつ買い付けます。', 'No buyer: nothing is bought automatically. Assign one to buy the amounts below a little every day.') : buyer.resting ? t('調達係が休憩中なので、いまは買い付けが止まっています。', 'The buyer is resting; buying is paused.') : t('下の「月の量」を 30 日に分けて、毎日買い付けます（月の上限と資金の中で）。適性が高いほど、ランクが早く上がります。', 'The monthly amounts below are bought a little each day (within the limit and funds). Higher aptitude raises the rank faster.'),
+      ),
+    );
+    const u = utilRate(s.utilLast);
+    crew.append(h('p', 'isl-dim', u == null ? t('先月の工房の稼働率：まだ記録がありません', 'Workshop utilization last month: no record yet') : t(`先月の工房の稼働率：${Math.round(u * 100)}%`, `Workshop utilization last month: ${Math.round(u * 100)}%`)));
+    body.append(crew);
+
+    // 作りたいエクステ
+    const want = h('div', 'isl-card2');
+    want.append(h('h3', '', t('作りたいエクステ', 'Extensions to make')), h('p', 'isl-dim', t('選ぶと、必要な素材が下で自動で選ばれます（最初は作業台で作っているもの）。', 'Their materials are selected below automatically (defaults to what the benches make).')));
+    const chips = h('div', 'isl-stock');
+    const items = procItems(s);
+    for (const x of craftable(s)) {
+      const c = h('button', `isl-chip isl-pick ${items.includes(x) ? 'is-on' : ''}`);
+      c.type = 'button';
+      c.append(skuIcon(x, 24), h('small', '', skuName(x)));
+      c.addEventListener('click', () => {
+        toggleProcItem(s, x);
+        after(ctx);
+      });
+      chips.append(c);
+    }
+    want.append(chips);
+    body.append(want);
+
+    // 素材ごとの月の量
+    body.append(h('h3', '', t('素材ごとの月の量', 'Monthly amount per material')));
+    const picked = procMats(s);
+    const full = fullUse(s);
+    // 買い付ける素材を上に
+    const order = [...MAT_KEYS].sort((a, b) => Number(!picked.some((x) => x.m === a)) - Number(!picked.some((x) => x.m === b)));
+    for (const m of order) {
       const card = h('div', 'isl-card2 isl-matrow');
-      const open = s.routes.includes(m);
-      const left = h('div', 'isl-row');
-      left.append(matIcon(m, 32), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}`, `have ${s.mats[m] ?? 0}`)));
-      card.append(left);
-      if (open) {
-        const row = h('div', 'isl-row');
-        row.append(h('span', '', t(`1 個 ${matPrice(s, m)} G`, `${matPrice(s, m)} G each`)));
-        for (const q of [10, 50]) {
-          const b = btn(`+${q} (${money(matPrice(s, m) * q)})`, () => {
-            const e = buy(s, m, q);
-            if (e) ctx.toast(t('資金が足りません', 'Not enough funds'));
+      const route = s.routes.includes(m);
+      const sel = picked.find((x) => x.m === m);
+      const top = h('div', 'isl-row');
+      top.append(matIcon(m, 32), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}・1 個 ${matPrice(s, m)} G`, `have ${s.mats[m] ?? 0}, ${matPrice(s, m)} G each`)));
+      if (route) {
+        if (sel?.from === 'item') top.append(h('span', 'isl-chip is-on', t('エクステから', 'From extensions')));
+        else
+          top.append(
+            btn(sel ? t('調達から外す', 'Remove') : t('調達に追加', 'Add'), () => {
+              toggleProcExtra(s, m);
+              after(ctx);
+            }, sel ? '' : 'is-on'),
+          );
+      }
+      card.append(top);
+      if (route && sel) {
+        const q = s.proc.qty[m];
+        const n = procQty(s, m);
+        const f = h('div', 'isl-field');
+        const input = h('input', 'isl-num');
+        input.type = 'number';
+        input.min = '0';
+        input.step = '10';
+        input.value = String(n);
+        input.addEventListener('change', () => {
+          setProcQty(s, m, Number(input.value) || 0);
+          after(ctx);
+        });
+        f.append(
+          h('span', '', t('月の量', 'Per month')),
+          btn('−10', () => (setProcQty(s, m, n - 10), after(ctx))),
+          input,
+          btn('+10', () => (setProcQty(s, m, n + 10), after(ctx))),
+          h('span', 'isl-dim', q && !q.auto ? t('個（手で決めた量）', 'pcs (set by you)') : (s.matUsedLast?.[m] ?? 0) > 0 ? t('個（先月と同じ）', 'pcs (same as last month)') : t('個（100% 動いたときの見込み）', 'pcs (estimate at 100%)')),
+        );
+        if (q && !q.auto) f.append(btn(t('自動に戻す', 'Back to auto'), () => (setProcQty(s, m, null), after(ctx))));
+        card.append(f);
+        const last = s.matUsedLast ? (s.matUsedLast[m] ?? 0) : null;
+        const ref = [last == null ? t('先月の消費：記録なし', 'Last month: no record') : t(`先月の消費 ${last} 個`, `Used last month: ${last}`)];
+        if (u != null && u < 0.995) ref.push(t(`稼働率 100% なら ${full[m] ?? 0} 個`, `${full[m] ?? 0} at 100% utilization`));
+        else if (last == null) ref.push(t(`工房が 100% 動けば ${full[m] ?? 0} 個`, `${full[m] ?? 0} if the workshop runs 100%`));
+        card.append(h('p', 'isl-dim', ref.join(t('・', ' · '))));
+      }
+      if (route) {
+        const spot = h('div', 'isl-row');
+        spot.append(h('small', 'isl-dim', t('いますぐ買う', 'Buy now')));
+        for (const k of [10, 50]) {
+          const b = btn(`+${k} (${money(matPrice(s, m) * k)})`, () => {
+            const e = buy(s, m, k);
+            if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+            else if (e === 'cap') ctx.toast(t('今月の調達の上限を超えます', 'Over this month’s buying limit'));
             after(ctx);
           });
-          b.disabled = s.money < matPrice(s, m) * q;
-          row.append(b);
+          b.disabled = s.money < matPrice(s, m) * k || procLeft(s) < k;
+          spot.append(b);
         }
-        card.append(row);
+        card.append(spot);
       } else {
         const scout = s.staff.find((x) => x.task === 'explore' && x.target === m);
-        if (scout) {
-          card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / MATS[m].exploreDays));
-        } else {
-          const row = h('div', 'isl-row');
-          row.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${MATS[m].exploreDays} 日〜）`, `No route (scouting from ${MATS[m].exploreDays} days)`)));
-          row.append(
+        if (scout) card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / MATS[m].exploreDays));
+        else {
+          const r = h('div', 'isl-row');
+          r.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${MATS[m].exploreDays} 日〜）`, `No route (scouting from ${MATS[m].exploreDays} days)`)));
+          r.append(
             select(s.staff.map((st) => ({ value: st.hero, label: staffLabel(s, st.hero, 'explore') })), null, (v) => {
               assign(s, v, 'explore', m);
               ctx.toast(t(`${heroName(v)}が${MATS[m].name}のルートを開拓しに出かけました`, `${heroName(v)} went scouting for a ${MATS[m].name} route`));
               after(ctx);
             }, t('開拓に行かせる…', 'Send a scout…')),
           );
-          card.append(row);
+          card.append(r);
         }
       }
       body.append(card);
@@ -440,6 +558,7 @@ export function jobOptions(s: P1State) {
   const out: { value: string; label: string }[] = [{ value: 'none', label: t('なし（休ませる）', 'None (rest)') }];
   s.slots.forEach((_sl, k) => out.push({ value: `craft:${k}`, label: t(`製造：作業台 ${k + 1}`, `Craft: bench ${k + 1}`) }));
   out.push({ value: 'transport', label: t('運搬', 'Haul') });
+  out.push({ value: 'buy', label: t('調達（自動の買い付け）', 'Buying (automatic)') });
   for (const b of myShops(s)) out.push({ value: `shop:${b.uid}`, label: t(`販売：${DEF[b.id].name}`, `Sell: ${DEF[b.id].name}`) });
   for (const m of MAT_KEYS) if (!s.routes.includes(m)) out.push({ value: `explore:${m}`, label: t(`開拓：${MATS[m].name}`, `Scout: ${MATS[m].name}`) });
   for (const r of s.rivals) if (intelLv(s, r.id) < INTEL.length) out.push({ value: `intel:${r.id}`, label: t(`調査：${rivalName(r.id)}`, `Research: ${rivalName(r.id)}`) });
@@ -453,6 +572,7 @@ export function applyJob(s: P1State, hero: number, v: string) {
   const [task, target] = v.split(':');
   if (task === 'none') assign(s, hero, null);
   else if (task === 'transport') assign(s, hero, 'transport');
+  else if (task === 'buy') assign(s, hero, 'buy');
   else if (task === 'explore') assign(s, hero, 'explore', target as Mat);
   else if (task === 'intel') assign(s, hero, 'intel', target);
   else assign(s, hero, task as Task, Number(target));
@@ -460,7 +580,7 @@ export function applyJob(s: P1State, hero: number, v: string) {
 
 function jobValue(st: { task: Task | null; target: number | string | null }): string {
   if (!st.task) return 'none';
-  if (st.task === 'transport') return 'transport';
+  if (st.task === 'transport' || st.task === 'buy') return st.task;
   return `${st.task}:${st.target}`;
 }
 
