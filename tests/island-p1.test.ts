@@ -3,7 +3,20 @@ import { aptitude } from '../src/island/p1/data';
 import {
   allowedDirs,
   assign,
+  bonus,
   build,
+  canMoveTo,
+  claim,
+  demolish,
+  develop,
+  deserializeP1,
+  intelLv,
+  invest,
+  myWorkshop,
+  raise,
+  relocate,
+  runAd,
+  serializeP1,
   canPlaceAt,
   craftCheck,
   facesRoad,
@@ -110,7 +123,7 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
     expect(rested).toBe(true);
   });
 
-  it('アンコモンは魔法の釜と、製造の適性 60 以上の職人が要る', () => {
+  it('アンコモンは魔法の釜・商品開発と、製造の適性 60 以上の職人が要る', () => {
     const s = newP1(3);
     setup(s);
     s.mats.paper = 10;
@@ -118,6 +131,7 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
     expect(craftCheck(s, 'Sensu:U', 10003)).toBe('pot');
     learn(s, 'bench2');
     learn(s, 'pot');
+    s.dev.push('Sensu');
     expect(craftCheck(s, 'Sensu:U', 10003)).toBe('skill');
   });
 
@@ -128,5 +142,139 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
     for (let k = 0; k < 30 * 4; k++) step(s);
     expect(s.rivals.some((r) => (r.sells.Sensu ?? 0) > 0)).toBe(true);
     expect(s.reports.some((r) => r.news.length > 0)).toBe(true);
+  });
+});
+
+describe('フェーズ 1：タイルの操作とメニューの仕組み', () => {
+  it('お店を移転すると費用を払って休業し、在庫はそのまま', () => {
+    const s = newP1(5);
+    const uid = setup(s);
+    for (let k = 0; k < 10; k++) step(s);
+    s.money = 50000;
+    const b = s.buildings.find((x) => x.uid === uid)!;
+    let to: [number, number, 'rd' | 'ld' | 'lu' | 'ru'] | null = null;
+    for (let j = 0; j < s.n && !to; j++)
+      for (let i = 0; i < s.n && !to; i++) {
+        const d = allowedDirs(s, 'general_store', i, j, uid);
+        if (d.length && (i !== b.i || j !== b.j)) to = [i, j, d[0]];
+      }
+    expect(to).not.toBeNull();
+    const stock = JSON.stringify(s.shops[uid].storage);
+    expect(relocate(s, uid, ...to!)).toBeNull();
+    expect(s.money).toBe(48000);
+    expect(b.left).toBeGreaterThan(0);
+    expect([b.i, b.j]).toEqual([to![0], to![1]]);
+    expect(JSON.stringify(s.shops[uid].storage)).toBe(stock);
+    // 自分のいまの場所にも置き直せる（自分のマスは空いているとみなす）
+    for (let k = 0; k < 5; k++) step(s);
+    expect(canMoveTo(s, uid, b.i, b.j, b.dir)).toBeNull();
+  });
+
+  it('お店を撤去すると 3 割が戻り、在庫は工房へ。工房は撤去できない', () => {
+    const s = newP1(5);
+    const uid = setup(s);
+    for (let k = 0; k < 12; k++) step(s);
+    const inShop = Object.values(s.shops[uid].storage).reduce<number>((a, n) => a + (n ?? 0), 0) + Object.values(s.shops[uid].shelf).reduce<number>((a, n) => a + (n ?? 0), 0);
+    const before = (s.stock['Sensu:C'] ?? 0) + inShop;
+    const m = s.money;
+    expect(demolish(s, uid)).toBeNull();
+    expect(s.money).toBe(m + 900);
+    expect(s.shops[uid]).toBeUndefined();
+    expect(s.stock['Sensu:C']).toBe(before);
+    expect(demolish(s, myWorkshop(s)!.uid)).toBe('workshop');
+  });
+
+  it('設備投資は段ごとに値段が上がり、看板でお店が強くなる', () => {
+    const s = newP1(5);
+    const uid = setup(s);
+    s.money = 100000;
+    expect(invest(s, uid, 'sign')).toBeNull();
+    expect(invest(s, uid, 'sign')).toBeNull();
+    expect(s.money).toBe(100000 - 2000 - 4000);
+    expect(invest(s, uid, 'tools')).toBe('locked');
+    expect(invest(s, uid, 'backroom')).toBeNull();
+    expect(invest(s, uid, 'backroom')).toBeNull();
+    expect(invest(s, uid, 'backroom')).toBe('max');
+  });
+
+  it('アンコモンは魔法の釜のあと、商品開発してから作れる', () => {
+    const s = newP1(5);
+    setup(s);
+    s.money = 100000;
+    s.mats.paper = 50;
+    expect(develop(s, 'Sensu')).toBe('pot');
+    learn(s, 'bench2');
+    learn(s, 'pot');
+    s.staff.push({ ...s.staff[2], hero: 99999, stats: { hp: 200, phy: 70, int: 70, agi: 70 }, task: null, target: null });
+    expect(craftCheck(s, 'Sensu:U', 99999)).toBe('dev');
+    expect(develop(s, 'Sensu')).toBeNull();
+    expect(develop(s, 'Lantern')).toBe('busy');
+    let done = false;
+    for (let k = 0; k < 10; k++) done = step(s).developed.includes('Sensu') || done;
+    expect(done).toBe(true);
+    expect(craftCheck(s, 'Sensu:U', 99999)).toBeNull();
+  });
+
+  it('他社の調査は日がたつと段階的に進み、終わると手が空く', () => {
+    const s = newP1(5);
+    setup(s);
+    const rid = s.rivals[0].id;
+    expect(assign(s, 10002, 'intel', rid)).toBeNull();
+    const seen: number[] = [];
+    for (let k = 0; k < 40; k++) for (const x of step(s).intel) seen.push(x.lv);
+    expect(seen).toEqual([1, 2, 3]);
+    expect(intelLv(s, rid)).toBe(3);
+    expect(s.staff.find((x) => x.hero === 10002)!.task).toBeNull();
+  });
+
+  it('依頼を達成すると報酬を受け取れる。宣伝は費用が宣伝費に入る', () => {
+    const s = newP1(5);
+    setup(s);
+    s.money = 20000;
+    expect(claim(s, 'ad')).toBe('not-yet');
+    expect(runAd(s, 'flyer')).toBeNull();
+    expect(runAd(s, 'flyer')).toBe('busy');
+    expect(s.monthCost.ads).toBe(1500);
+    const r = step(s);
+    expect(r.missions).toContain('ad');
+    const m = s.money;
+    expect(claim(s, 'ad')).toBeNull();
+    expect(s.money).toBe(m + 1000);
+    expect(claim(s, 'ad')).toBe('not-yet');
+  });
+
+  it('賞与でスタミナが戻り、昇給は 3 段まで', () => {
+    const s = newP1(5);
+    setup(s);
+    const st = s.staff[0];
+    st.stamina = 10;
+    st.resting = true;
+    s.money = 10000;
+    expect(bonus(s, st.hero)).toBeNull();
+    expect(st.stamina).toBe(st.stats.hp);
+    expect(st.resting).toBe(false);
+    for (let k = 0; k < 3; k++) expect(raise(s, st.hero)).toBeNull();
+    expect(raise(s, st.hero)).toBe('max');
+    expect(st.wage).toBeGreaterThan(0);
+  });
+
+  it('お店ごとの先月の売上と費用が残り、セーブから戻せる', () => {
+    const s = newP1(5);
+    const uid = setup(s);
+    for (let k = 0; k < 40; k++) step(s);
+    const last = s.shops[uid].last!;
+    expect(last.rev).toBeGreaterThan(0);
+    expect(last.cost).toBeGreaterThan(1200);
+    expect(s.rivalLast[s.rivals[0].id].total).toBeGreaterThan(0);
+    const back = deserializeP1(serializeP1(s))!;
+    expect(back.shops[uid].last).toEqual(last);
+    // 古いセーブ（新しい項目が無い）も読める
+    const old = JSON.parse(serializeP1(s));
+    delete old.dev;
+    delete old.ads;
+    delete old.missions;
+    const o2 = deserializeP1(JSON.stringify(old))!;
+    expect(o2.dev).toEqual([]);
+    expect(o2.missions).toEqual({});
   });
 });

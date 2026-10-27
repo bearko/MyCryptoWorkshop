@@ -48,7 +48,7 @@ function cart(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.fillRect(x + 5, y - 5, 6, 6);
 }
 
-export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null) {
+export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null) {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#2f6fae';
@@ -83,6 +83,7 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   if (ghost) for (const [x, y] of cells(DEF[ghost.id], ghost.i, ghost.j, ghost.dir)) diamond(ctx, x, y, ghost.ok ? 'rgba(120,255,160,0.35)' : 'rgba(255,90,90,0.4)');
   const sel = selected != null ? s.buildings.find((b) => b.uid === selected) : null;
   if (sel) for (const [x, y] of cells(DEF[sel.id], sel.i, sel.j, sel.dir)) diamond(ctx, x, y, 'rgba(255,230,120,0.35)');
+  else if (cell) diamond(ctx, cell[0], cell[1], 'rgba(255,230,120,0.45)');
 
   type Item = { depth: number; draw: () => void };
   const items: Item[] = [];

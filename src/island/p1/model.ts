@@ -6,8 +6,15 @@ import { heroById } from '../../game/catalog';
 import { DEF } from '../defs';
 import { cells, type Dir } from '../sim';
 import {
+  ADS,
+  DEV,
   ENTRY_AFTER,
   HIRE_POOL,
+  INTEL,
+  INVEST,
+  MISSIONS,
+  MOVE,
+  PAY,
   MATS,
   P1B,
   PRODUCT,
@@ -45,6 +52,8 @@ export interface PBuilding {
   dir: Dir;
   left: number;
   owner: Owner;
+  /** 設備投資の段（自社の建物だけ） */
+  inv?: Partial<Record<string, number>>;
 }
 
 export interface Staff {
@@ -52,13 +61,15 @@ export interface Staff {
   stats: Stats;
   stamina: number;
   task: Task | null;
-  /** 製造は作業台の番号、販売はお店の uid、開拓は素材 */
-  target: number | Mat | null;
+  /** 製造は作業台の番号、販売はお店の uid、開拓は素材、調査は他社の id */
+  target: number | string | null;
   resting: boolean;
   /** 月給（最初の 3 人は 0） */
   wage: number;
   /** 開拓の進み（日） */
   explore: number;
+  /** 昇給の段（作業が速くなる） */
+  lv?: number;
 }
 
 export interface Slot {
@@ -82,6 +93,10 @@ export interface ShopState {
   carry: Partial<Record<Sku, number>>;
   /** 今月の売上 */
   rev: number;
+  /** 今月の費用（売れた商品の素材代・アルバイト代。維持費は月末に足す） */
+  cost: number;
+  /** 先月の売上と費用 */
+  last: { rev: number; cost: number } | null;
 }
 
 export interface Trip {
@@ -108,7 +123,7 @@ export interface Report {
   month: number;
   revenue: number;
   bySeries: Partial<Record<string, number>>;
-  costs: { materials: number; wages: number; part: number; upkeep: number; build: number };
+  costs: { materials: number; wages: number; part: number; upkeep: number; build: number; ads: number };
   profit: number;
   area: Rank[];
   rank: number;
@@ -156,6 +171,24 @@ export interface P1State {
   hirePool: number[];
   cleared: boolean;
   flags: Flags;
+  /** アンコモンを開発した商品 */
+  dev: string[];
+  /** 開発中の商品 */
+  lab: { key: string; left: number } | null;
+  /** 宣伝の残り日数 */
+  ads: Partial<Record<string, number>>;
+  /** 他社の調査の進み（日） */
+  intel: Partial<Record<string, number>>;
+  /** 他社の今月の売上（商品ごと）と先月の結果 */
+  rivalProd: Record<string, Partial<Record<string, number>>>;
+  rivalLast: Record<string, { total: number; by: Partial<Record<string, number>> }>;
+  /** 依頼：達成した・報酬を受け取った */
+  missions: Partial<Record<string, 'done' | 'claimed'>>;
+  /** 今月売れた数（商品ごと）・アンコモンを売った数（合計） */
+  monthUnits: Partial<Record<string, number>>;
+  unitsU: number;
+  /** 工房：今月作った数と価値・先月の結果 */
+  ws: { made: number; value: number; last: { made: number; value: number } | null };
 }
 
 export const START_MONEY = 30000;
@@ -196,8 +229,11 @@ export function frontCells(id: string, i: number, j: number, dir: Dir): [number,
 
 export const facesRoad = (s: P1State, id: string, i: number, j: number, dir: Dir) => frontCells(id, i, j, dir).some(([x, y]) => isRoad(s, x, y));
 
-function lotFree(s: P1State, id: string, i: number, j: number, dir: Dir) {
-  return cells(DEF[id], i, j, dir).every(([x, y]) => ground(s, x, y) === 'grass' && !occupant(s, x, y));
+function lotFree(s: P1State, id: string, i: number, j: number, dir: Dir, ignore?: number) {
+  return cells(DEF[id], i, j, dir).every(([x, y]) => {
+    const o = ground(s, x, y) === 'grass' ? occupant(s, x, y) : undefined;
+    return o !== undefined && (!o || o.uid === ignore);
+  });
 }
 
 /** 区画：道路が縦横 3 本ずつ。住宅・駅・公園・他社の店が建っている */
@@ -228,16 +264,22 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand])),
     monthSales: {},
     rivalSales: Object.fromEntries(RIVALS.map((r) => [r.id, 0])),
-    monthCost: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0 },
+    monthCost: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 },
     alone: {},
     reports: [],
     hirePool: [],
     cleared: false,
     flags: { data: false, ranking: false, clearSeen: false },
+    ...extras(),
   };
   populate(s);
   s.hirePool = pickHires(s);
   return s;
+}
+
+/** フェーズ 1 のあとから足した項目の初期値（古いセーブにも足す） */
+function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' | 'rivalLast' | 'missions' | 'monthUnits' | 'unitsU' | 'ws'> {
+  return { dev: [], lab: null, ads: {}, intel: {}, rivalProd: {}, rivalLast: {}, missions: {}, monthUnits: {}, unitsU: 0, ws: { made: 0, value: 0, last: null } };
 }
 
 function put(s: P1State, id: string, i: number, j: number, dir: Dir, owner: Owner) {
@@ -296,10 +338,10 @@ function pickHires(s: P1State): number[] {
 
 export const has = (s: P1State, skill: string) => s.skills.includes(skill);
 export const staffOf = (s: P1State, hero: number) => s.staff.find((x) => x.hero === hero) ?? null;
-export const speed = (st: Staff, task: Task) => speedOf(aptitude(st.stats, task));
+export const speed = (st: Staff, task: Task) => speedOf(aptitude(st.stats, task)) * (1 + PAY.raiseSpeed * (st.lv ?? 0));
 
 /** 仕事を割り当てる。前の仕事からは外れる */
-export function assign(s: P1State, hero: number, task: Task | null, target: number | Mat | null = null): string | null {
+export function assign(s: P1State, hero: number, task: Task | null, target: number | string | null = null): string | null {
   const st = staffOf(s, hero);
   if (!st) return 'no-staff';
   unassign(s, st);
@@ -323,6 +365,10 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
     const m = target as Mat;
     if (!MATS[m] || s.routes.includes(m)) return 'no-route';
     st.explore = 0;
+  } else if (task === 'intel') {
+    const r = target as string;
+    if (!s.rivals.some((x) => x.id === r)) return 'no-rival';
+    if (intelLv(s, r) >= INTEL.length) return 'done';
   }
   st.task = task;
   st.target = target;
@@ -354,8 +400,8 @@ export function setRest(s: P1State, hero: number, rest: boolean) {
 export type PlaceErr = 'ground' | 'taken' | 'road' | 'money' | 'locked' | 'soon' | 'limit';
 
 /** 入口が道路に向く向きだけ */
-export function allowedDirs(s: P1State, id: string, i: number, j: number): Dir[] {
-  return (['rd', 'ld', 'lu', 'ru'] as Dir[]).filter((d) => facesRoad(s, id, i, j, d) && lotFree(s, id, i, j, d));
+export function allowedDirs(s: P1State, id: string, i: number, j: number, ignore?: number): Dir[] {
+  return (['rd', 'ld', 'lu', 'ru'] as Dir[]).filter((d) => facesRoad(s, id, i, j, d) && lotFree(s, id, i, j, d, ignore));
 }
 
 export function canBuild(s: P1State, id: string): PlaceErr | null {
@@ -408,6 +454,90 @@ export function turn(s: P1State, uid: number): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------- 移転・撤去・設備投資
+
+export const moveCost = (b: PBuilding) => Math.max(MOVE.min, Math.round((P1B[b.id]?.cost ?? 0) * MOVE.rate));
+export const moveDays = (b: PBuilding) => Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) * MOVE.days));
+export const refundOf = (b: PBuilding) => Math.round((P1B[b.id]?.cost ?? 0) * MOVE.refund);
+
+/** 移転先として置けるか（自分のいまのマスは空いているとみなす） */
+export function canMoveTo(s: P1State, uid: number, i: number, j: number, dir: Dir): PlaceErr | null {
+  const b = s.buildings.find((x) => x.uid === uid && x.owner === 'me');
+  if (!b) return 'locked';
+  if (b.left > 0) return 'locked';
+  if (s.money < moveCost(b)) return 'money';
+  const cs = cells(DEF[b.id], i, j, dir);
+  if (cs.some(([x, y]) => ground(s, x, y) !== 'grass')) return 'ground';
+  if (cs.some(([x, y]) => {
+    const o = occupant(s, x, y);
+    return o && o.uid !== uid;
+  }))
+    return 'taken';
+  if (!facesRoad(s, b.id, i, j, dir)) return 'road';
+  return null;
+}
+
+/** 移転：お金を払って、工期の半分だけ休業する。在庫や設備はそのまま */
+export function relocate(s: P1State, uid: number, i: number, j: number, dir: Dir): PlaceErr | null {
+  const e = canMoveTo(s, uid, i, j, dir);
+  if (e) return e;
+  const b = s.buildings.find((x) => x.uid === uid)!;
+  const cost = moveCost(b);
+  s.money -= cost;
+  s.monthCost.build += cost;
+  b.i = i;
+  b.j = j;
+  b.dir = dir;
+  b.left = moveDays(b);
+  return null;
+}
+
+/** 撤去：建てる値段の 3 割が戻る。お店の在庫は工房の倉庫へ。本店（工房）は撤去できない */
+export function demolish(s: P1State, uid: number): string | null {
+  const k = s.buildings.findIndex((x) => x.uid === uid && x.owner === 'me');
+  if (k < 0) return 'locked';
+  const b = s.buildings[k];
+  if (b.id === 'workshop') return 'workshop';
+  const sh = s.shops[uid];
+  if (sh) {
+    for (const src of [sh.storage, sh.shelf]) for (const [x, n] of Object.entries(src)) s.stock[x as Sku] = (s.stock[x as Sku] ?? 0) + (n ?? 0);
+    if (sh.staff != null) {
+      const st = staffOf(s, sh.staff);
+      if (st) unassign(s, st);
+    }
+    delete s.shops[uid];
+  }
+  const back = refundOf(b);
+  s.money += back;
+  s.monthCost.build -= back;
+  s.buildings.splice(k, 1);
+  return null;
+}
+
+export const invLv = (b: PBuilding | null | undefined, id: string) => b?.inv?.[id] ?? 0;
+/** 次の段の値段（もう上がらないときは null） */
+export function investCost(b: PBuilding, id: string): number | null {
+  const x = INVEST[id];
+  if (!x) return null;
+  return x.cost[invLv(b, id)] ?? null;
+}
+export function invest(s: P1State, uid: number, id: string): string | null {
+  const b = s.buildings.find((x) => x.uid === uid && x.owner === 'me');
+  const x = INVEST[id];
+  if (!b || !x) return 'locked';
+  const kind = P1B[b.id]?.kind;
+  if (kind !== x.kind) return 'locked';
+  const cost = investCost(b, id);
+  if (cost == null) return 'max';
+  if (s.money < cost) return 'money';
+  s.money -= cost;
+  s.monthCost.build += cost;
+  b.inv = { ...b.inv, [id]: invLv(b, id) + 1 };
+  return null;
+}
+
+export const storageCap = (b: PBuilding) => SHOP.storageCap + 100 * invLv(b, 'backroom');
+
 export const myWorkshop = (s: P1State) => s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0) ?? null;
 export const myShops = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop' && b.left <= 0);
 
@@ -419,7 +549,7 @@ function syncSlots(s: P1State) {
   while (myWorkshop(s) && s.slots.length < benchCount(s)) s.slots.push({ sku: null, worker: null, progress: 0, running: false, repeat: true });
 }
 function syncShop(s: P1State, b: PBuilding) {
-  const sh = (s.shops[b.uid] ??= { uid: b.uid, shelves: [], staff: null, part: 0, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0 });
+  const sh = (s.shops[b.uid] ??= { uid: b.uid, shelves: [], staff: null, part: 0, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0, cost: 0, last: null });
   while (sh.shelves.length < shelfCount(s, b.id)) sh.shelves.push(null);
 }
 
@@ -468,6 +598,7 @@ export function craftCheck(s: P1State, x: Sku, worker: number | null): string | 
   const [, r] = skuParts(x);
   if (r === 'U') {
     if (!has(s, 'pot')) return 'pot';
+    if (!s.dev.includes(skuParts(x)[0])) return 'dev';
     const st = worker != null ? staffOf(s, worker) : null;
     if (!st || aptitude(st.stats, 'craft') < UNCOMMON.minCraft) return 'skill';
   }
@@ -499,7 +630,98 @@ export const batchOf = (x: Sku) => {
   return r === 'U' ? Math.ceil(PRODUCT[k].batch / 2) : PRODUCT[k].batch;
 };
 
-export const craftDays = (s: P1State, x: Sku) => PRODUCT[skuParts(x)[0]].days * (has(s, 'jig') ? 0.8 : 1) * (has(s, 'bench3') ? 0.8 : 1);
+export const craftDays = (s: P1State, x: Sku) => PRODUCT[skuParts(x)[0]].days * (has(s, 'jig') ? 0.8 : 1) * (has(s, 'bench3') ? 0.8 : 1) * (1 - 0.1 * invLv(myWorkshop(s), 'tools'));
+
+/** 1 個あたりの素材代（いまの値段） */
+export const unitCost = (s: P1State, x: Sku) => Object.entries(recipeOf(x)).reduce((a, [m, q]) => a + matPrice(s, m as Mat) * (q ?? 0), 0) / batchOf(x);
+
+// ---------------------------------------------------------------- 商品開発
+
+export const devCost = (key: string) => Math.round(PRODUCT[key].price * DEV.rate);
+export function develop(s: P1State, key: string): string | null {
+  if (!PRODUCT[key]) return 'locked';
+  if (!has(s, 'pot')) return 'pot';
+  if (s.dev.includes(key)) return 'done';
+  if (s.lab) return 'busy';
+  const cost = devCost(key);
+  if (s.money < cost) return 'money';
+  s.money -= cost;
+  s.monthCost.build += cost;
+  s.lab = { key, left: DEV.days };
+  return null;
+}
+
+// ---------------------------------------------------------------- 宣伝・調査・依頼・給与
+
+export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0);
+export function runAd(s: P1State, id: string): string | null {
+  const x = ADS.find((a) => a.id === id);
+  if (!x) return 'locked';
+  if ((s.ads[id] ?? 0) > 0) return 'busy';
+  if (s.money < x.cost) return 'money';
+  s.money -= x.cost;
+  s.monthCost.ads = (s.monthCost.ads ?? 0) + x.cost;
+  s.ads[id] = x.days;
+  return null;
+}
+
+/** 調査の段（0〜3） */
+export const intelLv = (s: P1State, rid: string) => INTEL.filter((d) => (s.intel[rid] ?? 0) >= d).length;
+
+function missionMet(s: P1State, id: string): boolean {
+  switch (id) {
+    case 'first_sale':
+      return Object.values(s.monthUnits).some((n) => (n ?? 0) > 0) || s.reports.some((r) => r.revenue > 0);
+    case 'sensu100':
+      return (s.monthUnits.Sensu ?? 0) >= 100;
+    case 'ad':
+      return ADS.some((a) => (s.ads[a.id] ?? 0) > 0);
+    case 'two_shops':
+      return myShops(s).length >= 2;
+    case 'research':
+      return Object.keys(s.intel).some((r) => intelLv(s, r) >= 1);
+    case 'lantern50':
+      return (s.monthUnits.Lantern ?? 0) >= 50;
+    case 'uncommon':
+      return s.unitsU >= 10;
+    case 'rank3':
+      return s.reports.some((r) => r.rank <= 3);
+  }
+  return false;
+}
+/** 今見せる依頼：達成して受け取っていないものと、まだのものを上から 3 つ */
+export const openMissions = (s: P1State) => [...MISSIONS.filter((m) => s.missions[m.id] === 'done'), ...MISSIONS.filter((m) => !s.missions[m.id]).slice(0, 3)];
+export function claim(s: P1State, id: string): string | null {
+  const m = MISSIONS.find((x) => x.id === id);
+  if (!m || s.missions[id] !== 'done') return 'not-yet';
+  s.missions[id] = 'claimed';
+  s.money += m.reward;
+  return null;
+}
+
+export const bonusCost = (st: Staff) => Math.round(PAY.bonusBase + st.wage * PAY.bonusRate);
+/** 賞与：スタミナが満タンになり、休みから戻る */
+export function bonus(s: P1State, hero: number): string | null {
+  const st = staffOf(s, hero);
+  if (!st) return 'no-staff';
+  const cost = bonusCost(st);
+  if (s.money < cost) return 'money';
+  s.money -= cost;
+  s.monthCost.wages += cost;
+  st.stamina = st.stats.hp;
+  st.resting = false;
+  return null;
+}
+export const raiseStep = (hero: number) => Math.max(100, Math.round(wageOf(hero) * PAY.raiseWage));
+/** 昇給：作業が 5% 速くなる（3 段まで）。月給が上がる */
+export function raise(s: P1State, hero: number): string | null {
+  const st = staffOf(s, hero);
+  if (!st) return 'no-staff';
+  if ((st.lv ?? 0) >= PAY.raiseMax) return 'max';
+  st.lv = (st.lv ?? 0) + 1;
+  st.wage += raiseStep(hero);
+  return null;
+}
 
 // ---------------------------------------------------------------- お店
 
@@ -524,7 +746,7 @@ function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku): number {
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
   const [, r] = skuParts(x);
-  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : 1);
+  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : 1);
 }
 
 export const dist = (a: PBuilding, b: PBuilding) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
@@ -537,11 +759,15 @@ export interface DayResult {
   delivered: { to: number; n: number }[];
   routes: Mat[];
   report: Report | null;
+  /** 新しく達成した依頼・調査が進んだ他社・開発できた商品 */
+  missions: string[];
+  intel: { rid: string; lv: number }[];
+  developed: string[];
 }
 
 export function step(s: P1State): DayResult {
   s.day++;
-  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null };
+  const res: DayResult = { finished: [], crafted: [], delivered: [], routes: [], report: null, missions: [], intel: [], developed: [] };
 
   // 工事
   for (const b of s.buildings) {
@@ -578,6 +804,8 @@ export function step(s: P1State): DayResult {
     sl.progress += speed(st, 'craft');
     if (sl.progress >= craftDays(s, sl.sku)) {
       s.stock[sl.sku] = (s.stock[sl.sku] ?? 0) + batchOf(sl.sku);
+      s.ws.made += batchOf(sl.sku);
+      s.ws.value += batchOf(sl.sku) * skuPrice(sl.sku);
       res.crafted.push(sl.sku);
       sl.running = false;
       sl.progress = 0;
@@ -596,15 +824,16 @@ export function step(s: P1State): DayResult {
       for (const shop of shops) {
         if (s.trips.filter((t) => t.hauler === st.hero).length >= carts) break;
         const sh = s.shops[shop.uid];
+        const capB = storageCap(shop);
         if (s.trips.some((t) => t.to === shop.uid && t.hauler === st.hero)) continue;
         const cargo: Partial<Record<Sku, number>> = {};
         let load = 0;
         const inbound = (x: Sku) => s.trips.filter((t) => t.to === shop.uid).reduce((a, t) => a + (t.cargo[x] ?? 0), 0);
         for (const x of sh.shelves) {
           if (!x || load >= cap) continue;
-          const room = SHOP.storageCap - (sh.storage[x] ?? 0) - inbound(x);
+          const room = capB - (sh.storage[x] ?? 0) - inbound(x);
           const want = Math.min(room, s.stock[x] ?? 0, cap - load);
-          if (want <= 0 || (sh.storage[x] ?? 0) + inbound(x) > SHOP.storageCap / 2) continue;
+          if (want <= 0 || (sh.storage[x] ?? 0) + inbound(x) > capB / 2) continue;
           cargo[x] = want;
           s.stock[x] = (s.stock[x] ?? 0) - want;
           load += want;
@@ -645,12 +874,34 @@ export function step(s: P1State): DayResult {
     }
   }
 
+  // 調査
+  for (const st of s.staff) {
+    if (st.task !== 'intel' || st.resting || typeof st.target !== 'string') continue;
+    const rid = st.target;
+    working.add(st.hero);
+    const before = intelLv(s, rid);
+    s.intel[rid] = (s.intel[rid] ?? 0) + speed(st, 'intel');
+    const lv = intelLv(s, rid);
+    if (lv > before) res.intel.push({ rid, lv });
+    if (lv >= INTEL.length) {
+      st.task = null;
+      st.target = null;
+    }
+  }
+
+  // 商品開発
+  if (s.lab && --s.lab.left <= 0) {
+    if (!s.dev.includes(s.lab.key)) s.dev.push(s.lab.key);
+    res.developed.push(s.lab.key);
+    s.lab = null;
+  }
+
   // 陳列と販売
   for (const b of shops) {
     const sh = s.shops[b.uid];
     const st = sh.staff != null ? staffOf(s, sh.staff) : null;
     if (st && !st.resting) working.add(st.hero);
-    let cap = (st && !st.resting ? SHOP.displayPerDay * speed(st, 'shop') : 0) + sh.part * SHOP.partTimeDisplay;
+    let cap = ((st && !st.resting ? SHOP.displayPerDay * speed(st, 'shop') : 0) + sh.part * SHOP.partTimeDisplay) * (1 + 0.3 * invLv(b, 'fixtures'));
     for (const x of sh.shelves) {
       if (!x || cap <= 0) continue;
       const move = Math.min(Math.floor(cap), sh.storage[x] ?? 0, SHOP.shelfCap - (sh.shelf[x] ?? 0));
@@ -665,6 +916,7 @@ export function step(s: P1State): DayResult {
     if (open) sh.sat = empty ? Math.max(0.5, sh.sat - 0.01) : Math.min(1, sh.sat + 0.02);
     s.monthCost.part += sh.part * SHOP.partTimeWage;
     s.money -= sh.part * SHOP.partTimeWage;
+    sh.cost += sh.part * SHOP.partTimeWage;
   }
   for (const p of PRODUCTS) {
     const daily = (s.demand[p.key] ?? 0) / DAYS;
@@ -690,8 +942,17 @@ export function step(s: P1State): DayResult {
       s.money += yen;
       s.monthSales[p.key] = (s.monthSales[p.key] ?? 0) + yen;
       o.sh.rev += yen;
+      o.sh.cost += sold * unitCost(s, o.x);
+      s.monthUnits[p.key] = (s.monthUnits[p.key] ?? 0) + sold;
+      if (skuParts(o.x)[1] === 'U') s.unitsU += sold;
     }
-    for (const r of s.rivals) if (r.sells[p.key]) s.rivalSales[r.id] += ((daily * (r.sells[p.key] ?? 0)) / total) * p.price;
+    for (const r of s.rivals) {
+      if (!r.sells[p.key]) continue;
+      const yen = ((daily * (r.sells[p.key] ?? 0)) / total) * p.price;
+      s.rivalSales[r.id] += yen;
+      const m = (s.rivalProd[r.id] ??= {});
+      m[p.key] = (m[p.key] ?? 0) + yen;
+    }
   }
 
   // スタミナ
@@ -701,13 +962,30 @@ export function step(s: P1State): DayResult {
       st.stamina = Math.min(st.stats.hp, st.stamina + restRate);
       if (st.stamina >= st.stats.hp * STAMINA.back) st.resting = false;
     } else if (working.has(st.hero)) {
-      st.stamina = Math.max(0, st.stamina - STAMINA.work);
+      const easy = st.task === 'craft' && invLv(ws, 'breakroom') > 0 ? 0.7 : 1;
+      st.stamina = Math.max(0, st.stamina - STAMINA.work * easy);
       if (st.stamina <= st.stats.hp * STAMINA.tired) st.resting = true;
     } else st.stamina = Math.min(st.stats.hp, st.stamina + restRate / 2);
   }
 
-  if (s.open !== null && s.day > s.open && (s.day - s.open) % DAYS === 0) res.report = endMonth(s);
+  // 宣伝の残り日数
+  for (const k of Object.keys(s.ads)) s.ads[k] = Math.max(0, (s.ads[k] ?? 0) - 1);
+
+  // 依頼は締めの前と後に確かめる（今月の数と、報告の順位）
+  checkMissions(s, res);
+  if (s.open !== null && s.day > s.open && (s.day - s.open) % DAYS === 0) {
+    res.report = endMonth(s);
+    checkMissions(s, res);
+  }
   return res;
+}
+
+function checkMissions(s: P1State, res: DayResult) {
+  for (const m of MISSIONS) {
+    if (s.missions[m.id] || !missionMet(s, m.id)) continue;
+    s.missions[m.id] = 'done';
+    res.missions.push(m.id);
+  }
 }
 
 // ---------------------------------------------------------------- 月末
@@ -722,6 +1000,17 @@ export function endMonth(s: P1State): Report {
   const month = Math.round((s.day - (s.open ?? 0)) / DAYS);
   const news: string[] = [];
   const upkeep = s.buildings.filter((b) => b.owner === 'me' && b.left <= 0).reduce((a, b) => a + (P1B[b.id]?.upkeep ?? 0), 0);
+  for (const b of s.buildings) {
+    const sh = s.shops[b.uid];
+    if (!sh) continue;
+    sh.last = { rev: Math.round(sh.rev), cost: Math.round(sh.cost + (b.left <= 0 ? (P1B[b.id]?.upkeep ?? 0) : 0)) };
+    sh.cost = 0;
+  }
+  s.ws.last = { made: s.ws.made, value: Math.round(s.ws.value) };
+  s.ws.made = 0;
+  s.ws.value = 0;
+  s.rivalLast = Object.fromEntries(s.rivals.map((r) => [r.id, { total: Math.round(r.base + (s.rivalSales[r.id] ?? 0)), by: { ...(s.rivalProd[r.id] ?? {}) } }]));
+  s.rivalProd = {};
   const wages = s.staff.reduce((a, st) => a + st.wage, 0);
   s.money -= upkeep + wages;
   s.monthCost.upkeep += upkeep;
@@ -757,9 +1046,10 @@ export function endMonth(s: P1State): Report {
   if (rank === 1 && revenue > 0) s.cleared = true;
   s.reports.push(report);
   s.monthSales = {};
+  s.monthUnits = {};
   for (const sh of Object.values(s.shops)) sh.rev = 0;
   s.rivalSales = Object.fromEntries(s.rivals.map((r) => [r.id, 0]));
-  s.monthCost = { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0 };
+  s.monthCost = { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 };
   s.hirePool = pickHires(s);
   return report;
 }
@@ -809,7 +1099,15 @@ export function deserializeP1(json: string): P1State | null {
     const g: Ground[] = [];
     for (let j = 0; j < o.n; j++) for (let i = 0; i < o.n; i++) g.push(ROAD_LINES.includes(i) || ROAD_LINES.includes(j) ? 'road' : 'grass');
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
-    return { ...o, open, ground: g };
+    const s: P1State = { ...extras(), ...o, open, ground: g };
+    // 以前のセーブ：釜があれば全部のアンコモンを開発済みに
+    if (!(o as Partial<P1State>).dev && s.skills.includes('pot')) s.dev = PRODUCTS.map((p) => p.key);
+    s.monthCost.ads ??= 0;
+    for (const sh of Object.values(s.shops)) {
+      sh.cost ??= 0;
+      sh.last ??= null;
+    }
+    return s;
   } catch {
     return null;
   }

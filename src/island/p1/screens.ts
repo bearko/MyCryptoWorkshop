@@ -8,8 +8,14 @@ import { getExtension, heroById } from '../../game/catalog';
 import raw from '../../generated/catalog.json';
 import { DEF } from '../defs';
 import {
+  ADS,
   BRANCHES,
+  DEV,
+  INTEL,
+  INVESTS,
   LAND_COMPANIES,
+  MISSIONS,
+  PAY,
   MAT_KEYS,
   MATS,
   P1B,
@@ -32,8 +38,26 @@ import {
   type Task,
 } from './data';
 import {
+  adBoost,
   areaRanking,
   assign,
+  bonus,
+  bonusCost,
+  claim,
+  devCost,
+  develop,
+  intelLv,
+  invest,
+  investCost,
+  invLv,
+  myWorkshop,
+  openMissions as missionList,
+  raise,
+  raiseStep,
+  runAd,
+  storageCap,
+  unitCost,
+  type PBuilding,
   batchOf,
   buy,
   craftCheck,
@@ -105,16 +129,17 @@ const after = (ctx: Ctx) => {
 
 const CRAFT_ERR: Record<string, string> = {
   pot: t('アンコモンには「魔法の釜」が要ります（スキル）', 'Uncommons need the Magic Pot (skill)'),
+  dev: t('このアンコモンはまだ開発していません（営業企画 → 商品開発）', 'Develop this Uncommon first (Planning → Product development)'),
   skill: t(`アンコモンには製造の適性 ${UNCOMMON.minCraft} 以上の職人が要ります`, `Uncommons need a crafter with aptitude ${UNCOMMON.minCraft}+`),
   mats: t('素材が足りません（「調達」で買えます）', 'Not enough materials (buy them under Buy)'),
   worker: t('職人を割り当ててください', 'Assign a crafter first'),
   busy: t('作業中です', 'Already working'),
 };
 
-/** 作れる商品（Common と、釜があれば Uncommon） */
+/** 作れる商品（Common と、開発したアンコモン） */
 function craftable(s: P1State): Sku[] {
   const out: Sku[] = PRODUCTS.map((p) => sku(p.key, 'C'));
-  if (has(s, 'pot')) out.push(...PRODUCTS.map((p) => sku(p.key, 'U')));
+  out.push(...PRODUCTS.filter((p) => s.dev.includes(p.key)).map((p) => sku(p.key, 'U')));
   return out;
 }
 
@@ -411,16 +436,29 @@ export function openBuy(ctx: Ctx) {
 
 // ---------------------------------------------------------------- 従業員
 
-function jobOptions(s: P1State) {
+export function jobOptions(s: P1State) {
   const out: { value: string; label: string }[] = [{ value: 'none', label: t('なし（休ませる）', 'None (rest)') }];
   s.slots.forEach((_sl, k) => out.push({ value: `craft:${k}`, label: t(`製造：作業台 ${k + 1}`, `Craft: bench ${k + 1}`) }));
   out.push({ value: 'transport', label: t('運搬', 'Haul') });
   for (const b of myShops(s)) out.push({ value: `shop:${b.uid}`, label: t(`販売：${DEF[b.id].name}`, `Sell: ${DEF[b.id].name}`) });
   for (const m of MAT_KEYS) if (!s.routes.includes(m)) out.push({ value: `explore:${m}`, label: t(`開拓：${MATS[m].name}`, `Scout: ${MATS[m].name}`) });
+  for (const r of s.rivals) if (intelLv(s, r.id) < INTEL.length) out.push({ value: `intel:${r.id}`, label: t(`調査：${rivalName(r.id)}`, `Research: ${rivalName(r.id)}`) });
   return out;
 }
 
-function jobValue(st: { task: Task | null; target: number | Mat | null }): string {
+export const rivalName = (rid: string) => RIVALS.find((x) => x.id === rid)?.name ?? rid;
+
+/** 仕事の選択肢の値を割り当てに直す */
+export function applyJob(s: P1State, hero: number, v: string) {
+  const [task, target] = v.split(':');
+  if (task === 'none') assign(s, hero, null);
+  else if (task === 'transport') assign(s, hero, 'transport');
+  else if (task === 'explore') assign(s, hero, 'explore', target as Mat);
+  else if (task === 'intel') assign(s, hero, 'intel', target);
+  else assign(s, hero, task as Task, Number(target));
+}
+
+function jobValue(st: { task: Task | null; target: number | string | null }): string {
   if (!st.task) return 'none';
   if (st.task === 'transport') return 'transport';
   return `${st.task}:${st.target}`;
@@ -459,11 +497,7 @@ export function openStaff(ctx: Ctx) {
       job.append(
         h('span', '', t('仕事', 'Job')),
         select(jobOptions(s), jobValue(st), (v) => {
-          const [task, target] = v.split(':');
-          if (task === 'none') assign(s, st.hero, null);
-          else if (task === 'transport') assign(s, st.hero, 'transport');
-          else if (task === 'explore') assign(s, st.hero, 'explore', target as Mat);
-          else assign(s, st.hero, task as Task, Number(target));
+          applyJob(s, st.hero, v);
           after(ctx);
         }),
       );
@@ -478,8 +512,20 @@ export function openStaff(ctx: Ctx) {
       card.append(row, job, r);
       body.append(card);
     }
-    if (has(s, 'hire')) {
-      body.append(h('h3', '', t('雇えるヒーロー（毎月入れ替わります）', 'Heroes for hire (changes monthly)')));
+  });
+}
+
+// ---------------------------------------------------------------- 人材登用
+
+export function openHire(ctx: Ctx) {
+  open(ctx, t('人材登用', 'Recruiting'), (body) => {
+    const s = ctx.s();
+    if (!has(s, 'hire')) {
+      body.append(h('p', 'isl-warn', t('スキル「人材の募集」（人材）を習得すると、ヒーローを雇えるようになります。', 'Learn the Recruiting skill (People) to hire heroes.')));
+      return;
+    }
+    {
+      body.append(h('p', 'isl-dim', t('雇えるヒーローは毎月入れ替わります。数字は仕事ごとの適性です。', 'The candidates change every month. Numbers are aptitude per task.')));
       for (const id of s.hirePool) {
         const stats = heroStats(id);
         const card = heroCard(s, id, stats);
@@ -650,20 +696,291 @@ export function openReport(ctx: Ctx, r: Report, then?: () => void) {
   );
 }
 
-export function openRival(ctx: Ctx, owner: string, id: string) {
-  const rv = RIVALS.find((r) => r.id === owner);
-  open(ctx, rv?.name ?? DEF[id].name, (body) => {
+// ---------------------------------------------------------------- 給与・労務
+
+export function openPayroll(ctx: Ctx) {
+  open(ctx, t('給与・労務', 'Pay & welfare'), (body) => {
     const s = ctx.s();
-    const st = s.rivals.find((r) => r.id === owner);
-    body.append(h('p', '', t(`同じエリアの同業他社のお店（${DEF[id].name}）です。`, `A rival retail store (${DEF[id].name}) in your area.`)));
-    const list = h('div', 'isl-stock');
-    for (const [k, v] of Object.entries(st?.sells ?? {})) {
-      if (!v) continue;
-      const c = h('span', 'isl-chip');
-      c.append(skuIcon(sku(k, 'C'), 28), h('span', '', t(`${PRODUCT[k].name}（強さ ${v.toFixed(1)}）`, `${PRODUCT[k].name} (strength ${v.toFixed(1)})`)));
-      list.append(c);
+    const total = s.staff.reduce((a, st) => a + st.wage, 0);
+    const head = h('div', 'isl-card2');
+    head.append(h('h3', '', t('月の給料の合計', 'Monthly payroll')), h('p', 'isl-big', money(total)), h('p', 'isl-dim', t('給料は月の締めに払います。最初からいる 3 人は創業メンバーなので、昇給するまでは 0 G です。', 'Wages are paid at each month’s close. The three founders earn 0 G until you give them a raise.')));
+    body.append(head);
+    for (const st of s.staff) {
+      const card = h('div', 'isl-hero-card');
+      const top = h('div', 'isl-row');
+      const name = h('div');
+      const lv = st.lv ?? 0;
+      name.append(h('b', '', heroName(st.hero)), h('div', 'isl-dim', t(`月給 ${money(st.wage)}・昇給 ${lv}/${PAY.raiseMax}（作業の速さ +${Math.round(lv * PAY.raiseSpeed * 100)}%）`, `Wage ${money(st.wage)}, raises ${lv}/${PAY.raiseMax} (work +${Math.round(lv * PAY.raiseSpeed * 100)}%)`)));
+      top.append(heroIcon(st.hero, 48), name);
+      const sta = h('div', 'isl-field');
+      sta.append(h('span', '', t('スタミナ', 'Stamina')), bar(st.stamina / st.stats.hp, st.stamina / st.stats.hp > 0.3 ? 'var(--isl-good)' : 'var(--isl-bad)'), h('span', 'isl-dim', st.resting ? t('休憩中', 'Resting') : `${Math.round(st.stamina)}/${st.stats.hp}`));
+      const row = h('div', 'isl-row');
+      const b1 = btn(t(`賞与 ${money(bonusCost(st))}（スタミナ満タン）`, `Bonus ${money(bonusCost(st))} (full stamina)`), () => {
+        if (bonus(s, st.hero)) ctx.toast(t('資金が足りません', 'Not enough funds'));
+        else ctx.toast(t(`${heroName(st.hero)}が元気になりました`, `${heroName(st.hero)} is refreshed`));
+        after(ctx);
+      });
+      b1.disabled = s.money < bonusCost(st) || st.stamina >= st.stats.hp;
+      const b2 = btn(lv >= PAY.raiseMax ? t('昇給（上限）', 'Raise (max)') : t(`昇給（月給 +${money(raiseStep(st.hero))}）`, `Raise (+${money(raiseStep(st.hero))}/mo)`), () => {
+        raise(s, st.hero);
+        ctx.toast(t(`${heroName(st.hero)}を昇給しました`, `Gave ${heroName(st.hero)} a raise`));
+        after(ctx);
+      });
+      b2.disabled = lv >= PAY.raiseMax;
+      const b3 = btn(st.resting ? t('休憩をやめる', 'Stop resting') : t('休ませる', 'Rest'), () => {
+        setRest(s, st.hero, !st.resting);
+        after(ctx);
+      });
+      row.append(b1, b2, b3);
+      card.append(top, sta, row);
+      body.append(card);
     }
-    body.append(h('h3', '', t('扱っている商品', 'What they sell')), list);
+    body.append(h('p', 'isl-dim', has(s, 'lounge') ? t('休憩室があるので、スタミナの戻りが 1.5 倍です。', 'The lounge makes stamina recover 1.5× faster.') : t('スキル「休憩室」（人材）で、スタミナの戻りが速くなります。', 'The Lounge skill (People) speeds up stamina recovery.')));
+  });
+}
+
+// ---------------------------------------------------------------- SCM
+
+/** 流れの詰まり（いちばん大事なもの 1 つずつ） */
+function bottlenecks(s: P1State): string[] {
+  const out: string[] = [];
+  const shops = myShops(s);
+  const ws = myWorkshop(s);
+  if (!ws || !shops.length) return out;
+  const short = s.slots.find((sl) => sl.sku && sl.worker != null && craftCheck(s, sl.sku, sl.worker) === 'mats' && !sl.running);
+  if (short) out.push(t('素材が足りず、作業台が止まっています（調達）。', 'A workbench is idle for lack of materials (Buy).'));
+  if (s.slots.some((sl) => sl.worker == null)) out.push(t('職人のいない作業台があります（従業員）。', 'A workbench has no crafter (Staff).'));
+  const stock = Object.values(s.stock).reduce<number>((a, n) => a + (n ?? 0), 0);
+  const haulers = s.staff.filter((x) => x.task === 'transport' && !x.resting).length;
+  if (stock > 0 && !haulers) out.push(t('運搬係がいない（休憩中）ので、工房に商品がたまっています。', 'No active hauler: goods are piling up in the workshop.'));
+  else if (stock > 150) out.push(t('工房に商品がたまっています。荷車・トラック・運搬係を増やしましょう。', 'Goods are piling up in the workshop. Add carts, trucks or haulers.'));
+  for (const b of shops) {
+    const sh = s.shops[b.uid];
+    const st = sh.staff != null ? staffOf(s, sh.staff) : null;
+    const back = Object.values(sh.storage).reduce<number>((a, n) => a + (n ?? 0), 0);
+    if ((!st || st.resting) && sh.part === 0) out.push(t(`${DEF[b.id].name}：売り場に人がいません。`, `${DEF[b.id].name}: nobody on the floor.`));
+    else if (sh.shelves.some((x) => x && (sh.shelf[x] ?? 0) === 0) && back === 0) out.push(t(`${DEF[b.id].name}：棚も裏も空です。もっと作って運びましょう。`, `${DEF[b.id].name}: shelves and backroom are empty. Make and haul more.`));
+    if (!sh.shelves.some((x) => x)) out.push(t(`${DEF[b.id].name}：並べる商品が決まっていません。`, `${DEF[b.id].name}: no product chosen.`));
+  }
+  return out;
+}
+
+export function openSupply(ctx: Ctx) {
+  open(ctx, t('サプライチェーン', 'Supply chain'), (body) => {
+    const s = ctx.s();
+    const issues = bottlenecks(s);
+    const note = h('div', `isl-card2 ${issues.length ? 'is-warn' : ''}`);
+    note.append(h('h3', '', issues.length ? t('流れが詰まっているところ', 'Bottlenecks') : t('流れは順調です', 'Everything flows')));
+    for (const x of issues) note.append(h('p', 'isl-warn', x));
+    body.append(note);
+    const flow = h('div', 'isl-flow');
+    const step = (title: string, lines: (string | HTMLElement)[]) => {
+      const c = h('div', 'isl-flow-step');
+      c.append(h('b', '', title));
+      for (const l of lines) c.append(typeof l === 'string' ? h('span', '', l) : l);
+      flow.append(c);
+    };
+    const mats = h('div', 'isl-stock');
+    for (const m of MAT_KEYS) {
+      if (!s.routes.includes(m) && !(s.mats[m] ?? 0)) continue;
+      const c = h('span', `isl-chip ${(s.mats[m] ?? 0) < 10 ? 'is-bad' : ''}`);
+      c.append(matIcon(m, 18), h('small', '', `${s.mats[m] ?? 0}`));
+      mats.append(c);
+    }
+    step(t('① 調達（素材）', '① Buy (materials)'), [mats]);
+    step(
+      t('② クラフト（工房）', '② Craft (workshop)'),
+      s.slots.map((sl, k) => {
+        const st = sl.worker != null ? staffOf(s, sl.worker) : null;
+        const state = !st ? t('職人なし', 'no crafter') : st.resting ? t('休憩中', 'resting') : sl.running && sl.sku ? `${skuName(sl.sku)} ${Math.round((sl.progress / craftDays(s, sl.sku)) * 100)}%` : t('止まっている', 'idle');
+        return t(`作業台 ${k + 1}：${state}`, `Bench ${k + 1}: ${state}`);
+      }),
+    );
+    const stock = Object.entries(s.stock).filter(([, n]) => (n ?? 0) > 0) as [Sku, number][];
+    step(t('③ 工房の倉庫', '③ Workshop storage'), stock.length ? stock.map(([x, n]) => `${skuName(x)} ×${n}`) : [t('空', 'empty')]);
+    const haulers = s.staff.filter((x) => x.task === 'transport');
+    step(t('④ 運搬', '④ Haul'), [t(`運搬係 ${haulers.length} 人・運んでいる便 ${s.trips.length}`, `${haulers.length} haulers, ${s.trips.length} trips on the road`), t(`1 便 ${Math.round(20 * (has(s, 'truck') ? 2.5 : 1))} 個まで`, `Up to ${Math.round(20 * (has(s, 'truck') ? 2.5 : 1))} per trip`)]);
+    step(
+      t('⑤ 陳列（お店）', '⑤ Shelve (shops)'),
+      myShops(s).map((b) => {
+        const sh = s.shops[b.uid];
+        const back = Object.values(sh.storage).reduce<number>((a, n) => a + (n ?? 0), 0);
+        const on = Object.values(sh.shelf).reduce<number>((a, n) => a + (n ?? 0), 0);
+        return t(`${DEF[b.id].name}：棚 ${on}・裏 ${back}/${storageCap(b)}`, `${DEF[b.id].name}: shelf ${on}, back ${back}/${storageCap(b)}`);
+      }),
+    );
+    step(t('⑥ 販売', '⑥ Sell'), [t(`今月の売上 ${money(monthRevenue(s))}`, `This month ${money(monthRevenue(s))}`), ...Object.entries(s.monthUnits).map(([k, n]) => t(`${PRODUCT[k].name} ${n} 個`, `${PRODUCT[k].name} ${n}`))]);
+    body.append(flow);
+  });
+}
+
+export function openBom(ctx: Ctx) {
+  open(ctx, t('BOM（素材 → 商品）', 'BOM (materials → products)'), (body) => {
+    const s = ctx.s();
+    body.append(h('p', 'isl-dim', t('1 回のクラフトに使う素材と、できる数・日数・1 個あたりの素材代と粗利です（素材はいまの値段）。', 'Materials per craft, output, days, and material cost and gross margin per item (at current prices).')));
+    const table = h('div', 'isl-data isl-bom');
+    const head = h('div', 'isl-data-row is-head');
+    for (const x of [t('商品', 'Item'), t('素材', 'Materials'), t('できる数・日数', 'Output · days'), t('値段', 'Price'), t('素材代 / 個', 'Cost / item'), t('粗利 / 個', 'Margin / item')]) head.append(h('span', '', x));
+    table.append(head);
+    for (const p of PRODUCTS)
+      for (const r of ['C', 'U'] as Rar[]) {
+        const x = sku(p.key, r);
+        const row = h('div', `isl-data-row ${r === 'U' && !s.dev.includes(p.key) ? 'is-locked' : ''}`);
+        const n = h('span', 'isl-row');
+        n.append(skuIcon(x, 28), h('b', '', skuName(x)));
+        const mats = h('span', 'isl-row');
+        for (const [m, q] of Object.entries(p.recipe[r])) {
+          const c = h('span', 'isl-chip');
+          c.append(matIcon(m as Mat, 18), h('small', '', `×${q}`));
+          mats.append(c);
+        }
+        const uc = unitCost(s, x);
+        row.append(n, mats, h('span', '', t(`${batchOf(x)} 個・${craftDays(s, x).toFixed(1)} 日`, `${batchOf(x)} · ${craftDays(s, x).toFixed(1)} d`)), h('span', '', money(skuPrice(x))), h('span', '', money(uc)), h('span', '', `${money(skuPrice(x) - uc)} (${Math.round(((skuPrice(x) - uc) / skuPrice(x)) * 100)}%)`));
+        table.append(row);
+      }
+    body.append(table);
+  });
+}
+
+// ---------------------------------------------------------------- 営業企画
+
+export function openDev(ctx: Ctx) {
+  open(ctx, t('商品開発', 'Product development'), (body) => {
+    const s = ctx.s();
+    body.append(h('p', 'isl-dim', t(`アンコモンを開発すると、値段 ${UNCOMMON.price} 倍・売り場の強さ ${UNCOMMON.pull} 倍の商品を作れます。開発には「魔法の釜」（スキル・工房）が要り、1 つずつ ${DEV.days} 日かかります。作るには製造の適性 ${UNCOMMON.minCraft} 以上の職人が要ります。`, `Developing an Uncommon gives ${UNCOMMON.price}× price and ${UNCOMMON.pull}× pull. Needs the Magic Pot skill; one at a time, ${DEV.days} days each. Crafting needs aptitude ${UNCOMMON.minCraft}+.`)));
+    if (!has(s, 'pot')) body.append(h('p', 'isl-warn', t('スキルツリーの「魔法の釜」で解放されます。', 'Unlocked by the Magic Pot skill.')));
+    for (const p of PRODUCTS) {
+      const card = h('div', 'isl-card2 isl-dev');
+      const row = h('div', 'isl-row');
+      row.append(skuIcon(sku(p.key, 'C'), 40), h('span', 'isl-dim', '→'), skuIcon(sku(p.key, 'U'), 40));
+      const name = h('div');
+      name.append(h('b', '', `${skuName(sku(p.key, 'C'))} → ${skuName(sku(p.key, 'U'))}`), h('div', 'isl-dim', t(`${money(p.price)} → ${money(skuPrice(sku(p.key, 'U')))}`, `${money(p.price)} → ${money(skuPrice(sku(p.key, 'U')))}`)));
+      row.append(name);
+      card.append(row);
+      if (s.dev.includes(p.key)) card.append(h('p', 'isl-good', t('開発済み（工房で作れます）', 'Developed (craft it in the workshop)')));
+      else if (s.lab?.key === p.key) card.append(h('div', 'isl-field'), bar(1 - s.lab.left / DEV.days, 'var(--isl-gold)'), h('p', 'isl-dim', t(`開発中：あと ${s.lab.left} 日`, `In development: ${s.lab.left} days left`)));
+      else {
+        const b = btn(t(`開発する ${money(devCost(p.key))}（${DEV.days} 日）`, `Develop ${money(devCost(p.key))} (${DEV.days} d)`), () => {
+          const e = develop(s, p.key);
+          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+          else if (!e) ctx.toast(t(`${skuName(sku(p.key, 'U'))}の開発を始めました`, `Started developing ${skuName(sku(p.key, 'U'))}`));
+          after(ctx);
+        }, 'is-on');
+        b.disabled = !has(s, 'pot') || !!s.lab || s.money < devCost(p.key);
+        card.append(b);
+      }
+      body.append(card);
+    }
+  });
+}
+
+export function openMA(ctx: Ctx) {
+  open(ctx, t('M&A', 'M&A'), (body) => {
+    body.append(h('p', 'isl-dim', t('他社との買収や提携は、スキルツリーで解放する予定です（準備中）。他社のお店をタップして「調査」しておくと、交渉に使えるデータが集まります。', 'Acquisitions and alliances will be unlocked in the skill tree (coming soon). Research rival stores (tap them on the map) to gather data for negotiations.')));
+    for (const [name, note] of [
+      [t('買収提案', 'Acquisition offer'), t('他社のお店を買い取り、自社のお店にする', 'Buy a rival store and make it yours')],
+      [t('業務提携', 'Alliance'), t('他社と組んで、素材や商品を融通しあう', 'Team up with a rival to share materials and goods')],
+      [t('妨害工作', 'Sabotage'), t('他社の売り場を一時的に弱くする', 'Weaken a rival store for a while')],
+    ]) {
+      const card = h('div', 'isl-skill is-locked');
+      card.append(h('b', '', name), h('small', '', note), h('small', 'isl-dim', t('スキルツリーで解放（準備中）', 'Skill tree (coming soon)')));
+      body.append(card);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- マーケティング
+
+export function openAds(ctx: Ctx) {
+  open(ctx, t('宣伝広報', 'Advertising'), (body) => {
+    const s = ctx.s();
+    const now = adBoost(s);
+    body.append(h('p', 'isl-dim', now > 0 ? t(`いま自社のお店の売り場の強さが +${Math.round(now * 100)}% です。`, `Your shops have +${Math.round(now * 100)}% pull right now.`) : t('宣伝すると、しばらくの間、自社のすべてのお店が売れやすくなります。種類の違う宣伝は重ねられます。', 'Ads make all your shops sell better for a while. Different ads stack.')));
+    for (const a of ADS) {
+      const card = h('div', 'isl-card2');
+      const left = s.ads[a.id] ?? 0;
+      card.append(h('h3', '', a.name), h('p', 'isl-dim', a.note));
+      if (left > 0) card.append(bar(left / a.days, 'var(--isl-gold)'), h('p', '', t(`実施中：あと ${left} 日`, `Running: ${left} days left`)));
+      else {
+        const b = btn(t(`実施する ${money(a.cost)}`, `Run ${money(a.cost)}`), () => {
+          const e = runAd(s, a.id);
+          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+          else if (!e) ctx.toast(t(`「${a.name}」を始めました`, `Started: ${a.name}`));
+          after(ctx);
+        }, 'is-on');
+        b.disabled = s.money < a.cost;
+        card.append(b);
+      }
+      body.append(card);
+    }
+  });
+}
+
+export function openMissions(ctx: Ctx) {
+  open(ctx, t('依頼（ミッション）', 'Requests (missions)'), (body) => {
+    const s = ctx.s();
+    body.append(h('p', 'isl-dim', t('エリアの人たちからの依頼です。達成すると報酬がもらえます。1 つ受け取ると次の依頼が届きます。', 'Requests from people in the area. Complete them for a reward; claiming one brings the next.')));
+    const list = missionList(s);
+    if (!list.length) body.append(h('p', '', t('いまある依頼はすべて片づけました！', 'All requests are done for now!')));
+    for (const m of list) {
+      const done = s.missions[m.id] === 'done';
+      const card = h('div', `isl-card2 isl-mission ${done ? 'is-done' : ''}`);
+      card.append(h('small', 'isl-dim', m.from), h('h3', '', m.title), h('p', '', m.text));
+      const row = h('div', 'isl-row');
+      row.append(h('b', 'isl-gold', t(`報酬 ${money(m.reward)}`, `Reward ${money(m.reward)}`)));
+      const b = btn(done ? t('報酬を受け取る', 'Claim') : t('達成していません', 'Not yet'), () => {
+        if (!claim(s, m.id)) ctx.toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
+        after(ctx);
+      }, done ? 'is-on' : '');
+      b.disabled = !done;
+      row.append(b);
+      card.append(row);
+      body.append(card);
+    }
+    const n = MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length;
+    body.append(h('p', 'isl-dim', t(`受け取った依頼 ${n} / ${MISSIONS.length}`, `Claimed ${n} / ${MISSIONS.length}`)));
+  });
+}
+
+// ---------------------------------------------------------------- システム（設備投資）
+
+/** 建物 1 つの設備投資の一覧（タイルの吹き出しとシステム画面で使う） */
+export function investList(ctx: Ctx, b: PBuilding, onDone: () => void): HTMLElement {
+  const s = ctx.s();
+  const box = h('div', 'isl-invest');
+  const kind = P1B[b.id]?.kind;
+  for (const x of INVESTS.filter((v) => v.kind === kind)) {
+    const lv = invLv(b, x.id);
+    const cost = investCost(b, x.id);
+    const row = h('div', 'isl-invest-row');
+    const name = h('div');
+    name.append(h('b', '', `${x.name}${x.cost.length > 1 ? `  ${lv}/${x.cost.length}` : lv ? ' ✓' : ''}`), h('small', 'isl-dim', x.note));
+    const go = btn(cost == null ? t('最大', 'Max') : money(cost), () => {
+      const e = invest(s, b.uid, x.id);
+      if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+      else if (!e) ctx.toast(t(`「${x.name}」を導入しました`, `Installed: ${x.name}`));
+      ctx.save();
+      ctx.refresh();
+      onDone();
+    }, cost == null ? '' : 'is-on');
+    go.disabled = cost == null || s.money < cost || b.left > 0;
+    row.append(name, go);
+    box.append(row);
+  }
+  return box;
+}
+
+export function openInvest(ctx: Ctx) {
+  open(ctx, t('設備投資', 'Capital investment'), (body) => {
+    const s = ctx.s();
+    body.append(h('p', 'isl-dim', t('建物ごとに設備を良くします。地図で自社の建物をタップしても投資できます。', 'Upgrade each of your buildings. You can also invest by tapping a building on the map.')));
+    const mine = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind !== 'food');
+    if (!mine.length) body.append(h('p', '', t('まだ建物がありません。', 'No buildings yet.')));
+    for (const b of mine) {
+      const card = h('div', 'isl-card2');
+      card.append(h('h3', '', DEF[b.id].name + (b.left > 0 ? t(`（工事中 あと ${b.left} 日）`, ` (building, ${b.left} d)`) : '')), investList(ctx, b, () => current?.render()));
+      body.append(card);
+    }
   });
 }
 
