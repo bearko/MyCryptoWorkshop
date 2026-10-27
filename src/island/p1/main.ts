@@ -72,7 +72,7 @@ import {
 import { openSupply } from './scm';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
+import { actOf, hlOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
 const q = new URLSearchParams(location.search);
@@ -364,7 +364,8 @@ function pickMenu(m: Menu) {
     return;
   }
   // チュートリアル中は、いま開いてほしい小メニューから開く
-  const [hm, hk] = (tutStep()?.hl ?? '').split(':');
+  const ts = tutStep();
+  const [hm, hk] = (ts ? hlOf(ts, s) : '').split(':');
   const target = hm === m && hk ? SUBS[m].find((x) => x.key === hk) : undefined;
   const first = target ?? SUBS[m].find((x) => !(x.needs === 'workshop' && !ws) && !subLocked(m, x.key)) ?? SUBS[m][0];
   openSub(first);
@@ -401,7 +402,7 @@ function renderFoot() {
   // チュートリアル：次に押すところを光らせる
   const tk = tutOf(s);
   const step = tk < TUT_DONE ? TUT[tk] : undefined;
-  const [hm, hk] = (step?.hl ?? '').split(':');
+  const [hm, hk] = (step ? hlOf(step, s) : '').split(':');
   for (const m of Object.keys(tabBtns) as Menu[]) {
     tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
     tabBtns[m].classList.toggle('is-lock', menuLocked(m));
@@ -708,7 +709,7 @@ function placePop() {
 }
 
 /** カメラをマスへ動かす（吹き出しが下に入るよう、マスは画面の上のほうへ） */
-let tween: { x0: number; y0: number; x1: number; y1: number; t0: number } | null = null;
+let tween: { x0: number; y0: number; x1: number; y1: number; t0: number; z0?: number; z1?: number; dur?: number } | null = null;
 function centerOn(i: number, j: number) {
   const hudBottom = hud.getBoundingClientRect().bottom;
   const ty = Math.max(hudBottom + 40 + 150 * cam.zoom, H * 0.28);
@@ -744,7 +745,7 @@ const tutStep = (): TutStep | undefined => {
 function menuLocked(m: Menu): boolean {
   const st = tutStep();
   if (!st || m === 'sys') return false;
-  const [hm] = (st.hl ?? '').split(':');
+  const [hm] = hlOf(st, s).split(':');
   return hm !== m && !(st.open ?? []).includes(m);
 }
 
@@ -752,7 +753,7 @@ function menuLocked(m: Menu): boolean {
 function subLocked(m: Menu, key: string): boolean {
   const st = tutStep();
   if (!st || m === 'sys') return false;
-  const [hm, hk] = (st.hl ?? '').split(':');
+  const [hm, hk] = hlOf(st, s).split(':');
   if (hm === m) return !!hk && hk !== key;
   return menuLocked(m);
 }
@@ -777,7 +778,7 @@ let prevChecks = new Map<string, boolean>();
 function renderMissions() {
   const st = tutStep();
   const now = performance.now();
-  const showCleared = !!cleared && now < cleared.until;
+  const showCleared = (!!cleared && now < cleared.until) || !!pendingClear;
   // 小さなチェックが付いた瞬間に音
   if (st?.checks && !showCleared) {
     for (const [label, ok] of st.checks) {
@@ -791,7 +792,7 @@ function renderMissions() {
     }
   }
   const active = activeMissions(s);
-  const items: unknown[] = [missionFold, showCleared ? cleared : null, st && !showCleared ? [st.id, st.goal(s), (st.checks ?? []).map(([l, ok]) => [l, ok(s, tutSeen)])] : null, active.map((m) => [m.id, s.missions[m.id], missionProgress(s, m.id)]), [...justChecked]];
+  const items: unknown[] = [missionFold, pendingClear, showCleared ? cleared : null, st && !showCleared ? [st.id, st.goal(s), (st.checks ?? []).map(([l, ok]) => [l, ok(s, tutSeen)])] : null, active.map((m) => [m.id, s.missions[m.id], missionProgress(s, m.id)]), [...justChecked]];
   const key = JSON.stringify(items);
   missionBox.hidden = !!placing || (!st && !showCleared && !active.length);
   if (key === missionKey) return;
@@ -805,7 +806,13 @@ function renderMissions() {
   });
   const list = h('div', 'isl-missions-list');
   list.hidden = missionFold;
-  if (showCleared && cleared) {
+  if (pendingClear) {
+    // 画面を閉じるまでは、チェックだけ付けて待つ（はんこと取り消し線は地図に戻ってから）
+    const row = h('div', 'isl-mis is-tut is-waiting');
+    row.append(h('span', 'isl-mis-box', '✓'), h('b', 'isl-mis-text', pendingClear.goal));
+    for (const label of pendingClear.checks) row.append(h('small', 'isl-mis-check is-on', `✓ ${label}`));
+    list.append(row);
+  } else if (showCleared && cleared) {
     const row = h('div', 'isl-mis is-tut is-cleared');
     row.append(h('span', 'isl-mis-box', '✓'), h('b', 'isl-mis-text', cleared.goal), h('span', 'isl-mis-stamp', t('クリア！', 'Clear!')));
     for (const label of cleared.checks) row.append(h('small', 'isl-mis-check is-on', `✓ ${label}`));
@@ -819,9 +826,10 @@ function renderMissions() {
       const k2 = `${st.id}:${label}`;
       row.append(h('small', `isl-mis-check ${v ? 'is-on' : ''} ${justChecked.has(k2) ? 'is-just' : ''}`, (v ? '✓ ' : '· ') + label));
     }
-    if (st.act) {
-      row.append(h('small', 'isl-mis-go', `${st.act[0]} ▶`));
-      row.addEventListener('click', () => tutGo(st.act![1]));
+    const a = actOf(st, s);
+    if (a) {
+      row.append(h('small', 'isl-mis-go', `${a[0]} ▶`));
+      row.addEventListener('click', () => tutGo(a[1]));
     }
     list.append(row);
   }
@@ -850,6 +858,7 @@ function renderMissions() {
 
 /** マインちゃんのほめ言葉（上に少しだけ出る） */
 function praise(text: string) {
+  for (const old of root.querySelectorAll('.isl-praise')) old.remove();
   const e = h('div', 'isl-praise');
   const im = h('img');
   im.src = assetUrl('mch/Image/Characters/navi_ain_cross_01_smile.png');
@@ -877,6 +886,19 @@ let tutOpen: string | null = null;
 let tutIntro = -1;
 /** クリアの手ごたえを見せてから、次の会話を出す */
 let tutIntroAfter = 0;
+/** クリアしたが、まだ手ごたえを見せていない段（画面を開いているあいだにクリアしたとき） */
+let pendingClear: { goal: string; checks: string[]; praise?: string; focus?: 'workshop' | 'shop' } | null = null;
+/** クリアの手ごたえを見せる長さ（建物へ寄るときは少し長く） */
+const CELEBRATE_MS = 2200;
+
+/** 自分の工房・お店へカメラを寄せる（チュートリアルで、できたものを見せる） */
+function focusOn(what: 'workshop' | 'shop') {
+  const b = what === 'workshop' ? myWorkshop(s) ?? s.buildings.find((x) => x.owner === 'me' && x.id === 'workshop') : myShops(s)[0] ?? s.buildings.find((x) => x.owner === 'me' && P1B[x.id]?.kind === 'shop');
+  if (!b) return;
+  const z = innerWidth < 600 ? 0.75 : 1;
+  // 建物の絵は基準のマスより上に伸びるので、少し上を真ん中に
+  tween = { x0: cam.x, y0: cam.y, x1: (b.i - b.j) * 100, y1: (b.i + b.j) * 55 - 40, t0: performance.now(), z0: cam.zoom, z1: z, dur: 900 };
+}
 
 function tutGo(go: TutGo) {
   const shop = myShops(s)[0];
@@ -885,6 +907,7 @@ function tutGo(go: TutGo) {
   else if (go === 'shop') {
     if (shop) openShop(ctx, shop.uid);
   } else if (go === 'staff') goSub('hr', 'staff');
+  else if (go === 'hire') goSub('hr', 'hire');
   else if (go === 'ranking') goSub('mkt', 'ranking');
   else if (go === 'buy') goSub('scm', 'buy');
   else if (go === 'scm') goSub('scm', 'flow');
@@ -901,7 +924,7 @@ function tutTip(screen: string): string | null {
   const st = TUT[k];
   const tip = st.tips?.[screen];
   if (tip) return tip(s);
-  return st.intro && !st.act ? null : st.say(s);
+  return st.intro && !actOf(st, s) ? null : st.say(s);
 }
 
 const tutFree = () => !placing && !sheetOpen() && !pop && !root.querySelector('.isl-modal');
@@ -925,14 +948,25 @@ function tutTick() {
     const done = TUT[k - 1];
     s.tut = k;
     save();
-    // クリアの手ごたえ：右上のミッションにチェックと取り消し線、音、マインちゃんのひとこと
-    cleared = { goal: done.goal(s), checks: (done.checks ?? []).map(([l]) => l), until: performance.now() + 1500 };
-    tutIntroAfter = performance.now() + 1500;
-    sfx.play('clear');
-    if (done.praise) praise(done.praise);
-    setTimeout(() => renderAll(), 1550);
+    // クリアの手ごたえは、地図が見えるとき（画面を閉じたあと）に出す
+    pendingClear = { goal: done.goal(s), checks: (done.checks ?? []).map(([l]) => l), praise: done.praise, focus: TUT[k]?.focus };
     if (sheetOpen()) refreshSheet();
   }
+  // 地図が見えたら：建物へ寄って、右上のミッションにチェックと取り消し線、音、マインちゃんのひとこと。
+  // 一拍おいてから（CELEBRATE_MS）、次の会話へ
+  if (pendingClear && tutFree()) {
+    const c = pendingClear;
+    pendingClear = null;
+    const now = performance.now();
+    const hold = c.focus ? CELEBRATE_MS + 900 : CELEBRATE_MS;
+    cleared = { goal: c.goal, checks: c.checks, until: now + hold };
+    tutIntroAfter = now + hold + 200;
+    sfx.play('clear');
+    if (c.praise) praise(c.praise);
+    if (c.focus) focusOn(c.focus);
+    setTimeout(() => renderAll(), hold + 250);
+  }
+  if (pendingClear) return;
   if (k >= TUT.length) {
     if (!tutFree() || performance.now() < tutIntroAfter) return;
     s.tut = TUT_DONE;
@@ -951,7 +985,11 @@ function tutTick() {
   }
   if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
     tutIntro = k;
-    talk(st.intro.pages, st.intro.ok, () => (st.act ? tutGo(st.act[1]) : renderAll()));
+    talk(st.intro.pages, st.intro.ok, () => {
+      const a = actOf(st, s);
+      if (a) tutGo(a[1]);
+      else renderAll();
+    });
   }
 }
 
@@ -1057,7 +1095,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const tk = tutOf(s);
   if (tk < TUT_DONE && TUT[tk]) {
     const st = TUT[tk];
-    return { text: st.say(s), action: st.act ? [st.act[0], () => tutGo(st.act![1])] : undefined };
+    const a = actOf(st, s);
+    return { text: st.say(s), action: a ? [a[0], () => tutGo(a[1])] : undefined };
   }
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
@@ -1657,10 +1696,11 @@ function frame(now: number) {
     }
   }
   if (tween) {
-    const k = Math.min(1, (now - tween.t0) / 320);
+    const k = Math.min(1, (now - tween.t0) / (tween.dur ?? 320));
     const e = 1 - (1 - k) ** 3;
     cam.x = tween.x0 + (tween.x1 - tween.x0) * e;
     cam.y = tween.y0 + (tween.y1 - tween.y0) * e;
+    if (tween.z0 != null && tween.z1 != null) cam.zoom = tween.z0 + (tween.z1 - tween.z0) * e;
     if (k >= 1) tween = null;
     dirty = true;
   }

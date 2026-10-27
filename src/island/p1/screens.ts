@@ -100,7 +100,7 @@ import {
   type Report,
 } from './model';
 import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
-import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, pickExt, pickHero, profitPerDay, slot } from './heroui';
+import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, pickExt, pickHero, profitPerDay, radar, rankEl, slot } from './heroui';
 
 export interface Ctx {
   s: () => P1State;
@@ -752,21 +752,15 @@ export function applyJob(s: P1State, hero: number, v: string) {
 
 function heroCard(s: P1State, hero: number, stats: ReturnType<typeof heroStats>): HTMLElement {
   const card = h('div', 'isl-hero-card');
-  const top = h('div', 'isl-row');
+  const top = h('div', 'isl-hero-top');
   const name = h('div');
-  name.append(h('b', '', heroName(hero)), h('div', 'isl-dim', `HP ${stats.hp} / PHY ${stats.phy} / INT ${stats.int} / AGI ${stats.agi}`));
-  top.append(heroIcon(hero, 56), name);
-  card.append(top);
-  const apts = h('div', 'isl-apts');
-  const best = TASKS.reduce((a, x) => (aptitude(stats, x.key) > aptitude(stats, a.key) ? x : a), TASKS[0]);
-  for (const x of TASKS) {
-    const v = aptitude(stats, x.key);
-    const chip = h('span', `isl-apt ${x.key === best.key ? 'is-best' : ''}`);
-    chip.title = x.note;
-    chip.append(h('span', '', x.name), h('b', '', `${Math.round(v)}`));
-    apts.append(chip);
-  }
-  card.append(apts);
+  // いちばん向いている仕事（ランクと数）
+  const best = TASKS.reduce((x, y) => (aptitude(stats, y.key) > aptitude(stats, x.key) ? y : x), TASKS[0]);
+  const fit = h('div', 'isl-row');
+  fit.append(h('small', 'isl-dim', t('いちばん向いている', 'Best at')), h('b', '', best.name), rankEl(aptitude(stats, best.key)));
+  name.append(h('b', 'isl-hero-name', heroName(hero)), fit);
+  top.append(heroIcon(hero, 64), name);
+  card.append(top, radar(stats));
   void s;
   return card;
 }
@@ -844,7 +838,7 @@ export function openStaff(ctx: Ctx) {
     const hot = holding != null;
     // ① 調達
     const buyer = s.staff.find((x) => x.task === 'buy');
-    lane('①', t('調達', 'Buy'), [slot(s, { label: t('調達係', 'Buyer'), task: 'buy', hero: buyer?.hero ?? null, hot: hot || (ctx.step?.() === 'buyer' && !buyer), onTap: put('buy', null, t('調達の担当', 'Buyer'), buyer?.hero ?? null), onRemove: buyer ? () => (assign(s, buyer.hero, null), after(ctx)) : undefined })], t('卸問屋まで歩いて素材を買い付ける（適性：INT 寄りのバランス）', 'Walks to the wholesaler to buy materials (balanced, a bit more INT)'));
+    lane('①', t('調達', 'Buy'), [slot(s, { label: t('調達係', 'Buyer'), task: 'buy', hero: buyer?.hero ?? null, hot: hot || (ctx.step?.() === 'hire' && !buyer), onTap: put('buy', null, t('調達の担当', 'Buyer'), buyer?.hero ?? null), onRemove: buyer ? () => (assign(s, buyer.hero, null), after(ctx)) : undefined })], t('卸問屋まで歩いて素材を買い付ける（適性：INT 寄りのバランス）', 'Walks to the wholesaler to buy materials (balanced, a bit more INT)'));
     // ② 製造
     lane(
       '②',
@@ -889,7 +883,7 @@ export function openStaff(ctx: Ctx) {
       const card = h('button', `isl-hero-pick is-free ${holding === x.hero ? 'is-on' : ''}`);
       card.type = 'button';
       const best = TASKS.filter((k) => k.key !== 'explore' && k.key !== 'intel').reduce((a, k) => (aptitude(x.stats, k.key) > aptitude(x.stats, a.key) ? k : a));
-      card.append(heroIcon(x.hero, 56), h('b', '', heroName(x.hero)), h('small', 'isl-good', t(`向いている：${best.name}`, `Best at: ${best.name}`)), h('small', 'isl-dim', `HP ${x.stats.hp} / PHY ${x.stats.phy} / INT ${x.stats.int} / AGI ${x.stats.agi}`));
+      card.append(heroIcon(x.hero, 56), h('b', '', heroName(x.hero)), h('small', 'isl-good', t(`向いている：${best.name}`, `Best at: ${best.name}`)), rankEl(aptitude(x.stats, best.key)));
       card.addEventListener('click', () => {
         holding = holding === x.hero ? null : x.hero;
         current?.render();
@@ -919,13 +913,15 @@ export function openHire(ctx: Ctx) {
       const free = s.staff.filter((x) => x.task == null).length;
       if (free) {
         const go = h('div', 'isl-row');
-        go.append(btn(t(`待機中のヒーロー ${free} 人を配置する`, `Assign ${free} free hero(es)`), () => openStaff(ctx), 'is-on'));
+        go.append(btn(t(`待機中のヒーロー ${free} 人を配置する`, `Assign ${free} free hero(es)`), () => openStaff(ctx), ctx.step?.() === 'hire' ? 'is-on is-guide' : 'is-on'));
         body.append(go);
       }
-      body.append(h('p', 'isl-dim', t('雇えるヒーローは毎月入れ替わります。数字は仕事ごとの適性です。', 'The candidates change every month. Numbers are aptitude per task.')));
+      body.append(h('p', 'isl-dim', t('雇えるヒーローは毎月入れ替わります。グラフは仕事ごとの向き不向き（G〜S のランクと 100 までの数）です。', 'Candidates change every month. The chart shows aptitude per job (rank G–S and a number up to 100).')));
       // チュートリアル（調達係を雇う段）：調達にいちばん向いている人に印
-      const recBuy = ctx.step?.() === 'buyer' ? [...s.hirePool].sort((a, b) => aptitude(heroStats(b), 'buy') - aptitude(heroStats(a), 'buy'))[0] : null;
-      for (const id of s.hirePool) {
+      const recBuy = ctx.step?.() === 'hire' && !s.staff.some((x) => ![10001, 10002, 10003].includes(x.hero)) ? [...s.hirePool].sort((a, b) => aptitude(heroStats(b), 'buy') - aptitude(heroStats(a), 'buy'))[0] : null;
+      const grid = h('div', 'isl-hire-grid');
+      body.append(grid);
+      for (const id of [...s.hirePool].sort((x, y) => (x === recBuy ? -1 : y === recBuy ? 1 : 0))) {
         const stats = heroStats(id);
         const card = heroCard(s, id, stats);
         if (id === recBuy) {
@@ -941,7 +937,7 @@ export function openHire(ctx: Ctx) {
           }, 'is-on'),
         );
         card.append(r);
-        body.append(card);
+        grid.append(card);
       }
     }
   });

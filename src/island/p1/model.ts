@@ -312,7 +312,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     cleared: false,
     flags: { data: false, ranking: false, clearSeen: false },
     tut: 0,
-    tutV: 2,
+    tutV: 3,
     ...extras(),
   };
   populate(s);

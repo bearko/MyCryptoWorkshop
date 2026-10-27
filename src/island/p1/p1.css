@@ -2296,9 +2296,146 @@ button.isl-mis {
     max-width: calc(100% - min(200px, 52vw) - 24px);
   }
   .isl-praise {
-    top: 46%;
+    top: calc(var(--hud-h, 56px) + 64px);
+    left: 8px;
+    max-width: calc(100% - min(200px, 52vw) - 24px);
+    border-radius: 16px;
+    transform: none;
+    animation-name: isl-praise-l;
   }
 }
 .isl-mis.is-cleared {
   padding-bottom: 26px;
+}
+
+/* ================================================================ 適性のランク（G〜S）とレーダーチャート */
+.isl-rankv {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #1d2a44;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.isl-rankv b {
+  font-size: 14px;
+  font-weight: 900;
+}
+.isl-rankv small {
+  color: var(--isl-dim);
+}
+.isl-rankv.is-s b,
+.isl-radar-val.is-s .isl-radar-rank {
+  color: #ffd257;
+  fill: #ffd257;
+}
+.isl-rankv.is-a b,
+.isl-radar-val.is-a .isl-radar-rank {
+  color: #ff9f5a;
+  fill: #ff9f5a;
+}
+.isl-rankv.is-b b,
+.isl-radar-val.is-b .isl-radar-rank {
+  color: #7ee08f;
+  fill: #7ee08f;
+}
+.isl-rankv.is-c b,
+.isl-radar-val.is-c .isl-radar-rank {
+  color: #6fc6f0;
+  fill: #6fc6f0;
+}
+.isl-rankv.is-d b,
+.isl-radar-val.is-d .isl-radar-rank,
+.isl-rankv.is-e b,
+.isl-radar-val.is-e .isl-radar-rank,
+.isl-rankv.is-f b,
+.isl-radar-val.is-f .isl-radar-rank,
+.isl-rankv.is-g b,
+.isl-radar-val.is-g .isl-radar-rank {
+  color: #b8c0d4;
+  fill: #b8c0d4;
+}
+.isl-hero-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+.isl-hero-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: stretch;
+}
+.isl-hero-name {
+  font-size: 16px;
+}
+.isl-radar {
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.isl-radar-ring {
+  fill: none;
+  stroke: #3e5180;
+  stroke-width: 1;
+}
+.isl-radar-edge {
+  fill: rgba(15, 22, 38, 0.5);
+  stroke: #6c7fa8;
+  stroke-width: 1.5;
+}
+.isl-radar-area {
+  fill: rgba(242, 181, 68, 0.35);
+  stroke: var(--isl-gold);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.isl-radar-dot {
+  fill: var(--isl-gold);
+}
+.isl-radar-name {
+  fill: var(--isl-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.isl-radar-val {
+  fill: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-radar-rank {
+  font-size: 14px;
+  font-weight: 900;
+}
+.isl-mis.is-waiting .isl-mis-box {
+  background: var(--isl-good);
+  border-color: var(--isl-good);
+}
+.isl-slot .isl-rankv {
+  font-size: 11px;
+}
+.isl-hire-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: 10px;
+}
+.isl-hire-grid .isl-hero-card {
+  margin: 0;
+}
+@keyframes isl-praise-l {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.9);
+  }
+  12% {
+    opacity: 1;
+    transform: none;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
