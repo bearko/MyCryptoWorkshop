@@ -48,7 +48,21 @@ function cart(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.fillRect(x + 5, y - 5, 6, 6);
 }
 
-export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null) {
+/** マスのふちを線で */
+function edge(ctx: CanvasRenderingContext2D, i: number, j: number, color: string) {
+  const c = center(i, j);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y - 55);
+  ctx.lineTo(c.x + 100, c.y);
+  ctx.lineTo(c.x, c.y + 55);
+  ctx.lineTo(c.x - 100, c.y);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null, placeable: Set<number> | null = null) {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#2f6fae';
@@ -80,7 +94,11 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       else drawCell(ctx, water, i, j);
     }
   }
-  if (ghost) for (const [x, y] of cells(DEF[ghost.id], ghost.i, ghost.j, ghost.dir)) diamond(ctx, x, y, ghost.ok ? 'rgba(120,255,160,0.35)' : 'rgba(255,90,90,0.4)');
+  // 置くとき：置けないマスは暗く、置く場所は緑（置ける）か赤（置けない）
+  if (placeable)
+    for (let j = 0; j < s.n; j++)
+      for (let i = 0; i < s.n; i++) if (!placeable.has(j * s.n + i) && visible(i, j)) diamond(ctx, i, j, 'rgba(14,18,30,0.55)');
+
   const sel = selected != null ? s.buildings.find((b) => b.uid === selected) : null;
   if (sel) for (const [x, y] of cells(DEF[sel.id], sel.i, sel.j, sel.dir)) diamond(ctx, x, y, 'rgba(255,230,120,0.35)');
   else if (cell) diamond(ctx, cell[0], cell[1], 'rgba(255,230,120,0.45)');
@@ -106,7 +124,12 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     items.push({
       depth: (fi + fj) * 1000 + fi + 0.5,
       draw: () => {
-        ctx.globalAlpha = 0.7;
+        // 設置面：置けるなら緑、置けないなら赤（下の建物より上に塗る）
+        for (const [x, y] of cells(def, ghost.i, ghost.j, ghost.dir)) {
+          diamond(ctx, x, y, ghost.ok ? 'rgba(80,235,130,0.62)' : 'rgba(255,60,60,0.62)');
+          edge(ctx, x, y, ghost.ok ? '#b8ffd0' : '#ffd0d0');
+        }
+        ctx.globalAlpha = ghost.ok ? 0.8 : 0.5;
         drawArt(ctx, image(`b/${ghost.id}/${ghost.dir === 'rd' || ghost.dir === 'ld' ? 'rd' : 'lu'}.png`), def, ghost);
         ctx.globalAlpha = 1;
       },
