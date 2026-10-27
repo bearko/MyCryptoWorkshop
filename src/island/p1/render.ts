@@ -164,16 +164,17 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
 
 // ---------------------------------------------------------------- 自社の施設の上の吹き出し
 
-const STOP: Record<Stop, string> = {
-  noCrafter: t('職人不在', 'No crafter'),
-  crafterRest: t('職人休憩中', 'Crafter resting'),
-  noItem: t('作る物未定', 'Nothing to make'),
-  noMats: t('素材不足', 'No materials'),
-  noHauler: t('運搬係不在', 'No hauler'),
-  noProduct: t('商品未定', 'No product'),
-  noClerk: t('店員不在', 'No clerk'),
-  clerkRest: t('店員休憩中', 'Clerk resting'),
-  soldOut: t('在庫切れ', 'Sold out'),
+/** 2 行に分けて、吹き出しの幅をせまく */
+const STOP: Record<Stop, [string, string]> = {
+  noCrafter: [t('職人', 'No'), t('不在', 'crafter')],
+  crafterRest: [t('職人', 'Crafter'), t('休憩中', 'resting')],
+  noItem: [t('作る物', 'Nothing'), t('未定', 'to make')],
+  noMats: [t('素材', 'No'), t('不足', 'materials')],
+  noHauler: [t('運搬係', 'No'), t('不在', 'hauler')],
+  noProduct: [t('商品', 'No'), t('未定', 'product')],
+  noClerk: [t('店員', 'No'), t('不在', 'clerk')],
+  clerkRest: [t('店員', 'Clerk'), t('休憩中', 'resting')],
+  soldOut: [t('在庫', 'Sold'), t('切れ', 'out')],
 };
 const BUBBLE = { craft: '#6fd08c', sell: '#f2b544', error: '#e0524f', warn: '#f39a3c', line: '#0f1626' };
 const FONT = "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif";
@@ -244,23 +245,24 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
         drawRef(ctx, getExtension(PRODUCT[key].ext[r]).image, x + pad + n2 * (icon + 2), y + pad, icon, icon);
       });
     } else {
-      // 商品の吹き出しと同じ高さで、となりの建物にかからない幅まで
-      const text = `! ${STOP[st.stop]}`;
+      // 商品の吹き出しと同じ高さで、2 行にして幅をせまく
+      const lines = STOP[st.stop];
       const bh = icon0 + pad * 2;
-      let fs = Math.max(9, Math.min(16, bh * 0.4));
+      let fs = Math.max(8, Math.min(14, (bh - 8) / 2.3));
       ctx.font = `700 ${fs}px ${FONT}`;
-      let tw = ctx.measureText(text).width;
-      if (tw + 12 > maxW) {
-        fs = Math.max(8, (fs * (maxW - 12)) / tw);
+      let tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      if (tw + 10 > maxW) {
+        fs = Math.max(7, (fs * (maxW - 10)) / tw);
         ctx.font = `700 ${fs}px ${FONT}`;
-        tw = ctx.measureText(text).width;
+        tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
       }
-      const bw = Math.max(tw + 12, bh);
+      const bw = Math.max(tw + 10, bh * 0.9);
       const { x, y } = bubble(ctx, sx, sy, bw, bh, st.level === 'error' ? BUBBLE.error : BUBBLE.warn);
       ctx.fillStyle = st.level === 'error' ? '#fff' : BUBBLE.line;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
-      ctx.fillText(text, x + bw / 2, y + bh / 2 + 0.5);
+      const lh = fs * 1.15;
+      lines.forEach((l, k) => ctx.fillText(l, x + bw / 2, y + bh / 2 + (k - 0.5) * lh + 0.5));
     }
   }
   ctx.restore();

@@ -888,3 +888,31 @@
 #isl-ui > .isl-ghost-ui .isl-btn {
   pointer-events: auto;
 }
+
+/* ---------------------------------------------------------------- 調達 */
+.isl-num {
+  width: 84px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 2px solid var(--isl-line);
+  border-radius: 8px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font: 700 16px/1 inherit;
+  font-family: inherit;
+  text-align: right;
+}
+button.isl-chip {
+  color: var(--isl-text);
+  border: 2px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-chip.is-on {
+  border-color: var(--isl-gold);
+  background: #4c6aa6;
+  color: var(--isl-text);
+}
+.isl-pick:not(.is-on) {
+  opacity: 0.6;
+}

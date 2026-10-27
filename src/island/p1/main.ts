@@ -686,7 +686,9 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (!s.reports.length) return { text: t('準備ができました！お店を開いた日から 1 か月ごとに売上を締めます。流れが詰まっていないかは「SCM」→「サプライチェーン」で確かめられます。', 'All set! Sales close every month from the day your shop opened. Check for bottlenecks under SCM → Supply chain.'), action: [t('サプライチェーンを見る', 'Open supply chain'), () => openSupply(ctx)] };
   // 1 か月たってから
   const low = (Object.keys(MATS) as (keyof typeof MATS)[]).find((m) => s.slots.some((sl) => sl.sku && PRODUCT[skuParts(sl.sku)[0]].recipe[skuParts(sl.sku)[1]][m] && (s.mats[m] ?? 0) < 10));
-  if (low) return { text: t(`${MATS[low].name}が残り少なくなっています。「SCM」→「調達」で買い足しましょう。`, `${MATS[low].name} is running low. Buy more under SCM → Buy.`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
+  const buyer = s.staff.some((x) => x.task === 'buy');
+  if (low && !buyer) return { text: t(`${MATS[low].name}が残り少なくなっています。「SCM」→「調達」で調達係を決めると、月の量を毎日自動で買い付けてくれます。`, `${MATS[low].name} is running low. Assign a buyer under SCM → Buy to purchase the monthly amounts automatically.`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
+  if (low) return { text: t(`${MATS[low].name}が残り少なくなっています。「調達」で月の量を増やすか、いますぐ買い足しましょう（月の上限に注意）。`, `${MATS[low].name} is running low. Raise its monthly amount under Buy or buy some now (mind the monthly limit).`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
   if (s.staff.some((x) => x.resting)) return { text: t('休んでいる従業員がいます。「人事」→「給与・労務」の賞与ですぐ元気にできます。人手が足りないときは「人材登用」で雇えます。', 'Someone is resting. A bonus (HR → Pay & welfare) refreshes them at once; hire more under Recruiting.'), action: [t('給与・労務を開く', 'Open pay'), () => openPayroll(ctx)] };
   const last = s.reports[s.reports.length - 1];
   if (s.cleared) return { text: t('エリア 1 位、おめでとうございます！フェーズ 2 は準備中です。このまま会社を育てられます。', 'Congratulations on #1 in the area! Phase 2 is coming. You can keep growing the company.') };
@@ -978,6 +980,10 @@ function advance(days: number) {
     }
     if (r.crafted.length) sound.play('craft', 0.7);
     if (r.missions.length) sound.play('buff');
+    if (r.procLv) {
+      toast(t(`調達ランクが Lv.${r.procLv} に上がりました`, `Buying rank is now Lv.${r.procLv}`));
+      sound.play('unlock', 0.7);
+    }
     for (const x of r.crafted) toast(t(`${PRODUCT[skuParts(x)[0]].name}ができました`, `${PRODUCT[skuParts(x)[0]].name} crafted`));
     for (const m of r.routes) toast(t(`${MATS[m].name}のルートを開拓しました！`, `Opened a ${MATS[m].name} route!`));
     for (const x of r.intel) toast(t(`${rivalName(x.rid)}の調査が段階 ${x.lv} に進みました`, `Research on ${rivalName(x.rid)} reached stage ${x.lv}`));

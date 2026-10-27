@@ -123,13 +123,14 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
   { key: 'shop', name: t('販売', 'Sell'), note: t('INT 重視', 'Mostly INT') },
   { key: 'explore', name: t('開拓', 'Scout'), note: t('AGI 重視', 'Mostly AGI') },
   { key: 'intel', name: t('調査', 'Research'), note: t('INT と AGI', 'INT and AGI') },
+  { key: 'buy', name: t('調達', 'Buying'), note: t('INT 寄りのバランス', 'Balanced, a bit more INT') },
 ];
 
 export interface Stats {
@@ -152,6 +153,8 @@ export function aptitude(s: Stats, task: Task): number {
       return 0.5 * s.agi + 0.25 * s.phy + 0.25 * s.int;
     case 'intel':
       return 0.5 * s.int + 0.5 * s.agi;
+    case 'buy':
+      return 0.4 * s.int + 0.3 * s.phy + 0.3 * s.agi;
   }
 }
 /** 適性 → 作業の速さ（53 で 1.0） */
@@ -197,6 +200,8 @@ export const SKILLS: Skill[] = [
   { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000 },
   { id: 'route_gem', branch: 'buy', name: t('宝石のルート', 'Gem route'), note: t('宝石を買えるようになる', 'Lets you buy gems'), cost: 6000 },
   { id: 'bulk', branch: 'buy', name: t('まとめ買い', 'Bulk buying'), note: t('素材の値段 −15%', 'Materials −15%'), cost: 4000 },
+  { id: 'stock1', branch: 'buy', name: t('調達枠の拡大', 'Bigger buying quota'), note: t('月の調達の上限 +30%', 'Monthly buying limit +30%'), cost: 3000 },
+  { id: 'stock2', branch: 'buy', name: t('大口契約', 'Bulk contracts'), note: t('月の調達の上限 +60%', 'Monthly buying limit +60%'), cost: 8000, requires: ['stock1', 'bulk'] },
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる', 'Hire heroes'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
 ];
@@ -300,3 +305,13 @@ export const MISSIONS: Mission[] = [
 
 /** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */
 export const PAY = { bonusBase: 800, bonusRate: 0.3, raiseSpeed: 0.05, raiseWage: 0.15, raiseMax: 3 };
+
+// ---------------------------------------------------------------- 調達ランク
+
+/**
+ * 調達ランク（Lv.1〜100）。月に買える素材の数の合計に上限がある（ランクとスキルで上がる）。
+ * 経験値：買った数 1 個で 1（調達係が買うと適性の速さ倍）＋ 1 回の買い付けで 5。
+ */
+export const PROC = { maxLv: 100, base: 100, perLv: 20, expBase: 50, expPerLv: 10, perBuy: 5 };
+/** 次のランクまでの経験値 */
+export const procNeed = (lv: number) => PROC.expBase + PROC.expPerLv * lv;

@@ -9,6 +9,8 @@ import {
   ADS,
   DEV,
   ENTRY_AFTER,
+  PROC,
+  procNeed,
   HIRE_POOL,
   INTEL,
   INVEST,
@@ -189,6 +191,25 @@ export interface P1State {
   unitsU: number;
   /** 工房：今月作った数と価値・先月の結果 */
   ws: { made: number; value: number; last: { made: number; value: number } | null };
+  /** 調達：ランク・今月買った数・作りたいエクステ・追加の素材・素材ごとの月の量（auto＝先月の消費に合わせる） */
+  proc: Proc;
+  /** 素材の消費（今月・先月） */
+  matUsed: Partial<Record<Mat, number>>;
+  matUsedLast: Partial<Record<Mat, number>> | null;
+  /** 工房の稼働（作業台×日のうち、動いていた数）。今月と先月 */
+  util: { work: number; cap: number };
+  utilLast: { work: number; cap: number } | null;
+}
+
+export interface Proc {
+  lv: number;
+  exp: number;
+  bought: number;
+  /** 作りたいエクステ（空なら作業台で作っているもの） */
+  items: Sku[];
+  extra: Mat[];
+  qty: Partial<Record<Mat, { n: number; auto: boolean }>>;
+  carry: Partial<Record<Mat, number>>;
 }
 
 export const START_MONEY = 30000;
@@ -278,8 +299,24 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
 }
 
 /** フェーズ 1 のあとから足した項目の初期値（古いセーブにも足す） */
-function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' | 'rivalLast' | 'missions' | 'monthUnits' | 'unitsU' | 'ws'> {
-  return { dev: [], lab: null, ads: {}, intel: {}, rivalProd: {}, rivalLast: {}, missions: {}, monthUnits: {}, unitsU: 0, ws: { made: 0, value: 0, last: null } };
+function extras(): Pick<P1State, 'dev' | 'lab' | 'ads' | 'intel' | 'rivalProd' | 'rivalLast' | 'missions' | 'monthUnits' | 'unitsU' | 'ws' | 'proc' | 'matUsed' | 'matUsedLast' | 'util' | 'utilLast'> {
+  return {
+    dev: [],
+    lab: null,
+    ads: {},
+    intel: {},
+    rivalProd: {},
+    rivalLast: {},
+    missions: {},
+    monthUnits: {},
+    unitsU: 0,
+    ws: { made: 0, value: 0, last: null },
+    proc: { lv: 1, exp: 0, bought: 0, items: [], extra: [], qty: {}, carry: {} },
+    matUsed: {},
+    matUsedLast: null,
+    util: { work: 0, cap: 0 },
+    utilLast: null,
+  };
 }
 
 function put(s: P1State, id: string, i: number, j: number, dir: Dir, owner: Owner) {
@@ -557,15 +594,89 @@ function syncShop(s: P1State, b: PBuilding) {
 
 export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1));
 
-export function buy(s: P1State, m: Mat, qty: number): string | null {
+/** 月に買える素材の数の上限（ランクとスキル） */
+export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0)));
+export const procLeft = (s: P1State) => Math.max(0, procCap(s) - s.proc.bought);
+
+/** 経験値を足して、ランクを上げる。上がったら新しいランクを返す */
+function procExp(s: P1State, exp: number): number | null {
+  const p = s.proc;
+  const before = p.lv;
+  p.exp += exp;
+  while (p.lv < PROC.maxLv && p.exp >= procNeed(p.lv)) {
+    p.exp -= procNeed(p.lv);
+    p.lv++;
+  }
+  if (p.lv >= PROC.maxLv) p.exp = 0;
+  return p.lv > before ? p.lv : null;
+}
+
+/** 素材を買う（手で買うときも、調達係が買うときも、月の上限の中で） */
+export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   if (!s.routes.includes(m)) return 'route';
+  if (qty <= 0) return null;
+  if (qty > procLeft(s)) return 'cap';
   const cost = matPrice(s, m) * qty;
   if (cost > s.money) return 'money';
   s.money -= cost;
   s.monthCost.materials += cost;
   s.mats[m] = (s.mats[m] ?? 0) + qty;
+  s.proc.bought += qty;
+  procExp(s, qty * gain + PROC.perBuy);
   return null;
 }
+
+/** 作りたいエクステ（指定が無ければ、作業台で作っているもの） */
+export const procItems = (s: P1State): Sku[] => (s.proc.items.length ? s.proc.items : [...new Set(s.slots.map((sl) => sl.sku).filter((x): x is Sku => !!x))]);
+
+/** 買い付ける素材：作りたいエクステの素材と、追加で選んだ素材（ルートがあるものだけ） */
+export function procMats(s: P1State): { m: Mat; from: 'item' | 'extra' }[] {
+  const out: { m: Mat; from: 'item' | 'extra' }[] = [];
+  for (const x of procItems(s)) for (const m of Object.keys(recipeOf(x)) as Mat[]) if (!out.some((o) => o.m === m)) out.push({ m, from: 'item' });
+  for (const m of s.proc.extra) if (!out.some((o) => o.m === m)) out.push({ m, from: 'extra' });
+  return out.filter((o) => s.routes.includes(o.m));
+}
+
+/** 工房が 100% 動いたときの月の素材の消費（作業台の設定と職人の速さ。作業台に無い作りたいエクステは速さ 1 の作業台 1 つぶん） */
+export function fullUse(s: P1State): Partial<Record<Mat, number>> {
+  const out: Partial<Record<Mat, number>> = {};
+  const add = (x: Sku, sp: number) => {
+    const batches = (DAYS * sp) / craftDays(s, x);
+    for (const [m, q] of Object.entries(recipeOf(x))) out[m as Mat] = (out[m as Mat] ?? 0) + batches * (q ?? 0);
+  };
+  const made = new Set<Sku>();
+  for (const sl of s.slots) {
+    if (!sl.sku) continue;
+    const st = sl.worker != null ? staffOf(s, sl.worker) : null;
+    add(sl.sku, st ? speed(st, 'craft') : 1);
+    made.add(sl.sku);
+  }
+  for (const x of s.proc.items) if (!made.has(x)) add(x, 1);
+  for (const k of Object.keys(out)) out[k as Mat] = Math.ceil(out[k as Mat] ?? 0);
+  return out;
+}
+
+/** 素材の月の量（指定が無ければ先月の消費、先月が無ければ 100% のときの消費） */
+export function procQty(s: P1State, m: Mat): number {
+  const q = s.proc.qty[m];
+  if (q && !q.auto) return q.n;
+  const last = s.matUsedLast?.[m];
+  if (last != null && last > 0) return last;
+  return fullUse(s)[m] ?? 0;
+}
+export function setProcQty(s: P1State, m: Mat, n: number | null) {
+  if (n == null) delete s.proc.qty[m];
+  else s.proc.qty[m] = { n: Math.max(0, Math.round(n)), auto: false };
+}
+export function toggleProcItem(s: P1State, x: Sku) {
+  const cur = procItems(s);
+  s.proc.items = cur.includes(x) ? cur.filter((y) => y !== x) : [...cur, x];
+}
+export function toggleProcExtra(s: P1State, m: Mat) {
+  s.proc.extra = s.proc.extra.includes(m) ? s.proc.extra.filter((y) => y !== m) : [...s.proc.extra, m];
+}
+/** 先月の工房の稼働率（0〜1）。先月が無ければ null */
+export const utilRate = (u: { work: number; cap: number } | null) => (u && u.cap > 0 ? u.work / u.cap : null);
 
 // ---------------------------------------------------------------- スキル
 
@@ -607,7 +718,10 @@ export function craftCheck(s: P1State, x: Sku, worker: number | null): string | 
 }
 
 function consume(s: P1State, x: Sku) {
-  for (const [m, q] of Object.entries(recipeOf(x))) s.mats[m as Mat] = (s.mats[m as Mat] ?? 0) - (q ?? 0);
+  for (const [m, q] of Object.entries(recipeOf(x))) {
+    s.mats[m as Mat] = (s.mats[m as Mat] ?? 0) - (q ?? 0);
+    s.matUsed[m as Mat] = (s.matUsed[m as Mat] ?? 0) + (q ?? 0);
+  }
 }
 
 export function startCraft(s: P1State, slot: number, x: Sku, repeat = true): string | null {
@@ -763,6 +877,8 @@ export interface DayResult {
   missions: string[];
   intel: { rid: string; lv: number }[];
   developed: string[];
+  /** 調達ランクが上がった */
+  procLv?: number;
 }
 
 export function step(s: P1State): DayResult {
@@ -791,7 +907,28 @@ export function step(s: P1State): DayResult {
   const shops = myShops(s);
   const working = new Set<number>();
 
+  // 調達：調達係がいれば、月の量を 30 日に分けて毎日買う（月の上限と資金の中で）
+  const buyers = s.staff.filter((x) => x.task === 'buy' && !x.resting);
+  if (buyers.length) {
+    const gain = buyers.reduce((a, x) => a + speed(x, 'buy'), 0);
+    let any = false;
+    for (const { m } of procMats(s)) {
+      const want = procQty(s, m) / DAYS + (s.proc.carry[m] ?? 0);
+      let n = Math.floor(want);
+      s.proc.carry[m] = want - n;
+      n = Math.min(n, procLeft(s), Math.floor(s.money / Math.max(1, matPrice(s, m))));
+      if (n > 0) {
+        const lv = s.proc.lv;
+        buy(s, m, n, gain);
+        any = true;
+        if (s.proc.lv > lv) res.procLv = s.proc.lv;
+      }
+    }
+    if (any) for (const x of buyers) working.add(x.hero);
+  }
+
   // クラフト
+  if (ws) s.util.cap += s.slots.length;
   s.slots.forEach((sl) => {
     const st = sl.worker != null ? staffOf(s, sl.worker) : null;
     if (!sl.running && sl.repeat && sl.sku && st && !st.resting && !craftCheck(s, sl.sku, sl.worker)) {
@@ -801,6 +938,7 @@ export function step(s: P1State): DayResult {
     }
     if (!sl.running || !sl.sku || !st || st.resting) return;
     working.add(st.hero);
+    s.util.work += 1;
     sl.progress += speed(st, 'craft');
     if (sl.progress >= craftDays(s, sl.sku)) {
       s.stock[sl.sku] = (s.stock[sl.sku] ?? 0) + batchOf(sl.sku);
@@ -1047,6 +1185,11 @@ export function endMonth(s: P1State): Report {
   s.reports.push(report);
   s.monthSales = {};
   s.monthUnits = {};
+  s.matUsedLast = { ...s.matUsed };
+  s.matUsed = {};
+  s.utilLast = { ...s.util };
+  s.util = { work: 0, cap: 0 };
+  s.proc.bought = 0;
   for (const sh of Object.values(s.shops)) sh.rev = 0;
   s.rivalSales = Object.fromEntries(s.rivals.map((r) => [r.id, 0]));
   s.monthCost = { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 };
