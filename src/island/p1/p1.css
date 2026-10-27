@@ -2870,3 +2870,72 @@ button.isl-mis {
 #isl-ui.is-rail .isl-tab .is-short {
   display: inline;
 }
+
+/* ================================================================ 出店の下見（置くときの見込み） */
+.isl-site {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  margin: 0 auto 8px;
+  padding: 8px 10px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: rgba(29, 42, 68, 0.95);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  color: var(--isl-text);
+}
+.isl-site-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.isl-site-head small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-site-head b {
+  color: var(--isl-gold);
+  font-size: 18px;
+}
+.isl-site-rows {
+  display: grid;
+  gap: 1px;
+}
+.isl-site-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.isl-site-row span {
+  color: var(--isl-dim);
+}
+.isl-site-row.is-good b {
+  color: var(--isl-good);
+}
+.isl-site-row.is-warn b {
+  color: var(--isl-gold);
+}
+.isl-site-row.is-bad b {
+  color: var(--isl-bad);
+}
+.isl-scm-area {
+  grid-column: 1 / -1;
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-scm-area.is-warn {
+  color: var(--isl-gold);
+}
+.isl-site-tip {
+  max-width: 300px;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}

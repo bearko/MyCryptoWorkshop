@@ -42,7 +42,9 @@ import {
   type PlaceErr,
   activeMissions,
   claim,
+  depotInfo,
   missionProgress,
+  siteInfo,
 } from './model';
 import { newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -622,8 +624,66 @@ function renderPlace() {
       }, 'isl-rot'),
     );
   ghostUi.classList.toggle('is-bad', !!err);
-  ghostUi.replaceChildren(row);
+  ghostUi.replaceChildren(...siteCard(placing.id, placing.i, placing.j, placing.dir, placing.move), row);
   placeGhostUi();
+}
+
+/**
+ * 出店の下見：お店なら、ここでの見込み（月に何個）・他社と自社のお店から取る数・近くの家・工房からの日数。
+ * 物流拠点なら、お店ごとの片道の日数がどう縮むか。
+ */
+function siteCard(id: string, i: number, j: number, dir: Dir, move?: number): HTMLElement[] {
+  const kind = P1B[id]?.kind;
+  if (kind === 'shop') {
+    // 移転の下見は、いまのお店を外して考える
+    const self = move != null ? s.buildings.find((b) => b.uid === move) : null;
+    const saved = self ? s.buildings.splice(s.buildings.indexOf(self), 1) : [];
+    const info = siteInfo(s, id, i, j, dir);
+    if (saved.length) s.buildings.push(...saved);
+    if (!info) return [];
+    const c = h('div', 'isl-site');
+    // チュートリアル：お店の場所の選び方を一言
+    const say = tutStep()?.tips?.place?.(s);
+    if (say) {
+      const p = h('p', 'isl-site-tip');
+      p.append(rich(say));
+      c.append(p);
+    }
+    const name = PRODUCT[info.key]?.name ?? info.key;
+    const head = h('div', 'isl-site-head');
+    head.append(h('small', '', t(`${name}の見込み`, `${name} forecast`)), h('b', '', t(`月 ${Math.round(info.units)} 個`, `${Math.round(info.units)}/mo`)));
+    c.append(head);
+    const rows = h('div', 'isl-site-rows');
+    const row = (label: string, v: string, cls = '') => {
+      const r = h('div', `isl-site-row ${cls}`);
+      r.append(h('span', '', label), h('b', '', v));
+      rows.append(r);
+    };
+    row(t('近くの家', 'Homes nearby'), t(`${info.homes} 軒`, `${info.homes}`));
+    if (info.fromRivals >= 0.5) row(t('他社から奪う', 'Taken from rivals'), t(`${info.fromRivals.toFixed(1)} 個`, `${info.fromRivals.toFixed(1)}`), 'is-good');
+    if (info.rivals) row(t('近くの競合', 'Rivals nearby'), t(`${info.rivals} 社`, `${info.rivals}`), 'is-warn');
+    if (info.fromMine >= 0.5) row(t('自社の店と取り合い', 'Cannibalized'), t(`−${info.fromMine.toFixed(1)} 個`, `−${info.fromMine.toFixed(1)}`), 'is-bad');
+    row(t('工房から', 'From workshop'), info.days < 0.5 ? t('すぐ近く', 'Right nearby') : t(`片道 ${info.days.toFixed(1)} 日`, `${info.days.toFixed(1)} d one way`), info.days > 2.5 ? 'is-warn' : '');
+    c.append(rows);
+    return [c];
+  }
+  if (kind === 'depot') {
+    const list = depotInfo(s, i, j, dir);
+    const c = h('div', 'isl-site');
+    const head = h('div', 'isl-site-head');
+    head.append(h('small', '', t('お店までの片道', 'One way to shops')));
+    c.append(head);
+    const rows = h('div', 'isl-site-rows');
+    if (!list.length) rows.append(h('small', 'isl-dim', t('お店がまだありません', 'No shops yet')));
+    for (const x of list) {
+      const r = h('div', `isl-site-row ${x.after < x.before - 0.05 ? 'is-good' : ''}`);
+      r.append(h('span', '', DEF[x.shop.id].name), h('b', '', x.after < x.before - 0.05 ? t(`${x.before.toFixed(1)} → ${x.after.toFixed(1)} 日`, `${x.before.toFixed(1)} → ${x.after.toFixed(1)} d`) : t(`${x.before.toFixed(1)} 日（変わらない）`, `${x.before.toFixed(1)} d (no change)`)));
+      rows.append(r);
+    }
+    c.append(rows);
+    return [c];
+  }
+  return [];
 }
 
 /** 理由・建てるボタンを、置く建物の真下に */
@@ -1766,7 +1826,7 @@ function frame(now: number) {
   lastWater = wf;
   if (dirty) {
     dirty = false;
-    const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr() } : null;
+    const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr(), area: P1B[placing.id]?.kind === 'shop' } : null;
     lastDraw = now;
     drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim);
     placePop();
