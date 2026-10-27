@@ -205,6 +205,8 @@ export interface P1State {
   utilLast: { work: number; cap: number } | null;
   /** 調達係の買い付け：工房から卸問屋へ行って帰る（帰ると素材が届く） */
   buyTrip: BuyTrip | null;
+  /** ゲームの進行速度（1・1.5・2。スキルで選べる） */
+  pace?: number;
 }
 
 export interface BuyTrip {

@@ -36,6 +36,10 @@ export interface Anim {
   frac: number;
   /** ゲームの速さ（1 か 4） */
   speed: number;
+  /** 1 日の長さ（ms） */
+  dayMs: number;
+  /** 街の人通り（自社と関係なく歩いている人。他社のお客さん・駅を行き交う人・散歩する人） */
+  crowd: Walker[];
   walkers: Walker[];
   buyer: BuyerView | null;
   /** お店ごとの売上の表示（新しいものが下）。t は clock */
@@ -44,7 +48,7 @@ export interface Anim {
   plus: { uid: number; n: number; t: number }[];
 }
 
-export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, walkers: [], buyer: null, coins: new Map(), plus: [] });
+export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, dayMs: 1200, walkers: [], crowd: [], buyer: null, coins: new Map(), plus: [] });
 
 /** 道のりの上の位置（f＝0〜1）と、進む向き */
 export function along(path: [number, number][], f: number): { i: number; j: number; di: number; dj: number } {

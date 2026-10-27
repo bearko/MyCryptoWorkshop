@@ -159,10 +159,11 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   }
   // 歩いているヒーロー（お客さん・調達係）
   if (anim) {
-    for (const wk of anim.walkers) {
+    for (const wk of [...anim.crowd, ...anim.walkers]) {
       const f = (anim.clock - wk.t0) / wk.dur;
       if (f < 0 || f > 1) continue;
       const p = along(wk.path, f);
+      if (!visible(Math.round(p.i), Math.round(p.j))) continue;
       // 家から出てくるとき・お店に入るときはふわっと
       const alpha = Math.min(1, f / 0.08, (1 - f) / 0.08);
       items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, wk.hero, p.i, p.j, p.di, p.dj, (anim.clock - wk.t0) / 90, alpha) });
@@ -274,7 +275,7 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
           const sp = speed(wk, 'craft');
           const need = craftDays(s, sl.sku);
           const p = Math.min(1, (sl.progress + sp * anim.frac) / need);
-          const secs = ((need / sp) * DAY_SECONDS) / Math.max(1, anim.speed);
+          const secs = ((need / sp) * (anim.dayMs / 1000)) / Math.max(1, anim.speed);
           const parts = Math.max(1, Math.min(12, Math.round(secs)));
           drawRing(ctx, x, y, bw, bh, parts, Math.floor(p * parts + 1e-6));
         }
@@ -325,5 +326,3 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
   ctx.restore();
 }
 
-/** 1 日の長さ（秒）。main.ts の DAY_MS と合わせる */
-export const DAY_SECONDS = 0.6;
