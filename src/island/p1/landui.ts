@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
 import { CAPITAL, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
-import { hasBusiness, moveTo, recOf, type MoveErr } from './land';
+import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
 import { balance, date, staffOf, type P1State } from './model';
 import { pickHero, rankEl } from './heroui';
 import { after, open, type Ctx } from './screens';
@@ -62,7 +62,7 @@ function needText(s: P1State, d: SectorDef): string {
   if (!d.need) return '';
   const have = (s.land?.mine ?? []).filter((x) => sectorDef(x).tier === d.need!.tier).length;
   const tier = tierLabel(d.need.tier);
-  return t(`${tier}を ${d.need.n} 以上開拓で開放（いま ${have}）`, `Opens after ${d.need.n}+ ${tier}s (now ${have})`);
+  return t(`${tier}に ${d.need.n} つ出店で開放（いま ${have}/${d.need.n}）`, `Opens after opening in ${d.need.n} ${tier}s (now ${have}/${d.need.n})`);
 }
 
 const ERR: Record<MoveErr, string> = {
@@ -82,6 +82,8 @@ function startMove(ctx: Ctx, target: string) {
   const cur = sectorDef(s.land!.cur);
   const go = (hero: number | null) => {
     const fresh = sectorState(s.land!, target) === 'open';
+    // 開放の条件があるセクタ（Rare など）が、この出店で開くか
+    const gated = SECTORS.filter((x) => x.need && sectorState(s.land!, x.id) === 'locked').map((x) => x.id);
     const e = moveTo(s, target, hero);
     if (e) {
       ctx.toast(ERR[e]);
@@ -91,6 +93,7 @@ function startMove(ctx: Ctx, target: string) {
     sel = null;
     ctx.save();
     ctx.moved?.(target, fresh, hero);
+    for (const id of gated) if (sectorState(s.land!, id) !== 'locked') ctx.toast(t(`${sectorDef(id).name}への道が開いた！（遊びは次の更新で）`, `The road to ${sectorDef(id).name} is open! (Playable in a future update)`));
   };
   if (!hasBusiness(s)) return go(null);
   pickHero(ctx.root, s, {
@@ -160,6 +163,14 @@ export function openLand(ctx: Ctx) {
       n.style.top = `${d.at[1]}%`;
       n.style.setProperty('--tc', TIERS[d.tier].color);
       n.append(tierPill(d.tier), h('b', '', st === 'cloud' ? '???' : d.name), h('small', '', stateText(s, d, st)));
+      // KGI（エリア 1 位）の達成と、最新の順位
+      if (st === 'here' || st === 'mine') {
+        const rk = lastRank(s, d.id);
+        const crown = crowned(s, d.id);
+        // 札の右上：KGI（1 位）を達成したセクタは 👑 だけ、まだなら最新の順位
+        if (rk || crown) n.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : t(`${rk} 位`, `#${rk}`)));
+      }
+      if (st !== 'cloud' && d.profile.tag) n.append(h('small', 'isl-land-tag', d.profile.tag));
       if (st === 'here') n.append(h('span', 'isl-land-pin', '📍'));
       if (st === 'locked') n.append(h('span', 'isl-land-lock', '🔒'));
       // マウスを乗せると開放の条件（PC）
@@ -189,7 +200,13 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
     box.append(h('p', '', t('雲に覆われていて、まだ移動できない。', 'Covered in clouds. You cannot go there yet.')));
     return box;
   }
+  if (d.profile.tag) box.append(h('p', 'isl-land-dtag', d.profile.tag));
   box.append(h('p', '', TIER_NOTE[d.tier]));
+  if (d.teaser) box.append(h('p', 'isl-gold', d.teaser));
+  if (st === 'here' || st === 'mine') {
+    const rk = lastRank(s, id);
+    box.append(h('p', crowned(s, id) ? 'isl-good' : 'isl-dim', crowned(s, id) ? t(`👑 このセクタで 1 位になりました（最新 ${rk ?? 1} 位）`, `👑 You have been #1 here (latest #${rk ?? 1})`) : rk ? t(`目標：エリア 1 位（最新 ${rk} 位）`, `Goal: #1 in the area (latest #${rk})`) : t('目標：エリア 1 位（まだ月の締めがありません）', 'Goal: #1 in the area (no monthly close yet)')));
+  }
   const grid = h('div', 'isl-land-stats');
   const stat = (k: string, v: string) => {
     const c = h('div', 'isl-pop-stat');

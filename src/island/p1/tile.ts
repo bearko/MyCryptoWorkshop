@@ -4,7 +4,7 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
+import { INTEL, P1B, PRODUCT, rivalDef, sku, skuParts } from './data';
 import { gateToll, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
@@ -251,7 +251,7 @@ function rival(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTM
   const s = ctx.s();
   const rid = b.owner;
   const company = rivalName(rid);
-  const def = RIVALS.find((r) => r.id === rid);
+  const def = rivalDef(rid);
   const st = s.rivals.find((r) => r.id === rid);
   body.append(meta([[t('建築者', 'Builder'), company], [t('所有者', 'Owner'), company]]));
   body.append(h('p', '', t(`同じエリアで物販をしている同業他社「${company}」のお店です。`, `A store of ${company}, a retail rival in your area.`) + (DESC[b.id] ? ` ${DESC[b.id]}` : '')));

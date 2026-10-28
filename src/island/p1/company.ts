@@ -144,6 +144,8 @@ export interface Land {
 
 export const newLand = (cur = SECTORS[0].id): Land => ({ cur, mine: [cur], recs: {} });
 export const sectorDef = (id: string) => SECTORS.find((x) => x.id === id) ?? SECTORS[0];
+/** いまのセクタの個性（data.ts の SectorProfile：他社・売れ筋・特産・地形） */
+export const sectorProfile = (s: { sector?: string }) => sectorDef(s.sector ?? 'c1').profile;
 
 /** セクタの状態（ランドマップ）：雲・まだ・開放済み・出店済み・いまここ */
 export type SectorState = 'cloud' | 'locked' | 'open' | 'mine' | 'here' | 'soon';

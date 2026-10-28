@@ -220,6 +220,8 @@ export const BRAND = {
   gate: 10,
   enter: { C: 5, U: 15, R: 25, E: 40, L: 60 } as Record<Tier, number>,
   adsSkill: 2,
+  /** ランド制覇（そのランクのセクタすべてで 1 位） */
+  landClear: 20,
   /** 下がるとき：順位が 2 つ以上下がったら、下がった数 × rankDown */
   rankDown: 6,
   /** 不祥事（妨害工作がばれた など。いまはまだ起きない） */
@@ -235,6 +237,34 @@ export const TIERS: Record<Tier, { n: number; rival: number; demand: number; com
   E: { n: 26, rival: 5, demand: 4.5, commonPull: 0.25, color: '#b49bff' },
   L: { n: 26, rival: 8, demand: 7, commonPull: 0.15, color: '#ffd257' },
 };
+/**
+ * セクタの個性（docs/ISLAND_PHASE1.md「ランドマップとセクタ」）。
+ * 同じランクでも、他社・売れ筋・特産・地形がセクタごとに違う。
+ */
+export interface SectorProfile {
+  /** このセクタの同業他社（4 社）。無ければ RIVALS（はじまりの浜） */
+  rivals?: RivalDef[];
+  /** 商品ごとの需要の倍率（無い商品は 1） */
+  demand?: Partial<Record<string, number>>;
+  /** 特産：この素材が 20% 安い */
+  cheap?: Mat[];
+  /** 最初から全部のルート（紙・布・宝石）が開いている */
+  routesOpen?: boolean;
+  /** 運ぶ日数の倍率（坂道 1.2 など） */
+  haul?: number;
+  /** 宣伝の効き目の倍率 */
+  ads?: number;
+  /** ランドマップに出す一言の特徴 */
+  tag: string;
+  /**
+   * 到着の案内（マインちゃん 3 枚：目標 → 違い → 最初の一手）。
+   * {top} は 1 位の他社の月の売上の見込みに置き換える。Uncommon の 3 枚目は「魔法の釜」がまだのときの文（あれば工房の文になる）
+   */
+  intro: string[];
+}
+/** 特産の素材の値引き */
+export const CHEAP_RATE = 0.8;
+
 export interface SectorDef {
   id: string;
   tier: Tier;
@@ -249,17 +279,142 @@ export interface SectorDef {
   need?: { tier: Tier; n: number };
   /** 開放されても、まだ遊べない（準備中） */
   soon?: boolean;
+  /** セクタの個性 */
+  profile: SectorProfile;
+  /** ランドマップの説明に添える予告（準備中のセクタ） */
+  teaser?: string;
 }
+
+const rv = (id: string, name: string, sells: Partial<Record<string, number>>, base: number, store: string, margin: number): RivalDef => ({ id, name, sells, base, store, margin });
+/** 3 枚目（最初の一手）：工房から */
+const FIRST_WS = t('まずは[[工房]]を建て直そう。建物はセクタごとだよ。', 'First, rebuild your [[workshop]]. Buildings belong to each sector.');
+/** Uncommon の 3 枚目：魔法の釜がまだのとき */
+const FIRST_POT = t('スキルツリーの[[魔法の釜]]を開放すると[[商品開発]]ができるよ。まずは[[工房]]からね。', 'Unlock the [[Magic pot]] in the skill tree to do [[product development]]. Start with the [[workshop]].');
+
 export const SECTORS: SectorDef[] = [
-  { id: 'c1', tier: 'C', name: t('はじまりの浜', 'Firstlight Beach'), fee: 0, at: [26, 76] },
-  { id: 'c2', tier: 'C', name: t('風見の丘', 'Windvane Hill'), fee: 5000, at: [54, 86] },
-  { id: 'c3', tier: 'C', name: t('湖のほとり', 'Lakeside'), fee: 8000, at: [19, 54] },
-  { id: 'u1', tier: 'U', name: t('港町', 'Harbor Town'), fee: 150000, at: [77, 66] },
-  { id: 'u2', tier: 'U', name: t('商人の坂', 'Merchant Slope'), fee: 220000, at: [36, 34] },
-  { id: 'r1', tier: 'R', name: t('王都の市場', 'Royal Market'), fee: 600000, at: [62, 46], need: { tier: 'U', n: 2 }, soon: true },
-  { id: 'e1', tier: 'E', name: t('天空の商都', 'Sky Exchange'), fee: 0, at: [82, 26], cloud: true },
-  { id: 'l1', tier: 'L', name: t('伝説の大都会', 'Legend Metropolis'), fee: 0, at: [55, 14], cloud: true },
+  {
+    id: 'c1',
+    tier: 'C',
+    name: t('はじまりの浜', 'Firstlight Beach'),
+    fee: 0,
+    at: [26, 76],
+    profile: { tag: t('穏やかな浜の町。センスとランタンがよく売れる', 'A calm beach town. Sensu and Lanterns sell well'), intro: [] },
+  },
+  {
+    id: 'c2',
+    tier: 'C',
+    name: t('風見の丘', 'Windvane Hill'),
+    fee: 5000,
+    at: [54, 86],
+    profile: {
+      rivals: [
+        rv('fusha', t('風車堂', 'Windmill House'), { Mallet: 1.5, Scissors: 1.2 }, 7500, 'import', 0.16),
+        rv('okaue', t('丘の上雑貨', 'Hilltop Goods'), { Sensu: 1, Mallet: 1 }, 8000, 'general_store', 0.12),
+        rv('kazami', t('カザミ金物', 'Kazami Hardware'), { Scissors: 1.6, Lantern: 0.8 }, 9000, 'greengrocer', 0.15),
+        rv('hane', t('ハネ商店', 'Hane Store'), { Mallet: 0.8 }, 5500, 'watch', 0.08),
+      ],
+      demand: { Mallet: 1.6, Scissors: 1.3, Lantern: 0.6, 'Node-Doll': 0.8 },
+      cheap: ['iron'],
+      haul: 1.2,
+      tag: t('金物好きの丘の町。鉄が安く、坂道で運ぶのに時間がかかる', 'A hill town that loves hardware. Iron is cheap; slopes slow hauling'),
+      intro: [
+        t('[[風見の丘]]へようこそ！ ここでも目標は[[エリア 1 位]]、他社 4 社のうち 1 位の月の売上は約 {top} だよ。', 'Welcome to [[Windvane Hill]]! The goal is still [[#1 in the area]]. There are 4 rivals; the leader makes about {top} a month.'),
+        t('丘の町は金物好き。[[マレット]]と[[鋏]]がよく売れて、[[鉄]]が安い。そのかわり坂道で、運ぶのに時間がかかるよ。', 'Hill folk love hardware: [[Mallets]] and [[Scissors]] sell well and [[iron]] is cheap. But the slopes make hauling slower.'),
+        FIRST_WS,
+      ],
+    },
+  },
+  {
+    id: 'c3',
+    tier: 'C',
+    name: t('湖のほとり', 'Lakeside'),
+    fee: 8000,
+    at: [19, 54],
+    profile: {
+      rivals: [
+        rv('kohan', t('湖畔ガラス', 'Lakeshore Glass'), { Lantern: 1.7, 'Node-Doll': 1.2 }, 9500, 'import', 0.18),
+        rv('mizube', t('ミズベ商店', 'Mizube Store'), { Lantern: 1, Sensu: 1 }, 7000, 'general_store', 0.12),
+        rv('watashi', t('渡し場雑貨', 'Ferry Goods'), { 'Node-Doll': 1.4 }, 6500, 'greengrocer', 0.14),
+        rv('yoshino', t('ヨシノ工芸', 'Yoshino Crafts'), { Sensu: 1.3 }, 8000, 'watch', 0.1),
+      ],
+      demand: { Lantern: 1.5, 'Node-Doll': 1.6, Mallet: 0.7, Scissors: 0.8 },
+      cheap: ['glass', 'clay'],
+      tag: t('湖の砂と粘土でガラス・粘土が安い。ランタンとノード・ドールが人気', 'Lake sand and clay make glass and clay cheap. Lanterns and Node-Dolls are popular'),
+      intro: [
+        t('[[湖のほとり]]へようこそ！ ここでも目標は[[エリア 1 位]]、他社 4 社のうち 1 位の月の売上は約 {top} だよ。', 'Welcome to [[Lakeside]]! The goal is still [[#1 in the area]]. There are 4 rivals; the leader makes about {top} a month.'),
+        t('湖の砂と粘土で、[[ガラス]]と[[粘土]]が安い。[[ランタン]]と[[ノード・ドール]]が人気だよ。', 'Lake sand and clay make [[glass]] and [[clay]] cheap. [[Lanterns]] and [[Node-Dolls]] are popular.'),
+        FIRST_WS,
+      ],
+    },
+  },
+  {
+    id: 'u1',
+    tier: 'U',
+    name: t('港町', 'Harbor Town'),
+    fee: 150000,
+    at: [77, 66],
+    profile: {
+      rivals: [
+        rv('ship', t('シップ商会', 'Ship Trading'), { Lantern: 1.4, Scissors: 1.4 }, 12000, 'import', 0.2),
+        rv('shiokaze', t('潮風堂', 'Sea Breeze House'), { Sensu: 1.2, 'Node-Doll': 1.2 }, 10000, 'general_store', 0.14),
+        rv('kowan', t('港湾雑貨', 'Harbor Goods'), { Mallet: 1.3 }, 9000, 'greengrocer', 0.15),
+        rv('funanori', t('船乗りの店', 'Sailors’ Shop'), { Scissors: 1 }, 8000, 'watch', 0.1),
+      ],
+      routesOpen: true,
+      tag: t('遠くの素材（紙・布・宝石）が最初から買える港。アンコモンの出番', 'A port where far-off materials (paper, cloth, gems) are on sale from day one. Time for Uncommons'),
+      intro: [
+        t('[[港町]]へようこそ！ ここでも目標は[[エリア 1 位]]、他社 4 社のうち 1 位の月の売上は約 {top} だよ。', 'Welcome to [[Harbor Town]]! The goal is still [[#1 in the area]]. There are 4 rivals; the leader makes about {top} a month.'),
+        t('ここは Uncommon ランドで、[[コモン]]の商品はあまり相手にされないから[[アンコモン]]を並べよう。港だから[[紙・布・宝石]]が最初から買えるよ。', 'This is an Uncommon land: [[Common]] goods barely sell, so stock [[Uncommons]]. Being a port, [[paper, cloth and gems]] are on sale from the start.'),
+        FIRST_POT,
+      ],
+    },
+  },
+  {
+    id: 'u2',
+    tier: 'U',
+    name: t('商人の坂', 'Merchant Slope'),
+    fee: 220000,
+    at: [36, 34],
+    profile: {
+      rivals: [
+        rv('sakaue', t('坂上百貨', 'Slopetop Department'), { Sensu: 1.2, Mallet: 1.2, 'Node-Doll': 1.2, Lantern: 1.2, Scissors: 1.2 }, 15000, 'import', 0.22),
+        rv('guild', t('ギルド商店', 'Guild Store'), { Lantern: 1.5, Mallet: 1.5 }, 12000, 'general_store', 0.16),
+        rv('nobori', t('のぼり屋', 'Banner House'), { Sensu: 1.5 }, 9000, 'greengrocer', 0.14),
+        rv('sakashita', t('坂下金物', 'Slopefoot Hardware'), { Scissors: 1.6 }, 10000, 'watch', 0.1),
+      ],
+      haul: 1.3,
+      ads: 1.5,
+      tag: t('商人の町。宣伝がよく効くが、坂で運ぶのは遅い', 'A merchants’ town. Ads work well, but hauling up the slope is slow'),
+      intro: [
+        t('[[商人の坂]]へようこそ！ ここでも目標は[[エリア 1 位]]、他社 4 社のうち 1 位の月の売上は約 {top} だよ。', 'Welcome to [[Merchant Slope]]! The goal is still [[#1 in the area]]. There are 4 rivals; the leader makes about {top} a month.'),
+        t('ここは Uncommon ランドで、[[コモン]]の商品はあまり相手にされないから[[アンコモン]]を並べよう。商人の町は[[宣伝]]がよく効くけど、坂で運ぶのは遅いよ。', 'This is an Uncommon land: [[Common]] goods barely sell, so stock [[Uncommons]]. In this merchants’ town [[ads]] work well, but hauling up the slope is slow.'),
+        FIRST_POT,
+      ],
+    },
+  },
+  {
+    id: 'r1',
+    tier: 'R',
+    name: t('王都の市場', 'Royal Market'),
+    fee: 600000,
+    at: [62, 46],
+    need: { tier: 'U', n: 2 },
+    soon: true,
+    profile: { tag: t('栄えた王都の市場。商売敵もお客さんも桁違い', 'The thriving royal market. Rivals and customers on another scale'), intro: [] },
+    teaser: t('王都では商売敵が 3.5 倍、お客さんも 3 倍。レアのエクステと大型施設の出番（準備中）。', 'In the capital, rivals are 3.5× and customers 3×. Time for Rare extensions and large sites (coming soon).'),
+  },
+  { id: 'e1', tier: 'E', name: t('天空の商都', 'Sky Exchange'), fee: 0, at: [82, 26], cloud: true, profile: { tag: '', intro: [] } },
+  { id: 'l1', tier: 'L', name: t('伝説の大都会', 'Legend Metropolis'), fee: 0, at: [55, 14], cloud: true, profile: { tag: '', intro: [] } },
 ];
+
+/** すべてのセクタの同業他社（id はセクタをまたいで重ならない） */
+export const ALL_RIVALS: RivalDef[] = [...RIVALS, ...SECTORS.flatMap((x) => x.profile.rivals ?? [])];
+/** 他社の定義（どのセクタの他社でも引ける） */
+export const rivalDef = (id: string) => ALL_RIVALS.find((x) => x.id === id);
+/** セクタの他社（無ければはじまりの浜の 4 社） */
+export const rivalsOf = (sector = 'c1') => SECTORS.find((x) => x.id === sector)?.profile.rivals ?? RIVALS;
+/** Uncommon の 3 枚目：魔法の釜があれば工房の文 */
+export const introFirstStep = (tier: Tier, hasPot: boolean) => (tier !== 'C' && !hasPot ? FIRST_POT : FIRST_WS);
 
 /**
  * セクタマネージャー：離れたセクタを、指名したヒーローが運営する。
@@ -443,6 +598,8 @@ export const INTEL = [5, 12, 20];
 
 export interface Mission {
   id: string;
+  /** このセクタでだけ受けられる（無ければどこでも） */
+  sector?: string;
   from: string;
   title: string;
   text: string;
@@ -457,6 +614,15 @@ export const MISSIONS: Mission[] = [
   { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 10 個売る', 'Sell 10 Lanterns in one month'), reward: 3000 },
   { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000 },
   { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000 },
+  // セクタの依頼（そのセクタでだけ受けられる）
+  { id: 'c2_mallet', sector: 'c2', from: t('丘の上の大工さん', 'A hilltop carpenter'), title: t('マレットを 10 個', 'Ten Mallets'), text: t('ひと月にマレットを 10 個売る', 'Sell 10 Mallets in one month'), reward: 4000 },
+  { id: 'c2_top', sector: 'c2', from: t('風見の丘の町内会', 'Windvane Hill council'), title: t('丘の一番店', 'Top shop on the hill'), text: t('風見の丘でエリア 1 位になる', 'Become #1 in Windvane Hill'), reward: 10000 },
+  { id: 'c3_lantern', sector: 'c3', from: t('湖の宿', 'The lakeside inn'), title: t('湖畔を灯して', 'Light the lakeshore'), text: t('ひと月にランタンを 10 個売る', 'Sell 10 Lanterns in one month'), reward: 4000 },
+  { id: 'c3_top', sector: 'c3', from: t('湖のほとりの町内会', 'Lakeside council'), title: t('湖の一番店', 'Top shop on the lake'), text: t('湖のほとりでエリア 1 位になる', 'Become #1 in Lakeside'), reward: 10000 },
+  { id: 'u1_dev', sector: 'u1', from: t('港の商人', 'A harbor merchant'), title: t('新しい品を', 'Something new'), text: t('アンコモンを 1 つ開発する', 'Develop one Uncommon'), reward: 8000 },
+  { id: 'u1_top', sector: 'u1', from: t('港町の商工会', 'Harbor Town guild'), title: t('港の一番店', 'Top shop in the harbor'), text: t('港町でエリア 1 位になる', 'Become #1 in Harbor Town'), reward: 30000 },
+  { id: 'u2_ads', sector: 'u2', from: t('坂の商店会', 'Slope merchants'), title: t('坂を宣伝で', 'Advertise the slope'), text: t('宣伝を 2 種類以上同時にする', 'Run 2 or more kinds of ads at once'), reward: 6000 },
+  { id: 'u2_top', sector: 'u2', from: t('商人の坂の商店会', 'Merchant Slope association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('商人の坂でエリア 1 位になる', 'Become #1 in Merchant Slope'), reward: 40000 },
 ];
 
 /** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */
