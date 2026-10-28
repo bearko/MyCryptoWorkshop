@@ -358,6 +358,7 @@ export const TUT: TutStep[] = [
 export const TUT_END: TutPage[] = [
   { text: t('見習い期間はここまで！ ここからは、あなたの思うままに。', 'That’s the end of the apprentice month! From here, it’s all yours.') },
   { text: t('このランドに、名前を轟かせよう！', 'Let’s make our name known across this land!') },
+  { text: t('右下の[[懐中時計]]を押すと、次の月が始まるよ。', 'Press the [[pocket watch]] at the bottom right to start the next month.') },
 ];
 
 /**

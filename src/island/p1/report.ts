@@ -1,110 +1,211 @@
 /**
- * 月の売上報告（ゲームのテンポを作る、月に一度のフィードバックと判断の画面）。
- * 1. 稼いだ額（数字が転がって上がる・コインの演出）と利益・資金の増減
- * 2. エリアの順位の発表（上がった ↑・下がった ↓・1 位 👑。ランキングは 1 行ずつ出す）
- * 3. 売上と利益の推移のグラフ（最近 6 か月）
- * 4. 流れの図（① 調達 → ② 製造 → ③ 物流 → ④ 販売 の数と、詰まっているところ）。スマホでもスクロールせずに見えるよう 1 行で
- * 5. 次の一手（ボトルネックのヒントと、スキルツリー・ダッシュボード・ランキングへの導線）
+ * 月次報告（ゲームのテンポを作る、月に一度のフィードバックと判断の画面）。
+ * 0. 発表：全画面で「N年目・M月の売上」をドラムロールつきでカウントアップ → ポンと跳ねて金貨（売上 0 の月はマインちゃんの一言）
+ * 1. 【KPI ①】売上報告：売上・先月比・利益・資金の変化（月初 → 月末）。内訳は折りたたみ。導線：スキルツリー
+ * 2. 【KGI】企業ランキング（エリア）：順位と前月比、次の順位までの距離とゴール。ランキング表は折りたたみ（ゴールラインつき）
+ * 3. 【KPI ②】月次売上推移：売上（左軸・折れ線）と利益（右軸・棒）。期間の切り替え、押すと吹き出し
+ * 4. 【KPI ③】サプライチェーン管理：① 調達 → ② 製造 → ③ 物流 → ④ 販売 の数と詰まり。導線：SCM ダッシュボード
+ * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
-import { PRODUCT, SKILLS, sku } from './data';
+import { PRODUCT, sku } from './data';
 import { bottleneck, stageCaps, type P1State, type Report, type Stage } from './model';
 import { open, type Ctx } from './screens';
-import { btn, h, money, rich, skuIcon } from './ui';
+import { btn, h, money, rich, select, skuIcon } from './ui';
 
 const STAGE_NAME: Record<Stage, string> = { buy: t('① 調達', '① Buy'), craft: t('② 製造', '② Craft'), haul: t('③ 物流', '③ Haul'), sell: t('④ 販売', '④ Sell') };
 const STAGE_ICON: Record<Stage, string> = { buy: '🧱', craft: '🔨', haul: '🛒', sell: '🏪' };
-/** 段ごとの「次の一手」（ボトルネックのとき） */
+/** 段ごとの直し方（ボトルネックのとき） */
 const STAGE_HINT: Record<Stage, string> = {
   buy: t('素材が足りていません。調達係を置くか、スキル「調達枠の拡大」「まとめ買い」で仕入れを太くしましょう。', 'Materials are short. Assign a buyer or widen buying with the Bigger quota / Bulk buying skills.'),
   craft: t('作る数が足りていません。作業台を増やす・段取りの改善（スキル）か、製造の得意なヒーローを置きましょう。', 'Crafting is the limit. Add a bench or Better jigs (skills), or put a better crafter on the bench.'),
   haul: t('運ぶ数が足りていません。荷車を増やす・小型トラック（スキル）、遠いお店には物流拠点を。', 'Hauling is the limit. More carts or a Small truck (skills); a hub for far shops.'),
   sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす・案内係の育成（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves, Train hosts (skills) or ads strengthen your stores.'),
 };
+/** スマホ用の短い版（2 行以内） */
+const STAGE_HINT_SHORT: Record<Stage, string> = {
+  buy: t('素材が足りない。調達係やスキルで仕入れを太く。', 'Short of materials. Add a buyer or buying skills.'),
+  craft: t('作る数が足りない。作業台・スキル・腕のいい職人を。', 'Crafting is short. Benches, skills or a better crafter.'),
+  haul: t('運ぶ数が足りない。荷車・スキル・物流拠点を。', 'Hauling is short. Carts, skills or a hub.'),
+  sell: t('売れる数が頭打ち。お店・棚・スキル・宣伝で売り場を強く。', 'Sales are capped. Shops, shelves, skills or ads.'),
+};
 /** 段を太くするスキル（スキルツリーの枝） */
 const STAGE_BRANCH: Record<Stage, string> = { buy: 'buy', craft: 'craft', haul: 'logi', sell: 'shop' };
+
+/** ゴールの順位（いまはエリア 1 位で固定。セクタのランクで変える余地） */
+const GOAL_RANK = 1;
 
 export interface ReportHooks {
   openSkills: (branch?: string) => void;
   openSupply: () => void;
   openRanking: () => void;
   /** 効果音 */
-  sfx?: (k: 'sale' | 'win' | 'levelup' | 'check' | 'report') => void;
+  sfx?: (k: 'sale' | 'win' | 'levelup' | 'check' | 'report' | 'drum' | 'error') => void;
 }
 
-/** 数字が転がって上がる */
-function countUp(el: HTMLElement, to: number, ms = 1100, prefix = '', suffix = ' G') {
-  const t0 = performance.now();
-  const tick = (now: number) => {
-    const k = Math.min(1, (now - t0) / ms);
-    const e = 1 - Math.pow(1 - k, 3);
-    el.textContent = `${prefix}${Math.round(to * e).toLocaleString('en-US')}${suffix}`;
-    if (k < 1 && el.isConnected) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+/** 通算の月 → 年目と月 */
+const ym = (month: number) => ({ year: 1 + Math.floor((month - 1) / 12), month: ((month - 1) % 12) + 1 });
+
+/** 報告のタイトル：「月次報告（1年目・3月）」 */
+export function reportTitle(month: number): string {
+  const d = ym(month);
+  return t(`月次報告（${d.year}年目・${d.month}月）`, `Monthly report (Y${d.year} · M${d.month})`);
 }
 
 /** 舞い上がるコイン */
 function coins(box: HTMLElement, n: number) {
   for (let k = 0; k < n; k++) {
     const c = h('i', 'isl-rp-coin');
-    c.style.setProperty('--x', `${(Math.random() * 2 - 1) * 120}px`);
+    c.style.setProperty('--x', `${(Math.random() * 2 - 1) * 160}px`);
     c.style.setProperty('--d', `${(Math.random() * 0.5).toFixed(2)}s`);
     c.style.setProperty('--r', `${Math.round(Math.random() * 720 - 360)}deg`);
     box.append(c);
   }
 }
 
-/** 売上と利益の推移（最近 6 か月）。SVG の折れ線 ＋ 棒 */
-function chart(reports: Report[]): HTMLElement {
-  const rs = reports.slice(-6);
-  const W = 320;
-  const H = 120;
-  const padL = 8;
-  const padR = 8;
-  const padT = 14;
-  const padB = 22;
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+/** 12,000 → 12k */
+function kfmt(v: number): string {
+  const a = Math.abs(v);
+  const sgn = v < 0 ? '-' : '';
+  if (a >= 1000) {
+    const x = a / 1000;
+    return `${sgn}${x >= 10 ? Math.round(x) : Math.round(x * 10) / 10}k`;
+  }
+  return `${sgn}${Math.round(a)}`;
+}
+
+// ---------------------------------------------------------------- 推移のグラフ
+
+type Range = 3 | 6 | 12 | 0;
+const RANGES: { value: Range; label: string }[] = [
+  { value: 3, label: t('3 か月', '3 months') },
+  { value: 6, label: t('6 か月', '6 months') },
+  { value: 12, label: t('1 年', '1 year') },
+  { value: 0, label: t('全期間', 'All') },
+];
+/** 選んだ期間（このブラウザに覚える） */
+let chartRange: Range = (() => {
+  try {
+    const v = Number(localStorage.getItem('isl.chartRange'));
+    return ([3, 6, 12, 0] as number[]).includes(v) && localStorage.getItem('isl.chartRange') != null ? (v as Range) : 6;
+  } catch {
+    return 6;
+  }
+})();
+function setRange(v: Range) {
+  chartRange = v;
+  try {
+    localStorage.setItem('isl.chartRange', String(v));
+  } catch {
+    // 覚えられなくても動く
+  }
+}
+
+const NS = 'http://www.w3.org/2000/svg';
+function mk(tag: string, attrs: Record<string, string | number>, text = '') {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  if (text) e.textContent = text;
+  return e;
+}
+
+function monthLabel(m: number): string {
+  const d = ym(m);
+  return m > 12 ? t(`${d.year}年 ${d.month}月`, `Y${d.year} M${d.month}`) : t(`${d.month} 月`, `M${d.month}`);
+}
+
+/** 売上（左軸・折れ線）と利益（右軸・棒）。押すとその月の吹き出し */
+function chart(reports: Report[]): SVGSVGElement {
+  const rs = chartRange ? reports.slice(-chartRange) : reports.slice();
+  const W = 360;
+  const H = 150;
+  const padL = 30;
+  const padR = 30;
+  const padT = 10;
+  const padB = 20;
+  const plotH = H - padT - padB;
+  const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.classList.add('isl-rp-chart');
-  // 上は売上・利益の最大、下は赤字の最小（0 の線が中に入るように）
-  const hi = Math.max(1, ...rs.map((r) => Math.max(r.revenue, r.profit)));
-  const lo = Math.min(0, ...rs.map((r) => r.profit));
-  const n = rs.length;
-  const x = (k: number) => padL + ((W - padL - padR) * (k + 0.5)) / n;
-  const y = (v: number) => padT + ((H - padT - padB) * (hi - v)) / (hi - lo);
-  const y0 = y(0);
-  const mk = (tag: string, attrs: Record<string, string | number>) => {
-    const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-    return e;
-  };
-  // 0 の線
-  svg.append(mk('line', { x1: padL, y1: y0, x2: W - padR, y2: y0, class: 'isl-rp-zero' }));
-  // 利益の棒（赤字は下へ）
-  const bw = Math.min(28, ((W - padL - padR) / n) * 0.45);
+  const n = Math.max(1, rs.length);
+  const maxR = Math.max(1, ...rs.map((r) => r.revenue));
+  const hiP = Math.max(1, ...rs.map((r) => r.profit));
+  const loP = Math.min(0, ...rs.map((r) => r.profit));
+  const step = (W - padL - padR) / n;
+  const x = (k: number) => padL + step * (k + 0.5);
+  const yR = (v: number) => padT + plotH * (1 - v / maxR);
+  const yP = (v: number) => padT + (plotH * (hiP - v)) / (hiP - loP);
+  // 目盛り（左＝売上、右＝利益）と薄い横線
+  for (const v of [0, maxR / 2, maxR]) {
+    svg.append(mk('line', { x1: padL, y1: yR(v), x2: W - padR, y2: yR(v), class: 'isl-rp-grid' }));
+    svg.append(mk('text', { x: padL - 4, y: yR(v) + 3, 'text-anchor': 'end', class: 'isl-rp-yl is-l' }, kfmt(v)));
+  }
+  // 利益が全部赤字の月だけなら、0・中・最小（下）を出す
+  const pTicks = hiP > 1 ? [0, hiP / 2, hiP] : [loP, loP / 2, 0];
+  for (const v of pTicks) svg.append(mk('text', { x: W - padR + 4, y: yP(v) + 3, 'text-anchor': 'start', class: 'isl-rp-yl is-r' }, kfmt(v)));
+  // 利益の 0 の線
+  svg.append(mk('line', { x1: padL, y1: yP(0), x2: W - padR, y2: yP(0), class: 'isl-rp-zero' }));
+  // 利益の棒（赤字は 0 の線から下へ）
+  const bw = Math.min(26, step * 0.5);
   rs.forEach((r, k) => {
     const v = r.profit;
-    const top = v >= 0 ? y(v) : y0;
-    const hgt = Math.max(1, Math.abs(y(v) - y0));
-    svg.append(mk('rect', { x: x(k) - bw / 2, y: top, width: bw, height: hgt, rx: 3, class: `isl-rp-bar ${v < 0 ? 'is-neg' : ''}`, style: `--d:${k * 0.08}s` }));
+    const top = v >= 0 ? yP(v) : yP(0);
+    const hgt = Math.max(1, Math.abs(yP(v) - yP(0)));
+    svg.append(mk('rect', { x: x(k) - bw / 2, y: top, width: bw, height: hgt, rx: 3, class: `isl-rp-bar ${v < 0 ? 'is-neg' : ''}`, style: `--d:${k * 0.05}s` }));
   });
-  // 売上の折れ線
-  const pts = rs.map((r, k) => `${x(k).toFixed(1)},${y(r.revenue).toFixed(1)}`).join(' ');
-  svg.append(mk('polyline', { points: pts, class: 'isl-rp-line' }));
+  // 売上の折れ線と点
+  if (rs.length > 1) svg.append(mk('polyline', { points: rs.map((r, k) => `${x(k).toFixed(1)},${yR(r.revenue).toFixed(1)}`).join(' '), class: 'isl-rp-line' }));
   rs.forEach((r, k) => {
-    svg.append(mk('circle', { cx: x(k), cy: y(r.revenue), r: k === n - 1 ? 5 : 3.5, class: `isl-rp-dot ${k === n - 1 ? 'is-last' : ''}` }));
-    const lbl = mk('text', { x: x(k), y: H - 6, 'text-anchor': 'middle', class: 'isl-rp-xl' });
-    lbl.textContent = t(`${r.month} 月`, `M${r.month}`);
-    svg.append(lbl);
+    svg.append(mk('circle', { cx: x(k), cy: yR(r.revenue), r: k === rs.length - 1 ? 4.5 : 3.2, class: `isl-rp-dot ${k === rs.length - 1 ? 'is-last' : ''}` }));
+    svg.append(mk('text', { x: x(k), y: H - 6, 'text-anchor': 'middle', class: 'isl-rp-xl' }, monthLabel(r.month)));
   });
-  const wrap = h('div', 'isl-rp-chartwrap');
-  const legend = h('div', 'isl-rp-legend');
-  legend.append(h('span', 'is-line', t('売上', 'Sales')), h('span', 'is-bar', t('利益', 'Profit')));
-  wrap.append(svg, legend);
-  return wrap;
+  // 吹き出し（押した月の上に）
+  let tip: SVGGElement | null = null;
+  let tipK = -1;
+  const show = (k: number) => {
+    tip?.remove();
+    tip = null;
+    if (k === tipK) {
+      tipK = -1;
+      return;
+    }
+    tipK = k;
+    const r = rs[k];
+    const tw = 104;
+    const th = 46;
+    const top = Math.min(yR(r.revenue), r.profit >= 0 ? yP(r.profit) : yP(0));
+    const tx = Math.max(2, Math.min(W - tw - 2, x(k) - tw / 2));
+    const ty = Math.max(2, top - th - 6);
+    const g = document.createElementNS(NS, 'g') as SVGGElement;
+    g.classList.add('isl-rp-tip');
+    g.append(mk('rect', { x: tx, y: ty, width: tw, height: th, rx: 6 }));
+    g.append(mk('text', { x: tx + 8, y: ty + 13, class: 'is-m' }, monthLabel(r.month)));
+    g.append(mk('text', { x: tx + 8, y: ty + 26 }, t(`売上 ${money(r.revenue)}`, `Sales ${money(r.revenue)}`)));
+    g.append(mk('text', { x: tx + 8, y: ty + 39, class: r.profit >= 0 ? 'is-good' : 'is-bad' }, t(`利益 ${r.profit < 0 ? '−' : ''}${money(Math.abs(r.profit))}`, `Profit ${r.profit < 0 ? '−' : ''}${money(Math.abs(r.profit))}`)));
+    svg.append(g);
+  };
+  // 月ごとの縦の当たり判定（透明）
+  rs.forEach((_r, k) => {
+    const hit = mk('rect', { x: x(k) - step / 2, y: 0, width: step, height: H, class: 'isl-rp-hit', 'data-k': k });
+    hit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      show(k);
+    });
+    hit.addEventListener('pointerenter', (e) => {
+      if ((e as PointerEvent).pointerType === 'mouse' && tipK !== k) show(k);
+    });
+    svg.append(hit);
+  });
+  svg.addEventListener('pointerleave', (e) => {
+    if ((e as PointerEvent).pointerType === 'mouse' && tip) {
+      tip.remove();
+      tip = null;
+      tipK = -1;
+    }
+  });
+  return svg;
 }
 
 /** 流れの図：① → ② → ③ → ④ の数。細いところを赤く */
@@ -129,88 +230,139 @@ function flowRow(s: P1State, r: Report): HTMLElement {
   return row;
 }
 
+/** カードの見出し行：種別チップ＋見出し＋右端に導線のボタン */
+function cardHead(tag: string, kgi: boolean, title: string, right?: HTMLElement, note = ''): HTMLElement {
+  const row = h('div', 'isl-rp-head');
+  const h3 = h('h3', '', title);
+  // 見出しの補足（スマホでは隠す）
+  if (note) h3.append(h('span', 'isl-rp-note', note));
+  row.append(h('span', `isl-rp-tag ${kgi ? 'is-kgi' : ''}`, tag), h3);
+  if (right) row.append(right);
+  return row;
+}
+
+/** 前月比のチップ */
+function diffChip(cur: number, prev: number): HTMLElement {
+  const d = cur - prev;
+  return h('span', `isl-rp-diff ${d >= 0 ? 'is-up' : 'is-down'}`, d >= 0 ? t(`先月比 +${money(d)}`, `+${money(d)} vs last`) : t(`先月比 −${money(-d)}`, `−${money(-d)} vs last`));
+}
+
+/** 開幕の発表（全画面）。終わったら done */
+function reveal(ctx: Ctx, r: Report, hooks: ReportHooks, top1: boolean, alive: () => boolean, done: () => void) {
+  const d = ym(r.month);
+  const ov = h('div', 'isl-rp-reveal');
+  const box = h('div', 'isl-rp-rvbox');
+  const coinBox = h('div', 'isl-rp-coins');
+  const num = h('b', 'isl-rp-rvnum', '0 G');
+  box.append(h('small', 'isl-rp-rvlabel', t(`${d.year}年目・${d.month}月の売上`, `Sales · Y${d.year} M${d.month}`)), coinBox, num);
+  ov.append(box, h('small', 'isl-rp-rvtap', t('タップで続ける', 'Tap to continue')));
+  ctx.root.append(ov);
+  let over = false;
+  let timer = 0;
+  const finish = () => {
+    if (over) return;
+    over = true;
+    clearTimeout(timer);
+    ov.classList.add('is-out');
+    setTimeout(() => ov.remove(), 260);
+    done();
+  };
+  ov.addEventListener('click', (e) => {
+    e.stopPropagation();
+    finish();
+  });
+  const later = () => {
+    timer = window.setTimeout(finish, 1200);
+  };
+  // 売上 0：ドラムロールなし。灰色の 0 G とマインちゃんの一言
+  if (r.revenue <= 0) {
+    num.classList.add('is-zero');
+    const say = h('div', 'isl-rp-rvsay');
+    const mi = h('img', 'isl-rp-mine');
+    mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+    mi.alt = '';
+    say.append(mi, h('p', '', t('今月は売れなかった…。商品がお店に届いているか、店員がいるかを確かめよう。', 'Nothing sold this month… Check that goods reach the shop and that someone is on the floor.')));
+    box.append(say);
+    hooks.sfx?.('check');
+    later();
+    return;
+  }
+  const to = r.revenue;
+  const ms = 1400;
+  const t0 = performance.now();
+  hooks.sfx?.('drum');
+  const tick = (now: number) => {
+    if (over) return;
+    if (!alive()) {
+      ov.remove();
+      over = true;
+      return;
+    }
+    const k = Math.min(1, (now - t0) / ms);
+    const e = 1 - Math.pow(1 - k, 2);
+    // 途中は下 3 桁が転がる。最後の 15% で正確な値へ
+    const jitter = k < 0.85 ? Math.floor(Math.random() * 1000) : 0;
+    const v = k < 1 ? Math.min(to, Math.max(0, Math.round(to * e) + (to >= 1000 ? jitter - 500 : 0))) : to;
+    num.textContent = money(v);
+    if (k < 1) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    num.classList.add('is-hit');
+    coins(coinBox, Math.min(24, 8 + Math.floor(to / 3000)));
+    hooks.sfx?.(top1 ? 'win' : 'sale');
+    later();
+  };
+  requestAnimationFrame(tick);
+}
+
 export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: () => void) {
   const s = ctx.s();
-  const prev = s.reports.length >= 2 ? s.reports[s.reports.length - 2] : null;
-  const first = !prev;
+  const idx = s.reports.indexOf(r);
+  const prev = idx > 0 ? s.reports[idx - 1] : idx < 0 && s.reports.length ? s.reports[s.reports.length - 1] : null;
+  const upto = idx >= 0 ? s.reports.slice(0, idx + 1) : [...s.reports, r];
+  /** 発表が終わったか（終わるまでは本体を隠す） */
+  let shown = false;
+  /** 本体のカードの出る演出・順位のポン（最初の 1 回だけ） */
+  let animated = false;
+  let bodyEl: HTMLElement | null = null;
   open(
     ctx,
-    t(`${r.month} か月目の売上報告`, `Month ${r.month} sales report`),
+    reportTitle(r.month),
     (body) => {
+      bodyEl = body;
       body.classList.add('is-report');
-      // ---- 1. 稼いだ額
-      const hero = h('div', 'isl-rp-hero');
-      const coinBox = h('div', 'isl-rp-coins');
-      hero.append(coinBox);
-      hero.append(h('small', 'isl-rp-label', t(`${r.month} か月目の売上`, `Month ${r.month} sales`)));
-      const big = h('b', 'isl-rp-big', '0 G');
-      hero.append(big);
-      const diff = prev ? r.revenue - prev.revenue : 0;
-      if (prev) hero.append(h('span', `isl-rp-diff ${diff >= 0 ? 'is-up' : 'is-down'}`, diff >= 0 ? t(`先月より +${money(diff)}`, `+${money(diff)} vs last month`) : t(`先月より −${money(-diff)}`, `−${money(-diff)} vs last month`)));
-      const kpis = h('div', 'isl-rp-kpis');
-      const kpi = (label: string, value: string, cls = '') => {
-        const c = h('div', `isl-rp-kpi ${cls}`);
-        c.append(h('small', '', label), h('b', '', value));
-        kpis.append(c);
-      };
-      kpi(t('利益', 'Profit'), (r.profit >= 0 ? '+' : '−') + money(Math.abs(r.profit)), r.profit >= 0 ? 'is-good' : 'is-bad');
-      const dm = r.money ? r.money.end - r.money.start : null;
-      if (dm != null) kpi(t('資金の増減', 'Cash change'), (dm >= 0 ? '+' : '−') + money(Math.abs(dm)), dm >= 0 ? 'is-good' : 'is-bad');
-      if (r.brand) kpi(t('ブランド力', 'Brand'), `★ +${r.brand}`, 'is-gold');
-      hero.append(kpis);
-      body.append(hero);
-      setTimeout(() => {
-        countUp(big, r.revenue);
-        coins(coinBox, Math.min(18, 6 + Math.floor(r.revenue / 3000)));
-        hooks.sfx?.('sale');
-      }, 150);
+      body.closest('.isl-sheet')?.classList.add('is-report-sheet');
+      body.classList.toggle('is-wait', !shown);
+      const cards: HTMLElement[] = [];
 
-      // ---- 2. 順位の発表
-      const rankBox = h('div', 'isl-card2 isl-rp-rank');
-      const prevRank = prev?.rank ?? null;
-      const moved = prevRank != null ? prevRank - r.rank : 0;
-      const head = h('div', 'isl-rp-rankhead');
-      const num = h('b', 'isl-rp-ranknum', t(`${r.rank} 位`, `#${r.rank}`));
-      head.append(h('small', '', t('エリアの順位', 'Area rank')), num);
-      if (r.rank === 1) head.append(h('span', 'isl-rp-crown', '👑'));
-      if (moved > 0) head.append(h('span', 'isl-rp-move is-up', t(`↑ ${moved} ランクアップ！`, `↑ Up ${moved}!`)));
-      else if (moved < 0) head.append(h('span', 'isl-rp-move is-down', t(`↓ ${-moved} ランクダウン`, `↓ Down ${-moved}`)));
-      else if (prevRank != null) head.append(h('span', 'isl-rp-move', t('→ キープ', '→ Held')));
-      rankBox.append(head);
-      const list = h('ol', 'isl-rank isl-rp-list');
-      r.area.forEach((x, k) => {
-        const li = h('li', x.me ? 'is-me' : '');
-        li.style.setProperty('--d', `${0.5 + k * 0.18}s`);
-        li.append(h('span', 'isl-rank-n', `${k + 1}`), h('span', '', x.me ? t('あなたの会社', 'Your company') : x.name), h('b', '', money(x.sales)));
-        list.append(li);
-      });
-      rankBox.append(list);
-      // 1 つ上との差
-      const me = r.area.findIndex((x) => x.me);
-      if (me > 0) rankBox.append(h('small', 'isl-dim', t(`1 つ上の${r.area[me - 1].name}まで、あと ${money(r.area[me - 1].sales - r.revenue)}`, `${money(r.area[me - 1].sales - r.revenue)} behind ${r.area[me - 1].name}`)));
-      body.append(rankBox);
-      setTimeout(() => {
-        num.classList.add('is-show');
-        hooks.sfx?.(r.rank === 1 ? 'win' : moved > 0 ? 'levelup' : 'check');
-      }, 900);
-
-      // ---- 3. 推移
-      if (!first) {
-        const g = h('div', 'isl-card2');
-        g.append(h('h3', '', t('売上と利益の推移', 'Sales & profit trend')), chart(s.reports));
-        body.append(g);
-      }
-
-      // ---- 4. 流れの図
-      const flow = h('div', 'isl-card2');
-      flow.append(h('h3', '', t('この月の流れ（商品の数）', 'This month’s flow (units)')), flowRow(s, r));
+      // ---- ① 【KPI ①】売上報告
       const bn = r.bottleneck ?? bottleneck(stageCaps(s));
-      const hint = h('p', 'isl-rp-hint');
-      hint.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。${STAGE_HINT[bn]}`, `[[${STAGE_NAME[bn]}]] is the jam. ${STAGE_HINT[bn]}`)));
-      flow.append(hint);
-      body.append(flow);
-
-      // 売れた内訳
+      const c1 = h('div', 'isl-card2 isl-rp-card');
+      c1.append(cardHead(t('KPI ①', 'KPI 1'), false, t('売上報告', 'Sales'), btn(t('投資：スキルツリー', 'Invest: Skills'), () => hooks.openSkills(STAGE_BRANCH[bn]), 'isl-rp-go')));
+      const grid = h('div', 'isl-rp-sales');
+      const left = h('div', 'isl-rp-col');
+      left.append(h('small', 'isl-rp-k', t('売上', 'Sales')), h('b', `isl-rp-rev ${r.revenue <= 0 ? 'is-zero' : ''}`, money(r.revenue)));
+      if (prev) left.append(diffChip(r.revenue, prev.revenue));
+      const right = h('div', 'isl-rp-col');
+      right.append(h('small', 'isl-rp-k', t('利益', 'Profit')), h('b', `isl-rp-pf ${r.profit >= 0 ? 'is-good' : 'is-bad'}`, (r.profit >= 0 ? '+' : '−') + money(Math.abs(r.profit))));
+      right.append(h('small', 'isl-rp-k', t('資金の変化', 'Cash')));
+      if (r.money) {
+        right.append(h('span', 'isl-rp-cash', `${money(r.money.start)} → ${money(r.money.end)}`));
+      } else right.append(h('span', 'isl-rp-cash', '—'));
+      // 増減とブランド力の増えは 1 行に
+      const sub = h('span', 'isl-rp-subrow');
+      if (r.money) {
+        const dm = r.money.end - r.money.start;
+        sub.append(h('small', `isl-rp-dm ${dm >= 0 ? 'is-good' : 'is-bad'}`, t(`（${dm >= 0 ? '+' : '−'}${money(Math.abs(dm))}）`, `(${dm >= 0 ? '+' : '−'}${money(Math.abs(dm))})`)));
+      }
+      if (r.brand) sub.append(h('small', 'isl-rp-brand', `★ +${r.brand}`));
+      if (sub.childElementCount) right.append(sub);
+      grid.append(left, right);
+      c1.append(grid);
+      // 内訳（折りたたみ）
+      const detail = h('details', 'isl-rp-detail');
+      detail.append(h('summary', '', t('売上の内訳（商品ごとの売上・費用）', 'Breakdown (sales by product, costs)')));
       const by = h('div', 'isl-stock');
       for (const [k, v] of Object.entries(r.bySeries)) {
         if (!v) continue;
@@ -219,31 +371,101 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
         by.append(c);
       }
       const cost = r.costs;
-      const detail = h('details', 'isl-rp-detail');
-      const sum = h('summary', '', t('内訳を見る（商品ごとの売上・費用）', 'Details (sales by product, costs)'));
-      detail.append(sum, by, h('p', 'isl-dim', t(`費用：素材 ${money(cost.materials)}・建物とスキル ${money(cost.build)}・維持費 ${money(cost.upkeep)}・給料 ${money(cost.wages)}・アルバイト ${money(cost.part)}・宣伝 ${money(cost.ads ?? 0)}`, `Costs: materials ${money(cost.materials)}, buildings & skills ${money(cost.build)}, upkeep ${money(cost.upkeep)}, wages ${money(cost.wages)}, part-timers ${money(cost.part)}, ads ${money(cost.ads ?? 0)}`)));
+      detail.append(by, h('p', 'isl-dim', t(`費用：素材 ${money(cost.materials)}・建物とスキル ${money(cost.build)}・維持費 ${money(cost.upkeep)}・給料 ${money(cost.wages)}・アルバイト ${money(cost.part)}・宣伝 ${money(cost.ads ?? 0)}`, `Costs: materials ${money(cost.materials)}, buildings & skills ${money(cost.build)}, upkeep ${money(cost.upkeep)}, wages ${money(cost.wages)}, part-timers ${money(cost.part)}, ads ${money(cost.ads ?? 0)}`)));
       for (const n of r.news) {
         const [who, what] = n.split('|');
         detail.append(h('p', 'isl-warn', t(`${who}が「${what}」の販売を始めました。`, `${who} started selling ${what}.`)));
       }
-      body.append(detail);
+      c1.append(detail);
+      cards.push(c1);
 
-      // ---- 5. 次の一手
-      const next = h('div', 'isl-card2 isl-rp-next');
-      const mi = h('img', 'isl-rp-mine');
-      mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
-      mi.alt = '';
-      const txt = h('div');
-      const canSkill = SKILLS.some((k) => !s.skills.includes(k.id) && s.money >= k.cost && !(k.requires ?? []).some((q) => !s.skills.includes(q)));
-      const say = h('p');
-      say.append(rich(canSkill ? t(`稼いだ ${money(s.money)} で、スキルツリーの[[${STAGE_NAME[bn]}]]の枝を伸ばそう！`, `Spend your ${money(s.money)} on the [[${STAGE_NAME[bn]}]] branch of the skill tree!`) : t('資金がたまったら、スキルツリーで詰まりを太くしよう。', 'Once you have funds, widen the jam in the skill tree.')));
-      txt.append(h('b', '', t('次の一手', 'Next move')), say);
-      next.append(mi, txt);
-      const acts = h('div', 'isl-rp-acts');
-      acts.append(btn(t('スキルツリーへ', 'Skill tree'), () => hooks.openSkills(STAGE_BRANCH[bn]), 'is-on'), btn(t('ダッシュボード', 'Dashboard'), () => hooks.openSupply()), btn(t('企業ランキング', 'Ranking'), () => hooks.openRanking()));
-      next.append(acts);
-      body.append(next);
+      // ---- ② 【KGI】企業ランキング（エリア）
+      const c2 = h('div', 'isl-card2 isl-rp-card isl-rp-rank');
+      c2.append(cardHead('KGI', true, t('企業ランキング', 'Company ranking'), btn(t('目標確認：企業ランキング', 'Goal: Ranking'), () => hooks.openRanking(), 'isl-rp-go'), t('（エリア）', ' (area)')));
+      const prevRank = prev?.rank ?? null;
+      const moved = prevRank != null ? prevRank - r.rank : 0;
+      const head = h('div', 'isl-rp-rankhead');
+      const num = h('b', `isl-rp-ranknum ${animated ? 'is-done' : ''}`, t(`現在 ${r.rank} 位`, `Now #${r.rank}`));
+      head.append(num);
+      if (r.rank === 1) head.append(h('span', 'isl-rp-crown', '👑'));
+      if (prevRank == null) head.append(h('span', 'isl-rp-move is-new', t('初登場', 'New entry')));
+      else if (moved > 0) head.append(h('span', 'isl-rp-move is-up', t(`↑ ${moved} ランクアップ！`, `↑ Up ${moved}!`)));
+      else if (moved < 0) head.append(h('span', 'isl-rp-move is-down', t(`↓ ${-moved} ランクダウン`, `↓ Down ${-moved}`)));
+      else head.append(h('span', 'isl-rp-move', t('→ キープ', '→ Held')));
+      head.append(h('b', 'isl-rp-goalk', t(`ゴール：エリア ${GOAL_RANK} 位`, `Goal: #${GOAL_RANK} in the area`)));
+      c2.append(head);
+      const me = r.area.findIndex((x) => x.me);
+      const mySales = me >= 0 ? r.area[me].sales : r.revenue;
+      let gap = '';
+      if (me > 0) gap = t(`次の順位（${me} 位の${r.area[me - 1].name}）まで あと ${money(Math.max(0, r.area[me - 1].sales - mySales))}`, `${money(Math.max(0, r.area[me - 1].sales - mySales))} to #${me} (${r.area[me - 1].name})`);
+      else if (me === 0 && r.area.length > 1) gap = t(`2 位の${r.area[1].name}との差 ${money(Math.max(0, mySales - r.area[1].sales))}（守り切ろう！）`, `${money(Math.max(0, mySales - r.area[1].sales))} ahead of #2 ${r.area[1].name} — hold on!`);
+      if (gap) c2.append(h('p', 'isl-rp-goal', gap));
+      const rk = h('details', 'isl-rp-detail');
+      rk.append(h('summary', '', t('ランキング表', 'Ranking table')));
+      const list = h('ol', 'isl-rank isl-rp-list');
+      r.area.forEach((x, k) => {
+        const li = h('li', x.me ? 'is-me' : '');
+        li.style.setProperty('--d', `${k * 0.05}s`);
+        li.append(h('span', 'isl-rank-n', `${k + 1}`), h('span', '', x.me ? t('あなたの会社', 'Your company') : x.name), h('b', '', money(x.sales)));
+        list.append(li);
+        if (k + 1 === GOAL_RANK && r.area.length > GOAL_RANK) list.append(h('li', 'isl-rp-goalline', t('── ゴールライン ──', '── Goal line ──')));
+      });
+      rk.append(list);
+      c2.append(rk);
+      cards.push(c2);
+
+      // ---- ③ 【KPI ②】月次売上推移
+      const c3 = h('div', 'isl-card2 isl-rp-card');
+      const wrap = h('div', 'isl-rp-chartwrap');
+      let svg = chart(upto);
+      const sel = select(RANGES, chartRange, (v) => {
+        setRange(v);
+        const next = chart(upto);
+        svg.replaceWith(next);
+        svg = next;
+      });
+      sel.classList.add('isl-rp-range');
+      c3.append(cardHead(t('KPI ②', 'KPI 2'), false, t('月次売上推移', 'Monthly trend'), sel));
+      const legend = h('div', 'isl-rp-legend');
+      legend.append(h('span', 'is-line', t('売上（左軸）', 'Sales (left)')), h('span', 'is-bar', t('利益（右軸）', 'Profit (right)')));
+      wrap.append(svg, legend);
+      c3.append(wrap);
+      cards.push(c3);
+
+      // ---- ④ 【KPI ③】サプライチェーン管理
+      const c4 = h('div', 'isl-card2 isl-rp-card');
+      c4.append(cardHead(t('KPI ③', 'KPI 3'), false, t('サプライチェーン管理', 'Supply chain'), btn(t('分析：SCM ダッシュボード', 'Analyze: SCM'), () => hooks.openSupply(), 'isl-rp-go'), t('（SCM）', ' (SCM)')));
+      c4.append(flowRow(s, r));
+      const hint = h('p', 'isl-rp-hint');
+      const long = h('span', 'is-long');
+      long.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。${STAGE_HINT[bn]}`, `[[${STAGE_NAME[bn]}]] is the jam. ${STAGE_HINT[bn]}`)));
+      const short = h('span', 'is-short');
+      short.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。${STAGE_HINT_SHORT[bn]}`, `[[${STAGE_NAME[bn]}]] jam. ${STAGE_HINT_SHORT[bn]}`)));
+      hint.append(long, short);
+      c4.append(hint);
+      cards.push(c4);
+
+      cards.forEach((c, k) => c.style.setProperty('--d', `${k * 0.08}s`));
+      body.append(...cards);
     },
     then,
   );
+  const alive = () => !!bodyEl?.isConnected;
+  reveal(ctx, r, hooks, r.rank === 1, alive, () => {
+    shown = true;
+    const body = bodyEl;
+    if (!body || !body.isConnected) return;
+    body.classList.remove('is-wait');
+    body.classList.add('is-in');
+    const num = body.querySelector('.isl-rp-ranknum');
+    setTimeout(() => {
+      num?.classList.add('is-show');
+      if (prev && prev.rank > r.rank) hooks.sfx?.('levelup');
+    }, 420);
+    setTimeout(() => {
+      animated = true;
+      body.classList.remove('is-in');
+      body.querySelectorAll('.isl-rp-ranknum').forEach((e) => e.classList.add('is-done'));
+    }, 1300);
+  });
 }

@@ -5,9 +5,10 @@
 import '../island.css';
 import './p1.css';
 import { Sound } from '../../audio';
-import { heroById } from '../../game/catalog';
+import { getExtension, heroById } from '../../game/catalog';
 import { isEn, setLang, t } from '../../i18n';
 import { assetUrl } from '../../render/images';
+import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
@@ -159,7 +160,7 @@ addEventListener(
   (e) => {
     const b = e.target instanceof Element ? e.target.closest('button') : null;
     if (!b || b.disabled) return;
-    sfx.play(b.closest('.isl-talk') ? 'page' : 'tap');
+    sfx.play(b.closest('.isl-talk, .isl-next-month') ? 'page' : 'tap');
   },
   { capture: true },
 );
@@ -259,6 +260,11 @@ statSector.addEventListener('click', () => openLand(ctx));
 const SPEEDS = [0, 1, 4];
 const speedBtns = SPEEDS.map((v) =>
   btn(v === 0 ? '⏸' : v === 1 ? '▶' : '⏩', () => {
+    // 月末ポーズのあいだは ▶⏩ では進まない（「次の月に進む」で始める）
+    if (v > 0 && s.monthPause) {
+      toast(t('「次の月に進む」を押すと、次の月が始まるよ', 'Press “Next month” to start the next month'));
+      return;
+    }
     speed = v;
     renderHud();
   }),
@@ -333,8 +339,8 @@ function renderHud() {
   monthBar.classList.toggle('is-near', d != null && left <= 5);
   monthBar.title = d ? t(`月の締めまで あと ${left} 日`, `${left} days to the monthly close`) : '';
   speedBtns.forEach((b, k) => b.classList.toggle('is-on', SPEEDS[k] === speed));
-  // 見習い期間で時間を止めている段は、速さのボタンを薄く（押しても進まない）
-  speedBox.classList.toggle('is-off', tutHold());
+  // 見習い期間で時間を止めている段・月末ポーズのあいだは、速さのボタンを薄く（押しても進まない）
+  speedBox.classList.toggle('is-off', tutHold() || !!s.monthPause);
 }
 
 // ---------------------------------------------------------------- 下の帯：事業別メニュー
@@ -1095,6 +1101,55 @@ mine.alt = '';
 const bubbleBox = h('div', 'isl-bubble');
 advisor.append(mine, bubbleBox);
 let hiddenTip = '';
+
+// ---------------------------------------------------------------- 月末ポーズ：「次の月に進む」（地図の右下）
+
+const nextBtn = h('button', 'isl-next-month');
+nextBtn.type = 'button';
+nextBtn.hidden = true;
+const nextIcon = icon(getExtension(1111).image, 'px isl-next-ic');
+const nextText = h('span', 'isl-next-text');
+const nextSmall = h('small', '', t('次の月へ', 'Next month'));
+const nextBig = h('b');
+nextText.append(nextSmall, nextBig);
+nextBtn.append(nextIcon, nextText);
+nextBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  nextMonth();
+});
+/** ボタンが消える演出のあいだ（すぐに hidden にしない） */
+let nextLeaving = false;
+function nextMonth() {
+  if (!s.monthPause) return;
+  sfx.play('page');
+  s.monthPause = false;
+  speed = 1;
+  save();
+  renderHud();
+  nextLeaving = true;
+  nextBtn.classList.add('is-gone');
+  setTimeout(() => {
+    nextLeaving = false;
+    nextBtn.classList.remove('is-gone');
+    nextBtn.hidden = true;
+    renderAll();
+  }, 260);
+}
+/** ボタンを出すとき：月末ポーズで、画面・窓・吹き出し・建てるモード・メニュー・流れの案内・発表が出ていない */
+const nextShown = () => !!s.monthPause && !placing && !menu && !pop && !sheetOpen() && !tour && !root.querySelector('.isl-modal, .isl-rp-reveal');
+function renderNext() {
+  if (nextLeaving) return;
+  const show = nextShown();
+  if (show) {
+    const d = date(s);
+    const label = d ? t(`${d.month} 月に進む ▶`, `Go to M${d.month} ▶`) : t('次の月に進む ▶', 'Next month ▶');
+    if (nextBig.textContent !== label) nextBig.textContent = label;
+  }
+  if (nextBtn.hidden === show) {
+    nextBtn.hidden = !show;
+    if (show) layout();
+  }
+}
 
 function openBuildTab() {
   goSub('plan', 'build');
@@ -1866,6 +1921,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
     const a = actOf(st, s);
     return { text: st.say(s), action: a ? [a[0], () => tutGo(a[1])] : undefined };
   }
+  // 月末ポーズ：まず来月の計画、それから「次の月に進む」
+  if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
   const rec = PRODUCT[recommend(s)].name;
@@ -2122,6 +2179,11 @@ function layout() {
   root.style.setProperty('--foot-h', rail ? '0px' : `${Math.round(innerHeight - foot.getBoundingClientRect().top)}px`);
   const bottom = rail ? 12 : innerHeight - foot.getBoundingClientRect().top + 8;
   advisor.style.bottom = `${bottom}px`;
+  // 「次の月に進む」：スマホは下の帯とマインちゃんの吹き出しの上、PC は右の帯の左・下から 24px
+  if (!nextBtn.hidden) {
+    const advOn = !advisor.hidden && advisor.style.display !== 'none' && advisor.getBoundingClientRect().height > 0;
+    nextBtn.style.bottom = `${rail ? 24 : innerHeight - (advOn ? advisor.getBoundingClientRect().top : foot.getBoundingClientRect().top) + 8}px`;
+  }
   toasts.style.top = `${placing ? selBox.getBoundingClientRect().bottom + 8 : top}px`;
   selBox.style.top = `${hud.getBoundingClientRect().top}px`;
   placePop();
@@ -2134,9 +2196,10 @@ function renderAll() {
   renderFoot();
   renderPlace();
   renderAdvisor();
+  renderNext();
   layout();
 }
-root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
+root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
 resize();
 renderAll();
 // 始めたばかりなら、建築の一覧を開いておく
@@ -2493,7 +2556,9 @@ let quarterNew: number | null = null;
 
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;
-  sfx.play('report');
+  // 月末ポーズ：報告を閉じても、「次の月に進む」を押すまで時間は止まったまま（音は発表のドラムロールから）
+  s.monthPause = true;
+  save();
   closePop();
   openMonthReport(ctx, r, { openSkills: (br) => openSkills(ctx, br), openSupply: () => openSupply(ctx), openRanking: () => openRanking(ctx), sfx: (k) => sfx.play(k) }, () => {
     if (tutOf(s) < TUT_DONE) {
@@ -2532,7 +2597,7 @@ function tutHold(): boolean {
   if (tour) return false;
   return hlOf(st, s) !== 'speed';
 }
-const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold();
+const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold() || !!s.monthPause;
 let lastHeld = false;
 
 function frame(now: number) {
@@ -2544,6 +2609,7 @@ function frame(now: number) {
     lastHeld = held;
     statDate.classList.toggle('is-held', held);
   }
+  renderNext();
   if (!held) acc += dt * speed;
   if (!held && speed > 0) tickAnim(dt * speed);
   anim.frac = held || speed === 0 ? anim.frac : Math.min(1, acc / dayMs());

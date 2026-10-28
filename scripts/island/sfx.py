@@ -1,6 +1,7 @@
 """アイランドの効果音をコードで作る（BGM は mycryptoheroes のリポジトリの曲を使う）。
 
-  python3 scripts/island/sfx.py   → public/island/sfx/*.mp3
+  python3 scripts/island/sfx.py          → public/island/sfx/*.mp3
+  python3 scripts/island/sfx.py drum     → 名前を並べると、その音だけ作る
 
 どれも短い合成音（正弦波・三角波・ノイズに音量の山をかけたもの）。音の高さと長さはここで決める。
 ブラウザの側は src/island/p1/sfx.ts（Web Audio で先に読み込み、遅れなく鳴らす）。
@@ -97,6 +98,18 @@ def note(n):
 C5, D5, E5, F5, G5, A5, B5 = (note(k) for k in (3, 5, 7, 8, 10, 12, 14))
 C6, E6, G6, C7 = note(15), note(19), note(22), note(27)
 
+
+def drum(sec=1.4):
+    """ドラムロール：短いノイズの打音に低い音を少し混ぜ、1 拍 70 ms → 35 ms へだんだん速く、音量も上げていく（締めの音は入れない。締めは sale / win）"""
+    hit = mix(noise(0.05, decay=0.02, lp=0.45), 0.35 * tone(90, 0.06, 'sine', 0.001, 0.03))
+    parts = []
+    at = 0.0
+    while at < sec - 0.05:
+        k = at / sec
+        parts.append((at, (0.45 + 0.55 * k) * hit))
+        at += 0.070 - 0.035 * k
+    return seq(parts)
+
 SOUNDS = {
     # ボタン・タブを押した：短く軽いクリック
     'tap': lambda: norm(mix(tone(1800, 0.04, 'tri', 0.001, 0.012), 0.4 * noise(0.03, 0.008, 0.6)), 0.5),
@@ -126,6 +139,8 @@ SOUNDS = {
     'clear': lambda: norm(seq([(0, tone(E5 * 2, 0.16, 'tri', 0.002, 0.07)), (0.09, tone(G5 * 2, 0.16, 'tri', 0.002, 0.07)), (0.18, tone(C7, 0.5, 'tri', 0.002, 0.22, vib=0.006)), (0.2, 0.5 * bell(C7 * 1.5, 0.45, 0.15))]), 0.7),
     # 月の売上報告：落ち着いた 4 音
     'report': lambda: norm(seq([(i * 0.16, tone(f, 0.6, 'tri', 0.004, 0.3)) for i, f in enumerate([C5, E5, G5, C6])]), 0.6),
+    # 月次報告の発表：数字が転がるあいだのドラムロール（約 1.4 秒）
+    'drum': lambda: norm(drum(1.4), 0.7),
     # エリア 1 位の月：はなやかなファンファーレ
     'win': lambda: norm(seq([(0, tone(C6, 0.14, 'tri', 0.003, 0.08)), (0.12, tone(C6, 0.14, 'tri', 0.003, 0.08)), (0.24, tone(C6, 0.14, 'tri', 0.003, 0.08)), (0.38, tone(G6, 0.8, 'tri', 0.003, 0.45, vib=0.008) + 0.5 * tone(E6, 0.8, 'tri', 0.003, 0.45))]), 0.7),
 }
@@ -147,7 +162,11 @@ def write_mp3(name, x):
 
 
 if __name__ == '__main__':
+    import sys
     os.makedirs(OUT, exist_ok=True)
+    only = set(sys.argv[1:])
     for name, make in SOUNDS.items():
+        if only and name not in only:
+            continue
         p = write_mp3(name, make())
         print(name, os.path.getsize(p), 'bytes')
