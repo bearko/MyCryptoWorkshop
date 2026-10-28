@@ -23,6 +23,7 @@ import {
   gateToll,
   has,
   hasRoute,
+  knownOf,
   needFor,
   recommend,
   tierOk,
@@ -159,8 +160,8 @@ interface Ctx {
 
 const DIRS = ['rd', 'ld', 'lu', 'ru'] as const;
 
-/** 手の届く人（ほかのセクタのマネージャーを除く） */
-const crew = (s: P1State) => s.staff.filter((x) => x.task !== 'manager');
+/** 手の届く人（ほかのセクタのマネージャーと、技の修行中の人を除く） */
+const crew = (s: P1State) => s.staff.filter((x) => x.task !== 'manager' && x.task !== 'train');
 const craftApt = (hero: number, s: P1State) => aptitude(s.staff.find((x) => x.hero === hero)!.stats, 'craft');
 
 /** 道路に面した空き地（建物ごと）。お店は下見でいちばん売れる所（遠いと運ぶのに日数がかかるので少し引く） */
@@ -297,6 +298,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
   const pending = new Set<string>();
   const learnable = (id: string) => {
     const k = SKILL[id];
+    // 技の修行は 1 つずつ（修行中・同じ日にもう 1 つ取ろうとしているときは待つ）
+    if (k?.train && (s.training || [...pending].some((x) => SKILL[x]?.train))) return false;
     return k && !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
   };
   const take = (id: string, keep = reserve) => {
@@ -486,6 +489,11 @@ export function policy(s: P1State, c: Ctx): Action[] {
     for (const key of keys) {
       const need = needFor(s, key);
       if (!need) continue;
+      // 修行中：終わるまで待つあいだに、その商品の素材のルートを先に取っておく
+      if (need.kind === 'tech' && s.training?.id === need.skill) {
+        for (const m of Object.keys(recipeOf(sku(key, 'C'))) as Mat[]) if (!hasRoute(s, m)) for (const r of routeChain(m)) take(r, reserve / 2);
+        return;
+      }
       if (need.kind === 'tech') take(need.skill, reserve / 2);
       else if (need.kind === 'route') for (const r of routeChain(need.mat)) take(r, reserve / 2);
       else if (need.kind === 'pot') {
@@ -503,6 +511,15 @@ export function policy(s: P1State, c: Ctx): Action[] {
     }
   };
   if (!saving) researching();
+  // 新商品の認知：gap の商品を並べたら、駅のポスター（30 日）で早く広める
+  const gapOnShelf = myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x && gapOf(s).includes(skuParts(x)[0]) && knownOf(s, skuParts(x)[0]) < 1));
+  if (gapOnShelf && (s.ads.poster ?? 0) <= 0) {
+    const ad = ADS.find((a) => a.id === 'poster')!;
+    if (budget >= ad.cost + reserve / 2) {
+      spend(ad.cost);
+      acts.push({ kind: 'ad', run: () => runAd(s, 'poster') });
+    }
+  }
   const wantU = (s.tier ?? 'C') !== 'C' || c.policy === 'rta';
   if (c.policy === 'rta') {
     if (!saving) {
