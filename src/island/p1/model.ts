@@ -150,6 +150,14 @@ export interface Report {
   area: Rank[];
   rank: number;
   news: string[];
+  /** その月の流れ（商品の数）：買った素材・作った・運んだ・売れた。以前のセーブには無い */
+  flow?: { bought: number; made: number; hauled: number; sold: number };
+  /** 月のはじめと終わりの資金 */
+  money?: { start: number; end: number };
+  /** その月に上がったブランド力 */
+  brand?: number;
+  /** その月のボトルネック（締めの時点） */
+  bottleneck?: Stage;
 }
 
 export interface Flags {
@@ -260,6 +268,9 @@ export interface P1State {
   buyTrip: BuyTrip | null;
   /** 卸問屋への注文（納期に届く） */
   orders?: Order[];
+  /** 月のはじめの資金とブランド力（報告の「この月で」用） */
+  moneyStart?: number;
+  brandStart?: number;
   /** チュートリアルの流れの案内：お店の中を見せるまで、売るのを待つ */
   holdSales?: boolean;
   /** ゲームの進行速度（1・1.5・2。スキルで選べる） */
@@ -1502,6 +1513,8 @@ export function step(s: P1State): DayResult {
           if (s.open === null) {
             s.open = s.day;
             s.rivalSales = Object.fromEntries(s.rivals.map((r) => [r.id, 0]));
+            s.moneyStart = Math.round(s.money);
+            s.brandStart = s.brand ?? 0;
           }
         }
       }
@@ -1810,6 +1823,7 @@ export function endMonth(s: P1State): Report {
     sh.cost = 0;
   }
   s.ws.last = { made: s.ws.made, value: Math.round(s.ws.value) };
+  const hauledThisMonth = s.ws.hauled ?? 0;
   s.ws.made = 0;
   s.ws.hauled = 0;
   s.ws.value = 0;
@@ -1825,7 +1839,23 @@ export function endMonth(s: P1State): Report {
   const area = areaRanking(s, revenue, rivals);
   const rank = area.findIndex((x) => x.me) + 1;
   const costs = { ...s.monthCost };
-  const report: Report = { month, revenue: Math.round(revenue), bySeries: { ...s.monthSales }, costs, profit: Math.round(revenue - Object.values(costs).reduce<number>((a, v) => a + v, 0)), area, rank, news };
+  const sold = Object.values(s.monthUnits).reduce<number>((a, v) => a + (v ?? 0), 0);
+  const brandStart = s.brandStart ?? s.brand ?? 0;
+  const report: Report = {
+    month,
+    revenue: Math.round(revenue),
+    bySeries: { ...s.monthSales },
+    costs,
+    profit: Math.round(revenue - Object.values(costs).reduce<number>((a, v) => a + v, 0)),
+    area,
+    rank,
+    news,
+    flow: { bought: s.proc.bought, made: s.ws.last.made, hauled: hauledThisMonth, sold },
+    money: { start: s.moneyStart ?? s.money, end: Math.round(s.money) },
+    brand: 0,
+    bottleneck: bottleneck(stageCaps(s)),
+  };
+  void brandStart;
 
   // 自社だけが売っている商品には、しばらくすると他社が参入する
   for (const p of PRODUCTS) {
@@ -1868,6 +1898,9 @@ export function endMonth(s: P1State): Report {
   s.rivalSales = Object.fromEntries(s.rivals.map((r) => [r.id, 0]));
   s.monthCost = { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 };
   s.hirePool = pickHires(s);
+  report.brand = (s.brand ?? 0) - brandStart;
+  s.moneyStart = Math.round(s.money);
+  s.brandStart = s.brand ?? 0;
   return report;
 }
 
