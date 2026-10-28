@@ -459,6 +459,13 @@ function pickMenu(m: Menu) {
   const ts = tutStep();
   const [hm, hk] = (ts ? hlOf(ts, s) : '').split(':');
   const target = hm === m && hk ? SUBS[m].find((x) => x.key === hk) : undefined;
+  // 自分で押してもらう段：サブタブを出すだけ（光っているサブタブを押してもらう）
+  if (ts?.lesson && target) {
+    closeSheet();
+    sfx.play('tap');
+    renderAll();
+    return;
+  }
   const first = target ?? SUBS[m].find((x) => !needsOff(x) && !subLocked(m, x.key)) ?? SUBS[m][0];
   openSub(first);
 }
@@ -500,7 +507,7 @@ function renderFoot() {
   // チュートリアル：次に押すところを光らせる
   const tk = tutOf(s);
   const step = tk < TUT_DONE ? TUT[tk] : undefined;
-  const [hm, hk] = (step ? hlOf(step, s) : '').split(':');
+  const [hm, hk] = (step && !introPending() ? hlOf(step, s) : '').split(':');
   for (const m of Object.keys(tabBtns) as Menu[]) {
     tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
     tabBtns[m].classList.toggle('is-lock', menuLocked(m));
@@ -1385,7 +1392,7 @@ function tutTick() {
     }
     talk(pages, st.intro.ok, () => {
       const a = actOf(st, s);
-      if (a) tutGo(a[1]);
+      if (a && !st.lesson) tutGo(a[1]);
       else renderAll();
     });
   }
@@ -1798,6 +1805,14 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const tk = tutOf(s);
   if (tk < TUT_DONE && TUT[tk]) {
     const st = TUT[tk];
+    // 下の帯のタブ → サブタブを自分で押してもらう段：いま押すところを 1 つずつ
+    if (st.lesson) {
+      const [hm, hk] = hlOf(st, s).split(':') as [Menu, string];
+      const subName = hk ? SUBS[hm as Exclude<Menu, 'skill'>]?.find((x) => x.key === hk)?.name : undefined;
+      if (menu !== hm) return { text: t(`画面の下の「[[${MENU_NAME[hm]}]]」タブを押そう！`, `Tap the [[${MENU_NAME[hm]}]] tab at the bottom!`) };
+      if (subName && sub !== hk) return { text: t(`タブの上に出てきた「[[${subName}]]」を押そう！`, `Now tap [[${subName}]] above the tabs!`) };
+      return { text: st.say(s) };
+    }
     const a = actOf(st, s);
     return { text: st.say(s), action: a ? [a[0], () => tutGo(a[1])] : undefined };
   }
@@ -1846,8 +1861,15 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   return { text: t('いい調子です！', 'Nice work!') };
 }
 
+/** いまの段の会話をまだ出していない（クリアの演出のあいだ）：次の段の吹き出し・光る場所は、会話のあとで出す */
+function introPending(): boolean {
+  const k = tutOf(s);
+  const st = k < TUT_DONE ? TUT[k] : undefined;
+  return !!st && (!!st.intro || !!st.autoGo) && tutIntro !== k;
+}
+
 function renderAdvisor() {
-  advisor.style.display = placing || sheetOpen() || pop || !guideOn ? 'none' : '';
+  advisor.style.display = placing || sheetOpen() || pop || !guideOn || introPending() ? 'none' : '';
   const tip = tutorial();
   if (tip.text === hiddenTip) return;
   advisor.hidden = false;
@@ -2137,6 +2159,12 @@ canvas.addEventListener('pointerup', (e) => {
   if (menu) {
     menu = null;
     sub = null;
+  }
+  // 道路は押しても何も出さない（地図を動かそうとして押してしまうことが多いので）。開いている吹き出しは閉じる
+  if (ground(s, i, j) === 'road') {
+    closePop();
+    renderAll();
+    return;
   }
   openPop(i, j);
   renderAll();
