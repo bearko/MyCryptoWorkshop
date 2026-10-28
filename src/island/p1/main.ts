@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
+import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -60,6 +60,9 @@ import {
   openGate,
   has,
   rivalMonthGuess,
+  adBoost,
+  market,
+  trainingOf,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -2006,6 +2009,8 @@ function researchTip(): { text: string; action?: [string, () => void] } | null {
   const rec = recommend(s);
   const need = needFor(s, rec);
   const name = PRODUCT[rec].name;
+  const tr = need?.kind === 'tech' ? trainingOf(s, need.skill) : null;
+  if (tr) return { text: t(`${heroName(tr.hero)}が[[${SKILL[tr.id].name}]]を修行中だよ（あと ${tr.left} 日）。身につけたら「${name}」を作れるよ。それまでに素材とお店の準備をしよう！`, `${heroName(tr.hero)} is training in [[${SKILL[tr.id].name}]] (${tr.left} d left). Then you can make ${name}. Get materials and shops ready meanwhile!`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, tr.id)] };
   if (need?.kind === 'tech') return { text: t(`「${name}」が売れそう。まずは[[${SKILL[need.skill].name}]]を開放しよう（スキルツリーの技の枝）。`, `${name} looks promising. First unlock [[${SKILL[need.skill].name}]] (Crafts branch of the skill tree).`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
   if (need?.kind === 'route') return { text: t(`「${name}」には[[${MATS[need.mat].name}]]が要るよ。スキルツリーで[[${SKILL[need.skill].name}]]を開放しよう。`, `${name} needs [[${MATS[need.mat].name}]]. Unlock the [[${SKILL[need.skill].name}]] in the skill tree.`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
   if (need?.kind === 'dev' && s.dev.length && !s.lab) return { text: t(`「${name}」を[[商品開発]]でアンコモンにしよう（営業企画 → 商品開発）。`, `Develop ${name} into an Uncommon in [[Product development]] (Planning → Products).`), action: [t('商品開発を開く', 'Open products'), () => openDev(ctx)] };
@@ -2038,6 +2043,9 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   // 2 か所目以降：市場データ → 勧めた商品の技 → 素材のルート（→ Uncommon は魔法の釜・商品開発）の順に導く
   const research = researchTip();
   if (research) return research;
+  // 新商品の認知：並べているのにまだ知られていない商品があって、宣伝をしていない
+  const unknown = adBoost(s) > 0 ? null : market(s).filter((r) => r.mine && r.known < AWARE_GOODS.low).sort((a, b) => a.known - b.known)[0];
+  if (unknown) return { text: t(`新しい商品はまだ知られていないよ（「${unknown.p.name}」の認知 ${Math.round(unknown.known * 100)}%）。[[宣伝]]で早く広めよう！`, `New items aren’t known yet (${unknown.p.name}: ${Math.round(unknown.known * 100)}% known). Spread the word with [[ads]]!`), action: [t('宣伝を開く', 'Open ads'), () => openAds(ctx)] };
   // Uncommon のセクタ：Common の商品は売れにくいので、まずアンコモンを開発
   if ((s.tier ?? 'C') !== 'C' && !s.dev.length && !s.lab) {
     if (!has(s, 'pot')) return { text: t('ここではアンコモンが要るよ。スキルツリーの[[魔法の釜]]を先に開放しよう（工房の枝）。', 'Uncommons are needed here. Unlock the [[Magic pot]] in the skill tree first (Workshop branch).'), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, 'craft')] };
@@ -2626,6 +2634,11 @@ function advance(days: number) {
     for (const m of r.routes) toast(t(`${MATS[m].name}のルートを開拓しました！`, `Opened a ${MATS[m].name} route!`));
     for (const x of r.intel) toast(t(`${rivalName(x.rid)}の調査が段階 ${x.lv} に進みました`, `Research on ${rivalName(x.rid)} reached stage ${x.lv}`));
     for (const k2 of r.developed) toast(t(`${PRODUCT[k2].name}のアンコモンを開発しました！`, `Developed the ${PRODUCT[k2].name} Uncommon!`));
+    // 技の修行が終わった
+    for (const x of r.learned ?? []) {
+      toast(plain(t(`${heroName(x.hero)}が[[${SKILL[x.id]?.name ?? x.id}]]を身につけた！`, `${heroName(x.hero)} mastered [[${SKILL[x.id]?.name ?? x.id}]]!`)));
+      sfx.play('levelup');
+    }
     for (const id of r.missions) toast(t(`依頼「${MISSIONS.find((m) => m.id === id)?.title ?? ''}」を達成しました`, `Request done: ${MISSIONS.find((m) => m.id === id)?.title ?? ''}`));
     if (r.company) companyNews(r.company);
     // 注文が届いた：問屋の人が工房に入って在庫になり、卸問屋へ帰っていく
@@ -2637,6 +2650,11 @@ function advance(days: number) {
       if (back) anim.walkers.push({ hero: o.courier, path: back, t0: anim.clock + 300, dur: walkDays(s) * dayMs() });
     }
     if (r.report) {
+      // 他社の追随：自社が売っている商品を、他社が真似して売り始めた
+      for (const n of r.report.news) {
+        const [who, what] = n.split('|');
+        toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
+      }
       save();
       // 流れの案内のあいだは、終わってから出す
       if (tour) tourReport = r.report;

@@ -165,7 +165,7 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side' | 'manager';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side' | 'manager' | 'train';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
@@ -206,6 +206,9 @@ export function aptitude(s: Stats, task: Task): number {
     case 'manager':
       // セクタマネージャー：能力値の合計（平均）
       return (s.phy + s.int + s.agi) / 3;
+    case 'train':
+      // 技の修行：製造と同じ
+      return 0.5 * Math.min(s.phy, s.int, s.agi) + 0.5 * ((s.phy + s.int + s.agi) / 3);
   }
 }
 
@@ -685,6 +688,12 @@ export const DEPOT = { link: 0.3 };
 export const SHOP = { shelfCap: 10, storageCap: 20, displayPerDay: 6, partTimeDisplay: 4, partTimeWage: 30, partTimeMax: 1, noStaff: 0 };
 /** 新しいお店の認知度：開店した日は 0.2、1 日 0.02 ずつ上がって 1 まで（売れる数にかかる） */
 export const AWARE = { start: 0.35, perDay: 0.025 };
+/**
+ * 新商品の認知（セクタごと・商品ごと。0〜1）。そのセクタで初めて並べる商品は、お客さんがまだ知らない（start）。
+ * 自社のお店の棚に並んでいる日に perDay、宣伝が効いている日はさらに ad だけ育つ（並べていない日は変わらない）。
+ * 売れる数（売り場の強さ）に掛ける。noSaturation のセクタ（最初の町タオックス）は全部 1（チュートリアルを変えない）
+ */
+export const AWARE_GOODS = { start: 0.3, perDay: 0.02, ad: 0.03, low: 0.6 };
 /** 保管：工房の物置（素材と、運ぶ前の商品の合計）と、倉庫 1 つで増える数。いっぱいだと調達もクラフトもできない */
 export const STORE = { base: 80, warehouse: 200 };
 
@@ -701,7 +710,11 @@ export interface Skill {
   anyOf?: { ids: string[]; n: number };
   /** 取るのに要るブランド力 */
   brand?: number;
+  /** 技の修行の日数（取ったあと、職人が修行して身につけるまで。製造の適性で縮む。無ければ即日） */
+  train?: number;
 }
+/** 修行の日数の縮み方：適性 apt で ×(1 − min(cut, apt / per))（適性 100 で −40%） */
+export const TRAIN = { cut: 0.4, per: 250 };
 
 export const SKILLS: Skill[] = [
   { id: 'shelf1', branch: 'shop', name: t('棚を増やす', 'More shelves'), note: t('お店の棚 +1（2 種類並べられる）', 'Shelves +1 per shop'), cost: 3000 },
@@ -740,13 +753,13 @@ export const SKILLS: Skill[] = [
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる', 'Hire heroes'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
   // 技（作れる商品を増やす。docs/ISLAND_PHASE1.md「商品と技」）
-  { id: 't_wood', branch: 'tech', name: t('木工の技', 'Woodworking'), note: t('椅子を作れる', 'Lets you make Chairs'), cost: 4000 },
-  { id: 't_paper', branch: 'tech', name: t('紙工の技', 'Papercraft'), note: t('傘・ペンを作れる', 'Lets you make Parasols and Quills'), cost: 5000 },
-  { id: 't_metal', branch: 'tech', name: t('金工の技', 'Metalwork'), note: t('ナイフ・コンパスを作れる', 'Lets you make Knives and Compasses'), cost: 6000 },
-  { id: 't_glass', branch: 'tech', name: t('ガラス細工', 'Glasswork'), note: t('ゴブレット・モノクルを作れる', 'Lets you make Goblets and Monocles'), cost: 7000 },
-  { id: 't_clay', branch: 'tech', name: t('陶芸の技', 'Pottery'), note: t('モアイ・日本人形を作れる', 'Lets you make Moai and Japanese Dolls'), cost: 5000 },
-  { id: 't_textile', branch: 'tech', name: t('織物の技', 'Weaving'), note: t('リボン・ハットを作れる', 'Lets you make Ribbons and Hats'), cost: 6000 },
-  { id: 't_jewel', branch: 'tech', name: t('宝飾の技', 'Jewelcraft'), note: t('オルゴールを作れる', 'Lets you make Music Boxes'), cost: 12000, requires: ['t_metal'] },
+  { id: 't_wood', branch: 'tech', name: t('木工の技', 'Woodworking'), note: t('椅子を作れる', 'Lets you make Chairs'), cost: 4000, train: 8 },
+  { id: 't_paper', branch: 'tech', name: t('紙工の技', 'Papercraft'), note: t('傘・ペンを作れる', 'Lets you make Parasols and Quills'), cost: 5000, train: 10 },
+  { id: 't_metal', branch: 'tech', name: t('金工の技', 'Metalwork'), note: t('ナイフ・コンパスを作れる', 'Lets you make Knives and Compasses'), cost: 6000, train: 12 },
+  { id: 't_glass', branch: 'tech', name: t('ガラス細工', 'Glasswork'), note: t('ゴブレット・モノクルを作れる', 'Lets you make Goblets and Monocles'), cost: 7000, train: 14 },
+  { id: 't_clay', branch: 'tech', name: t('陶芸の技', 'Pottery'), note: t('モアイ・日本人形を作れる', 'Lets you make Moai and Japanese Dolls'), cost: 5000, train: 10 },
+  { id: 't_textile', branch: 'tech', name: t('織物の技', 'Weaving'), note: t('リボン・ハットを作れる', 'Lets you make Ribbons and Hats'), cost: 6000, train: 12 },
+  { id: 't_jewel', branch: 'tech', name: t('宝飾の技', 'Jewelcraft'), note: t('オルゴールを作れる', 'Lets you make Music Boxes'), cost: 12000, train: 20, requires: ['t_metal'] },
   { id: 't_master', branch: 'tech', name: t('匠の技', 'Master craft'), note: t('技が要る商品の売り場の強さ +15%（技を 3 つ取ると開放できる）', 'Pull +15% for goods that need a craft skill (unlock after any 3 craft skills)'), cost: 15000, anyOf: { ids: ['t_wood', 't_paper', 't_metal', 't_glass', 't_clay', 't_textile', 't_jewel'], n: 3 } },
   { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
   { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },

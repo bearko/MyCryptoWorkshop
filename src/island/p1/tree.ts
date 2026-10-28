@@ -8,9 +8,10 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { BRANCHES, SKILL, SKILLS, anyOfMet, type Mat, type Skill, type Sku } from './data';
-import { has, hqOpen, learn, openHQ, type P1State } from './model';
+import { has, hqOpen, learn, openHQ, trainDays, trainingOf, trainees, type P1State } from './model';
 import { after, mineTip, open, type Ctx } from './screens';
-import { btn, h, heroIcon, matIcon, money, skuIcon } from './ui';
+import { pickHero } from './heroui';
+import { bar, btn, h, heroIcon, heroName, matIcon, money, plain, skuIcon } from './ui';
 
 type Branch = Skill['branch'];
 
@@ -141,11 +142,12 @@ function iconOf(id: string, size: number): HTMLElement {
   return h('span', 'isl-tree-emoji', spec.emoji ?? '✦');
 }
 
-type State = 'done' | 'open' | 'poor' | 'locked';
+type State = 'done' | 'training' | 'open' | 'poor' | 'locked';
 /** ブランド力が足りない（ブランド力が要るパネル） */
 const brandShort = (s: P1State, k: Skill) => !!k.brand && (s.brand ?? 0) < k.brand;
 function stateOf(s: P1State, k: Skill): State {
   if (has(s, k.id)) return 'done';
+  if (trainingOf(s, k.id)) return 'training';
   if (k.requires?.some((r) => !has(s, r)) || !anyOfMet(k, (r) => has(s, r)) || brandShort(s, k)) return 'locked';
   return s.money >= k.cost ? 'open' : 'poor';
 }
@@ -153,6 +155,18 @@ function stateOf(s: P1State, k: Skill): State {
 function brandTag(s: P1State, k: Skill): HTMLElement | null {
   if (!k.brand) return null;
   return h('span', `isl-tree-brand ${brandShort(s, k) ? '' : 'is-ok'}`, `★${k.brand}`);
+}
+/** 技の修行の説明（取ったあと、職人が修行して身につける） */
+const trainNote = (k: Skill) => t(`取ったあと、職人が修行して身につける（${k.train} 日。製造の適性が高いほど早い）。修行中の職人は作業台に立てない`, `After unlocking, a crafter trains to master it (${k.train} days, shorter with higher crafting aptitude). They can’t work a bench meanwhile`);
+/** 修行中の札：職人・残りの日数・進み具合 */
+function trainBox(s: P1State, k: Skill): HTMLElement | null {
+  const tr = trainingOf(s, k.id);
+  if (!tr) return null;
+  const box = h('div', 'isl-tree-trainbox');
+  const row = h('div', 'isl-row');
+  row.append(heroIcon(tr.hero, 28), h('small', 'isl-gold', t(`${heroName(tr.hero)}が修行中（あと ${tr.left} 日）`, `${heroName(tr.hero)} is training (${tr.left} d left)`)));
+  box.append(row, bar(1 - tr.left / tr.total, 'var(--isl-gold)'));
+  return box;
 }
 const brandNeed = (s: P1State, k: Skill) => t(`ブランド力 ${k.brand} が要る（いま ${s.brand ?? 0}）`, `Needs brand ${k.brand} (now ${s.brand ?? 0})`);
 /** 「技を 3 つ」のような条件（anyOf）の札 */
@@ -182,8 +196,11 @@ function skillCard(s: P1State, k: Skill): HTMLElement {
   if (L.stage) c.append(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
   if (k.brand) c.append(h('small', brandShort(s, k) ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
   if (k.anyOf) c.append(h('small', anyOfMet(k, (r) => has(s, r)) ? 'isl-good' : 'isl-warn', anyNeed(s, k)));
+  if (k.train && st !== 'done' && st !== 'training') c.append(h('small', 'isl-dim', trainNote(k)));
+  const tb = trainBox(s, k);
+  if (tb) c.append(tb);
   if (k.requires?.length) c.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join('　')}`, `Needs: ${k.requires.map((r) => SKILL[r]?.name ?? r).join(', ')}`)));
-  c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('開放済み', 'Unlocked') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・ダブルクリックで開放`, `${money(k.cost)} · double-click to unlock`)));
+  c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('開放済み', 'Unlocked') : st === 'training' ? t('修行中', 'Training') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・ダブルクリックで開放`, `${money(k.cost)} · double-click to unlock`)));
   return c;
 }
 function hqCard(s: P1State, sealed: boolean): HTMLElement {
@@ -266,6 +283,48 @@ export function openSkills(ctx: Ctx, focus?: string) {
     /** 開放する（パネルのボタン・ダブルタップ） */
     const tryLearn = (k: Skill) => {
       if (only && k.id !== only) return halt();
+      // 技：修行に出す職人を選んでから（修行は 1 つずつ）
+      if (k.train && !has(s, k.id)) {
+        if (trainingOf(s, k.id)) return;
+        if (s.training) {
+          ctx.sfx?.('error');
+          ctx.toast(plain(t(`いまは${heroName(s.training.hero)}が「${SKILL[s.training.id]?.name ?? ''}」を修行中です（あと ${s.training.left} 日）。修行は 1 つずつ`, `${heroName(s.training.hero)} is training ${SKILL[s.training.id]?.name ?? ''} (${s.training.left} d left). One at a time`)));
+          return;
+        }
+        if (s.money < k.cost) {
+          ctx.sfx?.('error');
+          ctx.toast(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
+          return;
+        }
+        if (!trainees(s).length) {
+          ctx.sfx?.('error');
+          ctx.toast(t('修行に出せる職人がいません', 'No crafter is free to train'));
+          return;
+        }
+        pickHero(ctx.root, s, {
+          title: t(`「${k.name}」の修行に出す職人`, `Who trains in ${k.name}?`),
+          task: 'craft',
+          current: null,
+          note: t(`製造の適性が高いほど早く身につきます（${k.train} 日から最大 −40%）。修行のあいだ、その職人は作業台に立てません（終わったら元の配置に戻ります）。`, `Higher crafting aptitude learns faster (${k.train} days, up to −40%). The crafter leaves their bench while training and returns afterwards.`),
+          extra: (st) => t(`修行 ${trainDays(s, k.id, st)} 日`, `${trainDays(s, k.id, st)} days`),
+          badge: t('いちばん早く身につく', 'Fastest learner'),
+          onPick: (hero) => {
+            if (hero == null) return;
+            const e = learn(s, k.id, hero);
+            if (e) {
+              ctx.sfx?.('error');
+              ctx.toast(e === 'money' ? t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`) : t('いまは修行に出せません', 'Can’t start training now'));
+            } else {
+              ctx.sfx?.('done');
+              ctx.toast(t(`${heroName(hero)}が「${k.name}」の修行を始めました（${s.training?.total ?? 0} 日）`, `${heroName(hero)} started training in ${k.name} (${s.training?.total ?? 0} days)`));
+              justLearned = { id: k.id, t: performance.now() };
+              view.sel = k.id;
+            }
+            after(ctx);
+          },
+        });
+        return;
+      }
       const e = learn(s, k.id);
       if (e === 'money') {
         ctx.sfx?.('error');
@@ -397,7 +456,16 @@ export function openSkills(ctx: Ctx, focus?: string) {
       if (bt) n.append(bt);
       if (st === 'done') n.append(h('span', 'isl-tree-mark', '✓'));
       else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
+      else if (st === 'training') n.append(h('span', 'isl-tree-mark', '⏳'));
       else n.append(h('span', 'isl-tree-cost', money(k.cost)));
+      // 技：修行の日数の札と、修行中の進み具合
+      const tr = trainingOf(s, k.id);
+      if (tr) {
+        n.append(h('span', 'isl-tree-cost', t(`あと ${tr.left} 日`, `${tr.left} d left`)));
+        const pb = bar(1 - tr.left / tr.total, 'var(--isl-gold)');
+        pb.classList.add('isl-tree-prog');
+        n.append(pb);
+      } else if (k.train && st !== 'done') n.append(h('span', 'isl-tree-train', t(`修行 ${k.train} 日`, `${k.train}-day training`)));
       if (target === k.id) n.classList.add('is-hot');
       if (justLearned?.id === k.id && performance.now() - justLearned.t < 1500) n.classList.add('is-learned');
       n.addEventListener('click', (e) => {
@@ -451,8 +519,16 @@ export function openSkills(ctx: Ctx, focus?: string) {
       }
       if (sel.brand) txt.append(h('small', brandShort(s, sel) ? 'isl-warn' : 'isl-good', brandNeed(s, sel)));
       if (sel.anyOf) txt.append(h('small', anyOfMet(sel, (r) => has(s, r)) ? 'isl-good' : 'isl-warn', anyNeed(s, sel)));
+      if (sel.train && st !== 'done' && st !== 'training') txt.append(h('small', 'isl-dim', trainNote(sel)));
+      const tb = trainBox(s, sel);
+      if (tb) txt.append(tb);
       top.append(ic, txt);
-      const b = btn(st === 'done' ? t('開放済み', 'Unlocked') : st === 'locked' ? t('まだ開放できない', 'Locked') : t(`開放する（${money(sel.cost)}）`, `Unlock (${money(sel.cost)})`), () => tryLearn(sel), st === 'open' ? 'is-on' : '');
+      const tr = trainingOf(s, sel.id);
+      const b = btn(
+        st === 'done' ? t('開放済み', 'Unlocked') : tr ? t(`修行中（あと ${tr.left} 日）`, `Training (${tr.left} d left)`) : st === 'locked' ? t('まだ開放できない', 'Locked') : sel.train ? t(`修行に出す（${money(sel.cost)}）`, `Start training (${money(sel.cost)})`) : t(`開放する（${money(sel.cost)}）`, `Unlock (${money(sel.cost)})`),
+        () => tryLearn(sel),
+        st === 'open' ? 'is-on' : '',
+      );
       // チュートリアル中のほかのパネルは、押せるがマインちゃんが止める
       b.disabled = st !== 'open' && !(only && sel.id !== only && st !== 'done');
       if (st === 'poor') top.append(h('small', 'isl-warn', t(`あと ${money(sel.cost - s.money)} 足りない`, `${money(sel.cost - s.money)} short`)));

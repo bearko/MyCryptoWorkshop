@@ -45,6 +45,7 @@ export const SECTOR_KEYS = [
   'sector',
   'tier',
   'arrived',
+  'known',
 ] as const;
 
 /** いまのセクタに自社の建物があるか（あれば、離れるときにマネージャーが要る） */
@@ -82,7 +83,7 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (manager != null) {
     const m = staffOf(s, manager);
     if (!m) return 'manager';
-    if (m.task === 'manager') return 'busy';
+    if (m.task === 'manager' || m.task === 'train') return 'busy';
   }
 
   // ---- いまのセクタを離れる

@@ -5,10 +5,10 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { MATS, PRODUCT, rivalDef, SECTORS, SKILL, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, techSkill, type Mat, type Sku, type Task } from './data';
-import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, recipeOf, saturated, staffOf, unitCost, type Need, type P1State, type Staff } from './model';
+import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
-export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager') };
+export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager'), train: t('修行', 'Training') };
 
 /**
  * 適性のランク：0〜100 の数を G・F・E・D・C・B・A・S の 8 段に。
@@ -104,6 +104,11 @@ export function jobLabel(s: P1State, st: Staff): string {
       return t(`バイト・${rivalDef(String(st.target))?.name ?? ''}`, `Part-time · ${rivalDef(String(st.target))?.name ?? ''}`);
     case 'manager':
       return t(`マネージャー・${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`, `Manager · ${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`);
+    case 'train': {
+      const name = SKILL[String(st.target)]?.name ?? '';
+      const left = s.training?.hero === st.hero ? s.training.left : 0;
+      return t(`修行中・${name}（あと ${left} 日）`, `Training · ${name} (${left} d left)`);
+    }
     default:
       return t('待機中', 'Free');
   }
@@ -163,19 +168,27 @@ function drawer(root: HTMLElement, title: string, note: string, fill: (box: HTML
 }
 
 /** ヒーローを選ぶ引き出し：その仕事の適性が高い順。待機中のヒーローには印 */
-export function pickHero(root: HTMLElement, s: P1State, o: { title: string; task: Task; current: number | null; onPick: (hero: number | null) => void; note?: string }) {
-  // ほかのセクタでマネージャーをしている人は、ここにはいない
-  const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
-  const best = list[0] ? aptitude(list[0].stats, o.task) : 0;
+export function pickHero(
+  root: HTMLElement,
+  s: P1State,
+  o: { title: string; task: Task; current: number | null; onPick: (hero: number | null) => void; note?: string; extra?: (st: Staff) => string | null; badge?: string },
+) {
+  // ほかのセクタでマネージャーをしている人は、ここにはいない。修行中の人は選べない（札だけ見せる）
+  const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => Number(a.task === 'train') - Number(b.task === 'train') || aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
+  const best = list[0] && list[0].task !== 'train' ? aptitude(list[0].stats, o.task) : 0;
   drawer(root, o.title, o.note ?? t(`数字は「${TASK_NAME[o.task]}」の適性です。待機中のヒーローから選ぶと、ほかの仕事が空きません。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Picking a free hero leaves other jobs covered.`), (body, close) => {
     const grid = h('div', 'isl-pick-grid');
     for (const st of list) {
       const apt = Math.round(aptitude(st.stats, o.task));
       const free = st.task == null;
-      const card = h('button', `isl-hero-pick ${st.hero === o.current ? 'is-on' : ''} ${free ? 'is-free' : ''}`);
+      const training = st.task === 'train';
+      const card = h('button', `isl-hero-pick ${st.hero === o.current ? 'is-on' : ''} ${free ? 'is-free' : ''} ${training ? 'is-training' : ''}`);
       card.type = 'button';
-      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), rankEl(apt), stamina(st), h('small', free ? 'isl-good' : 'isl-dim', st.hero === o.current ? t('いまの担当', 'Current') : jobLabel(s, st)));
-      if (Math.round(best) === apt) card.append(h('span', 'isl-best', t('いちばん向いている', 'Best fit')));
+      card.disabled = training;
+      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), rankEl(apt), stamina(st), h('small', free ? 'isl-good' : training ? 'isl-warn' : 'isl-dim', st.hero === o.current ? t('いまの担当', 'Current') : jobLabel(s, st)));
+      const ex = !training ? o.extra?.(st) : null;
+      if (ex) card.append(h('small', 'isl-gold', ex));
+      if (!training && Math.round(best) === apt) card.append(h('span', 'isl-best', o.badge ?? t('いちばん向いている', 'Best fit')));
       card.addEventListener('click', () => {
         close();
         o.onPick(st.hero);
@@ -196,18 +209,23 @@ export function pickHero(root: HTMLElement, s: P1State, o: { title: string; task
 // ---------------------------------------------------------------- エクステ（素材 → 商品）
 
 /** 技が要る商品の、作れない理由（「技：ガラス細工が要る（スキルツリー）」）。技が要らなければ null */
-export function techNeed(key: string): string | null {
+export function techNeed(key: string, s?: P1State): string | null {
   const tech = PRODUCT[key]?.tech;
   if (!tech) return null;
   const name = SKILL[techSkill(tech)]?.name ?? tech;
+  const tr = s ? trainingOf(s, techSkill(tech)) : null;
+  if (tr) return t(`技：${name}（修行中 あと ${tr.left} 日）`, `Skill: ${name} (training, ${tr.left} d left)`);
   return t(`技：${name}が要る（スキルツリー）`, `Needs the ${name} skill (skill tree)`);
 }
 
-/** 作るのに足りないもの（model の needFor）を 1 行で */
-export function needText(n: Need): string {
+/** 作るのに足りないもの（model の needFor）を 1 行で。s があれば修行中の残りの日数も */
+export function needText(n: Need, s?: P1State): string {
   switch (n.kind) {
-    case 'tech':
+    case 'tech': {
+      const tr = s ? trainingOf(s, n.skill) : null;
+      if (tr) return t(`技：${SKILL[n.skill]?.name ?? n.skill}（修行中 あと ${tr.left} 日）`, `Skill: ${SKILL[n.skill]?.name ?? n.skill} (training, ${tr.left} d left)`);
       return t(`技：${SKILL[n.skill]?.name ?? n.skill}（スキルツリー）`, `Skill: ${SKILL[n.skill]?.name ?? n.skill} (skill tree)`);
+    }
     case 'route':
       return t(`素材：${SKILL[n.skill]?.name ?? MATS[n.mat].name}（スキルツリー）`, `Material: ${SKILL[n.skill]?.name ?? MATS[n.mat].name} (skill tree)`);
     case 'pot':
@@ -288,7 +306,7 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   const tags = h('div', 'isl-ext-tags');
   if (o.making) tags.append(h('span', 'isl-tag is-good', t('工房で作っている', 'Being crafted')));
   const err = craftCheck(s, x, o.worker ?? null);
-  if (err === 'tech') tags.append(h('span', 'isl-tag is-bad', techNeed(k) ?? ''));
+  if (err === 'tech') tags.append(h('span', 'isl-tag is-bad', techNeed(k, s) ?? ''));
   if (r === 'U' && err === 'skill') tags.append(h('span', 'isl-tag is-bad', t(`製造の適性 ${UNCOMMON.minCraft} 以上が要る`, `Needs aptitude ${UNCOMMON.minCraft}+`)));
   if (tags.childElementCount) left.append(tags);
   // 1 ロットの素材（保有数）→ できる数
@@ -322,11 +340,22 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   stat(t('見込利益', 'Est. profit'), t(`${money(m.profit)}／月`, `${money(m.profit)} / mo`), 'is-gold');
   right.lastElementChild?.append(h('small', '', t(`売れる見込み ${m.sell} 個／月`, `~${m.sell} sold / mo`)));
   stat(t('取扱企業', 'Sellers'), sellers ? (sat ? t(`${sellers} 社（供給が足りている）`, `${sellers} (well supplied)`) : t(`${sellers} 社`, `${sellers}`)) : t('なし', 'None'), sellers ? (sat ? 'is-bad' : '') : 'is-good');
+  // 新商品の認知（このセクタで知られている割合。最初の町では出さない）
+  const kn = knownOf(s, k);
+  if (kn < 1) right.append(knownBar(kn));
   card.append(left, right);
   if (o.badge) card.append(h('span', 'isl-best', o.badge));
   else if (o.best) card.append(h('span', 'isl-best', t('いちばん効率がよい', 'Most efficient')));
   if (o.onTap) card.addEventListener('click', o.onTap);
   return card;
+}
+
+/** 新商品の認知の小さな棒（「認知 30%」）。並べて日がたつ・宣伝すると育つ */
+export function knownBar(v: number): HTMLElement {
+  const e = h('div', `isl-known ${v < 0.6 ? 'is-low' : ''}`);
+  e.title = t('お客さんがこの商品を知っている割合。並べて日がたつ・宣伝すると育ち、売れる数に掛かります', 'How well customers know this item. Grows while it is on shelves and faster with ads; it scales sales');
+  e.append(h('small', '', t(`認知 ${Math.round(v * 100)}%`, `Known ${Math.round(v * 100)}%`)), bar(v, v < 0.6 ? '#ffd27a' : 'var(--isl-good)'));
+  return e;
 }
 
 /** エクステを選ぶ引き出し：効率（粗利／日）の高い順。今の素材で作れるものの中でいちばんに印 */

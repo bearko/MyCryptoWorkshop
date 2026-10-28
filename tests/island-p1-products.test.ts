@@ -4,7 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MARKET, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, rivalsOf, sku, techSkill } from '../src/island/p1/data';
-import { craftCheck, goodsMul, learn, market, needFor, newP1, recommend, saturated, sellEstimate } from '../src/island/p1/model';
+import { craftCheck, goodsMul, learn, market, needFor, newP1, recommend, saturated, sellEstimate, step, type P1State } from '../src/island/p1/model';
+
+/** 技の修行が終わるまで日を進める（docs/ISLAND_PHASE1.md「技の修行」） */
+const trainOut = (s: P1State) => {
+  for (let k = 0; k < 40 && s.training; k++) step(s);
+};
 
 describe('商品 17 と技の枝', () => {
   it('商品は 17。技が要るのは 12 で、どれも技の枝のスキルがある', () => {
@@ -17,13 +22,16 @@ describe('商品 17 と技の枝', () => {
     for (const p of PRODUCTS.slice(5)) expect(Object.keys(p.recipe.U).length).toBe(Object.keys(p.recipe.C).length + 1);
   });
 
-  it('技が無いと作れない（craftCheck が tech）。技を取ると作れる', () => {
+  it('技が無いと作れない（craftCheck が tech）。技を取って修行が終わると作れる', () => {
     const s = newP1(1);
     s.money = 1e6;
     s.mats = { glass: 10, iron: 10, wood: 10 };
     expect(craftCheck(s, sku('Goblet', 'C'), null)).toBe('tech');
     expect(craftCheck(s, sku('Sensu', 'C'), null)).toBeNull();
     expect(learn(s, 't_glass')).toBeNull();
+    // 修行中はまだ作れない
+    expect(craftCheck(s, sku('Goblet', 'C'), null)).toBe('tech');
+    trainOut(s);
     expect(craftCheck(s, sku('Goblet', 'C'), null)).toBeNull();
   });
 
@@ -33,10 +41,17 @@ describe('商品 17 と技の枝', () => {
     expect(learn(s, 't_jewel')).toBe('requires');
     expect(learn(s, 't_master')).toBe('requires');
     learn(s, 't_metal');
+    // 金工の技は修行中：まだ宝飾の技は取れない
+    expect(learn(s, 't_jewel')).toBe('requires');
+    trainOut(s);
     expect(learn(s, 't_jewel')).toBeNull();
+    trainOut(s);
     expect(learn(s, 't_master')).toBe('requires');
     learn(s, 't_wood');
+    trainOut(s);
+    // 匠の技は修行なし（即日）
     expect(learn(s, 't_master')).toBeNull();
+    expect(s.skills).toContain('t_master');
   });
 
   it('匠の技は、技が要る商品だけ売り場の強さ +15%', () => {

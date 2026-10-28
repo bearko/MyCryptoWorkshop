@@ -5292,3 +5292,74 @@ button.isl-mis {
 .isl-talk-foot {
   flex-wrap: wrap;
 }
+
+/* ================================================================ 技の修行（スキルツリーの札・進み具合）と新商品の認知の棒 */
+.isl-tree-train {
+  position: absolute;
+  top: -8px;
+  left: -6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 2px solid #e6d36a;
+  background: #2f2a10;
+  color: #e6d36a;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.isl-tree-node.is-training {
+  background: linear-gradient(180deg, #5a4d22, #2f2a14);
+  box-shadow: 0 0 0 3px rgba(230, 211, 106, 0.45), 0 0 16px rgba(230, 211, 106, 0.4);
+}
+.isl-tree-node.is-training .isl-tree-mark {
+  background: #e6d36a;
+  font-size: 12px;
+}
+.isl-tree-node .isl-tree-prog {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -6px;
+  width: auto;
+  height: 6px;
+  border: 1px solid #000;
+}
+.isl-tree-trainbox {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.isl-tree-trainbox .isl-bar {
+  width: 100%;
+  max-width: 220px;
+}
+.isl-hero-pick.is-training {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.isl-known {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.isl-known small {
+  color: var(--isl-good);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.isl-known.is-low small {
+  color: #ffd27a;
+}
+.isl-known .isl-bar {
+  width: 64px;
+  height: 6px;
+}
+.isl-known-list {
+  display: grid;
+  gap: 6px;
+}
+.isl-known-list .isl-row {
+  flex-wrap: wrap;
+}

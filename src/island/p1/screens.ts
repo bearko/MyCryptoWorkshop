@@ -10,6 +10,7 @@ import raw from '../../generated/catalog.json';
 import { DEF } from '../defs';
 import {
   ADS,
+  AWARE_GOODS,
   PROC,
   procNeed,
   DEV,
@@ -108,7 +109,7 @@ import {
 } from './model';
 import { sectorDef, sectorProfile } from './company';
 import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
-import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, needText, pickExt, pickHero, profitPerDay, radar, rankEl, slot, techNeed } from './heroui';
+import { bomRow, extCard, extSlot, jobLabel, knownBar, lotsFromStock, needText, pickExt, pickHero, profitPerDay, radar, rankEl, slot, techNeed } from './heroui';
 
 export interface Ctx {
   s: () => P1State;
@@ -341,7 +342,7 @@ const CRAFT_ERR: Record<string, string> = {
   busy: t('作業中です', 'Already working'),
 };
 /** 作れない理由（技が要るものは、その技の名前） */
-const craftErr = (x: Sku, e: string) => (e === 'tech' ? techNeed(skuParts(x)[0]) : null) ?? CRAFT_ERR[e] ?? e;
+const craftErr = (x: Sku, e: string, s?: P1State) => (e === 'tech' ? techNeed(skuParts(x)[0], s) : null) ?? CRAFT_ERR[e] ?? e;
 
 /**
  * 作れる商品（Common と、開発したアンコモン）。技がまだの商品は、うしろに（カードに「技：○○が要る」）。
@@ -428,7 +429,7 @@ export function openWorkshop(ctx: Ctx) {
                 }
                 sl.repeat = true;
                 const e = sl.worker == null ? 'worker' : startCraft(s, k, x, true);
-                if (e && e !== 'busy') ctx.toast(craftErr(x, e));
+                if (e && e !== 'busy') ctx.toast(craftErr(x, e, s));
                 else ctx.toast(t(`${skuName(x)}を作り始めました`, `Started making ${skuName(x)}`));
                 after(ctx);
               },
@@ -446,7 +447,7 @@ export function openWorkshop(ctx: Ctx) {
         card.append(p);
       }
       const err = sl.worker == null ? 'worker' : sl.sku ? craftCheck(s, sl.sku, sl.worker) : null;
-      if (err && !sl.running) card.append(h('p', 'isl-warn', sl.sku ? craftErr(sl.sku, err) : CRAFT_ERR[err] ?? err));
+      if (err && !sl.running) card.append(h('p', 'isl-warn', sl.sku ? craftErr(sl.sku, err, s) : CRAFT_ERR[err] ?? err));
       if (sl.sku) card.append(craftPlan(ctx, s, k));
       body.append(card);
     });
@@ -472,7 +473,7 @@ export function openWorkshop(ctx: Ctx) {
             sl.progress = 0;
             sl.repeat = true;
             const e = sl.worker == null ? 'worker' : startCraft(s, 0, x, true);
-            if (e && e !== 'busy') ctx.toast(craftErr(x, e));
+            if (e && e !== 'busy') ctx.toast(craftErr(x, e, s));
             after(ctx);
           },
         }),
@@ -1208,14 +1209,16 @@ export function openStaff(ctx: Ctx) {
       t('お店で棚に並べて売る（適性：INT 重視）', 'Shelves and sells in a shop (mostly INT)'),
     );
     // そのほかの仕事
-    const others = s.staff.filter((x) => x.task === 'explore' || x.task === 'intel');
+    const others = s.staff.filter((x) => x.task === 'explore' || x.task === 'intel' || x.task === 'train');
     if (others.length) {
       const c = h('div', 'isl-card2');
       c.append(h('h3', '', t('そのほかの仕事', 'Other jobs')));
       const row = h('div', 'isl-stock');
       for (const x of others) {
         const chip = h('span', 'isl-chip');
-        chip.append(heroIcon(x.hero, 28), h('small', '', heroName(x.hero) + t('・', ' · ') + jobLabel(s, x)));
+        chip.append(heroIcon(x.hero, 28), h('small', x.task === 'train' ? 'isl-gold' : '', heroName(x.hero) + t('・', ' · ') + jobLabel(s, x)));
+        // 技の修行：進み具合
+        if (x.task === 'train' && s.training?.hero === x.hero) chip.append(bar(1 - s.training.left / s.training.total, 'var(--isl-gold)'));
         row.append(chip);
       }
       c.append(row);
@@ -1324,7 +1327,7 @@ export function openData(ctx: Ctx) {
         first
           ? t(`「${PRODUCT[rec].name}」は国民の需要が大きいのに、まだ扱っている会社が少ないみたい。最初の主力商品にぴったりです！`, `${PRODUCT[rec].name} is in high demand, yet few companies sell it. A perfect first main product!`)
           : need
-            ? t(`「${PRODUCT[rec].name}」が売れそう。まだ誰も売っていないよ！ まずは ${needText(need)} から。`, `${PRODUCT[rec].name} looks promising — nobody sells it yet! First: ${needText(need)}.`)
+            ? t(`「${PRODUCT[rec].name}」が売れそう。まだ誰も売っていないよ！ まずは ${needText(need, s)} から。`, `${PRODUCT[rec].name} looks promising — nobody sells it yet! First: ${needText(need, s)}.`)
             : t(`「${PRODUCT[rec].name}」が売れそう。まだ誰も売っていないから、工房で作って並べよう！`, `${PRODUCT[rec].name} looks promising — nobody sells it yet. Make it and stock it!`),
       ),
     );
@@ -1345,7 +1348,9 @@ export function openData(ctx: Ctx) {
       n.append(nm);
       if (r.p.key === rec) n.append(h('span', 'isl-tag is-good', t('マインちゃんのおすすめ', 'Mine-chan’s pick')));
       // 自社で作れるか：足りないものを 1 行で
-      n.append(h('small', r.need ? 'isl-warn' : 'isl-good', r.need ? needText(r.need) : t('✓ 作れる', '✓ You can make it')));
+      n.append(h('small', r.need ? 'isl-warn' : 'isl-good', r.need ? needText(r.need, s) : t('✓ 作れる', '✓ You can make it')));
+      // 新商品の認知（このセクタのお客さんが知っている割合。最初の町では出さない）
+      if (r.known < 1) n.append(knownBar(r.known));
       const d = h('span', 'isl-col');
       d.append(bar(r.demand / maxD, 'var(--isl-gold)'), h('small', '', t(`${r.demand} 個`, `${r.demand} pcs`)));
       const who = s.rivals.filter((x) => (x.sells[r.p.key] ?? 0) > 0).map((x) => rivalDef(x.id)?.name ?? '');
@@ -1582,6 +1587,20 @@ export function openAds(ctx: Ctx) {
     const local = sectorProfile(s).ads ?? 1;
     if (local !== 1) body.append(h('p', 'isl-good', t(`このセクタでは宣伝の効き目 ×${local}（${sectorDef(s.sector ?? 'c1').name}）`, `Ads are ×${local} as strong in this sector (${sectorDef(s.sector ?? 'c1').name})`)));
     body.append(h('p', 'isl-dim', now > 0 ? t(`いま自社のお店の売り場の強さが +${Math.round(now * 100)}% です。`, `Your shops have +${Math.round(now * 100)}% pull right now.`) : t('宣伝すると、しばらくの間、自社のすべてのお店が売れやすくなります。種類の違う宣伝は重ねられます。', 'Ads make all your shops sell better for a while. Different ads stack.')));
+    // 新商品の認知：並べている商品のうち、まだ知られていないもの（宣伝で早く育つ）
+    const fresh = market(s).filter((r) => r.mine && r.known < 1);
+    if (fresh.length) {
+      const c = h('div', 'isl-card2 isl-known-card');
+      c.append(h('h3', '', t('新しい商品の認知', 'How well new items are known')), h('p', 'isl-dim', t(`並べている日に +${Math.round(AWARE_GOODS.perDay * 100)}%、宣伝が効いている日はさらに +${Math.round(AWARE_GOODS.ad * 100)}%。知られていないうちは売れる数が減ります。`, `+${Math.round(AWARE_GOODS.perDay * 100)}% a day on shelves, +${Math.round(AWARE_GOODS.ad * 100)}% more while an ad runs. Less-known items sell fewer.`)));
+      const list = h('div', 'isl-known-list');
+      for (const r of fresh) {
+        const row = h('div', 'isl-row');
+        row.append(skuIcon(sku(r.p.key, 'C'), 28), h('b', '', r.p.name), knownBar(r.known));
+        list.append(row);
+      }
+      c.append(list);
+      body.append(c);
+    }
     for (const a of ADS) {
       const card = h('div', 'isl-card2');
       const left = s.ads[a.id] ?? 0;
