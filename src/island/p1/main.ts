@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, SIDE, SKILL, skuParts, STORE, type Mat } from './data';
+import { BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -56,6 +56,8 @@ import {
   gateOf,
   gateToll,
   openGate,
+  has,
+  rivalMonthGuess,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -91,7 +93,8 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { openBooks, openBrand, openLand } from './landui';
-import { book, sectorDef, tierLabel } from './company';
+import { book, brandAdd, sectorDef, tierLabel } from './company';
+import { landCleared } from './land';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -1025,7 +1028,10 @@ function payGate() {
 }
 
 /** ほかのセクタへ移ったあと：地図を描き直し、真ん中へ。マインちゃんが一言 */
+/** セクタを移っている最中（画面を閉じたときの renderAll で、到着の案内を二重に出さない） */
+let moving = false;
 function afterMove(target: string, fresh: boolean, manager: number | null) {
+  moving = true;
   closeSheet();
   closePop();
   menu = null;
@@ -1041,17 +1047,81 @@ function afterMove(target: string, fresh: boolean, manager: number | null) {
   cam.zoom = innerWidth < 600 ? 0.3 : 0.5;
   speed = 1;
   save();
-  renderAll();
   sfx.play('win');
   const d = sectorDef(target);
+  // はじめてのセクタ（はじまりの浜のほか）：到着の案内（目標 → 違い → 最初の一手）
+  if (needsIntro()) {
+    const pages = introPages();
+    if (manager != null) pages.splice(pages.length - 1, 0, managerPage(manager));
+    moving = false;
+    showIntro(pages);
+    renderAll();
+    return;
+  }
+  moving = false;
+  renderAll();
   const pages: TutPage[] = [];
   if (fresh) {
     pages.push({ text: t(`[[${d.name}]]の出店許可がおりたよ！ ここは${tierLabel(d.tier)}。`, `We got the permit for [[${d.name}]]! It is a ${tierLabel(d.tier)}.`) });
     if (d.tier !== 'C') pages.push({ text: t('ここは商売敵が大きくて、Common の商品はあまり相手にされないんだ。アンコモンを並べられるように、エクステのランクアップを急ごう！', 'Rivals are big here and Common goods barely sell. Rank up your extensions to Uncommon!') });
     pages.push({ text: t('建物はセクタごと。まずはここに[[工房]]を建てて、お店を開こう。資金・ヒーロー・スキルは会社でいっしょだよ。', 'Buildings belong to each sector. Build a [[workshop]] and a shop here first. Funds, heroes and skills are shared.') });
   } else pages.push({ text: t(`[[${d.name}]]に戻ってきたよ。建物も担当も、離れたときのままだよ。`, `Back in [[${d.name}]]. Buildings and jobs are as you left them.`) });
-  if (manager != null) pages.push({ text: t(`前のセクタは[[${heroName(manager)}]]に任せたよ。月ごとの結果はトーストと「ランドマップ」、お金の流れは「決算書」で見られるよ。`, `[[${heroName(manager)}]] runs the previous sector. See monthly results on the land map and money flows in Statements.`) });
+  if (manager != null) pages.push(managerPage(manager));
   talk(pages, t('はじめよう！', 'Let’s go!'), () => renderAll());
+}
+
+const managerPage = (manager: number): TutPage => ({ text: t(`前のセクタは[[${heroName(manager)}]]に任せたよ。月ごとの結果はトーストと「ランドマップ」、お金の流れは「決算書」で見られるよ。`, `[[${heroName(manager)}]] runs the previous sector. See monthly results on the land map and money flows in Statements.`) });
+
+/** いまのセクタの到着の案内をまだ見ていない（はじまりの浜は最初のチュートリアルがあるので出さない） */
+const needsIntro = () => {
+  const id = s.sector ?? 'c1';
+  return id !== 'c1' && sectorDef(id).profile.intro.length > 0 && !(s.flags.sectorIntro ?? []).includes(id);
+};
+
+/** 到着の案内 3 枚（目標 → 違い → 最初の一手）。目標の枚には 1 位の他社の月の売上の見込み */
+function introPages(): TutPage[] {
+  const d = sectorDef(s.sector ?? 'c1');
+  const top = Math.max(0, ...Object.values(rivalMonthGuess(s)));
+  const intro = d.profile.intro;
+  return [
+    { text: intro[0].split('{top}').join(money(Math.round(top / 100) * 100)) },
+    ...intro.slice(1, -1).map((text) => ({ text })),
+    { text: introFirstStep(d.tier as Tier, has(s, 'pot')) },
+  ];
+}
+
+/** 到着の案内を出す。最初の一手が工房なら、閉じたら建築を開く */
+function showIntro(pages: TutPage[]) {
+  const id = s.sector ?? 'c1';
+  const ws = s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop');
+  talk(pages, ws ? t('はじめよう！', 'Let’s go!') : t('建築を開く', 'Open Build'), () => {
+    s.flags.sectorIntro = [...new Set([...(s.flags.sectorIntro ?? []), id])];
+    save();
+    renderAll();
+    if (!ws) openBuildTab();
+  });
+}
+
+/** 会話も画面も開いていないとき：到着の案内（古いセーブ・途中で閉じたとき）と、ランド制覇のお祝い */
+function sectorChecks() {
+  if (moving || placing || pop || tour || sheetOpen() || root.querySelector('.isl-modal, .isl-rp-reveal, .isl-picker')) return;
+  if (needsIntro()) {
+    showIntro(introPages());
+    return;
+  }
+  const lands: [Tier, 'landCommon' | 'landUncommon', string, string][] = [
+    ['C', 'landCommon', t('Common ランド制覇！', 'Common lands conquered!'), t('Common の 3 つのセクタすべてで 1 位になったよ！ 次は Uncommon のセクタで、アンコモンを並べて 1 位を目指そう。', 'You were #1 in all three Common sectors! Next, aim for #1 in the Uncommon sectors with Uncommon goods.')],
+    ['U', 'landUncommon', t('Uncommon ランド制覇！', 'Uncommon lands conquered!'), t('Uncommon の 2 つのセクタすべてで 1 位になったよ！ 王都の市場への道も開いているはず。', 'You were #1 in both Uncommon sectors! The road to the Royal Market should be open too.')],
+  ];
+  for (const [tier, flag, title, body] of lands) {
+    if (s.flags[flag] || !landCleared(s, tier)) continue;
+    s.flags[flag] = true;
+    brandAdd(s, BRAND.landClear, title);
+    save();
+    sfx.play('win');
+    modal(`👑 ${title}`, `${body} ${t(`ブランド力 +${BRAND.landClear}`, `Brand +${BRAND.landClear}`)}`, [[t('ランドマップを見る', 'Open land map'), () => openLand(ctx), 'is-on'], [t('続ける', 'Keep going'), () => renderAll()]], true);
+    return;
+  }
 }
 
 /** 関所のマスを開く（カメラも寄せる） */
@@ -1929,6 +1999,11 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (!ws && s.land && s.land.mine.length > 1 && s.sector !== s.land.mine[0]) return { text: t('このセクタにも[[工房]]を建てましょう。建物はセクタごとです。「営業企画」→「建築」から、道路に面した空き地へ。', 'Build a [[workshop]] in this sector too — buildings belong to each sector. Planning → Build, then a lot facing a road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (!ws) return { text: t('新天地へようこそ！まずは Workshop から引き継いだ「工房」を建てましょう。下の「営業企画」→「建築」から工房を選び、道路に面した空き地へ。入口は道路の方にしか向けられません。', 'Welcome to the new land! First, build the Workshop you brought from home: Planning → Build, then place it on a lot facing a road — the entrance can only face the road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (ws.left > 0) return { text: t('工房の工事中です。⏩ で時間を早められます。地図のマスを押すと、建物の詳しい情報が見られます。', 'The workshop is under construction. ⏩ speeds things up. Tap any tile on the map for details.') };
+  // Uncommon のセクタ：Common の商品は売れにくいので、まずアンコモンを開発
+  if ((s.tier ?? 'C') !== 'C' && !s.dev.length && !s.lab) {
+    if (!has(s, 'pot')) return { text: t('ここではアンコモンが要るよ。スキルツリーの[[魔法の釜]]を先に開放しよう（工房の枝）。', 'Uncommons are needed here. Unlock the [[Magic pot]] in the skill tree first (Workshop branch).'), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, 'craft')] };
+    return { text: t('[[商品開発]]でアンコモンを作ろう（営業企画 → 商品開発）。', 'Make an Uncommon in [[Product development]] (Planning → Products).'), action: [t('商品開発を開く', 'Open products'), () => openDev(ctx)] };
+  }
   if (!s.flags.data) return { text: t('[[市場データ]]で、売れ筋と、まだ誰も売っていない商品が分かるよ（「マーケティング」→「市場調査データ」）。', 'The [[market data]] shows what sells and what nobody sells yet (Marketing → Market data).'), action: [t('データを見る', 'Open data'), () => openData(ctx)] };
   if (!shops.length) return { text: t(`データによると「${rec}」がよさそう！次はお店（よろず屋）を建てましょう。道路に面した場所に。`, `The data says ${rec} looks promising! Next, build a shop (General store) facing a road.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (shops.every((b) => b.left > 0)) return { text: t('お店の工事中です。開店した日から 1 か月目の営業が始まります。その間に工房で商品を作り始めましょう。', 'The shop is being built. Your first business month starts the day it opens. Start crafting meanwhile.'), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx)] };
@@ -2198,6 +2273,7 @@ function renderAll() {
   renderAdvisor();
   renderNext();
   layout();
+  sectorChecks();
 }
 root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
 resize();
@@ -2393,7 +2469,7 @@ function crowdPath(): [number, number][] | null {
   const r = Math.random();
   if (r < 0.4) {
     // 他社のお店：強い会社ほどお客さんが多い。入っていく人と、出てきて帰る人
-    const stores = s.buildings.filter((b) => RIVALS.some((x) => x.id === b.owner));
+    const stores = s.buildings.filter((b) => s.rivals.some((x) => x.id === b.owner));
     if (!stores.length || !homes.length) return null;
     const weight = (b: (typeof stores)[number]) => Object.values(s.rivals.find((x) => x.id === b.owner)?.sells ?? {}).reduce<number>((a, v) => a + (v ?? 0), 0.5);
     let w = Math.random() * stores.reduce((a, b) => a + weight(b), 0);

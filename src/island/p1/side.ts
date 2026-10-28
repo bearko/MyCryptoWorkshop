@@ -4,7 +4,7 @@
  */
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
-import { aptitude, RIVALS } from './data';
+import { aptitude, rivalDef } from './data';
 import { rankEl } from './heroui';
 import { assign, sidePay, type P1State } from './model';
 import { after, mineTip, open, rivalName, type Ctx } from './screens';
@@ -36,7 +36,7 @@ export function openSide(ctx: Ctx) {
     body.append(sum);
     const grid = h('div', 'isl-side-grid');
     for (const r of s.rivals) {
-      const def = RIVALS.find((x) => x.id === r.id);
+      const def = rivalDef(r.id);
       const card = h('div', 'isl-card2 isl-side-card');
       const top = h('div', 'isl-row');
       const im = h('img', 'isl-side-b');

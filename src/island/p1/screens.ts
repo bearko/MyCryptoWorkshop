@@ -23,7 +23,7 @@ import {
   P1B,
   PRODUCT,
   PRODUCTS,
-  RIVALS,
+  rivalDef,
   SHOP,
   TASKS,
   UNCOMMON,
@@ -85,6 +85,7 @@ import {
   hire,
   market,
   matPrice,
+  isCheap,
   monthRevenue,
   myShops,
   partMax,
@@ -102,6 +103,7 @@ import {
   type P1State,
   type Report,
 } from './model';
+import { sectorDef, sectorProfile } from './company';
 import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
 import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, pickExt, pickHero, profitPerDay, radar, rankEl, slot } from './heroui';
 
@@ -941,6 +943,7 @@ export function openBuy(ctx: Ctx) {
       const sel = picked.find((x) => x.m === m);
       const top = h('div', 'isl-row');
       top.append(matIcon(m, 32), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}・1 個 ${matPrice(s, m)} G`, `have ${s.mats[m] ?? 0}, ${matPrice(s, m)} G each`)));
+      if (isCheap(s, m)) top.append(h('span', 'isl-chip is-good isl-cheap', t('特産 −20%', 'Local −20%')));
       if (route) {
         if (sel?.from === 'item') top.append(h('span', 'isl-chip is-on', t('エクステから', 'From extensions')));
         else
@@ -1050,7 +1053,7 @@ export function jobOptions(s: P1State) {
   return out;
 }
 
-export const rivalName = (rid: string) => RIVALS.find((x) => x.id === rid)?.name ?? rid;
+export const rivalName = (rid: string) => rivalDef(rid)?.name ?? rid;
 
 /** 仕事の選択肢の値を割り当てに直す */
 export function applyJob(s: P1State, hero: number, v: string) {
@@ -1285,7 +1288,7 @@ export function openData(ctx: Ctx) {
       n.append(skuIcon(sku(r.p.key, 'C'), 32), h('b', '', r.p.name));
       const d = h('span', 'isl-col');
       d.append(bar(r.demand / maxD, 'var(--isl-gold)'), h('small', '', t(`${r.demand} 個`, `${r.demand} pcs`)));
-      const who = s.rivals.filter((x) => (x.sells[r.p.key] ?? 0) > 0).map((x) => RIVALS.find((y) => y.id === x.id)?.name ?? '');
+      const who = s.rivals.filter((x) => (x.sells[r.p.key] ?? 0) > 0).map((x) => rivalDef(x.id)?.name ?? '');
       const sellers = h('span', 'isl-col');
       sellers.append(h('b', '', r.sellers ? t(`${r.sellers} 社`, `${r.sellers}`) : t('まだ無し', 'None yet')), h('small', 'isl-dim', who.join(t('・', ', '))));
       const mats = h('span', 'isl-row');
@@ -1507,6 +1510,8 @@ export function openAds(ctx: Ctx) {
   open(ctx, t('宣伝広報', 'Advertising'), (body) => {
     const s = ctx.s();
     const now = adBoost(s);
+    const local = sectorProfile(s).ads ?? 1;
+    if (local !== 1) body.append(h('p', 'isl-good', t(`このセクタでは宣伝の効き目 ×${local}（${sectorDef(s.sector ?? 'c1').name}）`, `Ads are ×${local} as strong in this sector (${sectorDef(s.sector ?? 'c1').name})`)));
     body.append(h('p', 'isl-dim', now > 0 ? t(`いま自社のお店の売り場の強さが +${Math.round(now * 100)}% です。`, `Your shops have +${Math.round(now * 100)}% pull right now.`) : t('宣伝すると、しばらくの間、自社のすべてのお店が売れやすくなります。種類の違う宣伝は重ねられます。', 'Ads make all your shops sell better for a while. Different ads stack.')));
     for (const a of ADS) {
       const card = h('div', 'isl-card2');

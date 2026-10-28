@@ -4,7 +4,7 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { MATS, PRODUCT, RIVALS, SECTORS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
+import { MATS, PRODUCT, rivalDef, SECTORS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
 import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
@@ -99,9 +99,9 @@ export function jobLabel(s: P1State, st: Staff): string {
     case 'explore':
       return t(`開拓・${MATS[st.target as Mat]?.name ?? ''}`, `Scout · ${MATS[st.target as Mat]?.name ?? ''}`);
     case 'intel':
-      return t(`調査・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Research · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
+      return t(`調査・${rivalDef(String(st.target))?.name ?? ''}`, `Research · ${rivalDef(String(st.target))?.name ?? ''}`);
     case 'side':
-      return t(`バイト・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Part-time · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
+      return t(`バイト・${rivalDef(String(st.target))?.name ?? ''}`, `Part-time · ${rivalDef(String(st.target))?.name ?? ''}`);
     case 'manager':
       return t(`マネージャー・${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`, `Manager · ${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`);
     default:

@@ -5,9 +5,9 @@
  * docs/ISLAND_PHASE1.md「ランドマップとセクタ」。
  */
 import { t } from '../../i18n';
-import { BRAND, MANAGER, P1B, type Mat } from './data';
+import { BRAND, MANAGER, P1B, SECTORS, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, groundOf, newP1, staffOf, type P1State } from './model';
+import { assign, groundOf, newP1, staffOf, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -154,3 +154,23 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   land.cur = target;
   return null;
 }
+
+// ---------------------------------------------------------------- KGI（セクタ 1 位）の達成
+
+/** そのセクタの記録（いまいるセクタは s、離れたセクタは写し） */
+function sectorView(s: P1State, id: string): { cleared: boolean; reports: Report[] } | null {
+  if (!s.land || s.land.cur === id) return s.land || id === (s.sector ?? 'c1') ? { cleared: s.cleared, reports: s.reports } : null;
+  const snap = s.land.recs[id]?.snap as { cleared?: boolean; reports?: Report[] } | undefined;
+  return snap ? { cleared: !!snap.cleared, reports: snap.reports ?? [] } : null;
+}
+/** そのセクタで 1 位になったことがある（👑） */
+export const crowned = (s: P1State, id: string) => !!sectorView(s, id)?.cleared;
+/** そのセクタの最新の順位（月の締めが無ければ null） */
+export function lastRank(s: P1State, id: string): number | null {
+  const r = sectorView(s, id)?.reports;
+  return r?.length ? r[r.length - 1].rank : null;
+}
+/** そのランクの遊べるセクタ（準備中・雲を除く） */
+export const playable = (tier: Tier) => SECTORS.filter((x) => x.tier === tier && !x.cloud && !x.soon);
+/** そのランクのセクタすべてで 1 位（ランド制覇） */
+export const landCleared = (s: P1State, tier: Tier) => !!s.land && playable(tier).every((x) => crowned(s, x.id));

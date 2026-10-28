@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { heroById } from '../../game/catalog';
 import { DEF } from '../defs';
 import { cells, type Dir } from '../sim';
-import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, runSector, type BrandEv, type Books, type Land, type LedgerKey } from './company';
+import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, runSector, sectorProfile, type BrandEv, type Books, type Land, type LedgerKey } from './company';
 import {
   ADS,
   AWARE,
@@ -31,8 +31,11 @@ import {
   PRODUCT,
   PRODUCTS,
   RIVAL_GROWTH,
-  RIVALS,
   SHOP,
+  CHEAP_RATE,
+  SECTORS,
+  rivalDef,
+  rivalsOf,
   SKILL,
   STAMINA,
   START_MATS,
@@ -183,6 +186,12 @@ export interface Flags {
   hireUnlocked?: boolean;
   /** 建築の一覧で、ロックが外れる演出を見たカテゴリ */
   buildCats?: string[];
+  /** 到着の案内を見たセクタ（id） */
+  sectorIntro?: string[];
+  /** Common ランド制覇のお祝いを見た */
+  landCommon?: boolean;
+  /** Uncommon ランド制覇のお祝いを見た */
+  landUncommon?: boolean;
 }
 
 export interface P1State {
@@ -373,6 +382,8 @@ function lotFree(s: P1State, id: string, i: number, j: number, dir: Dir, ignore?
  */
 export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', sector = 'c1'): P1State {
   const T = TIERS[tier];
+  const prof = SECTORS.find((x) => x.id === sector)?.profile;
+  const rivalDefs = rivalsOf(sector);
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
@@ -387,17 +398,17 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     buildings: [],
     nextUid: 1,
     mats: { ...START_MATS },
-    routes: (Object.keys(MATS) as Mat[]).filter((m) => MATS[m].open),
+    routes: (Object.keys(MATS) as Mat[]).filter((m) => prof?.routesOpen || MATS[m].open),
     staff: START_STAFF.map((id) => newStaff(id, 0)),
     slots: [],
     stock: {},
     shops: {},
     trips: [],
     skills: [],
-    rivals: RIVALS.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival })),
-    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand * T.demand])),
+    rivals: rivalDefs.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival })),
+    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand * T.demand * (prof?.demand?.[p.key] ?? 1)])),
     monthSales: {},
-    rivalSales: Object.fromEntries(RIVALS.map((r) => [r.id, 0])),
+    rivalSales: Object.fromEntries(rivalDefs.map((r) => [r.id, 0])),
     monthCost: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 },
     alone: {},
     reports: [],
@@ -469,7 +480,7 @@ function populate(s: P1State) {
   placeTown(s, 'wholesale', r, 'town', at([1, 14]));
   placeTown(s, GATE_ID, r, 'town', at(GATE.at));
   const near: [number, number][] = [[4, 4], [10, 5], [5, 10], [10, 10]];
-  RIVALS.forEach((rv, k) => placeTown(s, rv.store, r, rv.id, at(near[k])));
+  rivalsOf(s.sector).forEach((rv, k) => placeTown(s, rv.store, r, rv.id, at(near[k])));
   const homes = ['house', 'cottage', 'garage_house', 'japanese_house', 'apartment', 'manor'];
   // 住宅：外側の区画を中心に、空き地を 4 割ほど残す
   const nHomes = Math.round(46 * ((s.n * s.n) / (N * N)));
@@ -842,7 +853,7 @@ export const isGate = (b: PBuilding) => b.id === GATE_ID && b.owner === 'town';
 export const gateOf = (s: P1State) => s.buildings.find(isGate) ?? null;
 
 /** 他社のひと月の売上の見込み（自社が無いとき）。先月の締めがまだ無いときに使う */
-function rivalMonthGuess(s: P1State): Record<string, number> {
+export function rivalMonthGuess(s: P1State): Record<string, number> {
   const out: Record<string, number> = Object.fromEntries(s.rivals.map((r) => [r.id, r.base]));
   for (const p of PRODUCTS) {
     const rv = rivalOffers(s, p.key);
@@ -893,7 +904,9 @@ function syncShop(s: P1State, b: PBuilding) {
 
 // ---------------------------------------------------------------- 調達
 
-export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1) * (has(s, 'b_partner') ? 0.85 : 1));
+/** このセクタの特産（20% 安い素材） */
+export const isCheap = (s: P1State, m: Mat) => !!sectorProfile(s).cheap?.includes(m);
+export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1) * (has(s, 'b_partner') ? 0.85 : 1) * (isCheap(s, m) ? CHEAP_RATE : 1));
 
 /** 月に買える素材の数の上限（ランクとスキル） */
 export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0) + (has(s, 'stock3') ? 1 : 0) + (has(s, 'b_partner') ? 0.5 : 0)));
@@ -1139,7 +1152,7 @@ export function develop(s: P1State, key: string): string | null {
 
 // ---------------------------------------------------------------- 宣伝・調査・依頼・給与
 
-export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0) * (has(s, 'b_ads') ? 1.5 : 1);
+export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0) * (has(s, 'b_ads') ? 1.5 : 1) * (sectorProfile(s).ads ?? 1);
 export function runAd(s: P1State, id: string): string | null {
   const x = ADS.find((a) => a.id === id);
   if (!x) return 'locked';
@@ -1173,6 +1186,25 @@ function missionMet(s: P1State, id: string): boolean {
     case 'rank3':
       return s.reports.some((r) => r.rank <= 3);
   }
+  // セクタの依頼：そのセクタにいるときだけ
+  const m = MISSIONS.find((x) => x.id === id);
+  if (m?.sector && m.sector !== s.sector) return false;
+  const last = s.reports[s.reports.length - 1];
+  switch (id) {
+    case 'c2_mallet':
+      return (s.monthUnits.Mallet ?? 0) >= 10;
+    case 'c3_lantern':
+      return (s.monthUnits.Lantern ?? 0) >= 10;
+    case 'u1_dev':
+      return s.dev.length >= 1;
+    case 'u2_ads':
+      return ADS.filter((a) => (s.ads[a.id] ?? 0) > 0).length >= 2;
+    case 'c2_top':
+    case 'c3_top':
+    case 'u1_top':
+    case 'u2_top':
+      return !!last && last.rank === 1 && last.revenue > 0;
+  }
   return false;
 }
 /** 同時に受けられる依頼の数 */
@@ -1180,7 +1212,11 @@ export const MISSION_MAX = 3;
 /** 受けて進行中・達成した依頼（右上のミッションに出す） */
 export const activeMissions = (s: P1State) => MISSIONS.filter((m) => s.missions[m.id] === 'accepted' || s.missions[m.id] === 'done');
 /** まだ受けていない依頼（上から 3 つ） */
-export const offeredMissions = (s: P1State) => MISSIONS.filter((m) => !s.missions[m.id]).slice(0, 3);
+export const offeredMissions = (s: P1State) =>
+  MISSIONS.filter((m) => !s.missions[m.id] && (!m.sector || m.sector === s.sector))
+    // いまいるセクタの依頼を先に
+    .sort((a, b) => Number(!a.sector) - Number(!b.sector))
+    .slice(0, 3);
 /** 依頼の画面に出すもの：受けたもの・達成したもの、そのあとにまだ受けていないもの */
 export const openMissions = (s: P1State) => [...activeMissions(s), ...offeredMissions(s)];
 
@@ -1203,6 +1239,10 @@ export function missionProgress(s: P1State, id: string): [number, number] | null
       return [Math.min(5, s.unitsU), 5];
     case 'two_shops':
       return [Math.min(2, myShops(s).length), 2];
+    case 'c2_mallet':
+      return [Math.min(10, s.sector === 'c2' ? (s.monthUnits.Mallet ?? 0) : 0), 10];
+    case 'c3_lantern':
+      return [Math.min(10, s.sector === 'c3' ? (s.monthUnits.Lantern ?? 0) : 0), 10];
   }
   return null;
 }
@@ -1371,7 +1411,7 @@ export function pathLen(s: P1State, a: PBuilding, b: PBuilding): number {
   return n;
 }
 /** 荷車で、片道に何日（速さ 1 の運搬係） */
-const legDays = (s: P1State, n: number) => (n / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'shortcut') ? 0.85 : 1);
+export const legDays = (s: P1State, n: number) => (n / (TRANSPORT.cellsPerDay * (has(s, 'truck') ? 1.5 : 1))) * (has(s, 'shortcut') ? 0.85 : 1) * (sectorProfile(s).haul ?? 1);
 export const myDepots = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'depot' && b.left <= 0);
 /** お店まで片道の日数と、どこから出すか（工房か、近い物流拠点。拠点までは定期便で速い） */
 export function oneWay(s: P1State, shop: PBuilding, ws = myWorkshop(s), depots = myDepots(s)): { days: number; from: PBuilding | null } {
@@ -1808,7 +1848,7 @@ function checkMissions(s: P1State, res: DayResult) {
 // ---------------------------------------------------------------- 月末
 
 export function areaRanking(s: P1State, mine: number, rivals: Record<string, number>): Rank[] {
-  const rows: Rank[] = s.rivals.map((r) => ({ name: RIVALS.find((x) => x.id === r.id)?.name ?? r.id, sales: Math.round(rivals[r.id]), me: false }));
+  const rows: Rank[] = s.rivals.map((r) => ({ name: rivalDef(r.id)?.name ?? r.id, sales: Math.round(rivals[r.id]), me: false }));
   rows.push({ name: '', sales: Math.round(mine), me: true });
   return rows.sort((a, b) => b.sales - a.sales);
 }
@@ -1868,7 +1908,7 @@ export function endMonth(s: P1State): Report {
       const weakest = [...s.rivals].sort((a, b) => rivals[a.id] - rivals[b.id])[0];
       weakest.sells[p.key] = 0.8;
       s.alone[p.key] = 0;
-      const name = RIVALS.find((x) => x.id === weakest.id)?.name ?? '';
+      const name = rivalDef(weakest.id)?.name ?? '';
       news.push(`${name}|${p.name}`);
     }
   }

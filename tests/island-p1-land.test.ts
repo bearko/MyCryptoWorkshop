@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MANAGER, TIERS } from '../src/island/p1/data';
+import { MANAGER, TIERS, rivalDef } from '../src/island/p1/data';
 import { managerRate, pl, quarters, runSector, sectorState, type SectorRec } from '../src/island/p1/company';
 import { moveTo, recOf } from '../src/island/p1/land';
 import { allowedDirs, assign, build, deserializeP1, gateToll, heroStats, monthRevenue, newP1, openGate, serializeP1, setShelf, startCraft, step, type P1State } from '../src/island/p1/model';
@@ -139,8 +139,9 @@ describe('関所の先：ランドセクタ', () => {
     s.money = 1000;
     expect(moveTo(s, 'u1', null)).toBe('money');
     s.money = 1e6;
-    const lamp0 = s.rivals[0].base;
     expect(moveTo(s, 'u1', null)).toBeNull();
+    // 港町の他社（セクタの個性）の売上に、ランクの倍率が掛かる
+    const lamp0 = rivalDef(s.rivals[0].id)!.base;
     expect(s.n).toBe(TIERS.U.n);
     expect(s.ground).toHaveLength(TIERS.U.n * TIERS.U.n);
     expect(s.rivals[0].base).toBeCloseTo(lamp0 * TIERS.U.rival, 5);
