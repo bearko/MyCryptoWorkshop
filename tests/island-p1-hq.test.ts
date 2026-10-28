@@ -77,3 +77,32 @@ describe('作る数（自動製造でないとき）', () => {
     expect(s.slots[0].repeat).toBe(true);
   });
 });
+
+describe('素材の注文（ロット単位・納期）', () => {
+  it('代金はいま払い、納期に工房へ届く。置き場所は先に取っておく', async () => {
+    const M = await import('../src/island/p1/model');
+    const s = newP1(12);
+    const lot = (id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
+      for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = M.allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
+      throw new Error('no lot');
+    };
+    const [a, b, d] = lot('workshop');
+    M.build(s, 'workshop', a, b, d);
+    for (let k = 0; k < 5; k++) M.step(s);
+    const m = s.routes[0];
+    const have = s.mats[m] ?? 0;
+    const money = s.money;
+    const free = M.poolFree(s);
+    expect(M.order(s, m, 1)).toBeNull();
+    expect(s.money).toBe(money - M.matPrice(s, m) * M.LOT);
+    expect(M.poolFree(s)).toBe(free - M.LOT);
+    expect(s.mats[m] ?? 0).toBe(have);
+    const days = M.leadDays(s);
+    expect(s.orders![0].left).toBe(days);
+    let got = false;
+    for (let k = 0; k < days; k++) got = !!M.step(s).orders?.length || got;
+    expect(got).toBe(true);
+    expect(s.mats[m] ?? 0).toBe(have + M.LOT);
+    expect(s.orders).toHaveLength(0);
+  });
+});

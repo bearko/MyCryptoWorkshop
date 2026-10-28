@@ -47,6 +47,7 @@ import {
   depotInfo,
   missionProgress,
   siteInfo,
+  walkDays,
   buildCatOpen,
   buildKnown,
   gateOf,
@@ -77,6 +78,7 @@ import {
   sheetOpen,
   type Ctx,
   mineTip,
+  shopScene,
   open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
@@ -1370,7 +1372,7 @@ function sideIntro() {
 
 // ---------------------------------------------------------------- 初売上までの流れの案内（①調達 → ②製造 → ③物流 → ④販売。スキップできない）
 
-type TourKey = 'intro' | 'buy' | 'craft' | 'haul' | 'sell' | 'end';
+type TourKey = 'intro' | 'buy' | 'craft' | 'haul' | 'look' | 'inside' | 'end';
 type TourEv = 'made' | 'dropped' | 'sold';
 interface TourStage {
   key: TourKey;
@@ -1387,8 +1389,9 @@ const TOUR: TourStage[] = [
   { key: 'intro', label: '', say: t('準備ばっちり！ ここから、エクステが売れるまでの流れを一緒に見てみよう。', 'All set! Let’s watch how an Extension gets from start to sale.'), speed: 0 },
   { key: 'buy', label: t('① 調達', '① Buy'), say: t('まずは[[① 調達]]。卸問屋から、工房へ素材が届くよ。', 'First, [[① Buy]]: materials travel from the wholesaler to the workshop.'), then: t('素材がないと、工房は何も作れないんだ。', 'Without materials, the workshop can’t make anything.'), speed: 0.3 },
   { key: 'craft', label: t('② 製造', '② Craft'), say: t('[[② 製造]]。職人が作業台でセンスを作っているよ。建物のまわりの輪が一周したら、できあがり！', '[[② Craft]]: the crafter is making Sensu. When the ring around the building completes, a batch is done!'), then: t('できた！ 作るには、何日か時間がかかるんだね。', 'Done! Crafting takes a few days.'), wait: 'made', speed: 1 },
-  { key: 'haul', label: t('③ 物流', '③ Haul'), say: t('[[③ 物流]]。できたセンスを、荷車がお店まで運ぶよ。', '[[③ Haul]]: a cart carries the Sensu to the shop.'), then: t('お店に着いた！ 遠いお店ほど、運ぶのに日数がかかるよ。', 'Delivered! The farther the shop, the longer it takes.'), wait: 'dropped', speed: 1 },
-  { key: 'sell', label: t('④ 販売', '④ Sell'), say: t('[[④ 販売]]。棚に並んだら、お客さんが来るのを待とう。', '[[④ Sell]]: once it’s on the shelf, we wait for customers.'), then: t('売れた！ お客さんが買ってくれて、はじめて売上になるんだ。', 'Sold! Sales only happen when a customer buys.'), wait: 'sold', speed: 4 },
+  { key: 'haul', label: t('③ 物流', '③ Haul'), say: t('[[③ 物流]]。運搬係が工房を出て、道路を通ってお店まで荷車を押していくよ。', '[[③ Haul]]: the hauler leaves the workshop and pushes the cart along the road to the shop.'), then: t('お店に着いた！ 遠いお店ほど、運ぶのに日数がかかるよ。', 'Delivered! The farther the shop, the longer it takes.'), wait: 'dropped', speed: 0.5 },
+  { key: 'look', label: t('④ 販売', '④ Sell'), say: t('[[④ 販売]]。お店に注目！ 届いた商品を目当てに、お客さんが入っていくよ。', '[[④ Sell]]: watch the shop! Customers are heading in.'), then: t('[[お店]]をタップして、中をのぞいてみよう！', 'Tap the [[shop]] to look inside!'), speed: 0 },
+  { key: 'inside', label: t('④ 販売', '④ Sell'), say: t('店員が商品を棚に並べて、お客さんを待っているよ。お客さんが手に取って、レジに来るかな？', 'The clerk shelves the goods and waits. Will a customer pick one up and pay?'), then: t('売れた！ お客さんが買ってくれて、はじめて売上になるんだ。', 'Sold! Sales only happen when a customer buys.'), wait: 'sold', speed: 1 },
   { key: 'end', label: '', say: t('① 調達 → ② 製造 → ③ 物流 → ④ 販売。どれか 1 つでも止まると、売上も止まるよ。', '① Buy → ② Craft → ③ Haul → ④ Sell. If any one stops, sales stop too.'), speed: 0 },
 ];
 /** 一言を読む時間（ミリ秒） */
@@ -1397,7 +1400,7 @@ const TOUR_READ = 3200;
 const TOUR_WAIT = 45000;
 
 let tourReport: Parameters<typeof showReport>[0] | null = null;
-let tour: { k: number; t0: number; ev: number | null; deliver?: { t0: number; dur: number; hero: number; mat: Mat } } | null = null;
+let tour: { k: number; t0: number; ev: number | null; deliver?: { t0: number; dur: number; hero: number; mat: Mat }; last?: number; tap?: HTMLButtonElement; inside?: HTMLElement } | null = null;
 const tourEl = h('div', 'isl-tour');
 tourEl.hidden = true;
 
@@ -1430,9 +1433,36 @@ function tourStage() {
     tour.deliver = undefined;
     if (st.key === 'haul') forceHaul(s);
     if (st.key === 'craft' || st.key === 'haul') focusOn('workshop');
-    if (st.key === 'sell') focusOn('shop');
+    if (st.key === 'look') {
+      // お店を大きく。お客さんが家からお店へ入っていく
+      const shop = myShops(s)[0];
+      if (shop) {
+        tween = { x0: cam.x, y0: cam.y, x1: (shop.i - shop.j) * 100, y1: (shop.i + shop.j) * 55 - 40, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 1.05 : 1.25, dur: 1100 };
+        tourGuests(shop);
+      }
+    }
+    if (st.key === 'inside') {
+      // 店内の様子を大きく見せる（棚に並べて、お客さんが来て、売れる）
+      const shop = myShops(s)[0];
+      if (shop) {
+        const box = h('div', 'isl-tour-shop');
+        box.append(shopScene(s, shop.uid));
+        tour.inside = box;
+      }
+    }
+    if (st.key === 'end') tour.inside = undefined;
   }
   tourRender();
+}
+
+/** 流れの案内：お店に入っていくお客さん（見せるためだけ。売上にはならない） */
+function tourGuests(shop: (typeof s.buildings)[number]) {
+  const homes = s.buildings.filter((b) => b.owner === 'town' && ['house', 'cottage', 'apartment', 'garage_house', 'japanese_house', 'manor'].includes(b.id));
+  const near = homes.sort((a, b) => Math.abs(a.i - shop.i) + Math.abs(a.j - shop.j) - (Math.abs(b.i - shop.i) + Math.abs(b.j - shop.j))).slice(0, 4);
+  near.forEach((home, k) => {
+    const path = pathOf(doorOf(home), doorOf(shop));
+    if (path && path.length > 1) anim.walkers.push({ hero: GUESTS[(k * 3) % GUESTS.length] ?? 1001, path, t0: anim.clock + 400 + k * 900, dur: Math.max(1800, path.length * 260) });
+  });
 }
 
 function tourOn(ev: TourEv | null, ev2: TourEv | null = null) {
@@ -1442,6 +1472,7 @@ function tourOn(ev: TourEv | null, ev2: TourEv | null = null) {
     tour.ev = performance.now();
     // ゆっくりにして、一言を読んでもらう（動きは止めない）
     speed = 0.3;
+    if (st.key === 'inside' && tour.inside) tour.inside.append(h('div', 'isl-tour-sold', t('売れた！', 'Sold!')));
     sfx.play('check');
     tourRender();
   }
@@ -1451,6 +1482,39 @@ function tourOn(ev: TourEv | null, ev2: TourEv | null = null) {
 function tourFrame(now: number) {
   if (!tour) return;
   const st = TOUR[tour.k];
+  const dtReal = Math.min(100, now - (tour.last ?? now));
+  tour.last = now;
+  // お店に注目しているあいだは、ゲームの時間を止めて、お客さんだけ歩かせる
+  if (st.key === 'look') {
+    tickAnim(dtReal * 0.8);
+    dirty = true;
+    const shop = myShops(s)[0];
+    if (tour.ev == null && now - tour.t0 > TOUR_READ + 600) {
+      tour.ev = now;
+      sfx.play('check');
+      tourRender();
+    }
+    // 読み終わったら、お店をタップしてもらう（ほかは押せない）
+    if (tour.ev != null && shop && tour.tap) {
+      const q = { x: ((shop.i - shop.j) * 100 - cam.x) * cam.zoom + W / 2, y: ((shop.i + shop.j) * 55 - 60 - cam.y) * cam.zoom + H / 2 };
+      tour.tap.style.left = `${q.x}px`;
+      tour.tap.style.top = `${q.y}px`;
+    }
+    anim.spot = shop ? { i: shop.i, j: shop.j, r: 220 } : null;
+    return;
+  }
+  if (st.key === 'inside') {
+    anim.spot = null;
+    if (st.wait && tour.ev == null && now - tour.t0 > TOUR_WAIT) {
+      tour.ev = now;
+      tourRender();
+    }
+    if (tour.ev != null && now - tour.ev > TOUR_READ + 600) {
+      tour.k++;
+      tourStage();
+    }
+    return;
+  }
   // 荷車・届ける人を追いかける
   let target: [number, number] | null = null;
   if (st.key === 'buy' && anim.buyer) {
@@ -1471,7 +1535,7 @@ function tourFrame(now: number) {
     }
   }
   // スポットライト：届ける人・荷車を追い、工房・お店は建物に
-  const bld = st.key === 'craft' || (st.key === 'haul' && !target) ? myWorkshop(s) : st.key === 'sell' ? myShops(s)[0] : null;
+  const bld = st.key === 'craft' || (st.key === 'haul' && !target) ? myWorkshop(s) : null;
   if (!target && bld) target = [bld.i, bld.j];
   anim.spot = target ? { i: target[0], j: target[1], r: st.key === 'buy' || (st.key === 'haul' && !bld) ? 150 : 210 } : null;
   if (target && !tween && (st.key === 'buy' || st.key === 'haul')) {
@@ -1486,6 +1550,12 @@ function tourFrame(now: number) {
     // 届いた素材：作業台で 2 回作れるぶん（この案内のあいだに、工房が止まらないように）
     const sl = s.slots.find((x) => x.sku);
     if (sl?.sku) for (const [m, q] of Object.entries(recipeOf(sl.sku))) s.mats[m as Mat] = Math.max(s.mats[m as Mat] ?? 0, (q ?? 0) * 2);
+    // 届けた人は、卸問屋へ帰っていく
+    const ws3 = myWorkshop(s);
+    const wh3 = wholesaler(s);
+    const back = ws3 && wh3 ? pathOf(doorOf(ws3), doorOf(wh3)) : null;
+    if (back && tour.deliver) anim.walkers.push({ hero: tour.deliver.hero, path: back, t0: anim.clock + 200, dur: 4200 / 0.3 });
+    tour.deliver = undefined;
     sfx.play('check');
     tourRender();
   }
@@ -1520,10 +1590,14 @@ function tourRender() {
   if (!tour) return;
   const st = TOUR[tour.k];
   const steps = h('div', 'isl-tour-steps');
-  TOUR.filter((x) => x.label).forEach((x) => {
-    const idx = TOUR.indexOf(x);
-    steps.append(h('span', `isl-tour-step ${idx === tour!.k ? 'is-on' : idx < tour!.k ? 'is-done' : ''}`, x.label));
-  });
+  // 札は段の名前ごとに 1 つ（④ 販売は「お店に注目」と「店内」の 2 段）
+  const labels = [...new Set(TOUR.filter((x) => x.label).map((x) => x.label))];
+  for (const label of labels) {
+    const idxs = TOUR.map((x, k) => (x.label === label ? k : -1)).filter((k) => k >= 0);
+    const on = idxs.includes(tour.k);
+    const done = !on && Math.max(...idxs) < tour.k;
+    steps.append(h('span', `isl-tour-step ${on ? 'is-on' : done ? 'is-done' : ''}`, label));
+  }
   const box = h('div', 'isl-talk-box isl-tour-box');
   const mine = h('img', 'isl-talk-mine');
   mine.src = assetUrl(tour.ev != null ? 'mch/Image/Characters/navi_ain_cross_01_smile.png' : 'mch/Image/Characters/navi_ain_speak_00_talk.png');
@@ -1532,7 +1606,25 @@ function tourRender() {
   text.append(rich(tour.ev != null && st.then ? st.then : st.say));
   const wait = h('small', 'isl-tour-wait', st.wait && tour.ev == null ? t('見守っていてね…', 'Watch…') : '');
   box.append(mine, h('b', 'isl-talk-name', t('マインちゃん', 'Mine-chan')), text, wait);
-  tourEl.replaceChildren(steps, box);
+  const parts: HTMLElement[] = [steps];
+  // お店に注目：読み終わったら、お店の上に「タップ」の印（ここだけ押せる）
+  if (st.key === 'look' && tour.ev != null) {
+    const tap = h('button', 'isl-tour-tap');
+    tap.type = 'button';
+    tap.append(h('span', '', '👆'), h('small', '', t('タップ', 'Tap')));
+    tap.addEventListener('click', () => {
+      if (!tour) return;
+      sfx.play('tap');
+      tour.tap = undefined;
+      tour.k++;
+      tourStage();
+    });
+    tour.tap = tap;
+    parts.push(tap);
+  } else if (tour.tap) tour.tap = undefined;
+  if (tour.inside) parts.push(tour.inside);
+  parts.push(box);
+  tourEl.replaceChildren(...parts);
 }
 
 /**
@@ -2155,6 +2247,18 @@ function tickAnim(dtGame: number) {
     const carry = (Object.keys(trip.cargo)[0] ?? null) as Mat | null;
     anim.buyer = path ? { hero: trip.hero, path, k, carry } : null;
   } else anim.buyer = null;
+  // 注文：納期の歩く日数のあいだ、問屋の人が卸問屋から工房へ歩いてくる
+  const walk = walkDays(s);
+  anim.couriers = [];
+  if (ws && wh && s.orders?.length) {
+    const path = pathOf(doorOf(wh), doorOf(ws));
+    if (path)
+      for (const o of s.orders) {
+        if (o.left > walk) continue;
+        const f = Math.max(0, Math.min(1, (walk - o.left + acc / dayMs()) / walk));
+        anim.couriers.push({ hero: o.courier, path, f, carry: o.m });
+      }
+  }
   // 流れの案内：卸問屋から工房へ、素材を届ける人
   if (tour?.deliver && ws && wh) {
     const path = pathOf(doorOf(ws), doorOf(wh));
@@ -2162,7 +2266,7 @@ function tickAnim(dtGame: number) {
     if (path) anim.buyer = { hero: tour.deliver.hero, path, k: 0.5 + f * 0.5, carry: tour.deliver.mat };
   }
 }
-const animating = () => anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
+const animating = () => anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || s.trips.length > 0 || !!s.orders?.length || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
 let lastDraw = 0;
 let last = performance.now();
 let lastWater = -1;
@@ -2196,6 +2300,14 @@ function advance(days: number) {
     for (const k2 of r.developed) toast(t(`${PRODUCT[k2].name}のアンコモンを開発しました！`, `Developed the ${PRODUCT[k2].name} Uncommon!`));
     for (const id of r.missions) toast(t(`依頼「${MISSIONS.find((m) => m.id === id)?.title ?? ''}」を達成しました`, `Request done: ${MISSIONS.find((m) => m.id === id)?.title ?? ''}`));
     if (r.company) companyNews(r.company);
+    // 注文が届いた：問屋の人が工房に入って在庫になり、卸問屋へ帰っていく
+    for (const o of r.orders ?? []) {
+      toast(t(`${heroName(o.courier)}が${MATS[o.m].name} ${o.qty} 個を届けてくれました`, `${heroName(o.courier)} delivered ${o.qty} ${MATS[o.m].name}`));
+      const ws2 = myWorkshop(s);
+      const wh2 = wholesaler(s);
+      const back = ws2 && wh2 ? pathOf(doorOf(ws2), doorOf(wh2)) : null;
+      if (back) anim.walkers.push({ hero: o.courier, path: back, t0: anim.clock + 300, dur: walkDays(s) * dayMs() });
+    }
     if (r.report) {
       save();
       // 流れの案内のあいだは、終わってから出す

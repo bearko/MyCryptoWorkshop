@@ -42,6 +42,8 @@ export interface Anim {
   crowd: Walker[];
   walkers: Walker[];
   buyer: BuyerView | null;
+  /** 注文した素材を運んでくる問屋の人（卸問屋 → 工房。f は 0〜1） */
+  couriers?: { hero: number; path: [number, number][]; f: number; carry: Mat }[];
   /** お店ごとの売上の表示（新しいものが下）。t は clock */
   coins: Map<number, { yen: number; t: number }[]>;
   /** 工房の「＋数」 */
