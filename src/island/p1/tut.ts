@@ -54,6 +54,8 @@ export interface TutStep {
   intro?: { pages: TutPage[]; ok: string };
   /** 段の条件を満たしたとき、画面を開いたまま出す会話（ok で画面を閉じる） */
   sheetTalk?: { pages: TutPage[]; ok: string };
+  /** 会話のあと画面へ飛ばず、下の帯のタブ → サブタブを自分で押してもらう（hl のタブとサブタブを順に案内する） */
+  lesson?: boolean;
   /** 段に入ったら（クリアの演出のあと）、会話なしで act の画面を開く */
   autoGo?: boolean;
   /** この段に入るときに、マインちゃんが援助する資金（足りないときだけ。0 なら無し） */
@@ -218,11 +220,12 @@ export const TUT: TutStep[] = [
       pages: [
         { text: t('あれ、工房でできた品がお店に届かない……。運ぶ人がいないんだ！', 'Hm? The goods from the workshop never reach the shop… Nobody carries them!') },
         { text: t('力持ちの[[MCHウォーリアー]]に、運ぶのを頼もう。', 'Let’s ask the strong [[MCH Warrior]] to carry them.'), show: 'crew', hero: 10001 },
+        { text: t('ヒーローの仕事は、画面の下の[[人事]]タブから決められるよ。押してみよう！', 'You set heroes’ jobs from the [[HR]] tab at the bottom. Tap it!') },
       ],
-      ok: t('配置を開く', 'Open Staff'),
+      ok: t('やってみる', 'Let’s try'),
     },
     say: () => t('工房の品は、誰かが運ばないとお店に並ばないよ。「人事」→「ヒーローの配置」で[[MCHウォーリアー]]に頼もう！', 'Goods only reach the shop if someone carries them. Ask [[MCH Warrior]] under HR → Assign heroes!'),
-    act: [t('配置を開く', 'Open Staff'), 'staff'],
+    lesson: true,
     hl: 'hr:staff',
     tips: {
       staff: () => t('③ 物流の光っている四角をタップして、[[MCHウォーリアー]]を選ぼう！', 'Tap the glowing square under ③ Haul and choose [[MCH Warrior]]!'),
