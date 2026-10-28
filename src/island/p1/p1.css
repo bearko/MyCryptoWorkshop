@@ -3173,3 +3173,382 @@ button.isl-mis {
     font-size: 12px;
   }
 }
+
+/* ================================================================ ブランド力（上の帯）・ランドセクタの札 */
+.isl-bad {
+  color: var(--isl-bad);
+}
+.isl-stat-brand b {
+  color: #ffd257;
+}
+.isl-stat-brand.is-up {
+  animation: isl-brand-up 0.9s ease-out;
+}
+.isl-stat-brand.is-down {
+  animation: isl-brand-down 0.9s ease-out;
+}
+@keyframes isl-brand-up {
+  30% {
+    transform: scale(1.12);
+    box-shadow: 0 0 18px rgba(255, 210, 87, 0.8);
+  }
+}
+@keyframes isl-brand-down {
+  30% {
+    transform: translateY(2px);
+    box-shadow: 0 0 18px rgba(240, 112, 112, 0.8);
+  }
+}
+.isl-stat-sector b {
+  font-size: 14px;
+}
+@media (max-width: 599px) {
+  .isl-stat-brand small,
+  .isl-stat-sector small {
+    display: none;
+  }
+}
+
+/* ================================================================ ランドマップ */
+.isl-land {
+  position: relative;
+  flex: none;
+  width: 100%;
+  height: min(52vh, 440px);
+  min-height: 300px;
+  margin: 8px 0 12px;
+  overflow: hidden;
+  border: 2px solid var(--isl-line);
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 60%, #1f4f7a, #0f2a46 70%);
+}
+@media (max-width: 599px) {
+  .isl-land {
+    height: 400px;
+  }
+  .isl-land-node {
+    min-width: 0;
+    max-width: 92px;
+    padding: 3px 6px;
+  }
+  .isl-land-node b {
+    font-size: 12px;
+  }
+  /* スマホは名前だけ（状態は下の説明に） */
+  .isl-land-node small {
+    display: none;
+  }
+  .isl-land-cloud {
+    width: 120px;
+    height: 80px;
+    margin: -40px 0 0 -60px;
+  }
+}
+.isl-land-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.isl-land-isle {
+  fill: #6aa35a;
+  stroke: #e9d6a0;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
+}
+.isl-land-road {
+  stroke: rgba(255, 244, 214, 0.55);
+  stroke-width: 3;
+  stroke-dasharray: 2 6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.isl-land-road.is-on {
+  stroke: #ffd257;
+  stroke-dasharray: none;
+}
+.isl-land-node {
+  --tc: #b8c0d4;
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 96px;
+  max-width: 132px;
+  padding: 6px 8px 5px;
+  border: 3px solid var(--tc);
+  border-radius: 14px;
+  background: rgba(15, 22, 38, 0.92);
+  color: var(--isl-ink, #f4ecd8);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+}
+.isl-land-node b {
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.isl-land-node small {
+  color: var(--isl-dim);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.isl-land-node.is-here {
+  box-shadow: 0 0 0 4px rgba(255, 210, 87, 0.35), 0 0 18px rgba(255, 210, 87, 0.6);
+  animation: isl-land-here 1.6s ease-in-out infinite alternate;
+}
+@keyframes isl-land-here {
+  to {
+    box-shadow: 0 0 0 7px rgba(255, 210, 87, 0.12), 0 0 26px rgba(255, 210, 87, 0.75);
+  }
+}
+.isl-land-node.is-mine {
+  background: rgba(30, 52, 40, 0.94);
+}
+.isl-land-node.is-locked,
+.isl-land-node.is-soon {
+  filter: grayscale(1) brightness(0.7);
+  border-style: dashed;
+}
+.isl-land-node.is-cloud {
+  filter: blur(1px) grayscale(0.6) brightness(0.7);
+  opacity: 0.7;
+}
+.isl-land-node.is-sel {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+  z-index: 3;
+}
+.isl-land-pin {
+  position: absolute;
+  top: -18px;
+  font-size: 20px;
+}
+.isl-land-lock {
+  position: absolute;
+  top: -10px;
+  right: -8px;
+  font-size: 16px;
+}
+/* マウスを乗せたときの開放の条件（PC） */
+.isl-land-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  display: none;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 10px;
+  background: #0f1626;
+  color: #fff;
+  font-size: 12px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  filter: none;
+}
+@media (hover: hover) {
+  .isl-land-node:hover .isl-land-tip {
+    display: block;
+  }
+  .isl-land-node:hover {
+    z-index: 4;
+  }
+}
+/* 雲（Epic・Legendary） */
+.isl-land-cloud {
+  position: absolute;
+  z-index: 2;
+  width: 170px;
+  height: 110px;
+  margin: -55px 0 0 -85px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 55%, rgba(255, 255, 255, 0.95) 0 22%, transparent 23%),
+    radial-gradient(circle at 55% 40%, rgba(255, 255, 255, 0.95) 0 27%, transparent 28%),
+    radial-gradient(circle at 75% 58%, rgba(255, 255, 255, 0.92) 0 21%, transparent 22%),
+    radial-gradient(circle at 50% 65%, rgba(235, 240, 250, 0.9) 0 30%, transparent 31%);
+  filter: blur(2px) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+  pointer-events: none;
+  animation: isl-land-cloud 6s ease-in-out infinite alternate;
+}
+@keyframes isl-land-cloud {
+  to {
+    transform: translateX(8px);
+  }
+}
+.isl-tier {
+  --tc: #b8c0d4;
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--tc);
+  color: #0f1626;
+  font-size: 12px;
+  font-weight: 900;
+}
+.isl-land-detail {
+  display: grid;
+  gap: 8px;
+  flex: none;
+}
+.isl-land-detail p {
+  margin: 0;
+}
+.isl-land-dname {
+  font-size: 18px;
+}
+.isl-land-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.isl-land-stats .is-bad b {
+  color: var(--isl-bad);
+}
+.isl-land-stats .is-good b {
+  color: var(--isl-good);
+}
+@media (max-width: 599px) {
+  .isl-land-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.isl-land-mgr {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.isl-land-mgr .isl-row {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.isl-land-invest .isl-btn {
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+/* ================================================================ 決算書 */
+.isl-books-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.isl-books {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 760px) {
+  .isl-books {
+    grid-template-columns: 1fr;
+  }
+}
+.isl-books-tbl {
+  display: grid;
+  gap: 2px;
+}
+.isl-books-tbl h3 {
+  margin: 0 0 6px;
+}
+.isl-books-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: 14px;
+}
+.isl-books-row b {
+  font-variant-numeric: tabular-nums;
+}
+.isl-books-row.is-sub {
+  color: var(--isl-dim);
+  font-size: 13px;
+}
+.isl-books-row.is-head {
+  margin-top: 4px;
+  font-weight: 700;
+}
+.isl-books-row.is-sum {
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  font-weight: 900;
+}
+.isl-books-row.is-total {
+  margin-top: 4px;
+  border-top: 2px solid var(--isl-gold);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+/* ================================================================ ブランド力の画面・スキルツリーの札 */
+.isl-brand-top {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.isl-brand-big {
+  color: #ffd257;
+  font-size: 40px;
+  text-shadow: 0 0 14px rgba(255, 210, 87, 0.5);
+}
+.isl-brand-skill {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 0 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  opacity: 0.6;
+}
+.isl-brand-skill.is-on {
+  opacity: 1;
+}
+.isl-brand-skill b {
+  grid-row: span 2;
+  color: #ffd257;
+}
+.isl-brand-skill small {
+  grid-column: 2;
+}
+.isl-brand-how {
+  margin: 0;
+  padding-left: 18px;
+}
+.isl-brand-log {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 14px;
+}
+.isl-tree-brand {
+  position: absolute;
+  top: -8px;
+  left: -6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #3a2f10;
+  border: 2px solid #ffd257;
+  color: #ffd257;
+  font-size: 11px;
+  font-weight: 900;
+}
+.isl-tree-brand.is-ok {
+  background: #ffd257;
+  color: #3a2f10;
+}
+.isl-tree-node.is-brand {
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.35);
+}

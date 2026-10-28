@@ -117,6 +117,8 @@ export interface Ctx {
   step?: () => string | null;
   /** 効果音 */
   sfx?: (k: Sfx) => void;
+  /** ほかのランドセクタへ移った（land.ts の moveTo のあと） */
+  moved?: (target: string, fresh: boolean, manager: number | null) => void;
 }
 
 /** 画面の上にマインちゃんの一言（チュートリアル中） */
