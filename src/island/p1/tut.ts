@@ -8,17 +8,20 @@
  * 進み具合は P1State.tut（段の番号、TUT_DONE で終わり）。各段は done() が真になったら次へ進む。
  */
 import { t } from '../../i18n';
-import { DAYS, hqOpen, myShops, type P1State } from './model';
+import { SKILL } from './data';
+import { DAYS, has, hqOpen, myShops, type P1State } from './model';
 
 export const TUT_DONE = 99;
 
 /** 吹き出しのボタンで開く画面（main.ts が実際の関数に結びつける） */
-export type TutGo = 'build' | 'workshop' | 'shop' | 'staff' | 'hire' | 'buy' | 'scm' | 'ranking' | 'skills';
+export type TutGo = 'build' | 'workshop' | 'shop' | 'staff' | 'hire' | 'buy' | 'scm' | 'ranking' | 'skills' | 'hr';
 
 /** マインちゃんの会話の 1 枚。show：一緒に見せる絵 */
 export interface TutPage {
   text: string;
   show?: 'crew' | 'cycle' | 'gift';
+  /** show: 'gift' のときの中身（無ければ「人材の募集」） */
+  gift?: { icon: string; title: string; note: string };
   /** show: 'crew' のとき、前に出すヒーロー（ほかは少し暗く） */
   hero?: number;
 }
@@ -47,6 +50,8 @@ export interface TutStep {
   tips?: Partial<Record<string, (s: P1State) => string>>;
   /** この段に入ったときの会話（1 枚ずつ。最後の枚のボタンが ok で、act の画面を開く） */
   intro?: { pages: TutPage[]; ok: string };
+  /** この段に入るときに、マインちゃんが援助する資金（足りないときだけ。0 なら無し） */
+  grant?: (s: P1State) => number;
   /** 次の段へ進む条件。seen：この段に入ってから開いて閉じた画面 */
   done: (s: P1State, seen: Set<string>) => boolean;
 }
@@ -232,7 +237,6 @@ export const TUT: TutStep[] = [
     intro: {
       pages: [
         { text: t('[[初売上]]、おめでとう！ 作って、運んで、売れた！', 'Your [[first sale]]! Made, carried and sold!'), show: 'cycle' },
-        { text: t('お祝いに、ヒーローを雇える[[人材の募集]]を解放したよ！', 'To celebrate, I unlocked [[Recruiting]] so you can hire heroes!'), show: 'gift' },
         { text: t('流れ全体は、[[SCM ダッシュボード]]で見られるよ。のぞいてみよう！', 'You can see the whole flow on the [[SCM dashboard]]. Take a look!') },
       ],
       ok: t('見てみる', 'Take a look'),
@@ -246,22 +250,56 @@ export const TUT: TutStep[] = [
     done: (_s, seen) => seen.has('scm'),
   },
   {
-    id: 'hire',
-    goal: () => t('調達係を雇って置く', 'Hire and place a buyer'),
-    praise: t('これで素材は、毎日自動で届くよ！', 'Now materials arrive by themselves every day!'),
+    id: 'recruit',
+    goal: (_s) => t('スキルツリーで「人材の募集」を開放する', 'Unlock Recruiting in the skill tree'),
+    praise: t('人材の募集を開放できた！', 'Recruiting is unlocked!'),
     intro: {
       pages: [
         { text: t('ダッシュボードの [[① 調達]]を見て。調達係がいないから、いまは素材を手で買うしかないんだ。', 'Look at [[① Buy]] on the dashboard. With no buyer, you can only buy materials by hand.') },
-        { text: t('さっき解放した[[人材の募集]]で、素材を買い付けてくれるヒーローを雇おう！', 'Use the [[Recruiting]] you just unlocked to hire a hero who buys materials!'), show: 'gift' },
+        { text: t('素材を買い付けてくれるヒーローを雇いたいね。でも、ヒーローを雇うには[[人材の募集]]が要るんだ。', 'Let’s hire a hero to buy materials. But hiring needs [[Recruiting]] first.') },
+        { text: t('[[人材の募集]]は、[[スキルツリー]]で開放できるよ。行ってみよう！', 'You unlock [[Recruiting]] in the [[skill tree]]. Let’s go!') },
       ],
-      ok: t('人材登用を開く', 'Open recruiting'),
+      ok: t('スキルツリーへ', 'To the skill tree'),
     },
+    grant: (s) => {
+      const need = (SKILL.hire?.cost ?? 0) - s.money;
+      return need > 0 ? Math.ceil(need / 1000) * 1000 : 0;
+    },
+    say: (s) =>
+      has(s, 'hire')
+        ? t('開放できた！ スキルツリーの ✕ で、元の画面に戻ろう。', 'Unlocked! Close the skill tree with ✕.')
+        : hqOpen(s)
+          ? t('光っている[[人材の募集]]をダブルタップして開放しよう！', 'Double-tap the glowing [[Recruiting]] panel to unlock it!')
+          : t('真ん中の「スキルツリー」を開いて、まずは[[本社]]を開放しよう。', 'Open the Skill tree and unlock [[HQ]] first.'),
+    act: [t('スキルツリーを開く', 'Open skills'), 'skills'],
+    hl: 'skill',
+    checks: [
+      [t('スキルツリーを開く', 'Open the skill tree'), (s, seen) => seen.has('skills') || hqOpen(s)],
+      [t('真ん中の本社を開放する', 'Unlock HQ in the middle'), (s) => hqOpen(s)],
+      [t('人材の募集を開放する', 'Unlock Recruiting'), (s) => has(s, 'hire')],
+    ],
+    tips: {
+      skills: (s) =>
+        has(s, 'hire')
+          ? t('開放できた！ 右上の [[✕]] で、元の画面に戻ろう！', 'Unlocked! Use [[✕]] at the top right to go back!')
+          : hqOpen(s)
+            ? t('枝は ① 調達・② 製造・③ 物流・④ 販売・人材・経営の[[事業ごと]]に分かれているよ。いまは光っている[[人材の募集]]をダブルタップして開放しよう！', 'Branches are split by [[business]]: Buy, Craft, Haul, Sell, People, Operations. For now, double-tap the glowing [[Recruiting]] panel!')
+            : t('真ん中の[[本社]]をタップして、「本社を開放する」を押そう！', 'Tap [[HQ]] in the middle and press Unlock HQ!'),
+    },
+    done: (s, seen) => has(s, 'hire') && hqOpen(s) && seen.has('skills'),
+  },
+  {
+    id: 'hire',
+    goal: () => t('調達係を雇って置く', 'Hire and place a buyer'),
+    praise: t('これで素材は、毎日自動で届くよ！', 'Now materials arrive by themselves every day!'),
     say: (s) =>
       hired(s)
         ? t('雇えた！ 「人事」→「ヒーローの配置」で、[[① 調達]]の四角に置こう。', 'Hired! Put them in the [[① Buy]] square under HR → Assign heroes.')
-        : t('「人事」→「人材登用」で、[[調達]]が得意なヒーローを雇おう。', 'Hire a hero good at [[buying]] under HR → Recruiting.'),
-    act: (s) => (hired(s) ? [t('配置を開く', 'Open Staff'), 'staff'] : [t('人材登用を開く', 'Open recruiting'), 'hire']),
-    hl: (s) => (hired(s) ? 'hr:staff' : 'hr:hire'),
+        : s.flags.hireUnlocked
+          ? t('「人事」→「人材登用」で、[[調達]]が得意なヒーローを雇おう。', 'Hire a hero good at [[buying]] under HR → Recruiting.')
+          : t('スキルを開放したよ！ 光っている「[[人事]]」タブを開いてみよう。', 'Skill unlocked! Open the glowing [[HR]] tab.'),
+    act: (s) => (hired(s) ? [t('配置を開く', 'Open Staff'), 'staff'] : s.flags.hireUnlocked ? [t('人材登用を開く', 'Open recruiting'), 'hire'] : [t('人事を開く', 'Open HR'), 'hr']),
+    hl: (s) => (hired(s) ? 'hr:staff' : s.flags.hireUnlocked ? 'hr:hire' : 'hr'),
     checks: [
       [t('人材登用で 1 人雇う', 'Hire one hero'), (s) => hired(s)],
       [t('① 調達の四角に置く', 'Put them in ① Buy'), (s) => s.staff.some((x) => x.task === 'buy')],
@@ -304,31 +342,6 @@ export const TUT: TutStep[] = [
     },
     done: (_s, seen) => seen.has('ranking'),
   },
-  {
-    id: 'skills',
-    goal: (_s) => t('スキルツリーの本社を開放する', 'Unlock HQ in the skill tree'),
-    checks: [
-      [t('スキルツリーを開く', 'Open the skill tree'), (_s, seen) => seen.has('skills')],
-      [t('真ん中の本社を開放する', 'Unlock HQ in the middle'), (s) => hqOpen(s)],
-    ],
-    intro: {
-      pages: [
-        { text: t('売上を伸ばすカギは、流れの[[詰まり]]をなくすこと。', 'The key to more sales: clear the [[jams]] in the flow.') },
-        { text: t('そのための道具が[[スキルツリー]]。まずは真ん中の[[本社]]を開放しよう！', 'Your tool for that is the [[skill tree]]. First, unlock [[HQ]] in the middle!') },
-      ],
-      ok: t('スキルツリーへ', 'To the skill tree'),
-    },
-    say: () => t('真ん中の「スキルツリー」を開いて、本社を開放しよう。', 'Open the Skill tree and unlock HQ.'),
-    act: [t('スキルツリーを開く', 'Open skills'), 'skills'],
-    hl: 'skill',
-    tips: {
-      skills: (s) =>
-        hqOpen(s)
-          ? t('枝の横の札が、強くなるところ。ダッシュボードで赤い段の枝から伸ばそう！', 'The tag by each branch shows what it strengthens. Grow the branch of the red stage first!')
-          : t('真ん中の[[本社]]をタップして「開放する」を押してみて！', 'Tap [[HQ]] in the middle and press Unlock!'),
-    },
-    done: (s, seen) => seen.has('skills') && hqOpen(s),
-  },
 ];
 
 /** 最後の会話（見習い期間のおしまい） */
@@ -341,7 +354,7 @@ export const TUT_END: TutPage[] = [
  * 段の並びを変えたら上げる。セーブの段の番号が古い並びのものなら、条件を見て今いるべき段に置き直す
  * （古い番号のままだと、まだ工房で何も作っていないのに「素材」の段になる、などが起きる）。
  */
-export const TUT_VERSION = 3;
+export const TUT_VERSION = 4;
 
 /** いまの段で、地図で指さす建物（中を開いてほしいとき） */
 export const pointOf = (st: TutStep | undefined): 'workshop' | 'shop' | null => (st?.id === 'craft' ? 'workshop' : st?.id === 'sell' ? 'shop' : null);

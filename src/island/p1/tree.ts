@@ -102,6 +102,19 @@ let burst = 0;
 const BURST_MS = 2600;
 /** 本社のパネル（view.sel） */
 const HQ = '@hq';
+/** ダブルタップ（ダブルクリック）：同じパネルを続けて押したら開放する */
+const DOUBLE_MS = 420;
+let lastTap: { id: string; t: number } | null = null;
+const isDouble = (id: string) => {
+  const now = performance.now();
+  const yes = !!lastTap && lastTap.id === id && now - lastTap.t < DOUBLE_MS;
+  lastTap = yes ? null : { id, t: now };
+  return yes;
+};
+/** チュートリアルで、この段に入ってから「人材の募集」へカメラを寄せたか */
+let tutFocused = false;
+/** いま開放したばかりのパネル（光の演出） */
+let justLearned: { id: string; t: number } | null = null;
 
 function iconOf(id: string, size: number): HTMLElement {
   const spec = ICON[id] ?? { emoji: '✦' };
@@ -154,14 +167,14 @@ function skillCard(s: P1State, k: Skill): HTMLElement {
   if (L.stage) c.append(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
   if (k.brand) c.append(h('small', brandShort(s, k) ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
   if (k.requires?.length) c.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join('　')}`, `Needs: ${k.requires.map((r) => SKILL[r]?.name ?? r).join(', ')}`)));
-  c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('習得済み', 'Learned') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・押して習得`, `${money(k.cost)} · click to learn`)));
+  c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('開放済み', 'Unlocked') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・ダブルクリックで開放`, `${money(k.cost)} · double-click to unlock`)));
   return c;
 }
 function hqCard(s: P1State, sealed: boolean): HTMLElement {
   const c = h('div', 'isl-tree-hcard');
   c.style.setProperty('--br', 'var(--isl-gold)');
   c.append(h('b', '', t('本社', 'HQ')), h('p', '', HQ_NOTE));
-  c.append(h('small', sealed ? 'isl-good' : 'isl-dim', sealed ? t('押して開放（無料）', 'Click to unlock (free)') : t(`習得したスキル ${s.skills.length} / ${SKILLS.length}`, `Learned ${s.skills.length} / ${SKILLS.length}`)));
+  c.append(h('small', sealed ? 'isl-good' : 'isl-dim', sealed ? t('ダブルクリックで開放（無料）', 'Double-click to unlock (free)') : t(`開放したスキル ${s.skills.length} / ${SKILLS.length}`, `Unlocked ${s.skills.length} / ${SKILLS.length}`)));
   return c;
 }
 
@@ -178,6 +191,10 @@ export function openSkills(ctx: Ctx, focus?: string) {
     const s = ctx.s();
     // 本社を開放するまでは、本社だけが見える
     const sealed = !hqOpen(s);
+    // チュートリアル（人材の募集を開放する段）：開放してよいのはこのパネルだけ。ほかは押せる（説明は見られる）が、開放はマインちゃんが止める
+    const only = ctx.step?.() === 'recruit' ? 'hire' : null;
+    const target = only && !sealed && !has(s, only) ? only : null;
+    if (!only) tutFocused = false;
     const bursting = !sealed && performance.now() - burst < BURST_MS;
     if (sealed) {
       view.x = 0;
@@ -207,6 +224,57 @@ export function openSkills(ctx: Ctx, focus?: string) {
       chips.append(c);
     }
     // 木
+    /** マインちゃんが止める（チュートリアル中に、ほかのパネルを開放しようとした） */
+    const stop = h('div', 'isl-tree-stop');
+    stop.hidden = true;
+    let stopT = 0;
+    const halt = () => {
+      ctx.sfx?.('error');
+      const mi = h('img');
+      mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+      mi.alt = '';
+      stop.replaceChildren(mi, h('p', '', t('ちょっと待って！ いまは光っている「人材の募集」を開放しよう！', 'Wait! For now, let’s unlock the glowing Recruiting panel!')));
+      stop.hidden = false;
+      stop.classList.remove('is-shake');
+      void stop.offsetWidth;
+      stop.classList.add('is-shake');
+      clearTimeout(stopT);
+      stopT = window.setTimeout(() => (stop.hidden = true), 2600);
+    };
+    /** 開放する（パネルのボタン・ダブルタップ） */
+    const tryLearn = (k: Skill) => {
+      if (only && k.id !== only) return halt();
+      const e = learn(s, k.id);
+      if (e === 'money') {
+        ctx.sfx?.('error');
+        ctx.toast(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
+      } else if (e === 'brand') {
+        ctx.sfx?.('error');
+        ctx.toast(brandNeed(s, k));
+      } else if (e === 'requires') {
+        ctx.sfx?.('error');
+        ctx.toast(t('先に要るスキルがあります', 'Learn the required skills first'));
+      } else if (!e) {
+        ctx.sfx?.('levelup');
+        ctx.toast(t(`「${k.name}」を開放しました`, `Unlocked: ${k.name}`));
+        justLearned = { id: k.id, t: performance.now() };
+        view.sel = k.id;
+      }
+      after(ctx);
+    };
+    const unlockHQ = () => {
+      if (!openHQ(s)) return;
+      burst = performance.now();
+      view.sel = null;
+      view.x = 0;
+      view.y = 0;
+      view.zoom = -1; // 描き直したあと、全体が見える大きさに
+      ctx.sfx?.('clear');
+      setTimeout(() => ctx.sfx?.('levelup'), 700);
+      ctx.toast(t('本社を開放しました！ 強化の枝が広がります', 'HQ unlocked! Upgrade branches spread out'));
+      ctx.save();
+      after(ctx);
+    };
     const vp = h('div', 'isl-tree-vp');
     const world = h('div', `isl-tree-world ${bursting ? 'is-burst' : ''}`);
     if (bursting) setTimeout(() => world.classList.remove('is-burst'), Math.max(0, BURST_MS - (performance.now() - burst)));
@@ -263,6 +331,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
     root.addEventListener('click', (e) => {
       e.stopPropagation();
       if (moved) return;
+      if (isDouble(HQ) && sealed) return unlockHQ();
       view.sel = HQ;
       after(ctx);
     });
@@ -307,9 +376,16 @@ export function openSkills(ctx: Ctx, focus?: string) {
       if (st === 'done') n.append(h('span', 'isl-tree-mark', '✓'));
       else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
       else n.append(h('span', 'isl-tree-cost', money(k.cost)));
+      if (target === k.id) n.classList.add('is-hot');
+      if (justLearned?.id === k.id && performance.now() - justLearned.t < 1500) n.classList.add('is-learned');
       n.addEventListener('click', (e) => {
         e.stopPropagation();
         if (moved) return;
+        // 続けて 2 回押したら開放（取れないものは何もしない。チュートリアル中のほかのパネルはマインちゃんが止める）
+        if (isDouble(k.id) && st !== 'done') {
+          if (only && k.id !== only) return halt();
+          if (st === 'open' || st === 'poor') return tryLearn(k);
+        }
         view.sel = k.id;
         after(ctx);
       });
@@ -329,28 +405,12 @@ export function openSkills(ctx: Ctx, focus?: string) {
       ic.append(im);
       const txt = h('div');
       txt.append(h('b', '', t('本社', 'HQ')), h('p', '', HQ_NOTE));
-      if (!sealed) txt.append(h('small', 'isl-dim', t(`習得したスキル ${s.skills.length} / ${SKILLS.length}`, `Learned ${s.skills.length} / ${SKILLS.length}`)));
+      if (!sealed) txt.append(h('small', 'isl-dim', t(`開放したスキル ${s.skills.length} / ${SKILLS.length}`, `Unlocked ${s.skills.length} / ${SKILLS.length}`)));
       top.append(ic, txt);
       detail.append(top);
       if (sealed)
         detail.append(
-          btn(
-            t('本社を開放する', 'Unlock HQ'),
-            () => {
-              if (!openHQ(s)) return;
-              burst = performance.now();
-              view.sel = null;
-              view.x = 0;
-              view.y = 0;
-              view.zoom = -1; // 描き直したあと、全体が見える大きさに
-              ctx.sfx?.('clear');
-              setTimeout(() => ctx.sfx?.('levelup'), 700);
-              ctx.toast(t('本社を開放しました！ 強化の枝が広がります', 'HQ unlocked! Upgrade branches spread out'));
-              ctx.save();
-              after(ctx);
-            },
-            'is-on',
-          ),
+          btn(t('本社を開放する', 'Unlock HQ'), () => unlockHQ(), 'is-on'),
         );
     } else if (sel) {
       const st = stateOf(s, sel);
@@ -369,18 +429,14 @@ export function openSkills(ctx: Ctx, focus?: string) {
       }
       if (sel.brand) txt.append(h('small', brandShort(s, sel) ? 'isl-warn' : 'isl-good', brandNeed(s, sel)));
       top.append(ic, txt);
-      const b = btn(st === 'done' ? t('習得済み', 'Learned') : st === 'locked' ? t('まだ取れない', 'Locked') : t(`習得する（${money(sel.cost)}）`, `Learn (${money(sel.cost)})`), () => {
-        const e = learn(s, sel.id);
-        if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
-        else if (e === 'brand') ctx.toast(brandNeed(s, sel));
-        else if (!e) ctx.toast(t(`「${sel.name}」を習得しました`, `Learned: ${sel.name}`));
-        after(ctx);
-      }, st === 'open' ? 'is-on' : '');
-      b.disabled = st !== 'open';
+      const b = btn(st === 'done' ? t('開放済み', 'Unlocked') : st === 'locked' ? t('まだ開放できない', 'Locked') : t(`開放する（${money(sel.cost)}）`, `Unlock (${money(sel.cost)})`), () => tryLearn(sel), st === 'open' ? 'is-on' : '');
+      // チュートリアル中のほかのパネルは、押せるがマインちゃんが止める
+      b.disabled = st !== 'open' && !(only && sel.id !== only && st !== 'done');
       if (st === 'poor') top.append(h('small', 'isl-warn', t(`あと ${money(sel.cost - s.money)} 足りない`, `${money(sel.cost - s.money)} short`)));
+      if (st === 'open') top.append(h('small', 'isl-dim', t('パネルをダブルタップしても開放できます', 'Double-tap a panel to unlock it too')));
       detail.append(top, b);
     } else if (sealed) detail.append(h('p', 'isl-dim', t('真ん中の本社を押して、開放しましょう。開放すると、事業ごとの強化の枝が広がります。', 'Tap HQ in the middle to unlock it. Upgrade branches for each business will spread out.')));
-    else detail.append(h('p', 'isl-dim', t('パネルを押すと、くわしい説明と「習得する」が出ます。真ん中の本社から、事業ごとに枝がのびています。', 'Tap a panel for details and Learn. Branches grow from HQ in the middle, one per business area.')));
+    else detail.append(h('p', 'isl-dim', t('パネルを押すと、くわしい説明と「開放する」が出ます（ダブルタップでも開放）。真ん中の本社から、事業ごとに枝がのびています。', 'Tap a panel for details and Unlock (or double-tap it). Branches grow from HQ in the middle, one per business area.')));
     // ズーム
     const zoom = h('div', 'isl-tree-zoom');
     zoom.append(
@@ -417,8 +473,35 @@ export function openSkills(ctx: Ctx, focus?: string) {
       chips.hidden = true;
       zoom.hidden = true;
     }
-    wrap.append(vp, tip, chips, zoom, detail, card);
+    wrap.append(vp, tip, chips, zoom, detail, card, stop);
     body.append(wrap);
+    // チュートリアル：開放できたら ✕ を光らせて、元の画面に戻ってもらう
+    const closeBtn = wrap.closest('.isl-sheet')?.querySelector('.isl-sheet-head .isl-btn');
+    closeBtn?.classList.toggle('is-guide', !!only && has(s, only));
+    // チュートリアル：本社が開いたら、「人材の募集」へカメラを寄せる（広がる演出が終わってから）
+    if (target && !tutFocused) {
+      tutFocused = true;
+      const goTo = POS.get(target)!;
+      const from = { x: view.x, y: view.y, z: view.zoom };
+      const wait = bursting ? Math.max(0, BURST_MS - (performance.now() - burst)) + 200 : 300;
+      setTimeout(() => {
+        if (!world.isConnected) return;
+        const z1 = innerWidth < 600 ? 0.8 : 0.95;
+        const t0 = performance.now();
+        const a = { x: view.x, y: view.y, z: view.zoom > 0 ? view.zoom : from.z > 0 ? from.z : 0.6 };
+        const anim = (now: number) => {
+          if (!world.isConnected) return;
+          const k = Math.min(1, (now - t0) / 900);
+          const e = 1 - Math.pow(1 - k, 3);
+          view.x = a.x + (goTo.x - a.x) * e;
+          view.y = a.y + (goTo.y - a.y) * e;
+          view.zoom = a.z + (z1 - a.z) * e;
+          place();
+          if (k < 1) requestAnimationFrame(anim);
+        };
+        requestAnimationFrame(anim);
+      }, wait);
+    }
 
     const fit = () => Math.max(0.3, Math.min(1, Math.min(vp.clientWidth / span.w, vp.clientHeight / span.h) * 1.15));
     function place() {
