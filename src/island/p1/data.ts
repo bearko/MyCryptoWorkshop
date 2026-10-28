@@ -97,7 +97,7 @@ export const ENTRY_AFTER = 4;
 
 export interface P1Building {
   id: string;
-  kind: 'workshop' | 'shop' | 'food' | 'warehouse' | 'depot';
+  kind: 'workshop' | 'shop' | 'food' | 'warehouse' | 'depot' | 'fun' | 'big';
   cost: number;
   days: number;
   upkeep: number;
@@ -120,6 +120,24 @@ export const P1_BUILDINGS: P1Building[] = [
   { id: 'boutique', kind: 'shop', cost: 15000, days: 10, upkeep: 3200, shelves: 2, pull: 1.35, requires: 'shop3' },
   { id: 'ramen', kind: 'food', cost: 1800, days: 6, upkeep: 300, soon: true },
   { id: 'cafe', kind: 'food', cost: 1800, days: 6, upkeep: 300, soon: true },
+  { id: 'bakery', kind: 'food', cost: 1600, days: 6, upkeep: 300, soon: true },
+  { id: 'arcade', kind: 'fun', cost: 12000, days: 10, upkeep: 1500, soon: true },
+  { id: 'amusement', kind: 'fun', cost: 40000, days: 20, upkeep: 5000, soon: true },
+  { id: 'factory', kind: 'big', cost: 60000, days: 20, upkeep: 6000, soon: true },
+  { id: 'harbor', kind: 'big', cost: 120000, days: 30, upkeep: 9000, soon: true },
+];
+
+/**
+ * 建築の一覧のカテゴリ（タブ）。建てられる建物（資金だけが足りないものも含む）が 1 つも無いカテゴリはロック。
+ * 1 つ以上建てられるようになったら、ロックが外れる演出（Flags.buildCats に見たカテゴリを覚える）。
+ */
+export const BUILD_CATS: { id: string; name: string; icon: string; ids: string[] }[] = [
+  { id: 'base', name: t('本店', 'Head office'), icon: '🏠', ids: ['workshop'] },
+  { id: 'shop', name: t('お店', 'Shops'), icon: '🛍️', ids: ['general_store', 'import', 'boutique'] },
+  { id: 'logi', name: t('物流・倉庫', 'Logistics'), icon: '📦', ids: ['warehouse', 'logistics'] },
+  { id: 'food', name: t('飲食', 'Food'), icon: '🍜', ids: ['ramen', 'cafe', 'bakery'] },
+  { id: 'fun', name: t('娯楽', 'Leisure'), icon: '🎡', ids: ['arcade', 'amusement'] },
+  { id: 'big', name: t('大型施設', 'Large sites'), icon: '🏭', ids: ['factory', 'harbor'] },
 ];
 export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.map((b) => [b.id, b]));
 

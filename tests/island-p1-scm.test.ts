@@ -61,7 +61,7 @@ describe('チュートリアル', () => {
   });
   it('段は「建てる → 作る → 素材 → お店 → 売る → 運ぶ」の順に、1 つずつ進む', () => {
     const ids = TUT.map((x) => x.id);
-    for (const [a, b] of [['workshop', 'craft'], ['craft', 'mats'], ['mats', 'shop'], ['shop', 'sell'], ['sell', 'haul'], ['haul', 'firstSale'], ['firstSale', 'scm'], ['scm', 'skills']]) expect(ids.indexOf(a)).toBeLessThan(ids.indexOf(b));
+    for (const [a, b] of [['workshop', 'craft'], ['craft', 'mats'], ['mats', 'shop'], ['shop', 'sell'], ['sell', 'haul'], ['haul', 'firstSale'], ['firstSale', 'scm'], ['scm', 'recruit'], ['recruit', 'hire'], ['hire', 'month']]) expect(ids.indexOf(a)).toBeLessThan(ids.indexOf(b));
     // 会話は 1 枚 2 文まで（「。」「！」「？」で数える）
     for (const st of TUT) for (const pg of st.intro?.pages ?? []) expect((pg.text.match(/[。！？]/g) ?? []).length).toBeLessThanOrEqual(2);
     const s = newP1(1);

@@ -13,6 +13,7 @@ import {
   STORE,
   DEV,
   ENTRY_AFTER,
+  BUILD_CATS,
   BRAND,
   TIERS,
   type Tier,
@@ -163,6 +164,10 @@ export interface Flags {
   hq?: boolean;
   /** はじめて売れた（ブランド力） */
   firstSale?: boolean;
+  /** 「人材の募集」を開放したあと、人事タブで人材登用のアンロックの演出を見た */
+  hireUnlocked?: boolean;
+  /** 建築の一覧で、ロックが外れる演出を見たカテゴリ */
+  buildCats?: string[];
 }
 
 export interface P1State {
@@ -362,7 +367,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     reports: [],
     hirePool: [],
     cleared: false,
-    flags: { data: false, ranking: false, clearSeen: false },
+    flags: { data: false, ranking: false, clearSeen: false, buildCats: ['base'] },
     tut: 0,
     tutV: 3,
     statV: 2,
@@ -575,6 +580,20 @@ export function canBuild(s: P1State, id: string): PlaceErr | null {
   if (s.money < b.cost) return 'money';
   return null;
 }
+
+/** 建築の一覧：その建物の条件を満たしている（資金だけが足りない・建設済みも含む）。満たしていなければ「？」 */
+export const buildKnown = (s: P1State, id: string) => {
+  const e = canBuild(s, id);
+  return e === null || e === 'money' || e === 'limit' || (e === 'locked' && !P1B[id]?.requires && !P1B[id]?.soon);
+};
+/** 建築の一覧のカテゴリが開いている（建てられる建物が 1 つ以上ある） */
+export const buildCatOpen = (s: P1State, cat: string) => {
+  const c = BUILD_CATS.find((x) => x.id === cat);
+  return !!c && c.ids.some((id) => {
+    const e = canBuild(s, id);
+    return e === null || e === 'money' || e === 'limit';
+  });
+};
 
 export function canPlaceAt(s: P1State, id: string, i: number, j: number, dir: Dir): PlaceErr | null {
   const e = canBuild(s, id);
@@ -1838,6 +1857,10 @@ export function deserializeP1(json: string): P1State | null {
     }
     // 以前のセーブ：自分でスキルを取っていれば、本社は開放済み（チュートリアルでもらう「人材の募集」は数えない）
     if (s.flags.hq === undefined && s.skills.some((k) => k !== 'hire')) s.flags.hq = true;
+    // 以前のセーブ：チュートリアルが済んでいて人材の募集があれば、アンロックの演出は見たことに
+    if (s.flags.hireUnlocked === undefined && s.skills.includes('hire') && (typeof s.tut !== 'number' || s.tut >= 99)) s.flags.hireUnlocked = true;
+    // 以前のセーブ：建築のカテゴリは、いま開いているものを見たことに（演出はこれから開くものだけ）
+    s.flags.buildCats ??= BUILD_CATS.filter((c) => buildCatOpen(s, c.id)).map((c) => c.id);
     // 以前のセーブ：関所が無ければ建てておく
     if (!gateOf(s)) placeTown(s, GATE_ID, rng(s.seed + 13), 'town', GATE.at);
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに

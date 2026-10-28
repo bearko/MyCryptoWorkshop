@@ -11,7 +11,7 @@ import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, SIDE, skuParts, STORE, type Mat } from './data';
+import { BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, RIVALS, SIDE, SKILL, skuParts, STORE, type Mat } from './data';
 import {
   allowedDirs,
   build,
@@ -47,6 +47,8 @@ import {
   depotInfo,
   missionProgress,
   siteInfo,
+  buildCatOpen,
+  buildKnown,
   gateOf,
   gateToll,
   openGate,
@@ -82,7 +84,7 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { openBooks, openBrand, openLand } from './landui';
-import { sectorDef, tierLabel } from './company';
+import { book, sectorDef, tierLabel } from './company';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -321,11 +323,11 @@ interface Sub {
   name: string;
   note: string;
   go: () => void;
-  needs?: 'workshop' | 'land';
+  needs?: 'workshop' | 'land' | 'hire';
 }
 const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   plan: [
-    { key: 'build', name: t('建築', 'Build'), note: t('工房・お店・倉庫', 'Workshop, shops, storage'), go: () => undefined },
+    { key: 'build', name: t('建築', 'Build'), note: t('工房・お店・倉庫', 'Workshop, shops, storage'), go: () => openBuildSheet() },
     { key: 'dev', name: t('商品開発', 'Products'), note: t('アンコモンを開発', 'Develop Uncommons'), go: () => openDev(ctx), needs: 'workshop' },
     { key: 'side', name: t('他店でバイト', 'Part-time'), note: t('資金が足りないとき', 'When funds run low'), go: () => openSide(ctx) },
     { key: 'land', name: t('ランドマップ', 'Land map'), note: t('関所の先のセクタ', 'Sectors beyond the gate'), go: () => openLand(ctx), needs: 'land' },
@@ -334,7 +336,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   ],
   hr: [
     { key: 'staff', name: t('ヒーローの配置', 'Assign heroes'), note: t('4 つの仕事に置く', 'Four jobs'), go: () => openStaff(ctx) },
-    { key: 'hire', name: t('人材登用', 'Recruiting'), note: t('ヒーローを雇う', 'Hire heroes'), go: () => openHire(ctx) },
+    { key: 'hire', name: t('人材登用', 'Recruiting'), note: t('ヒーローを雇う', 'Hire heroes'), go: () => openHire(ctx), needs: 'hire' },
     { key: 'pay', name: t('給与・労務', 'Pay & welfare'), note: t('給料・賞与・休み', 'Wages, bonuses, rest'), go: () => openPayroll(ctx) },
   ],
   scm: [
@@ -393,10 +395,35 @@ tabbar.append(leftG, tabBtns.skill, rightG);
 foot.append(panel, tabbar);
 
 /** サブタブがまだ使えない（工房が無い・関所を開いていない） */
-const needsOff = (x: Sub) => (x.needs === 'workshop' && !myWorkshop(s)) || (x.needs === 'land' && !s.land);
+const needsOff = (x: Sub) => (x.needs === 'workshop' && !myWorkshop(s)) || (x.needs === 'land' && !s.land) || (x.needs === 'hire' && (!s.skills.includes('hire') || hireUnlocking));
 const needWs = () => {
   toast(t('まずは工房を建てましょう', 'Build the workshop first'));
 };
+
+/** 人材登用のアンロックの演出中 */
+let hireUnlocking = false;
+function unlockHire() {
+  hireUnlocking = true;
+  renderAll();
+  sfx.play('levelup');
+  setTimeout(() => sfx.play('clear'), 450);
+  setTimeout(() => {
+    hireUnlocking = false;
+    s.flags.hireUnlocked = true;
+    save();
+    renderAll();
+    if (tutStep()?.id === 'hire')
+      talk(
+        [
+          { text: t('[[人材登用]]がアンロックされたよ！ これでヒーローを雇えるね。', '[[Recruiting]] is unlocked! Now we can hire heroes.') },
+          { text: t('さっそく、素材を買い付けてくれる[[調達]]が得意なヒーローを雇おう！', 'Let’s hire a hero who’s good at [[buying]] materials right away!') },
+        ],
+        t('人材登用を開く', 'Open recruiting'),
+        () => goSub('hr', 'hire'),
+      );
+    else toast(t('人材登用が使えるようになりました！', 'Recruiting is now available!'));
+  }, 1700);
+}
 
 /** 下の帯のタブ：押すと 1 つ目のサブタブの画面まで開く。もう一度押すと閉じる */
 function pickMenu(m: Menu) {
@@ -409,6 +436,12 @@ function pickMenu(m: Menu) {
   if (placing && !placing.move) placing = null;
   menu = m;
   sub = null;
+  // 人材の募集を開放して、はじめて人事を開いた：人材登用のロックが外れる演出
+  if (m === 'hr' && s.skills.includes('hire') && !s.flags.hireUnlocked) {
+    closeSheet();
+    unlockHire();
+    return;
+  }
   if (m === 'skill') {
     closeSheet();
     openSkills(ctx);
@@ -428,6 +461,11 @@ function openSub(x: Sub) {
   if (menu && menu !== 'skill' && subLocked(menu, x.key)) return lockedNote();
   if (x.needs === 'workshop' && !myWorkshop(s)) return needWs();
   if (x.needs === 'land' && !s.land) return toast(t('ランドのふちの関所を開くと使えます', 'Open the gate at the edge of the land first'));
+  if (x.needs === 'hire' && !s.skills.includes('hire')) {
+    sfx.play('error');
+    return toast(t('スキルツリーの「人材の募集」を開放すると使えます', 'Unlock Recruiting in the skill tree first'));
+  }
+  if (hireUnlocking) return;
   sub = x.key;
   if (x.key !== 'build' && placing && !placing.move) placing = null;
   closeSheet();
@@ -468,13 +506,26 @@ function renderFoot() {
       b.type = 'button';
       b.append(h('b', '', x.name), h('small', '', x.note));
       if (x.key === 'missions' && ready) b.classList.add('has-dot');
+      // 人材登用：「人材の募集」を開放するまでは 🔒。開放したあと、はじめて人事を開いたときにロックが外れる演出
+      if (x.needs === 'hire') {
+        if (!s.skills.includes('hire')) b.append(h('span', 'isl-sub-lock', '🔒'));
+        else if (hireUnlocking) {
+          b.classList.add('is-unlocking');
+          b.append(h('span', 'isl-sub-lock is-open', '🔓'));
+          for (let k = 0; k < 8; k++) {
+            const sp = h('i', 'isl-spark');
+            sp.style.setProperty('--a', `${k * 45}deg`);
+            sp.style.animationDelay = `${0.35 + (k % 2) * 0.12}s`;
+            b.append(sp);
+          }
+        }
+      }
       b.addEventListener('click', () => openSub(x));
       return b;
     }),
   );
-  cards.hidden = sub !== 'build';
+  cards.hidden = true;
   subRow.hidden = !!placing;
-  if (sub === 'build') renderBuild();
 }
 
 // ---------------------------------------------------------------- 建てる
@@ -501,32 +552,138 @@ function lockNote(id: string): string {
 /** 「ここに建てる」で選んだマス */
 let buildAt: [number, number] | null = null;
 
-function renderBuild() {
-  cards.replaceChildren(
-    ...P1_BUILDINGS.map((b) => {
-      const err = canBuild(s, b.id);
-      const locked = !!err && err !== 'money';
-      const tk = tutOf(s);
-      const guide = tk < TUT_DONE && TUT[tk]?.card === b.id;
-      const c = h('button', `isl-card ${locked ? 'is-locked' : ''} ${placing?.id === b.id && !placing.move ? 'is-on' : ''} ${guide ? 'is-guide' : ''}`);
+/** 建築の一覧で開いているカテゴリ */
+let buildCat: string | null = null;
+
+/** 建物の種類のひとこと */
+function kindNote(b: (typeof P1_BUILDINGS)[number]): string {
+  switch (b.kind) {
+    case 'workshop':
+      return t('作業台でエクステを作る', 'Craft Extensions at benches');
+    case 'shop':
+      return t(`お店・棚 ${b.shelves ?? 1}`, `Shop · ${b.shelves ?? 1} shelf`);
+    case 'warehouse':
+      return t(`置き場所 +${STORE.warehouse}`, `Storage +${STORE.warehouse}`);
+    case 'depot':
+      return t('遠いお店への便が速くなる', 'Faster runs to far shops');
+    default:
+      return '';
+  }
+}
+
+/** 「？」のパネルのヒント（スキルで解放・準備中） */
+function secretHint(id: string): string {
+  const b = P1B[id];
+  if (b.soon) return t('これから解放', 'Coming later');
+  if (b.requires) return t(`スキル「${SKILL[b.requires]?.name ?? b.requires}」で解放`, `Unlock with ${SKILL[b.requires]?.name ?? b.requires}`);
+  return t('まだ建てられない', 'Not yet');
+}
+
+/**
+ * 建築の一覧（ほかの画面と同じ大きな画面）。上にカテゴリのタブ、下に建物のカード。
+ * 資金だけが足りない建物は灰色で値段を赤く、スキルなどの条件を満たさない建物は「？」で外観を見せない。
+ */
+function openBuildSheet() {
+  openSheet(ctx, t('建築', 'Build'), (body) => {
+    const tk = tutOf(s);
+    const guideId = tk < TUT_DONE ? TUT[tk]?.card : undefined;
+    if (guideId) buildCat = BUILD_CATS.find((c) => c.ids.includes(guideId))?.id ?? buildCat;
+    buildCat ??= buildCatOpen(s, 'shop') ? 'shop' : 'base';
+    const tipEl = tutTip('build');
+    if (tipEl) {
+      const tip = h('div', 'isl-mine-tip is-tut');
+      const mi = h('img');
+      mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+      mi.alt = '';
+      const p = h('p');
+      p.append(rich(tipEl));
+      tip.append(mi, p);
+      body.append(tip);
+    }
+    if (buildAt) body.append(h('p', 'isl-dim', t('選んだマスに建てます。建物を選んでください。', 'Choose a building for the selected lot.')));
+    // カテゴリのタブ（建てられる建物が 1 つも無いものはロック。開いたら一度だけロックが外れる演出）
+    const seen = (s.flags.buildCats ??= ['base']);
+    const fresh: string[] = [];
+    const tabs = h('div', 'isl-bcats');
+    for (const c of BUILD_CATS) {
+      const open = buildCatOpen(s, c.id);
+      const isNew = open && !seen.includes(c.id);
+      if (isNew) fresh.push(c.id);
+      const b = h('button', `isl-bcat ${buildCat === c.id ? 'is-on' : ''} ${open ? '' : 'is-lock'} ${isNew ? 'is-unlocking' : ''}`);
+      b.type = 'button';
+      const known = c.ids.filter((id) => buildKnown(s, id)).length;
+      b.append(h('span', 'isl-bcat-icon', c.icon), h('b', '', c.name), h('small', '', `${known}/${c.ids.length}`));
+      if (!open) b.append(h('span', 'isl-bcat-lock', '🔒'));
+      if (isNew) {
+        b.append(h('span', 'isl-bcat-lock is-open', '🔓'));
+        for (let k = 0; k < 8; k++) {
+          const sp = h('i', 'isl-spark');
+          sp.style.setProperty('--a', `${k * 45}deg`);
+          sp.style.animationDelay = `${0.3 + (k % 2) * 0.12}s`;
+          b.append(sp);
+        }
+      }
+      b.addEventListener('click', () => {
+        buildCat = c.id;
+        sfx.play('tap');
+        refreshSheet();
+      });
+      tabs.append(b);
+    }
+    body.append(tabs);
+    if (fresh.length) {
+      seen.push(...fresh);
+      save();
+      sfx.play('levelup');
+      for (const id of fresh) toast(t(`「${BUILD_CATS.find((c) => c.id === id)?.name}」の建物が建てられるようになりました！`, `New buildings available: ${BUILD_CATS.find((c) => c.id === id)?.name}!`));
+    }
+    const cat = BUILD_CATS.find((c) => c.id === buildCat)!;
+    if (!buildCatOpen(s, cat.id)) body.append(h('p', 'isl-dim isl-bnote', t('このカテゴリの建物は、まだ建てられません。スキルや会社の成長で、ひとつずつ解放されます。', 'Nothing here can be built yet. Skills and company growth unlock them one by one.')));
+    const grid = h('div', 'isl-bgrid');
+    for (const id of cat.ids) {
+      const b = P1B[id];
+      if (!b) continue;
+      const err = canBuild(s, id);
+      if (!buildKnown(s, id)) {
+        // 条件を満たしていない：外観を見せない「？」
+        const c = h('button', 'isl-bcard is-secret');
+        c.type = 'button';
+        c.append(h('div', 'isl-bcard-q', '?'), h('b', '', '???'), h('small', 'isl-dim', secretHint(id)));
+        c.addEventListener('click', () => {
+          sfx.play('error');
+          toast(secretHint(id));
+        });
+        grid.append(c);
+        continue;
+      }
+      const guide = guideId === id;
+      const c = h('button', `isl-bcard ${err === 'money' ? 'is-poor' : ''} ${err && err !== 'money' ? 'is-off' : ''} ${guide ? 'is-guide' : ''}`);
       c.type = 'button';
-      const im = image(`b/${b.id}/rd.png`).cloneNode() as HTMLImageElement;
+      const im = image(`b/${id}/rd.png`).cloneNode() as HTMLImageElement;
       im.alt = '';
-      c.append(im, h('b', '', DEF[b.id].name), h('span', '', lockNote(b.id)));
+      const cost = err === 'limit' ? t('建設済み', 'Built') : err === 'locked' ? lockNote(id) : b.cost ? money(b.cost) : t('無料', 'Free');
+      c.append(im, h('b', '', DEF[id].name), h('span', `isl-bcost ${err === 'money' ? 'is-short' : ''}`, cost));
+      const note = kindNote(b);
+      if (note) c.append(h('small', 'isl-dim', note));
+      c.append(h('small', 'isl-dim', t(`工期 ${b.days} 日・維持費 ${money(b.upkeep)}/月`, `${b.days} days · upkeep ${money(b.upkeep)}/mo`)));
+      if (err === 'money') c.append(h('small', 'isl-bad', t(`あと ${money(b.cost - s.money)} 足りない`, `${money(b.cost - s.money)} short`)));
       c.addEventListener('click', () => {
-        const e = canBuild(s, b.id);
+        const e = canBuild(s, id);
         if (e) {
+          sfx.play('error');
           toast(ERR[e]);
           return;
         }
+        closeSheet();
         selected = null;
         const at = buildAt ?? undefined;
         buildAt = null;
-        startPlacing(b.id, { at });
+        startPlacing(id, { at });
       });
-      return c;
-    }),
-  );
+      grid.append(c);
+    }
+    body.append(grid);
+  });
 }
 
 const ignoreOf = () => placing?.move;
@@ -647,10 +804,7 @@ function renderPlace() {
       const was = placing;
       placing = null;
       // 建築から来たときは建物の一覧へ戻る
-      if (was && was.move == null) {
-        menu = 'plan';
-        sub = 'build';
-      }
+      if (was && was.move == null) return openBuildTab();
       renderAll();
     }),
   );
@@ -787,9 +941,7 @@ function renderPop() {
     buildHere: (i, j) => {
       closePop();
       buildAt = [i, j];
-      menu = 'plan';
-      sub = 'build';
-      renderAll();
+      openBuildTab();
     },
     close: () => closePop(),
     redraw: () => renderPop(),
@@ -908,9 +1060,7 @@ advisor.append(mine, bubbleBox);
 let hiddenTip = '';
 
 function openBuildTab() {
-  menu = 'plan';
-  sub = 'build';
-  renderAll();
+  goSub('plan', 'build');
 }
 
 // ---------------------------------------------------------------- チュートリアル中のロック
@@ -1108,6 +1258,7 @@ function tutGo(go: TutGo) {
     focusOn(go);
   } else if (go === 'staff') goSub('hr', 'staff');
   else if (go === 'hire') goSub('hr', 'hire');
+  else if (go === 'hr') pickMenu('hr');
   else if (go === 'ranking') goSub('mkt', 'ranking');
   else if (go === 'buy') goSub('scm', 'buy');
   else if (go === 'scm') goSub('scm', 'flow');
@@ -1184,11 +1335,6 @@ function tutTick() {
     return;
   }
   const st = TUT[k];
-  // 初売上のお祝い：ヒーローを雇えるように「人材の募集」を贈る
-  if (st.id === 'scm' && !s.skills.includes('hire')) {
-    s.skills.push('hire');
-    save();
-  }
   // 初売上までの流れを、地図の上で順に見せる（スキップできない）
   if (st.id === 'firstSale' && !s.flags.tour && tutFree() && performance.now() >= tutIntroAfter) {
     startTour();
@@ -1196,7 +1342,16 @@ function tutTick() {
   }
   if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
     tutIntro = k;
-    talk(st.intro.pages, st.intro.ok, () => {
+    // 資金が足りないときは、マインちゃんが特別に援助する
+    const grant = st.grant?.(s) ?? 0;
+    const pages = [...st.intro.pages];
+    if (grant > 0) {
+      s.money += grant;
+      book(s, 'other', grant);
+      save();
+      pages.push({ text: t(`あれ、資金が足りないね……。今回は特別に、私から [[${money(grant)}]] を援助するよ！`, `Hmm, we’re short on funds… Just this once, I’ll chip in [[${money(grant)}]]!`), show: 'gift', gift: { icon: '💰', title: money(grant), note: t('マインちゃんからの援助', 'A gift from Mine-chan') } });
+    }
+    talk(pages, st.intro.ok, () => {
       const a = actOf(st, s);
       if (a) tutGo(a[1]);
       else renderAll();
@@ -1411,7 +1566,7 @@ function talk(pages: TutPage[], ok: string, then: () => void) {
     stage.replaceChildren();
     if (pg.show === 'crew') stage.append(crewEl(pg.hero));
     else if (pg.show === 'cycle') stage.append(cycleEl());
-    else if (pg.show === 'gift') stage.append(giftEl());
+    else if (pg.show === 'gift') stage.append(giftEl(pg.gift));
     stage.hidden = !pg.show;
     foot.replaceChildren(h('small', 'isl-dim', `${k + 1} / ${pages.length}`));
     foot.append(
@@ -1454,9 +1609,9 @@ function crewEl(hero?: number): HTMLElement {
 }
 
 /** お祝いの品（スキル「人材の募集」） */
-function giftEl(): HTMLElement {
+function giftEl(g?: TutPage['gift']): HTMLElement {
   const c = h('div', 'isl-gift');
-  c.append(h('span', 'isl-gift-icon', '🎁'), h('b', '', t('人材の募集', 'Recruiting')), h('small', '', t('ヒーローを雇えるようになる', 'You can hire heroes')));
+  c.append(h('span', 'isl-gift-icon', g?.icon ?? '🎁'), h('b', '', g?.title ?? t('人材の募集', 'Recruiting')), h('small', '', g?.note ?? t('ヒーローを雇えるようになる', 'You can hire heroes')));
   return c;
 }
 
@@ -1756,13 +1911,10 @@ function renderAll() {
   layout();
 }
 root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, placeBox, popEl, foot, selBox, ghostUi);
-// 始めたばかりなら、建築の帯を開いておく
-if (!s.buildings.some((b) => b.owner === 'me')) {
-  menu = 'plan';
-  sub = 'build';
-}
 resize();
 renderAll();
+// 始めたばかりなら、建築の一覧を開いておく
+if (!s.buildings.some((b) => b.owner === 'me')) openBuildTab();
 
 // ---------------------------------------------------------------- 地図の操作
 
