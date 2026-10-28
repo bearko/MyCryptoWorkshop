@@ -2631,6 +2631,135 @@ button.isl-mis {
   outline-offset: 3px;
   z-index: 2;
 }
+.isl-tree-root {
+  cursor: pointer;
+  font: inherit;
+  z-index: 1;
+}
+.isl-tree-root.is-sel {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+.isl-tree-root .isl-tree-cost {
+  margin-top: 2px;
+}
+/* 本社を開放する前：本社だけが光って待っている */
+.isl-tree-root.is-sealed {
+  animation: isl-tree-seal 1.4s ease-in-out infinite alternate;
+}
+@keyframes isl-tree-seal {
+  from {
+    box-shadow: 0 0 12px rgba(242, 181, 68, 0.35), 0 0 0 0 rgba(242, 181, 68, 0.5);
+  }
+  to {
+    box-shadow: 0 0 34px rgba(242, 181, 68, 0.75), 0 0 0 14px rgba(242, 181, 68, 0);
+  }
+}
+.isl-tree.is-sealed {
+  background:
+    repeating-radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.04) 0 2px, transparent 2px 90px),
+    radial-gradient(circle at 50% 45%, #22325a, #0f1626 75%);
+}
+/* 本社を開放した直後：パネルが本社から放射状に飛び出し、線がのびる */
+.isl-tree-world.is-burst .isl-tree-node,
+.isl-tree-world.is-burst .isl-tree-hub {
+  animation: isl-tree-burst 0.75s cubic-bezier(0.2, 1.35, 0.4, 1) both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes isl-tree-burst {
+  from {
+    transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) scale(0.15);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+.isl-tree-world.is-burst .isl-tree-lines line {
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: isl-tree-draw 0.6s ease-out forwards;
+  animation-delay: var(--d, 0s);
+}
+@keyframes isl-tree-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.isl-tree-world.is-burst .isl-tree-root {
+  animation: isl-tree-flash 0.9s ease-out;
+}
+@keyframes isl-tree-flash {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 0 rgba(255, 230, 150, 0);
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(1.18);
+    box-shadow: 0 0 60px rgba(255, 230, 150, 0.95);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+.isl-tree-wave {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border: 4px solid rgba(255, 214, 110, 0.85);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  animation: isl-tree-wave 1.6s ease-out forwards;
+}
+@keyframes isl-tree-wave {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(9);
+    opacity: 0;
+  }
+}
+/* PC：マウスを乗せたときの説明 */
+.isl-tree-hover {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.isl-tree-hcard {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 2px solid var(--br, var(--isl-line));
+  border-radius: 12px;
+  background: rgba(15, 22, 38, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+}
+.isl-tree-hcard .isl-row {
+  gap: 8px;
+}
+.isl-tree-hcard b {
+  font-size: 15px;
+}
+.isl-tree-hcard p {
+  margin: 0;
+  color: var(--isl-ink-soft, #dfe6f5);
+}
+.isl-tree-hcard img,
+.isl-tree-hcard .px,
+.isl-tree-hcard .isl-tree-emoji {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
 .isl-tree-tip {
   position: absolute;
   top: 6px;

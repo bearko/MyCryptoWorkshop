@@ -3,6 +3,7 @@
  * どれも下から出る大きな札（sheet）。中身は state から毎回作り直す。
  */
 import { t, isEn } from '../../i18n';
+import type { Sfx } from './sfx';
 import { assetUrl, drawRef } from '../../render/images';
 import { getExtension, heroById, heroFacesRight } from '../../game/catalog';
 import raw from '../../generated/catalog.json';
@@ -114,6 +115,8 @@ export interface Ctx {
   build?: (id: string) => void;
   /** チュートリアルのいまの段（tut.ts の id。終わっていれば null） */
   step?: () => string | null;
+  /** 効果音 */
+  sfx?: (k: Sfx) => void;
 }
 
 /** 画面の上にマインちゃんの一言（チュートリアル中） */
