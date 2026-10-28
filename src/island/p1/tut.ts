@@ -8,7 +8,7 @@
  * 進み具合は P1State.tut（段の番号、TUT_DONE で終わり）。各段は done() が真になったら次へ進む。
  */
 import { t } from '../../i18n';
-import { DAYS, myShops, type P1State } from './model';
+import { DAYS, hqOpen, myShops, type P1State } from './model';
 
 export const TUT_DONE = 99;
 
@@ -306,21 +306,28 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'skills',
-    goal: (_s) => t('スキルツリーを見る', 'Check the skill tree'),
+    goal: (_s) => t('スキルツリーの本社を開放する', 'Unlock HQ in the skill tree'),
+    checks: [
+      [t('スキルツリーを開く', 'Open the skill tree'), (_s, seen) => seen.has('skills')],
+      [t('真ん中の本社を開放する', 'Unlock HQ in the middle'), (s) => hqOpen(s)],
+    ],
     intro: {
       pages: [
         { text: t('売上を伸ばすカギは、流れの[[詰まり]]をなくすこと。', 'The key to more sales: clear the [[jams]] in the flow.') },
-        { text: t('そのための道具が[[スキルツリー]]。開いてみよう！', 'Your tool for that is the [[skill tree]]. Let’s open it!') },
+        { text: t('そのための道具が[[スキルツリー]]。まずは真ん中の[[本社]]を開放しよう！', 'Your tool for that is the [[skill tree]]. First, unlock [[HQ]] in the middle!') },
       ],
       ok: t('スキルツリーへ', 'To the skill tree'),
     },
-    say: () => t('真ん中の「スキルツリー」を開いてみよう。', 'Open the Skill tree in the middle.'),
+    say: () => t('真ん中の「スキルツリー」を開いて、本社を開放しよう。', 'Open the Skill tree and unlock HQ.'),
     act: [t('スキルツリーを開く', 'Open skills'), 'skills'],
     hl: 'skill',
     tips: {
-      skills: () => t('枝の横の札が、強くなるところ。ダッシュボードで赤い段の枝から伸ばそう！', 'The tag by each branch shows what it strengthens. Grow the branch of the red stage first!'),
+      skills: (s) =>
+        hqOpen(s)
+          ? t('枝の横の札が、強くなるところ。ダッシュボードで赤い段の枝から伸ばそう！', 'The tag by each branch shows what it strengthens. Grow the branch of the red stage first!')
+          : t('真ん中の[[本社]]をタップして「開放する」を押してみて！', 'Tap [[HQ]] in the middle and press Unlock!'),
     },
-    done: (_s, seen) => seen.has('skills'),
+    done: (s, seen) => seen.has('skills') && hqOpen(s),
   },
 ];
 

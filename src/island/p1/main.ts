@@ -213,6 +213,7 @@ const ctx: Ctx = {
     startPlacing(id);
   },
   tip: (screen) => tutTip(screen),
+  sfx: (k) => sfx.play(k),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
   dismissed: () => {
     menu = null;

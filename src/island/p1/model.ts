@@ -154,6 +154,8 @@ export interface Flags {
   side?: boolean;
   /** チュートリアルの「初売上までの流れ」を見た */
   tour?: boolean;
+  /** スキルツリーの本社パネルを開放した */
+  hq?: boolean;
 }
 
 export interface P1State {
@@ -837,6 +839,15 @@ export function toggleProcExtra(s: P1State, m: Mat) {
 export const utilRate = (u: { work: number; cap: number } | null) => (u && u.cap > 0 ? u.work / u.cap : null);
 
 // ---------------------------------------------------------------- スキル
+
+/** スキルツリーの本社を開放したか（以前のセーブは読み込むときに決める。deserializeP1） */
+export const hqOpen = (s: P1State) => !!s.flags.hq;
+/** スキルツリーの本社を開放する（無料）。ここから枝が広がる */
+export function openHQ(s: P1State): boolean {
+  if (hqOpen(s)) return false;
+  s.flags.hq = true;
+  return true;
+}
 
 export function learn(s: P1State, id: string): string | null {
   const k = SKILL[id];
@@ -1690,6 +1701,8 @@ export function deserializeP1(json: string): P1State | null {
       for (const st of s.staff) st.stats = scaleStats(st.stats);
       s.statV = 2;
     }
+    // 以前のセーブ：自分でスキルを取っていれば、本社は開放済み（チュートリアルでもらう「人材の募集」は数えない）
+    if (s.flags.hq === undefined && s.skills.some((k) => k !== 'hire')) s.flags.hq = true;
     // 以前のセーブ：関所が無ければ建てておく
     if (!gateOf(s)) placeTown(s, GATE_ID, rng(s.seed + 13), 'town', GATE.at);
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに
