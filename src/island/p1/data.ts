@@ -234,7 +234,7 @@ export const SKILLS: Skill[] = [
   { id: 'shop3', branch: 'shop', name: t('ブティック', 'Boutique'), note: t('売り場が強いブティックを建てられる', 'Unlocks the boutique (strong pull)'), cost: 14000, requires: ['shop2', 'host'] },
   { id: 'bench2', branch: 'craft', name: t('作業台を増やす', 'Second workbench'), note: t('同時に 2 つクラフトできる', 'Craft two things at once'), cost: 5000 },
   { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better jigs'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
-  { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 60 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 60+)'), cost: 10000, requires: ['bench2'] },
+  { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 31 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 31+)'), cost: 10000, requires: ['bench2'] },
   { id: 'jig2', branch: 'craft', name: t('型の工夫', 'Better molds'), note: t('クラフトの日数 −15%', 'Crafting −15% days'), cost: 7000, requires: ['jig'] },
   { id: 'chair', branch: 'craft', name: t('職人の椅子', 'Crafter chairs'), note: t('職人のスタミナの減り −30%', 'Crafters tire 30% slower'), cost: 3000 },
   { id: 'bench3', branch: 'craft', name: t('工房を工場に', 'Workshop to factory'), note: t('作業台 +1・クラフトの日数 −20%', 'Workbench +1, crafting −20% days'), cost: 22000, requires: ['bench2', 'jig'] },

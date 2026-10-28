@@ -2310,52 +2310,60 @@ button.isl-mis {
 
 /* ================================================================ 適性のランク（G〜S）とレーダーチャート */
 .isl-rankv {
+  --rk: #b8c0d4;
   display: inline-flex;
   align-items: baseline;
   gap: 3px;
   padding: 0 7px;
   border-radius: 999px;
   background: #1d2a44;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rk) 55%, transparent);
   font-size: 12px;
   line-height: 1.5;
 }
 .isl-rankv b {
+  color: var(--rk);
   font-size: 14px;
   font-weight: 900;
 }
 .isl-rankv small {
   color: var(--isl-dim);
 }
-.isl-rankv.is-s b,
-.isl-radar-val.is-s .isl-radar-rank {
-  color: #ffd257;
-  fill: #ffd257;
+.isl-radar-val .isl-radar-rank {
+  fill: var(--rk, #b8c0d4);
 }
-.isl-rankv.is-a b,
-.isl-radar-val.is-a .isl-radar-rank {
-  color: #ff9f5a;
-  fill: #ff9f5a;
+/* ランクごとの色：下から 灰 → 銅 → 桃 → 紫 → 水 → 緑 → 橙 → 金（となり同士がはっきり違う色） */
+.isl-rankv.is-s,
+.isl-radar-val.is-s {
+  --rk: #ffd257;
 }
-.isl-rankv.is-b b,
-.isl-radar-val.is-b .isl-radar-rank {
-  color: #7ee08f;
-  fill: #7ee08f;
+.isl-rankv.is-a,
+.isl-radar-val.is-a {
+  --rk: #ff9f5a;
 }
-.isl-rankv.is-c b,
-.isl-radar-val.is-c .isl-radar-rank {
-  color: #6fc6f0;
-  fill: #6fc6f0;
+.isl-rankv.is-b,
+.isl-radar-val.is-b {
+  --rk: #7ee08f;
 }
-.isl-rankv.is-d b,
-.isl-radar-val.is-d .isl-radar-rank,
-.isl-rankv.is-e b,
-.isl-radar-val.is-e .isl-radar-rank,
-.isl-rankv.is-f b,
-.isl-radar-val.is-f .isl-radar-rank,
-.isl-rankv.is-g b,
-.isl-radar-val.is-g .isl-radar-rank {
-  color: #b8c0d4;
-  fill: #b8c0d4;
+.isl-rankv.is-c,
+.isl-radar-val.is-c {
+  --rk: #6fc6f0;
+}
+.isl-rankv.is-d,
+.isl-radar-val.is-d {
+  --rk: #b49bff;
+}
+.isl-rankv.is-e,
+.isl-radar-val.is-e {
+  --rk: #ff8fb0;
+}
+.isl-rankv.is-f,
+.isl-radar-val.is-f {
+  --rk: #d9a066;
+}
+.isl-rankv.is-g,
+.isl-radar-val.is-g {
+  --rk: #8a93a8;
 }
 .isl-hero-card {
   display: grid;
