@@ -76,6 +76,7 @@ import {
   rivalName,
   sheetOpen,
   type Ctx,
+  mineTip,
   open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
@@ -589,17 +590,7 @@ function openBuildSheet() {
     const guideId = tk < TUT_DONE ? TUT[tk]?.card : undefined;
     if (guideId) buildCat = BUILD_CATS.find((c) => c.ids.includes(guideId))?.id ?? buildCat;
     buildCat ??= buildCatOpen(s, 'shop') ? 'shop' : 'base';
-    const tipEl = tutTip('build');
-    if (tipEl) {
-      const tip = h('div', 'isl-mine-tip is-tut');
-      const mi = h('img');
-      mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
-      mi.alt = '';
-      const p = h('p');
-      p.append(rich(tipEl));
-      tip.append(mi, p);
-      body.append(tip);
-    }
+    mineTip(ctx, 'build', body);
     if (buildAt) body.append(h('p', 'isl-dim', t('選んだマスに建てます。建物を選んでください。', 'Choose a building for the selected lot.')));
     // カテゴリのタブ（建てられる建物が 1 つも無いものはロック。開いたら一度だけロックが外れる演出）
     const seen = (s.flags.buildCats ??= ['base']);
@@ -917,6 +908,8 @@ function openPop(i: number, j: number) {
   placing = null;
   const b = occupant(s, i, j);
   selected = b ? b.uid : null;
+  // チュートリアル：地図のお店をタップした
+  if (b && b.owner === 'me' && P1B[b.id]?.kind === 'shop') tutSeen.add('shopPop');
   renderPop();
   centerOn(b ? b.i : i, b ? b.j : j);
 }

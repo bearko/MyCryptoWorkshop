@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { MATS, PRODUCT, RIVALS, SECTORS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
-import { batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
+import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager') };
@@ -222,30 +222,83 @@ export function lotsFromStock(s: P1State, x: Sku): number {
 /** 1 作業台・1 日あたりの粗利（効率の目安） */
 export const profitPerDay = (s: P1State, x: Sku) => ((skuPrice(x) - unitCost(s, x)) * batchOf(x)) / craftDays(s, x);
 
-/** エクステのカード：絵・名前・値段・素材 → 商品・今の素材で何ロット・効率・需要と競合 */
+/** 素材のアイコン ×数（保有数）。足りなければ赤 */
+function matLine(s: P1State, need: Partial<Record<Mat, number>>, showHave: boolean): HTMLElement {
+  const row = h('div', 'isl-ext-mats');
+  for (const [m, q] of Object.entries(need)) {
+    const have = s.mats[m as Mat] ?? 0;
+    const c = h('span', `isl-bom-mat ${showHave && have < (q ?? 0) ? 'is-bad' : ''}`);
+    c.title = MATS[m as Mat].name;
+    c.append(matIcon(m as Mat, 22), h('small', '', `×${q}`));
+    if (showHave) c.append(h('small', 'isl-ext-have', t(`（保有 ${have}）`, `(have ${have})`)));
+    row.append(c);
+  }
+  return row;
+}
+
+/** 1 つの作業台で作り続けたときの、ひと月の見込み（作れる数・売れる数・利益） */
+export function monthOutlook(s: P1State, x: Sku) {
+  const [k] = skuParts(x);
+  const make = Math.round((DAYS / craftDays(s, x)) * batchOf(x));
+  const demand = Math.round(s.demand[k] ?? PRODUCT[k].demand);
+  const margin = skuPrice(x) - unitCost(s, x);
+  // 売れる数：お店の場所・他社との取り合いを入れた見込み（作れる数が上限）
+  const sell = Math.min(make, Math.round(sellEstimate(s, k)));
+  return { make, demand, margin, sell, profit: Math.round(sell * margin) };
+}
+
+/**
+ * エクステのカード（2 列）。
+ * 左：名前・販売価格・1 ロットの素材（保有数）・生産可能数（ロット）・全部作るときの素材。
+ * 右：生産ペース・粗利／個・需要・見込利益／月・取扱企業。
+ */
 export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: boolean; best?: boolean; badge?: string; making?: boolean; onTap?: () => void; compact?: boolean } = {}): HTMLElement {
   const [k, r] = skuParts(x);
-  const p = PRODUCT[k];
-  const card = h(o.onTap ? 'button' : 'div', `isl-ext-card ${o.on ? 'is-on' : ''} ${o.best || o.badge ? 'is-best' : ''}`);
+  const card = h(o.onTap ? 'button' : 'div', `isl-ext-card is-2col ${o.on ? 'is-on' : ''} ${o.best || o.badge ? 'is-best' : ''}`);
   if (card instanceof HTMLButtonElement) card.type = 'button';
+  const left = h('div', 'isl-ext-l');
+  const right = h('div', 'isl-ext-r');
   const top = h('div', 'isl-ext-top');
   const name = h('div');
   name.append(h('b', '', skuName(x)), h('div', 'isl-gold', money(skuPrice(x))));
   top.append(skuIcon(x, o.compact ? 40 : 52), name);
-  card.append(top, bomRow(s, x));
+  left.append(top);
   const tags = h('div', 'isl-ext-tags');
-  const lots = lotsFromStock(s, x);
   if (o.making) tags.append(h('span', 'isl-tag is-good', t('工房で作っている', 'Being crafted')));
   const err = craftCheck(s, x, o.worker ?? null);
   if (r === 'U' && err === 'skill') tags.append(h('span', 'isl-tag is-bad', t(`製造の適性 ${UNCOMMON.minCraft} 以上が要る`, `Needs aptitude ${UNCOMMON.minCraft}+`)));
-  tags.append(h('span', `isl-tag ${lots > 0 ? 'is-good' : 'is-bad'}`, lots > 0 ? t(`今の素材で ${lots} ロット`, `${lots} lots from stock`) : t('素材が足りない', 'Not enough materials')));
-  tags.append(h('span', 'isl-tag', t(`${batchOf(x)} 個／${craftDays(s, x).toFixed(1)} 日`, `${batchOf(x)} / ${craftDays(s, x).toFixed(1)} d`)));
-  tags.append(h('span', 'isl-tag', t(`粗利 ${money(profitPerDay(s, x))}／日`, `${money(profitPerDay(s, x))}/day`)));
-  if (!o.compact) {
-    const sellers = s.rivals.filter((v) => (v.sells[k] ?? 0) > 0).length;
-    tags.append(h('span', 'isl-tag', t(`需要 ${Math.round(s.demand[k] ?? p.demand)}／月`, `Demand ${Math.round(s.demand[k] ?? p.demand)}/mo`)), h('span', `isl-tag ${sellers ? '' : 'is-good'}`, sellers ? t(`他社 ${sellers} 社`, `${sellers} rivals`) : t('他社なし', 'No rivals')));
+  if (tags.childElementCount) left.append(tags);
+  // 1 ロットの素材（保有数）→ できる数
+  const recipe = recipeOf(x);
+  const lot = h('div', 'isl-ext-lot');
+  lot.append(h('small', 'isl-dim', t('1 ロット', '1 lot')), matLine(s, recipe, true), h('span', 'isl-bom-arrow', '→'));
+  const out = h('span', 'isl-bom-out');
+  out.append(skuIcon(x, 26), h('small', '', `×${batchOf(x)}`));
+  lot.append(out);
+  left.append(lot);
+  const lots = lotsFromStock(s, x);
+  left.append(h('div', `isl-ext-can ${lots > 0 ? 'is-good' : 'is-bad'}`, lots > 0 ? t(`生産可能数：${lots * batchOf(x)} 個（${lots} ロット）`, `Can make: ${lots * batchOf(x)} (${lots} lots)`) : t('生産可能数：0 個（素材が足りない）', 'Can make: 0 (not enough materials)')));
+  if (lots > 0) {
+    const all = Object.fromEntries(Object.entries(recipe).map(([m, q]) => [m, (q ?? 0) * lots])) as Partial<Record<Mat, number>>;
+    const use = h('div', 'isl-ext-use');
+    use.append(h('small', 'isl-dim', t('全部作ると', 'To make all')), matLine(s, all, false));
+    left.append(use);
   }
-  card.append(tags);
+  // 右：数字
+  const m = monthOutlook(s, x);
+  const sellers = s.rivals.filter((v) => (v.sells[k] ?? 0) > 0).length;
+  const stat = (label: string, value: string, cls = '') => {
+    const row = h('div', `isl-ext-stat ${cls}`);
+    row.append(h('small', '', label), h('b', '', value));
+    right.append(row);
+  };
+  stat(t('生産ペース', 'Pace'), t(`${craftDays(s, x).toFixed(1)} 日（1 ロット）`, `${craftDays(s, x).toFixed(1)} d / lot`));
+  stat(t('粗利', 'Margin'), t(`${money(m.margin)}／個`, `${money(m.margin)} / pc`));
+  stat(t('需要', 'Demand'), t(`${m.demand} 個／月`, `${m.demand} / mo`));
+  stat(t('見込利益', 'Est. profit'), t(`${money(m.profit)}／月`, `${money(m.profit)} / mo`), 'is-gold');
+  right.lastElementChild?.append(h('small', '', t(`売れる見込み ${m.sell} 個／月`, `~${m.sell} sold / mo`)));
+  stat(t('取扱企業', 'Sellers'), sellers ? t(`${sellers} 社`, `${sellers}`) : t('なし', 'None'), sellers ? '' : 'is-good');
+  card.append(left, right);
   if (o.badge) card.append(h('span', 'isl-best', o.badge));
   else if (o.best) card.append(h('span', 'isl-best', t('いちばん効率がよい', 'Most efficient')));
   if (o.onTap) card.addEventListener('click', o.onTap);

@@ -50,3 +50,30 @@ describe('チュートリアル：人材の募集は自分で開放する', () =
     expect(typeof hire.hl === 'function' ? hire.hl(s) : hire.hl).toBe('hr:hire');
   });
 });
+
+describe('作る数（自動製造でないとき）', () => {
+  it('決めた数だけ作って止まる。自動製造をオンにすると続けて作る', async () => {
+    const M = await import('../src/island/p1/model');
+    const s = newP1(11);
+    const lot = (id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
+      for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = M.allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
+      throw new Error('no lot');
+    };
+    const [a, b, d] = lot('workshop');
+    M.build(s, 'workshop', a, b, d);
+    for (let k = 0; k < 5; k++) M.step(s);
+    M.assign(s, 10003, 'craft', 0);
+    s.slots[0].sku = 'Sensu:C';
+    s.mats = Object.fromEntries(Object.entries(M.recipeOf('Sensu:C')).map(([m, q]) => [m, (q ?? 0) * 3])) as never;
+    M.setCraftPlan(s, 0, 8); // 2 ロット
+    expect(s.slots[0].running).toBe(true);
+    expect(s.slots[0].left).toBe(4);
+    for (let k = 0; k < 40; k++) M.step(s);
+    expect(s.slots[0].running).toBe(false);
+    expect(s.slots[0].left).toBe(0);
+    expect(s.stock['Sensu:C']).toBe(8);
+    M.setAutoCraft(s, 0, true);
+    expect(s.slots[0].running).toBe(true);
+    expect(s.slots[0].repeat).toBe(true);
+  });
+});
