@@ -94,7 +94,7 @@ import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { openBooks, openBrand, openLand } from './landui';
 import { book, brandAdd, sectorDef, tierLabel } from './company';
-import { landCleared } from './land';
+import { landCleared, playable } from './land';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -1049,7 +1049,7 @@ function afterMove(target: string, fresh: boolean, manager: number | null) {
   save();
   sfx.play('win');
   const d = sectorDef(target);
-  // はじめてのセクタ（はじまりの浜のほか）：到着の案内（目標 → 違い → 最初の一手）
+  // はじめてのセクタ（最初のタオックスのほか）：到着の案内（目標 → 違い → 最初の一手）
   if (needsIntro()) {
     const pages = introPages();
     if (manager != null) pages.splice(pages.length - 1, 0, managerPage(manager));
@@ -1072,7 +1072,7 @@ function afterMove(target: string, fresh: boolean, manager: number | null) {
 
 const managerPage = (manager: number): TutPage => ({ text: t(`前のセクタは[[${heroName(manager)}]]に任せたよ。月ごとの結果はトーストと「ランドマップ」、お金の流れは「決算書」で見られるよ。`, `[[${heroName(manager)}]] runs the previous sector. See monthly results on the land map and money flows in Statements.`) });
 
-/** いまのセクタの到着の案内をまだ見ていない（はじまりの浜は最初のチュートリアルがあるので出さない） */
+/** いまのセクタの到着の案内をまだ見ていない（最初のセクタ・タオックスは最初のチュートリアルがあるので出さない） */
 const needsIntro = () => {
   const id = s.sector ?? 'c1';
   return id !== 'c1' && sectorDef(id).profile.intro.length > 0 && !(s.flags.sectorIntro ?? []).includes(id);
@@ -1110,8 +1110,8 @@ function sectorChecks() {
     return;
   }
   const lands: [Tier, 'landCommon' | 'landUncommon', string, string][] = [
-    ['C', 'landCommon', t('Common ランド制覇！', 'Common lands conquered!'), t('Common の 3 つのセクタすべてで 1 位になったよ！ 次は Uncommon のセクタで、アンコモンを並べて 1 位を目指そう。', 'You were #1 in all three Common sectors! Next, aim for #1 in the Uncommon sectors with Uncommon goods.')],
-    ['U', 'landUncommon', t('Uncommon ランド制覇！', 'Uncommon lands conquered!'), t('Uncommon の 2 つのセクタすべてで 1 位になったよ！ 王都の市場への道も開いているはず。', 'You were #1 in both Uncommon sectors! The road to the Royal Market should be open too.')],
+    ['C', 'landCommon', t('Common ランド制覇！', 'Common lands conquered!'), t(`Common の ${playable('C').length} つのセクタすべてで 1 位になったよ！ 次は Uncommon のセクタで、アンコモンを並べて 1 位を目指そう。`, `You were #1 in all ${playable('C').length} Common sectors! Next, aim for #1 in the Uncommon sectors with Uncommon goods.`)],
+    ['U', 'landUncommon', t('Uncommon ランド制覇！', 'Uncommon lands conquered!'), t(`Uncommon の ${playable('U').length} つのセクタすべてで 1 位になったよ！ Rare のセクタへの道も開いているはず。`, `You were #1 in all ${playable('U').length} Uncommon sectors! The roads to the Rare sectors should be open too.`)],
   ];
   for (const [tier, flag, title, body] of lands) {
     if (s.flags[flag] || !landCleared(s, tier)) continue;

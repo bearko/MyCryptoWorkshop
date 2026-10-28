@@ -3215,8 +3215,8 @@ button.isl-mis {
   position: relative;
   flex: none;
   width: 100%;
-  height: min(52vh, 440px);
-  min-height: 300px;
+  height: min(64vh, 520px);
+  min-height: 420px;
   margin: 8px 0 12px;
   overflow: hidden;
   border: 2px solid var(--isl-line);
@@ -3225,19 +3225,8 @@ button.isl-mis {
 }
 @media (max-width: 599px) {
   .isl-land {
-    height: 400px;
-  }
-  .isl-land-node {
-    min-width: 0;
-    max-width: 92px;
-    padding: 3px 6px;
-  }
-  .isl-land-node b {
-    font-size: 12px;
-  }
-  /* スマホは名前だけ（状態は下の説明に） */
-  .isl-land-node small {
-    display: none;
+    height: 470px;
+    min-height: 0;
   }
   .isl-land-cloud {
     width: 120px;
@@ -3269,78 +3258,129 @@ button.isl-mis {
   stroke: #ffd257;
   stroke-dasharray: none;
 }
+/* セクタの札：アイコン（左上にランクの丸い札・右上に 👑／順位）＋その下に名前（1 行） */
 .isl-land-node {
   --tc: #b8c0d4;
   position: absolute;
   z-index: 1;
   display: grid;
   justify-items: center;
-  gap: 1px;
-  min-width: 96px;
-  max-width: 132px;
-  padding: 6px 8px 5px;
-  border: 3px solid var(--tc);
-  border-radius: 14px;
-  background: rgba(15, 22, 38, 0.92);
+  gap: 3px;
+  width: 124px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--isl-ink, #f4ecd8);
   font: inherit;
   text-align: center;
   cursor: pointer;
   transform: translate(-50%, -50%);
 }
-.isl-land-node b {
+.isl-land-ico {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--tc);
+  border-radius: 9px;
+  background: #0f1626;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.isl-land-ico img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 7px;
+  image-rendering: pixelated;
+}
+.isl-land-rank {
+  position: absolute;
+  top: -7px;
+  left: -8px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #0f1626;
+  border-radius: 50%;
+  background: var(--tc);
+  color: #0f1626;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+.isl-land-node .isl-land-name {
+  display: block;
+  max-width: 122px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(15, 22, 38, 0.86);
   color: #fff;
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.isl-land-node small {
-  color: var(--isl-dim);
-  font-size: 10px;
-  line-height: 1.2;
-}
-.isl-land-node.is-here {
-  box-shadow: 0 0 0 4px rgba(255, 210, 87, 0.35), 0 0 18px rgba(255, 210, 87, 0.6);
+.isl-land-node.is-here .isl-land-ico {
+  box-shadow: 0 0 0 3px rgba(255, 210, 87, 0.45), 0 0 14px rgba(255, 210, 87, 0.7);
   animation: isl-land-here 1.6s ease-in-out infinite alternate;
+}
+.isl-land-node.is-here .isl-land-name {
+  color: var(--isl-gold);
 }
 @keyframes isl-land-here {
   to {
-    box-shadow: 0 0 0 7px rgba(255, 210, 87, 0.12), 0 0 26px rgba(255, 210, 87, 0.75);
+    box-shadow: 0 0 0 5px rgba(255, 210, 87, 0.15), 0 0 20px rgba(255, 210, 87, 0.8);
   }
 }
-.isl-land-node.is-mine {
-  background: rgba(30, 52, 40, 0.94);
+.isl-land-node.is-mine .isl-land-name {
+  background: rgba(30, 62, 44, 0.92);
 }
-.isl-land-node.is-locked,
-.isl-land-node.is-soon {
+.isl-land-node.is-locked .isl-land-ico img,
+.isl-land-node.is-soon .isl-land-ico img {
   filter: grayscale(1) brightness(0.7);
+}
+.isl-land-node.is-locked .isl-land-ico,
+.isl-land-node.is-soon .isl-land-ico {
   border-style: dashed;
 }
-.isl-land-node.is-cloud {
+.isl-land-node.is-cloud .isl-land-ico,
+.isl-land-node.is-cloud .isl-land-name {
   filter: blur(1px) grayscale(0.6) brightness(0.7);
   opacity: 0.7;
 }
 .isl-land-node.is-sel {
-  outline: 3px solid #fff;
-  outline-offset: 3px;
   z-index: 3;
+}
+.isl-land-node.is-sel .isl-land-ico {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 .isl-land-pin {
   position: absolute;
-  top: -18px;
-  font-size: 20px;
+  top: -17px;
+  left: 50%;
+  font-size: 15px;
+  line-height: 1;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .isl-land-lock {
   position: absolute;
-  top: -10px;
-  right: -8px;
-  font-size: 16px;
+  right: -9px;
+  bottom: -6px;
+  font-size: 12px;
+  line-height: 1;
 }
 /* マウスを乗せたときの開放の条件（PC） */
 .isl-land-tip {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   left: 50%;
+  z-index: 5;
   display: none;
+  gap: 2px;
   width: max-content;
   max-width: 220px;
   padding: 6px 10px;
@@ -3353,9 +3393,22 @@ button.isl-mis {
   pointer-events: none;
   filter: none;
 }
+.isl-land-tip.is-below {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+.isl-land-tip.is-l {
+  left: 0;
+  transform: none;
+}
+.isl-land-tip.is-r {
+  right: 0;
+  left: auto;
+  transform: none;
+}
 @media (hover: hover) {
   .isl-land-node:hover .isl-land-tip {
-    display: block;
+    display: grid;
   }
   .isl-land-node:hover {
     z-index: 4;
@@ -5163,34 +5216,36 @@ button.isl-mis {
   font-size: 12px;
   white-space: nowrap;
 }
-/* ランドマップ：セクタの一言（1 行）・KGI（1 位の 👑 と最新の順位。札の右上のバッジ） */
-.isl-land-node .isl-land-tag {
-  display: block;
-  max-width: 120px;
-  overflow: hidden;
+/* ランドマップ：ホバーの説明の一言・KGI（1 位の 👑 と最新の順位。アイコンの右上のバッジ） */
+.isl-land-tip .isl-land-tag {
   color: #cfe6c4;
-  font-size: 9.5px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  font-size: 11px;
 }
-.isl-land-node .isl-land-kgi {
+.isl-land-ico .isl-land-kgi {
   position: absolute;
-  top: -11px;
-  right: -12px;
+  top: -10px;
+  left: calc(100% - 10px);
   z-index: 2;
-  padding: 1px 6px;
+  padding: 0 5px;
   border: 2px solid #8a94ad;
   border-radius: 999px;
   background: #0f1626;
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1.3;
   white-space: nowrap;
 }
-.isl-land-node .isl-land-kgi.is-crown {
+.isl-land-ico .isl-land-kgi.is-crown {
   border-color: var(--isl-gold);
   color: var(--isl-gold);
+}
+.isl-land-dico {
+  width: 48px;
+  height: 48px;
+  border: 2px solid var(--tc, #b8c0d4);
+  border-radius: 10px;
+  image-rendering: pixelated;
 }
 .isl-land-dtag {
   margin: 0;
@@ -5198,14 +5253,24 @@ button.isl-mis {
   font-weight: 700;
 }
 @media (max-width: 599px) {
-  /* スマホは一言を下の説明に。👑 と順位のバッジは札に残す */
-  .isl-land-node .isl-land-tag {
-    display: none;
+  /* スマホは 👑 と順位のバッジを小さく（一言と状態は押すと下の説明に） */
+  .isl-land-node {
+    width: 86px;
   }
-  .isl-land-node .isl-land-kgi {
-    display: block;
-    top: -12px;
-    right: -10px;
+  .isl-land-ico {
+    width: 30px;
+    height: 30px;
+  }
+  .isl-land-node .isl-land-name {
+    max-width: 86px;
+    padding: 1px 3px;
     font-size: 10px;
+    letter-spacing: -0.04em;
+  }
+  .isl-land-ico .isl-land-kgi {
+    top: -9px;
+    left: calc(100% - 9px);
+    padding: 0 4px;
+    font-size: 9px;
   }
 }

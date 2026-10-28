@@ -3,6 +3,7 @@
  * docs/ISLAND_PHASE1.md「ランドマップとセクタ」「決算書」「ブランド力」。
  */
 import { t } from '../../i18n';
+import { assetUrl } from '../../render/images';
 import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
 import { CAPITAL, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
 import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
@@ -13,19 +14,32 @@ import { btn, h, heroIcon, heroName, money } from './ui';
 
 // ---------------------------------------------------------------- ランドマップ
 
-/** 地図の上の道（セクタどうしのつながり） */
+/**
+ * 地図の上の道（セクタどうしのつながり）。同じ段のとなりどうしと、となりのランクの段どうしを結ぶ。
+ * 段：Common 下（c1〜c4）・Common 上（c5〜c8）・Uncommon（u1〜u5）・Rare（r1〜r4）・Epic（e1〜e3）・Legendary（l1）
+ */
+const ROWS = [['c1', 'c2', 'c3', 'c4'], ['c5', 'c6', 'c7', 'c8'], ['u1', 'u2', 'u3', 'u4', 'u5'], ['r1', 'r2', 'r3', 'r4'], ['e1', 'e2', 'e3'], ['l1']];
 const ROADS: [string, string][] = [
-  ['c1', 'c2'],
-  ['c1', 'c3'],
-  ['c2', 'u1'],
-  ['c3', 'u2'],
-  ['c1', 'u2'],
+  ...ROWS.flatMap((r) => r.slice(1).map((id, k): [string, string] => [r[k], id])),
+  ['c1', 'c5'],
+  ['c4', 'c8'],
+  ['c5', 'u1'],
+  ['c6', 'u2'],
+  ['c7', 'u4'],
+  ['c8', 'u5'],
   ['u1', 'r1'],
-  ['u2', 'r1'],
-  ['u1', 'e1'],
-  ['r1', 'l1'],
-  ['e1', 'l1'],
+  ['u3', 'r2'],
+  ['u3', 'r3'],
+  ['u5', 'r4'],
+  ['r1', 'e1'],
+  ['r3', 'e2'],
+  ['r4', 'e3'],
+  ['e2', 'l1'],
 ];
+
+/** ランドセクタの絵（MCH のランドセクタ。はじまりの国 Lime の 5 ランク） */
+const TIER_IMG: Record<SectorDef['tier'], string> = { C: '1_Common', U: '2_Uncommon', R: '3_Rare', E: '4_Epic', L: '5_Legendary' };
+export const sectorIcon = (tier: SectorDef['tier']) => assetUrl(`mch/Image/LandSectors/04_Lime_${TIER_IMG[tier]}.png`);
 
 const TIER_NOTE: Record<SectorDef['tier'], string> = {
   C: t('いまと同じくらいの広さと商売敵。出店許可申請の費用も軽い。', 'About the same size and rivals as now. The permit is cheap.'),
@@ -93,7 +107,12 @@ function startMove(ctx: Ctx, target: string) {
     sel = null;
     ctx.save();
     ctx.moved?.(target, fresh, hero);
-    for (const id of gated) if (sectorState(s.land!, id) !== 'locked') ctx.toast(t(`${sectorDef(id).name}への道が開いた！（遊びは次の更新で）`, `The road to ${sectorDef(id).name} is open! (Playable in a future update)`));
+    const opened = gated.filter((id) => sectorState(s.land!, id) !== 'locked');
+    if (opened.length === 1) ctx.toast(t(`${sectorDef(opened[0]).name}への道が開いた！（遊びは次の更新で）`, `The road to ${sectorDef(opened[0]).name} is open! (Playable in a future update)`));
+    else if (opened.length) {
+      const tier = tierLabel(sectorDef(opened[0]).tier);
+      ctx.toast(t(`${tier} ${opened.length} つへの道が開いた！（遊びは次の更新で）`, `Roads to ${opened.length} ${tier}s are open! (Playable in a future update)`));
+    }
   };
   if (!hasBusiness(s)) return go(null);
   pickHero(ctx.root, s, {
@@ -132,7 +151,7 @@ export function openLand(ctx: Ctx) {
     svg.classList.add('isl-land-svg');
     // 島の形
     const isle = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    isle.setAttribute('d', 'M8,62 C2,40 14,22 30,20 C40,6 62,4 74,14 C90,16 98,34 92,48 C98,64 88,84 70,90 C54,98 30,96 18,88 C6,82 4,72 8,62 Z');
+    isle.setAttribute('d', 'M4,62 C0,48 6,36 14,32 C14,18 30,12 42,10 C46,2 58,2 62,8 C76,10 88,16 88,30 C96,36 100,50 97,62 C100,76 98,94 86,97 C66,100 34,100 14,97 C2,95 0,76 4,62 Z');
     isle.setAttribute('class', 'isl-land-isle');
     svg.append(isle);
     for (const [a, b] of ROADS) {
@@ -162,20 +181,35 @@ export function openLand(ctx: Ctx) {
       n.style.left = `${d.at[0]}%`;
       n.style.top = `${d.at[1]}%`;
       n.style.setProperty('--tc', TIERS[d.tier].color);
-      n.append(tierPill(d.tier), h('b', '', st === 'cloud' ? '???' : d.name), h('small', '', stateText(s, d, st)));
+      // 札：アイコン（左上にランクの丸い札）＋その下に名前
+      const ico = h('span', 'isl-land-ico');
+      const img = h('img');
+      img.src = sectorIcon(d.tier);
+      img.alt = '';
+      img.draggable = false;
+      ico.append(img, h('span', `isl-land-rank is-${d.tier.toLowerCase()}`, d.tier));
+      const name = st === 'cloud' ? '???' : d.name;
+      n.append(ico, h('b', 'isl-land-name', name));
+      n.setAttribute('aria-label', name);
       // KGI（エリア 1 位）の達成と、最新の順位
       if (st === 'here' || st === 'mine') {
         const rk = lastRank(s, d.id);
         const crown = crowned(s, d.id);
         // 札の右上：KGI（1 位）を達成したセクタは 👑 だけ、まだなら最新の順位
-        if (rk || crown) n.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : t(`${rk} 位`, `#${rk}`)));
+        if (rk || crown) ico.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : t(`${rk} 位`, `#${rk}`)));
       }
-      if (st !== 'cloud' && d.profile.tag) n.append(h('small', 'isl-land-tag', d.profile.tag));
       if (st === 'here') n.append(h('span', 'isl-land-pin', '📍'));
-      if (st === 'locked') n.append(h('span', 'isl-land-lock', '🔒'));
-      // マウスを乗せると開放の条件（PC）
-      const tipText = st === 'locked' ? needText(s, d) : st === 'cloud' ? t('雲に覆われていて、まだ行けない', 'Hidden under clouds') : '';
-      if (tipText) n.append(h('span', 'isl-land-tip', tipText));
+      if (st === 'locked') ico.append(h('span', 'isl-land-lock', '🔒'));
+      // マウスを乗せると一言の特徴・状態・開放の条件（PC。スマホは押すと下の説明に）
+      // 上の段は下に、端の札は内側に出す（地図の外で切れないように）
+      const tip = h('span', `isl-land-tip ${d.at[1] < 35 ? 'is-below' : ''} ${d.at[0] < 20 ? 'is-l' : d.at[0] > 80 ? 'is-r' : ''}`);
+      if (st === 'cloud') tip.append(h('span', '', t('雲に覆われていて、まだ行けない', 'Hidden under clouds')));
+      else {
+        tip.append(h('b', '', d.name), h('small', 'isl-dim', stateText(s, d, st)));
+        if (d.profile.tag) tip.append(h('span', 'isl-land-tag', d.profile.tag));
+        if (st === 'locked') tip.append(h('span', 'isl-warn', needText(s, d)));
+      }
+      n.append(tip);
       n.addEventListener('click', () => {
         sel = d.id;
         ctx.sfx?.('tap');
@@ -194,7 +228,11 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
   const T = TIERS[d.tier];
   const box = h('div', 'isl-card2 isl-land-detail');
   const top = h('div', 'isl-row');
-  top.append(tierPill(d.tier), h('b', 'isl-land-dname', st === 'cloud' ? '???' : d.name), h('small', 'isl-dim', tierLabel(d.tier)));
+  const big = h('img', 'isl-land-dico');
+  big.src = sectorIcon(d.tier);
+  big.alt = '';
+  big.style.setProperty('--tc', TIERS[d.tier].color);
+  top.append(big, tierPill(d.tier), h('b', 'isl-land-dname', st === 'cloud' ? '???' : d.name), h('small', 'isl-dim', tierLabel(d.tier)));
   box.append(top);
   if (st === 'cloud') {
     box.append(h('p', '', t('雲に覆われていて、まだ移動できない。', 'Covered in clouds. You cannot go there yet.')));
