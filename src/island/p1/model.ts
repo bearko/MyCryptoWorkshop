@@ -254,8 +254,22 @@ export interface P1State {
   utilLast: { work: number; cap: number } | null;
   /** 調達係の買い付け：工房から卸問屋へ行って帰る（帰ると素材が届く） */
   buyTrip: BuyTrip | null;
+  /** 卸問屋への注文（納期に届く） */
+  orders?: Order[];
   /** ゲームの進行速度（1・1.5・2。スキルで選べる） */
   pace?: number;
+}
+
+/** 卸問屋への注文（ロット単位）。納期に問屋の人が工房まで運んできて、工房に入ったら在庫になる */
+export interface Order {
+  id: number;
+  m: Mat;
+  qty: number;
+  /** 納期までの日数（はじめの日数） */
+  left: number;
+  total: number;
+  /** 運んでくる問屋の人（ヒーロー） */
+  courier: number;
 }
 
 export interface BuyTrip {
@@ -728,7 +742,7 @@ export const myWarehouses = (s: P1State) => s.buildings.filter((b) => b.owner ==
 export const poolCap = (s: P1State) => STORE.base + (has(s, 'tidy') ? 40 : 0) + (STORE.warehouse + (has(s, 'rack') ? 100 : 0)) * myWarehouses(s).length;
 const sum = (o: Partial<Record<string, number>>) => Object.values(o).reduce<number>((a, n) => a + (n ?? 0), 0);
 /** いま置いている数（買い付けて運んでいる素材も含む） */
-export const poolUsed = (s: P1State) => sum(s.mats) + sum(s.stock) + (s.buyTrip ? sum(s.buyTrip.cargo) : 0);
+export const poolUsed = (s: P1State) => sum(s.mats) + sum(s.stock) + (s.buyTrip ? sum(s.buyTrip.cargo) : 0) + (s.orders ?? []).reduce((a, o) => a + o.qty, 0);
 export const poolFree = (s: P1State) => Math.max(0, poolCap(s) - poolUsed(s));
 
 /** 区画の道路を通る道のり（入口の前のマスから入口の前のマスまで。見つからなければ null） */
@@ -855,6 +869,42 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   s.mats[m] = (s.mats[m] ?? 0) + qty;
   s.proc.bought += qty;
   procExp(s, (qty * gain + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
+  return null;
+}
+
+/** 1 ロットの素材の数 */
+export const LOT = 10;
+/** 卸問屋の人（注文を運んでくる） */
+export const COURIERS = [1004, 1006, 1007, 1003];
+/** 卸問屋から工房まで歩く日数 */
+export function walkDays(s: P1State): number {
+  const ws = myWorkshop(s);
+  const wh = wholesaler(s);
+  const path = ws && wh ? roadPath(s, doorOf(wh), doorOf(ws)) : null;
+  return Math.max(1, Math.ceil((path?.length ?? 8) / TRANSPORT.walkPerDay));
+}
+/** 納期（注文してから届くまでの日数）：支度の 1 日 ＋ 歩く日数 */
+export const leadDays = (s: P1State) => 1 + walkDays(s);
+
+/**
+ * 卸問屋に lots ロット注文する。代金はいま払い、納期に問屋の人が工房まで運んでくる（工房に入ったら在庫になる）。
+ * 置き場所は注文したぶんを先に取っておく。
+ */
+export function order(s: P1State, m: Mat, lots: number): string | null {
+  const qty = Math.max(0, Math.round(lots)) * LOT;
+  if (!s.routes.includes(m)) return 'route';
+  if (qty <= 0) return null;
+  if (qty > procLeft(s)) return 'cap';
+  if (qty > poolFree(s)) return 'storage';
+  const cost = matPrice(s, m) * qty;
+  if (cost > s.money) return 'money';
+  s.money -= cost;
+  spend(s, 'materials', cost);
+  s.proc.bought += qty;
+  procExp(s, (qty + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
+  const days = leadDays(s);
+  const id = (s.orders ?? []).reduce((a, o) => Math.max(a, o.id), 0) + 1;
+  (s.orders ??= []).push({ id, m, qty, left: days, total: days, courier: COURIERS[(id - 1) % COURIERS.length] });
   return null;
 }
 
@@ -1381,8 +1431,10 @@ export interface DayResult {
   developed: string[];
   /** 調達ランクが上がった */
   procLv?: number;
-  /** 調達係が持ち帰った素材 */
+  /** 調達係が持ち帰った素材・届いた注文の素材 */
   arrived?: Partial<Record<Mat, number>>;
+  /** 届いた注文（問屋の人が工房に着いた） */
+  orders?: Order[];
   /** 1 ロットできた（作業台の番号と数） */
   made: { slot: number; sku: Sku; n: number }[];
   /** 売れた（お店と金額。1 個ずつ） */
@@ -1417,6 +1469,16 @@ export function step(s: P1State): DayResult {
   const shops = myShops(s);
   const working = new Set<number>();
 
+  // 注文：納期に問屋の人が工房に着いたら在庫になる
+  if (s.orders?.length) {
+    for (const o of s.orders) o.left -= 1;
+    for (const o of s.orders.filter((x) => x.left <= 0)) {
+      s.mats[o.m] = (s.mats[o.m] ?? 0) + o.qty;
+      (res.orders ??= []).push(o);
+      res.arrived = { ...(res.arrived ?? {}), [o.m]: (res.arrived?.[o.m] ?? 0) + o.qty };
+    }
+    s.orders = s.orders.filter((x) => x.left > 0);
+  }
   // 調達：調達係が工房から卸問屋まで歩いて行き、往復のあいだに要る量を買って帰る（月の上限・資金・置き場所の中で）
   const ws0 = myWorkshop(s);
   const shopB = wholesaler(s);

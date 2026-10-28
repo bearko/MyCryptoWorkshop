@@ -159,13 +159,29 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       const from = (t.from != null ? s.buildings.find((b) => b.uid === t.from) : null) ?? ws;
       if (!to) continue;
       const path = tripPath(s, doorOf(from), doorOf(to));
-      const k = 1 - t.left / t.total;
+      // 1 日のうちの進みも入れて、なめらかに（日ごとに飛ばない）
+      const k = Math.min(0.999, (t.total - t.left + (anim?.frac ?? 0)) / t.total);
       // 行き（荷物あり）と帰り（空）
-      const f = k < 0.5 ? k * 2 : (1 - k) * 2;
+      const back = k >= 0.5;
+      const f = back ? (1 - k) * 2 : k * 2;
       const p = path.length > 1 ? along(path, f) : { i: path[0]?.[0] ?? from.i, j: path[0]?.[1] ?? from.j, di: 0, dj: 0 };
       if (!visible(Math.round(p.i), Math.round(p.j))) continue;
-      const c = center(p.i, p.j);
-      items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.7, draw: () => cart(ctx, c.x, c.y + 20) });
+      // 運搬係が荷車を押して歩く。工房を出るとき・お店に入るときは、ふわっと出入りする
+      const q = path.length > 1 ? along(path, Math.max(0, Math.min(1, f + (back ? -0.04 : 0.04)))) : p;
+      const c = center(q.i, q.j);
+      const alpha = Math.min(1, f / 0.06, (1 - f) / 0.06);
+      const di = back ? -p.di : p.di;
+      const dj = back ? -p.dj : p.dj;
+      items.push({
+        depth: (p.i + p.j) * 1000 + p.i + 0.7,
+        draw: () => {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, alpha);
+          cart(ctx, c.x, c.y + 20);
+          ctx.restore();
+          drawWalker(ctx, t.hauler, p.i, p.j, di, dj, (anim?.clock ?? now) / 90, Math.max(0, alpha));
+        },
+      });
     }
   }
   // 歩いているヒーロー（お客さん・調達係）
@@ -178,6 +194,14 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       // 家から出てくるとき・お店に入るときはふわっと
       const alpha = Math.min(1, f / 0.08, (1 - f) / 0.08);
       items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, wk.hero, p.i, p.j, p.di, p.dj, (anim.clock - wk.t0) / 90, alpha) });
+    }
+    // 注文した素材を運んでくる問屋の人
+    for (const cu of anim.couriers ?? []) {
+      const p = along(cu.path, cu.f);
+      if (!visible(Math.round(p.i), Math.round(p.j))) continue;
+      const alpha = Math.min(1, cu.f / 0.06, (1 - cu.f) / 0.06);
+      const carry = image(`items/${cu.carry}.png`);
+      items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, cu.hero, p.i, p.j, p.di, p.dj, anim.clock / 90, Math.max(0, alpha), carry) });
     }
     const by = anim.buyer;
     if (by && by.path.length > 1) {

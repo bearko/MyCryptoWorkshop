@@ -71,7 +71,10 @@ import {
   unitCost,
   type PBuilding,
   batchOf,
-  buy,
+  order as placeOrder,
+  LOT,
+  leadDays,
+  walkDays,
   craftCheck,
   craftDays,
   has,
@@ -543,7 +546,7 @@ export function shopView(ctx: Ctx, uid: number, done: () => void): HTMLElement {
   return wrap;
 }
 
-function shopScene(s: P1State, uid: number): HTMLCanvasElement {
+export function shopScene(s: P1State, uid: number): HTMLCanvasElement {
   const c = h('canvas', 'isl-shop-scene');
   c.width = 320;
   c.height = 180;
@@ -741,6 +744,22 @@ export function openShop(ctx: Ctx, uid: number) {
 
 // ---------------------------------------------------------------- 調達
 
+/** 注文中（納期に問屋の人が運んでくる） */
+function ordersCard(s: P1State): HTMLElement {
+  const card = h('div', 'isl-card2');
+  card.append(h('h3', '', t('注文中', 'On order')));
+  if (!s.orders?.length) {
+    card.append(h('p', 'isl-dim', t('いま注文している素材はありません。注文すると、納期に問屋の人が工房まで運んできます（工房に入ったら在庫になります）。', 'No orders. Ordered materials are carried to the workshop by the wholesaler’s staff on the due day.')));
+    return card;
+  }
+  for (const o of s.orders) {
+    const r = h('div', 'isl-row isl-order');
+    r.append(matIcon(o.m, 28), h('b', '', t(`${MATS[o.m].name} ${o.qty} 個`, `${o.qty} ${MATS[o.m].name}`)), heroIcon(o.courier, 32), h('small', 'isl-dim', o.left <= walkDays(s) ? t(`${heroName(o.courier)}が運んでいる途中・あと ${o.left} 日`, `${heroName(o.courier)} is on the way · ${o.left} d`) : t(`問屋で支度中・あと ${o.left} 日`, `Being packed · ${o.left} d`)));
+    card.append(r);
+  }
+  return card;
+}
+
 export function openBuy(ctx: Ctx) {
   open(ctx, t('調達', 'Buying'), (body) => {
     const s = ctx.s();
@@ -754,20 +773,21 @@ export function openBuy(ctx: Ctx) {
       for (const m of mats.length ? mats : s.routes) {
         const row = h('div', 'isl-row');
         row.append(matIcon(m, 36), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}`, `have ${s.mats[m] ?? 0}`)));
-        const b = btn(t(`10 個買う（${money(matPrice(s, m) * 10)}）`, `Buy 10 (${money(matPrice(s, m) * 10)})`), () => {
-          const e = buy(s, m, 10);
+        const b = btn(t(`1 ロット（${LOT} 個）注文する（${money(matPrice(s, m) * LOT)}・納期 ${leadDays(s)} 日）`, `Order 1 lot (${LOT}) — ${money(matPrice(s, m) * LOT)}, ${leadDays(s)} days`), () => {
+          const e = placeOrder(s, m, 1);
           if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
           else if (e === 'storage') ctx.toast(t('置き場所がありません', 'No storage room'));
-          else if (!e) ctx.toast(t(`${MATS[m].name}を 10 個買いました`, `Bought 10 ${MATS[m].name}`));
+          else if (!e) ctx.toast(t(`${MATS[m].name}を 1 ロット注文しました（${leadDays(s)} 日後に届きます）`, `Ordered 1 lot of ${MATS[m].name} (arrives in ${leadDays(s)} days)`));
           after(ctx);
-        }, 'is-on is-guide');
-        b.disabled = s.money < matPrice(s, m) * 10 || poolFree(s) < 10;
+        }, s.orders?.length ? 'is-on' : 'is-on is-guide');
+        b.disabled = s.money < matPrice(s, m) * LOT || poolFree(s) < LOT;
         row.append(b);
         card.append(row);
       }
-      body.append(card);
+      body.append(card, ordersCard(s));
       return;
     }
+    body.append(ordersCard(s));
     // ランクと上限
     const rank = h('div', 'isl-card2');
     const need = procNeed(s.proc.lv);
@@ -881,13 +901,15 @@ export function openBuy(ctx: Ctx) {
       }
       if (route) {
         const spot = h('div', 'isl-row');
-        spot.append(h('small', 'isl-dim', t('いますぐ買う', 'Buy now')));
-        for (const k of [10, 50]) {
-          const b = btn(`+${k} (${money(matPrice(s, m) * k)})`, () => {
-            const e = buy(s, m, k);
+        spot.append(h('small', 'isl-dim', t(`いま注文する（1 ロット ${LOT} 個・納期 ${leadDays(s)} 日）`, `Order now (${LOT} per lot, ${leadDays(s)} days)`)));
+        for (const lots of [1, 5]) {
+          const k = lots * LOT;
+          const b = btn(t(`${lots} ロット（${money(matPrice(s, m) * k)}）`, `${lots} lot${lots > 1 ? 's' : ''} (${money(matPrice(s, m) * k)})`), () => {
+            const e = placeOrder(s, m, lots);
             if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
             else if (e === 'cap') ctx.toast(t('今月の調達の上限を超えます', 'Over this month’s buying limit'));
             else if (e === 'storage') ctx.toast(t('置き場所がありません（倉庫を建てましょう）', 'No storage room (build a warehouse)'));
+            else if (!e) ctx.toast(t(`${MATS[m].name}を ${k} 個注文しました（${leadDays(s)} 日後に届きます）`, `Ordered ${k} ${MATS[m].name} (arrives in ${leadDays(s)} days)`));
             after(ctx);
           });
           b.disabled = s.money < matPrice(s, m) * k || procLeft(s) < k || poolFree(s) < k;

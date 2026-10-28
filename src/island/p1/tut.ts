@@ -132,26 +132,26 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'mats',
-    goal: (_s) => t('卸問屋で素材を買い足す', 'Top up materials at the wholesaler'),
+    goal: (_s) => t('卸問屋に素材を注文する', 'Order materials from the wholesaler'),
     praise: t('これで当分、作り続けられるね！', 'That keeps the bench busy for a while!'),
     intro: {
       pages: [
         { text: t('作り始めたね！ でも、持ってきた[[素材]]はほんの少しだけ。', 'Crafting has started! But we only brought a few [[materials]].') },
-        { text: t('[[卸問屋]]で、少し買い足しておこう。', 'Let’s top up at the [[wholesaler]].') },
+        { text: t('[[卸問屋]]に、ロット単位で注文しておこう。納期になると届けてくれるよ。', 'Let’s order a lot from the [[wholesaler]]. They deliver on the due day.') },
       ],
       ok: t('調達を開く', 'Open buying'),
     },
-    say: () => t('[[素材]]が切れると、工房は止まってしまう。「SCM」→「調達」で買い足そう！', 'Without [[materials]], the workshop stops. Top up under SCM → Buy!'),
+    say: () => t('[[素材]]が切れると、工房は止まってしまう。「SCM」→「調達」で注文しよう！', 'Without [[materials]], the workshop stops. Order under SCM → Buy!'),
     act: [t('調達を開く', 'Open buying'), 'buy'],
     hl: 'scm:buy',
     tips: {
       buy: (s) =>
         s.proc.bought > 0
-          ? t('買えた！ 画面を閉じて、次へ進もう。', 'Done! Close this screen to move on.')
-          : t('光っているボタンで、作るのに使う[[素材]]を 10 個買おう！', 'Tap the glowing button to buy 10 of the [[material]] you craft with!'),
+          ? t('注文できた！ 納期になると、問屋の人が[[工房]]まで運んでくれるよ。画面を閉じよう。', 'Ordered! On the due day, the wholesaler’s staff carries it to the [[workshop]]. Close this screen.')
+          : t('光っているボタンで、作るのに使う[[素材]]を 1 ロット注文しよう！', 'Tap the glowing button to order 1 lot of the [[material]] you craft with!'),
     },
     checks: [
-      [t('素材を 10 個買う', 'Buy 10 materials'), (s) => s.proc.bought > 0],
+      [t('素材を 1 ロット注文する', 'Order 1 lot of materials'), (s) => s.proc.bought > 0],
       [t('調達の画面を閉じる', 'Close the buying screen'), (_s, seen) => seen.has('buy')],
     ],
     done: (s, seen) => s.proc.bought > 0 && seen.has('buy'),

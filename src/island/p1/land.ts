@@ -41,6 +41,7 @@ export const SECTOR_KEYS = [
   'util',
   'utilLast',
   'buyTrip',
+  'orders',
   'sector',
   'tier',
   'arrived',
