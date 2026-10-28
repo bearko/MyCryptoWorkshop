@@ -56,7 +56,7 @@ export const PRODUCTS: ProductDef[] = [
 export const PRODUCT: Record<string, ProductDef> = Object.fromEntries(PRODUCTS.map((p) => [p.key, p]));
 
 /** Uncommon は値段 2.5 倍、売り場での強さ 1.3 倍。作るには工房の設備と製造の適性 60 以上が要る */
-export const UNCOMMON = { price: 2.5, pull: 1.3, minCraft: 60 };
+export const UNCOMMON = { price: 2.5, pull: 1.3, minCraft: 31 };
 
 /** 商品の番号（シリーズとレアリティ） */
 export type Sku = `${string}:${Rar}`;
@@ -142,7 +142,10 @@ export interface Stats {
   agi: number;
 }
 
-/** 作業の適性（MCHアーティストの製造がちょうど 53） */
+/**
+ * 作業の適性（0〜100）。能力値は MCH の値を、全ヒーロー中の最大が 100 になるように縮めたもの（`model.ts` の heroStats）。
+ * 見習いの MCHアーティストの製造が約 28、コモンの得意な仕事が 40〜55、レジェンダリーで 80〜88。
+ */
 export function aptitude(s: Stats, task: Task): number {
   switch (task) {
     case 'craft':
@@ -162,8 +165,6 @@ export function aptitude(s: Stats, task: Task): number {
       return 0.6 * s.int + 0.4 * s.agi;
   }
 }
-/** 適性 → 作業の速さ（53 で 1.0） */
-export const speedOf = (apt: number) => apt / 53;
 
 export const START_STAFF = [10001, 10002, 10003];
 
@@ -340,7 +341,7 @@ export const ADS: Ad[] = [
   { id: 'event', name: t('店頭イベント', 'In-store event'), note: t('5 日間、自社のお店の売り場の強さ +50%', 'Your shops’ pull +50% for 5 days'), cost: 4000, days: 5, boost: 0.5 },
 ];
 
-/** 他社の調査：段階ごとに分かることが増える（調査の適性 53 で 1 日 1） */
+/** 他社の調査：段階ごとに分かることが増える（見習いの速さで 1 日 1） */
 export const INTEL = [5, 12, 20];
 
 export interface Mission {
