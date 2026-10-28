@@ -575,7 +575,7 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
     shop.staff = hero;
   } else if (task === 'explore') {
     const m = target as Mat;
-    if (!MATS[m] || s.routes.includes(m)) return 'no-route';
+    if (!MATS[m] || hasRoute(s, m)) return 'no-route';
     st.explore = 0;
   } else if (task === 'intel') {
     const r = target as string;
@@ -928,7 +928,7 @@ function procExp(s: P1State, exp: number): number | null {
 
 /** 素材を買う（手で買うときも、調達係が買うときも、月の上限の中で） */
 export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
-  if (!s.routes.includes(m)) return 'route';
+  if (!hasRoute(s, m)) return 'route';
   if (qty <= 0) return null;
   if (qty > procLeft(s)) return 'cap';
   if (qty > poolFree(s)) return 'storage';
@@ -962,7 +962,7 @@ export const leadDays = (s: P1State) => 1 + walkDays(s);
  */
 export function order(s: P1State, m: Mat, lots: number): string | null {
   const qty = Math.max(0, Math.round(lots)) * LOT;
-  if (!s.routes.includes(m)) return 'route';
+  if (!hasRoute(s, m)) return 'route';
   if (qty <= 0) return null;
   if (qty > procLeft(s)) return 'cap';
   if (qty > poolFree(s)) return 'storage';
@@ -986,7 +986,7 @@ export function procMats(s: P1State): { m: Mat; from: 'item' | 'extra' }[] {
   const out: { m: Mat; from: 'item' | 'extra' }[] = [];
   for (const x of procItems(s)) for (const m of Object.keys(recipeOf(x)) as Mat[]) if (!out.some((o) => o.m === m)) out.push({ m, from: 'item' });
   for (const m of s.proc.extra) if (!out.some((o) => o.m === m)) out.push({ m, from: 'extra' });
-  return out.filter((o) => s.routes.includes(o.m));
+  return out.filter((o) => hasRoute(s, o.m));
 }
 
 /** 工房が 100% 動いたときの月の素材の消費（作業台の設定と職人の速さ。作業台に無い作りたいエクステは速さ 1 の作業台 1 つぶん） */
@@ -2206,7 +2206,17 @@ export function bottleneck(c: Record<Stage, StageCap>): Stage {
   const order: Stage[] = ['buy', 'craft', 'haul', 'sell'];
   const stopped = order.find((k) => c[k].stopped);
   if (stopped) return stopped;
-  return order.reduce((a, k) => (c[k].perMonth < c[a].perMonth ? k : a), order[0]);
+  // 同じ細さなら、調達より製造・販売を指す（調達係がいると調達の棒は製造と同じ長さになるので、調達が「詰まり」と出がち）
+  const pref: Stage[] = ['craft', 'sell', 'haul', 'buy'];
+  const min = Math.min(...order.map((k) => c[k].perMonth));
+  return pref.find((k) => c[k].perMonth <= min + 1e-9) ?? order[0];
+}
+
+/** 素材のルートが使えるか：会社で開いたルート、またはいまのセクタの特産で最初から開いているルート */
+export function hasRoute(s: Pick<P1State, 'routes' | 'sector'>, m: Mat): boolean {
+  if (s.routes.includes(m)) return true;
+  const prof = sectorProfile(s);
+  return !!prof?.routesOpen || !!prof?.routes?.includes(m);
 }
 
 /** 手元の素材で、作業台があと何日動けるか（作業台が動いていなければ null） */
