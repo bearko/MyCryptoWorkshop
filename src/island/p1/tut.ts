@@ -26,6 +26,8 @@ export interface TutPage {
   gift?: { icon: string; title: string; note: string };
   /** show: 'crew' のとき、前に出すヒーロー（ほかは少し暗く） */
   hero?: number;
+  /** その枚だけに出すボタン（押すと会話を閉じて実行。到着の案内の「市場データを開く」） */
+  button?: [string, () => void];
 }
 
 export interface TutStep {

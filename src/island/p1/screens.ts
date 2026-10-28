@@ -32,6 +32,7 @@ import {
   sku,
   skuParts,
   skuPrice,
+  techSkill,
   type Mat,
   type Rar,
   type Sku,
@@ -91,6 +92,7 @@ import {
   myShops,
   partMax,
   recommend,
+  tierOk,
   setPart,
   setRest,
   setShelf,
@@ -106,7 +108,7 @@ import {
 } from './model';
 import { sectorDef, sectorProfile } from './company';
 import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
-import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, pickExt, pickHero, profitPerDay, radar, rankEl, slot } from './heroui';
+import { bomRow, extCard, extSlot, jobLabel, lotsFromStock, needText, pickExt, pickHero, profitPerDay, radar, rankEl, slot, techNeed } from './heroui';
 
 export interface Ctx {
   s: () => P1State;
@@ -125,6 +127,8 @@ export interface Ctx {
   step?: () => string | null;
   /** 効果音 */
   sfx?: (k: Sfx) => void;
+  /** スキルツリーを開く（focus：枝の key かスキルの id。そのパネルを真ん中に） */
+  skills?: (focus?: string) => void;
   /** ほかのランドセクタへ移った（land.ts の moveTo のあと） */
   moved?: (target: string, fresh: boolean, manager: number | null) => void;
 }
@@ -336,11 +340,20 @@ const CRAFT_ERR: Record<string, string> = {
   worker: t('職人を割り当ててください', 'Assign a crafter first'),
   busy: t('作業中です', 'Already working'),
 };
+/** 作れない理由（技が要るものは、その技の名前） */
+const craftErr = (x: Sku, e: string) => (e === 'tech' ? techNeed(skuParts(x)[0]) : null) ?? CRAFT_ERR[e] ?? e;
 
-/** 作れる商品（Common と、開発したアンコモン） */
-function craftable(s: P1State): Sku[] {
-  const out: Sku[] = PRODUCTS.map((p) => sku(p.key, 'C'));
-  out.push(...PRODUCTS.filter((p) => s.dev.includes(p.key)).map((p) => sku(p.key, 'U')));
+/**
+ * 作れる商品（Common と、開発したアンコモン）。技がまだの商品は、うしろに（カードに「技：○○が要る」）。
+ * 最初のチュートリアルのあいだは、技が要る商品を出さない（基礎の 5 つだけ）。このセクタのランクで出ない商品も出さない
+ */
+function craftable(s: P1State, tut = false): Sku[] {
+  const ready = (key: string) => !PRODUCT[key].tech || has(s, techSkill(PRODUCT[key].tech!));
+  // このセクタのランクで出ない商品（Common のオルゴールなど）は出さない
+  const list = PRODUCTS.filter((p) => (!tut || !p.tech) && tierOk(p, s.tier ?? 'C'));
+  const out: Sku[] = list.filter((p) => ready(p.key)).map((p) => sku(p.key, 'C'));
+  out.push(...list.filter((p) => s.dev.includes(p.key) && ready(p.key)).map((p) => sku(p.key, 'U')));
+  out.push(...list.filter((p) => !ready(p.key)).map((p) => sku(p.key, 'C')));
   return out;
 }
 
@@ -402,7 +415,7 @@ export function openWorkshop(ctx: Ctx) {
           onTap: () =>
             pickExt(ctx.root, s, {
               title: t(`作業台 ${k + 1} で作るもの`, `What bench ${k + 1} makes`),
-              items: craftable(s),
+              items: craftable(s, !!ctx.step?.()),
               current: sl.sku,
               worker: sl.worker,
               badge: ctx.step?.() === 'craft' ? { x: sku(recommend(s), 'C'), text: t('マインちゃんのおすすめ', 'Mine-chan’s pick') } : null,
@@ -415,7 +428,7 @@ export function openWorkshop(ctx: Ctx) {
                 }
                 sl.repeat = true;
                 const e = sl.worker == null ? 'worker' : startCraft(s, k, x, true);
-                if (e && e !== 'busy') ctx.toast(CRAFT_ERR[e] ?? e);
+                if (e && e !== 'busy') ctx.toast(craftErr(x, e));
                 else ctx.toast(t(`${skuName(x)}を作り始めました`, `Started making ${skuName(x)}`));
                 after(ctx);
               },
@@ -433,7 +446,7 @@ export function openWorkshop(ctx: Ctx) {
         card.append(p);
       }
       const err = sl.worker == null ? 'worker' : sl.sku ? craftCheck(s, sl.sku, sl.worker) : null;
-      if (err && !sl.running) card.append(h('p', 'isl-warn', CRAFT_ERR[err] ?? err));
+      if (err && !sl.running) card.append(h('p', 'isl-warn', sl.sku ? craftErr(sl.sku, err) : CRAFT_ERR[err] ?? err));
       if (sl.sku) card.append(craftPlan(ctx, s, k));
       body.append(card);
     });
@@ -441,7 +454,8 @@ export function openWorkshop(ctx: Ctx) {
     // 作れるエクステの見比べ（今の素材で、どれがいちばん効率がよいか）
     const cmp = h('div', 'isl-card2');
     cmp.append(h('h3', '', t('作れるエクステの見比べ', 'Compare extensions')), h('p', 'isl-dim', t('素材 → 商品のつながりと、今の素材で何ロット作れるか、1 日あたりの粗利。押すと作業台 1 で作ります。', 'Materials → product, lots your stock makes and gross profit per day. Tap to make it on bench 1.')));
-    const list = [...craftable(s)].sort((a, b) => profitPerDay(s, b) - profitPerDay(s, a));
+    // 作れるものを先に（技がまだのものはうしろ）
+    const list = [...craftable(s, !!ctx.step?.())].sort((a, b) => Number(craftCheck(s, a, null) === 'tech') - Number(craftCheck(s, b, null) === 'tech') || profitPerDay(s, b) - profitPerDay(s, a));
     const okList = list.filter((x) => lotsFromStock(s, x) > 0 && !craftCheck(s, x, s.slots[0]?.worker ?? null));
     const grid = h('div', 'isl-ext-grid');
     for (const x of list)
@@ -458,7 +472,7 @@ export function openWorkshop(ctx: Ctx) {
             sl.progress = 0;
             sl.repeat = true;
             const e = sl.worker == null ? 'worker' : startCraft(s, 0, x, true);
-            if (e && e !== 'busy') ctx.toast(CRAFT_ERR[e] ?? e);
+            if (e && e !== 'busy') ctx.toast(craftErr(x, e));
             after(ctx);
           },
         }),
@@ -509,7 +523,7 @@ export function pickShelf(ctx: Ctx, uid: number, k: number, done: () => void) {
   if (!sh) return;
   pickExt(ctx.root, s, {
     title: k === 0 ? t('主力商品を選ぶ', 'Choose the main product') : t(`棚 ${k + 1} に並べるもの`, `What shelf ${k + 1} sells`),
-    items: craftable(s),
+    items: craftable(s, !!ctx.step?.()),
     current: sh.shelves[k] ?? null,
     allowNone: true,
     making: s.slots.map((y) => y.sku).filter((y): y is Sku => !!y),
@@ -1282,32 +1296,66 @@ export function openHire(ctx: Ctx) {
 export function openData(ctx: Ctx) {
   const s0 = ctx.s();
   s0.flags.data = true;
+  // セクタごとに「市場データを見た」を覚える（2 か所目以降のリサーチの案内）
+  const here = s0.sector ?? 'c1';
+  if (!(s0.flags.dataSeen ?? []).includes(here)) s0.flags.dataSeen = [...(s0.flags.dataSeen ?? []), here];
   ctx.save();
   open(ctx, t('市場データ（このエリア）', 'Market data (this area)'), (body) => {
     const s = ctx.s();
     mineTip(ctx, 'data', body);
-    const rows = market(s);
-    const maxD = Math.max(...rows.map((r) => r.demand));
     const rec = recommend(s);
+    // 並び：おすすめ → まだ誰も売っていない（gap）→ そのほか（需要 × 値段の大きい順）。供給が足りている商品はうしろ
+    const val = (r: (typeof all)[number]) => r.demand * r.p.price * (r.saturated ? 0.3 : 1);
+    const all = market(s);
+    const rows = [...all].sort((a, b) => Number(b.p.key === rec) - Number(a.p.key === rec) || Number(b.gap) - Number(a.gap) || Number(a.saturated) - Number(b.saturated) || val(b) - val(a));
+    const maxD = Math.max(1, ...rows.map((r) => r.demand));
+    const recRow = all.find((r) => r.p.key === rec);
     const tip = h('div', 'isl-mine-tip');
     const mi = h('img');
     mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
     mi.alt = '';
-    tip.append(mi, h('p', '', t(`「${PRODUCT[rec].name}」は国民の需要が大きいのに、まだ扱っている会社が少ないみたい。最初の主力商品にぴったりです！`, `${PRODUCT[rec].name} is in high demand, yet few companies sell it. A perfect first main product!`)));
+    const need = recRow?.need;
+    const first = (s.sector ?? 'c1') === 'c1' && !s.land;
+    tip.append(
+      mi,
+      h(
+        'p',
+        '',
+        first
+          ? t(`「${PRODUCT[rec].name}」は国民の需要が大きいのに、まだ扱っている会社が少ないみたい。最初の主力商品にぴったりです！`, `${PRODUCT[rec].name} is in high demand, yet few companies sell it. A perfect first main product!`)
+          : need
+            ? t(`「${PRODUCT[rec].name}」が売れそう。まだ誰も売っていないよ！ まずは ${needText(need)} から。`, `${PRODUCT[rec].name} looks promising — nobody sells it yet! First: ${needText(need)}.`)
+            : t(`「${PRODUCT[rec].name}」が売れそう。まだ誰も売っていないから、工房で作って並べよう！`, `${PRODUCT[rec].name} looks promising — nobody sells it yet. Make it and stock it!`),
+      ),
+    );
     body.append(tip);
+    if (need && need.kind !== 'dev' && ctx.skills) {
+      const go = need.skill;
+      body.append(btn(t('スキルツリーで見る', 'Open skill tree'), () => ctx.skills?.(go), 'is-on'));
+    }
     const table = h('div', 'isl-data');
     const head = h('div', 'isl-data-row is-head');
     for (const x of [t('商品', 'Item'), t('国民のニーズ（月）', 'Demand / mo'), t('売っている会社', 'Sellers'), t('値段', 'Price'), t('素材', 'Materials')]) head.append(h('span', '', x));
     table.append(head);
     for (const r of rows) {
-      const row = h('div', `isl-data-row ${r.p.key === rec ? 'is-rec' : ''}`);
-      const n = h('span', 'isl-row');
-      n.append(skuIcon(sku(r.p.key, 'C'), 32), h('b', '', r.p.name));
+      const row = h('div', `isl-data-row ${r.p.key === rec ? 'is-rec' : ''} ${r.saturated ? 'is-sat' : ''}`);
+      const n = h('span', 'isl-data-name');
+      const nm = h('span', 'isl-row');
+      nm.append(skuIcon(sku(r.p.key, 'C'), 32), h('b', '', r.p.name));
+      n.append(nm);
+      if (r.p.key === rec) n.append(h('span', 'isl-tag is-good', t('マインちゃんのおすすめ', 'Mine-chan’s pick')));
+      // 自社で作れるか：足りないものを 1 行で
+      n.append(h('small', r.need ? 'isl-warn' : 'isl-good', r.need ? needText(r.need) : t('✓ 作れる', '✓ You can make it')));
       const d = h('span', 'isl-col');
       d.append(bar(r.demand / maxD, 'var(--isl-gold)'), h('small', '', t(`${r.demand} 個`, `${r.demand} pcs`)));
       const who = s.rivals.filter((x) => (x.sells[r.p.key] ?? 0) > 0).map((x) => rivalDef(x.id)?.name ?? '');
       const sellers = h('span', 'isl-col');
-      sellers.append(h('b', '', r.sellers ? t(`${r.sellers} 社`, `${r.sellers}`) : t('まだ無し', 'None yet')), h('small', 'isl-dim', who.join(t('・', ', '))));
+      if (!r.sellers) sellers.append(h('b', 'isl-gold', t('まだ誰も売っていない', 'Nobody sells it yet')));
+      else {
+        sellers.append(h('b', r.saturated ? 'isl-warn' : '', t(`${r.sellers} 社`, `${r.sellers}`)));
+        if (r.saturated) sellers.append(h('small', 'isl-warn', t('他店で供給が足りている', 'Well supplied by other shops')));
+        sellers.append(h('small', 'isl-dim', who.join(t('・', ', '))));
+      }
       const mats = h('span', 'isl-row');
       for (const [m, q] of Object.entries(r.p.recipe.C)) {
         const c = h('span', 'isl-chip');
@@ -1317,7 +1365,11 @@ export function openData(ctx: Ctx) {
       row.append(n, d, sellers, h('span', '', money(r.p.price)), mats);
       table.append(row);
     }
-    body.append(table, h('p', 'isl-dim', t('売れ筋：他社がよく売っているのはランタンと鋏。競争が激しいので、最初は避けるのがおすすめです。', 'Best sellers: rivals sell many lanterns and scissors. Competition is tough there, so avoid them at first.')));
+    const satNames = all.filter((r) => r.saturated).map((r) => r.p.name);
+    const note = satNames.length
+      ? t(`他店で供給が足りている商品（${satNames.join('・')}）は、並べてもあまり売れません。まだ誰も売っていない商品を探しましょう。`, `Goods other shops already supply (${satNames.join(', ')}) barely sell. Look for goods nobody sells yet.`)
+      : t('売れ筋：他社がよく売っているのはランタンと鋏。競争が激しいので、最初は避けるのがおすすめです。', 'Best sellers: rivals sell many lanterns and scissors. Competition is tough there, so avoid them at first.');
+    body.append(table, h('p', 'isl-dim', note));
   });
 }
 

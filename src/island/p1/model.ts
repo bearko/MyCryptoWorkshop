@@ -55,6 +55,10 @@ import {
   SIDE,
   MARKET,
   DEPOT,
+  anyOfMet,
+  techSkill,
+  type ProductDef,
+  type SectorProfile,
 } from './data';
 
 export type Ground = 'grass' | 'road';
@@ -192,6 +196,8 @@ export interface Flags {
   landCommon?: boolean;
   /** Uncommon ランド制覇のお祝いを見た */
   landUncommon?: boolean;
+  /** 市場データを開いたセクタ（id）。2 か所目以降のリサーチの案内に使う */
+  dataSeen?: string[];
 }
 
 export interface P1State {
@@ -406,7 +412,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     trips: [],
     skills: [],
     rivals: rivalDefs.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival * (prof?.rivalMul ?? 1) })),
-    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand * T.demand * (prof?.demand?.[p.key] ?? 1)])),
+    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, baseDemand(p, tier, prof)])),
     monthSales: {},
     rivalSales: Object.fromEntries(rivalDefs.map((r) => [r.id, 0])),
     monthCost: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 },
@@ -428,6 +434,19 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   populate(s);
   s.hirePool = pickHires(s);
   return s;
+}
+
+const TIER_ORDER: Tier[] = ['C', 'U', 'R', 'E', 'L'];
+/** 商品がそのランクのセクタで出るか（tier より下のセクタでは需要が無い） */
+export const tierOk = (p: ProductDef, tier: Tier) => TIER_ORDER.indexOf(p.tier ?? 'C') <= TIER_ORDER.indexOf(tier);
+/**
+ * セクタの商品の月の需要（はじめ）：もとの需要 × ランク × セクタの倍率。
+ * 技が要る商品は、そのセクタの gap（まだ誰も売っていない勝ち筋）でなければ MARKET.niche 倍（その町ではまだあまり求められていない）
+ */
+export function baseDemand(p: ProductDef, tier: Tier, prof?: SectorProfile): number {
+  if (!tierOk(p, tier)) return 0;
+  const niche = p.tech && !prof?.gap?.includes(p.key) ? MARKET.niche : 1;
+  return p.demand * TIERS[tier].demand * (prof?.demand?.[p.key] ?? 1) * niche;
 }
 
 /** フェーズ 1 のあとから足した項目の初期値（古いセーブにも足す） */
@@ -1045,7 +1064,7 @@ export function openHQ(s: P1State): boolean {
 export function learn(s: P1State, id: string): string | null {
   const k = SKILL[id];
   if (!k || has(s, id)) return 'done';
-  if (k.requires?.some((r) => !has(s, r))) return 'requires';
+  if (k.requires?.some((r) => !has(s, r)) || !anyOfMet(k, (r) => has(s, r))) return 'requires';
   if (k.brand && (s.brand ?? 0) < k.brand) return 'brand';
   if (s.money < k.cost) return 'money';
   s.money -= k.cost;
@@ -1069,7 +1088,10 @@ export const recipeOf = (x: Sku) => {
 
 /** その職人で作れるか（レアリティ・材料・設備） */
 export function craftCheck(s: P1State, x: Sku, worker: number | null): string | null {
-  const [, r] = skuParts(x);
+  const [k, r] = skuParts(x);
+  // 技が要る商品（スキルツリーの技の枝）
+  const tech = PRODUCT[k]?.tech;
+  if (tech && !has(s, techSkill(tech))) return 'tech';
   if (r === 'U') {
     if (!has(s, 'pot')) return 'pot';
     if (!s.dev.includes(skuParts(x)[0])) return 'dev';
@@ -1192,10 +1214,10 @@ function missionMet(s: P1State, id: string): boolean {
   if (m?.sector && m.sector !== s.sector) return false;
   const last = s.reports[s.reports.length - 1];
   switch (id) {
-    case 'c3_mallet':
-      return (s.monthUnits.Mallet ?? 0) >= 10;
-    case 'c2_lantern':
-      return (s.monthUnits.Lantern ?? 0) >= 10;
+    case 'c3_knife':
+      return (s.monthUnits.Knife ?? 0) >= 10;
+    case 'c2_goblet':
+      return (s.monthUnits.Goblet ?? 0) >= 10;
     case 'u1_dev':
       return s.dev.length >= 1;
     case 'u3_ads':
@@ -1237,10 +1259,10 @@ export function missionProgress(s: P1State, id: string): [number, number] | null
       return [Math.min(5, s.unitsU), 5];
     case 'two_shops':
       return [Math.min(2, myShops(s).length), 2];
-    case 'c3_mallet':
-      return [Math.min(10, s.sector === 'c3' ? (s.monthUnits.Mallet ?? 0) : 0), 10];
-    case 'c2_lantern':
-      return [Math.min(10, s.sector === 'c2' ? (s.monthUnits.Lantern ?? 0) : 0), 10];
+    case 'c3_knife':
+      return [Math.min(10, s.sector === 'c3' ? (s.monthUnits.Knife ?? 0) : 0), 10];
+    case 'c2_goblet':
+      return [Math.min(10, s.sector === 'c2' ? (s.monthUnits.Goblet ?? 0) : 0), 10];
   }
   return null;
 }
@@ -1300,8 +1322,28 @@ function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku): number {
   const staffed = st && !st.resting ? 0.6 + 0.4 * speed(st, 'shop') : 0;
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
-  const [, r] = skuParts(x);
-  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * (has(s, 'b_sign') ? 1.25 : 1) * brandPull(s.brand) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : r === 'C' ? TIERS[s.tier ?? 'C'].commonPull : 1);
+  const [k, r] = skuParts(x);
+  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * (has(s, 'b_sign') ? 1.25 : 1) * brandPull(s.brand) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : r === 'C' ? TIERS[s.tier ?? 'C'].commonPull : 1) * goodsMul(s, k, r);
+}
+
+/** 他社でその商品を扱っている会社の数 */
+export const sellersOf = (s: P1State, key: string) => s.rivals.filter((r) => (r.sells[key] ?? 0) > 0).length;
+/** そのセクタの「まだ誰も売っていない」勝ち筋の商品（SectorProfile.gap） */
+export const gapOf = (s: P1State): string[] => sectorProfile(s)?.gap ?? [];
+/**
+ * 飽和：他社が MARKET.satAt 社以上扱っている商品は「他店で供給が足りている」。
+ * gap の商品と、noSaturation のセクタ（最初の町）は飽和にしない
+ */
+export function saturated(s: P1State, key: string): boolean {
+  const prof = sectorProfile(s);
+  if (prof?.noSaturation || prof?.gap?.includes(key)) return false;
+  return sellersOf(s, key) >= MARKET.satAt;
+}
+/** 商品ごとの売り場の強さの倍率：飽和（Common 0.45・Uncommon 0.7）と「匠の技」（技が要る商品 +15%） */
+export function goodsMul(s: P1State, key: string, r: Rar): number {
+  const sat = saturated(s, key) ? (r === 'U' ? MARKET.satU : MARKET.saturated) : 1;
+  const master = PRODUCT[key]?.tech && has(s, 't_master') ? 1.15 : 1;
+  return sat * master;
 }
 
 export const dist = (a: PBuilding, b: PBuilding) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
@@ -2008,21 +2050,68 @@ export const daysToClose = (s: Pick<P1State, 'day' | 'open'>) => (s.open === nul
 /** 今月これまでの売上 */
 export const monthRevenue = (s: P1State) => Object.values(s.monthSales).reduce<number>((a, v) => a + (v ?? 0), 0);
 
-/** 市場データ：商品ごとの需要・売っている会社・今の売れ行きの目安 */
-export function market(s: P1State) {
-  return PRODUCTS.map((p) => {
-    const sellers = s.rivals.filter((r) => (r.sells[p.key] ?? 0) > 0);
-    const strength = sellers.reduce((a, r) => a + (r.sells[p.key] ?? 0), 0);
+/**
+ * 商品を作るのに、まだ足りないもの（いちばん先に要るもの 1 つ）。無ければ null。
+ * tech：技のスキル／route：素材のルート（スキル）／pot・dev：Uncommon 以上のセクタでアンコモンにするのに要る魔法の釜・商品開発
+ */
+export type Need = { kind: 'tech'; skill: string } | { kind: 'route'; skill: string; mat: Mat } | { kind: 'pot'; skill: 'pot' } | { kind: 'dev'; key: string };
+export function needFor(s: P1State, key: string): Need | null {
+  const p = PRODUCT[key];
+  if (!p) return null;
+  if (p.tech && !has(s, techSkill(p.tech))) return { kind: 'tech', skill: techSkill(p.tech) };
+  const wantU = (s.tier ?? 'C') !== 'C';
+  const mats = Object.keys({ ...p.recipe.C, ...(wantU ? p.recipe.U : {}) }) as Mat[];
+  for (const m of mats) if (!hasRoute(s, m)) return { kind: 'route', skill: `route_${m}`, mat: m };
+  if (wantU && !has(s, 'pot')) return { kind: 'pot', skill: 'pot' };
+  if (wantU && !s.dev.includes(key)) return { kind: 'dev', key };
+  return null;
+}
+
+/** 市場データの 1 行 */
+export interface MarketRow {
+  p: ProductDef;
+  demand: number;
+  /** 扱っている他社の数と、売り場の強さの合計 */
+  sellers: number;
+  strength: number;
+  /** 自社の棚に並べている */
+  mine: boolean;
+  sold: number;
+  /** このセクタの勝ち筋（gap）で、まだ誰も売っていない */
+  gap: boolean;
+  /** 他店で供給が足りている（飽和） */
+  saturated: boolean;
+  /** 作るのに足りないもの */
+  need: Need | null;
+}
+
+/** 市場データ：商品ごとの需要・売っている会社・飽和・作るのに足りないもの（このセクタのランクで出る商品だけ） */
+export function market(s: P1State): MarketRow[] {
+  const tier = s.tier ?? 'C';
+  const gap = gapOf(s);
+  return PRODUCTS.filter((p) => tierOk(p, tier)).map((p) => {
+    const sellers = sellersOf(s, p.key);
+    const strength = s.rivals.reduce((a, r) => a + (r.sells[p.key] ?? 0), 0);
     const mine = Object.values(s.shops).some((sh) => sh.shelves.some((x) => x && skuParts(x)[0] === p.key));
-    return { p, demand: Math.round(s.demand[p.key] ?? 0), sellers: sellers.length, strength, mine, sold: Math.round((s.demand[p.key] ?? 0) * (strength > 0 ? 1 : 0)) };
+    const demand = Math.round(s.demand[p.key] ?? 0);
+    return { p, demand, sellers, strength, mine, sold: Math.round((s.demand[p.key] ?? 0) * (strength > 0 ? 1 : 0)), gap: gap.includes(p.key) && sellers === 0, saturated: saturated(s, p.key), need: needFor(s, p.key) };
   });
 }
 
-/** いちばんのおすすめ（需要が大きく、売っている会社が少ない） */
+/** おすすめの点数：需要 × 値段 ÷ 他社の強さ（飽和ならさらに下げる） */
+const recScore = (r: MarketRow) => ((r.demand * r.p.price) / (1 + r.strength * 2)) * (r.saturated ? MARKET.saturated : 1);
+/**
+ * マインちゃんのおすすめ：このセクタの gap（まだ誰も売っていない）を優先し、その中で需要 × 値段が大きいもの。
+ * まだ作れない商品でも勧める（足りないものは needFor）。gap を並べ終えたら、いま作れて供給が足りていないもの
+ */
 export function recommend(s: P1State): string {
-  const rows = market(s).filter((r) => !r.mine);
-  rows.sort((a, b) => b.demand / (1 + b.strength * 2) - a.demand / (1 + a.strength * 2));
-  return (rows[0] ?? market(s)[0]).p.key;
+  const rows = market(s);
+  const free = rows.filter((r) => !r.mine);
+  const gapKeys = gapOf(s);
+  const pick = (xs: MarketRow[]) => [...xs].sort((a, b) => recScore(b) - recScore(a))[0];
+  // gap を並べ終えたら：いま作れて供給が足りていないもの → いま作れるもの → なんでも
+  const best = pick(free.filter((r) => gapKeys.includes(r.p.key))) ?? pick(free.filter((r) => !r.need && !r.saturated)) ?? pick(free.filter((r) => !r.need)) ?? pick(free);
+  return (best ?? rows[0]).p.key;
 }
 
 export const skuOf = (key: string, r: Rar = 'C') => sku(key, r);
@@ -2070,6 +2159,8 @@ export function deserializeP1(json: string): P1State | null {
     // 以前のセーブ：釜があれば全部のアンコモンを開発済みに
     if (!(o as Partial<P1State>).dev && s.skills.includes('pot')) s.dev = PRODUCTS.map((p) => p.key);
     s.monthCost.ads ??= 0;
+    // 以前のセーブ：あとから足した商品の需要（セクタのはじめの値）
+    for (const p of PRODUCTS) if (s.demand[p.key] === undefined) s.demand[p.key] = baseDemand(p, s.tier ?? 'C', sectorProfile(s));
     for (const sh of Object.values(s.shops)) {
       sh.cost ??= 0;
       sh.last ??= null;
@@ -2161,10 +2252,11 @@ function haulDays(s: P1State, st: Staff): number {
 
 /** お店の棚に商品があるとして、ひと月に売れそうな数（いまの売り場の強さ・認知度・ライバルで） */
 /** その商品を自社のお店（無ければ区画の真ん中のお店 1 軒）に並べたときの、ひと月に売れる見込みの数 */
-export function sellEstimate(s: P1State, key: string): number {
+export function sellEstimate(s: P1State, key: string, r: Rar = 'C'): number {
   const rv = rivalOffers(s, key);
   const shops = myShops(s);
-  const mine = shops.length ? shops.map((b) => ({ i: b.i, j: b.j, w: (P1B[b.id].pull ?? 1) * brandPull(s.brand), g: 'me' })) : [{ i: Math.floor(s.n / 2), j: Math.floor(s.n / 2), w: 1, g: 'me' }];
+  const g = goodsMul(s, key, r);
+  const mine = shops.length ? shops.map((b) => ({ i: b.i, j: b.j, w: (P1B[b.id].pull ?? 1) * brandPull(s.brand) * g, g: 'me' })) : [{ i: Math.floor(s.n / 2), j: Math.floor(s.n / 2), w: g, g: 'me' }];
   const out = capture(s, key, [...mine, ...rv]);
   return mine.reduce((a, _, n) => a + out[n], 0);
 }
