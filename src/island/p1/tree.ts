@@ -489,12 +489,14 @@ export function openSkills(ctx: Ctx, focus?: string) {
         const z1 = innerWidth < 600 ? 0.8 : 0.95;
         const t0 = performance.now();
         const a = { x: view.x, y: view.y, z: view.zoom > 0 ? view.zoom : from.z > 0 ? from.z : 0.6 };
+        // 下にマインちゃんの一言と説明の帯があるので、パネルは画面の上のほう（高さの 35%）に
+        const lift = (vp.clientHeight * 0.15) / (UNIT * z1);
         const anim = (now: number) => {
           if (!world.isConnected) return;
           const k = Math.min(1, (now - t0) / 900);
           const e = 1 - Math.pow(1 - k, 3);
           view.x = a.x + (goTo.x - a.x) * e;
-          view.y = a.y + (goTo.y - a.y) * e;
+          view.y = a.y + (goTo.y + lift - a.y) * e;
           view.zoom = a.z + (z1 - a.z) * e;
           place();
           if (k < 1) requestAnimationFrame(anim);

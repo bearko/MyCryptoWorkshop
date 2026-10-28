@@ -92,6 +92,8 @@ import {
   speed,
   staffOf,
   startCraft,
+  setCraftPlan,
+  setAutoCraft,
   wageOf,
   heroStats,
   type P1State,
@@ -121,18 +123,142 @@ export interface Ctx {
   moved?: (target: string, fresh: boolean, manager: number | null) => void;
 }
 
-/** 画面の上にマインちゃんの一言（チュートリアル中） */
+/**
+ * 画面の中のマインちゃんの一言（チュートリアル中）。
+ * 一言は画面の下（会話と同じ場所）に出す。閉じても、画面の上に「いまやること」を 1 行で残す（押すとまた下に出る）。
+ * body：その画面のいちばん上（リマインドを置く所）。
+ */
+let dock: { el: HTMLElement; text: HTMLElement; root: HTMLElement } | null = null;
+let dockShown = '';
+let dockClosed = '';
+function dockEl(root: HTMLElement) {
+  if (dock && dock.root === root && dock.el.isConnected) return dock;
+  const el = h('div', 'isl-dock');
+  const mi = h('img', 'isl-dock-mine');
+  mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+  mi.alt = '';
+  const name = h('b', 'isl-talk-name', t('マインちゃん', 'Mine-chan'));
+  const text = h('p', 'isl-dock-text');
+  const ok = h('button', 'isl-dock-close', '✕');
+  ok.type = 'button';
+  ok.setAttribute('aria-label', t('閉じる', 'Close'));
+  el.append(mi, name, text, ok);
+  const close = () => {
+    dockClosed = dockShown;
+    hideDock();
+    current?.render();
+  };
+  ok.addEventListener('click', (e) => {
+    e.stopPropagation();
+    close();
+  });
+  root.append(el);
+  dock = { el, text, root };
+  return dock;
+}
+/** 下の一言の高さを、画面の余白（--dock-h）に入れる（隠れた所までスクロールできるように） */
+function dockPad() {
+  const r = dock?.root;
+  if (!r) return;
+  const hgt = dock && !dock.el.hidden ? Math.ceil(dock.el.getBoundingClientRect().height) + 12 : 0;
+  r.style.setProperty('--dock-h', `${hgt}px`);
+}
+export function hideDock() {
+  if (!dock) return;
+  dock.el.hidden = true;
+  dockShown = '';
+  dockPad();
+}
 export function mineTip(ctx: Ctx, screen: string, body: HTMLElement) {
   const text = ctx.tip?.(screen);
-  if (!text) return;
-  const tip = h('div', 'isl-mine-tip is-tut');
+  if (!text) {
+    hideDock();
+    return;
+  }
+  const closed = dockClosed === text;
+  // 上：いまやること（閉じたあとに出す。押すとまた下に出る）
+  const rem = h('button', 'isl-remind');
+  rem.type = 'button';
   const mi = h('img');
   mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
   mi.alt = '';
-  const p = h('p');
+  const p = h('span');
   p.append(rich(text));
-  tip.append(mi, p);
-  body.append(tip);
+  rem.append(mi, h('b', '', t('いまやること', 'To do')), p);
+  rem.hidden = !closed;
+  rem.addEventListener('click', () => {
+    dockClosed = '';
+    current?.render();
+  });
+  body.append(rem);
+  if (closed) {
+    hideDock();
+    return;
+  }
+  const d = dockEl(ctx.root);
+  if (dockShown !== text) {
+    d.text.replaceChildren(rich(text));
+    d.el.classList.remove('is-new');
+    void d.el.offsetWidth;
+    d.el.classList.add('is-new');
+  }
+  dockShown = text;
+  d.el.hidden = false;
+  requestAnimationFrame(dockPad);
+}
+
+/**
+ * 作る数：0〜手持ちの素材で作れる最大個数のバーと、数の直接入力。右に「自動製造」（素材があるかぎり作り続ける。オンならバーは使えない）。
+ */
+function craftPlan(ctx: Ctx, s: P1State, k: number): HTMLElement {
+  const sl = s.slots[k];
+  const x = sl.sku!;
+  const batch = batchOf(x);
+  const max = lotsFromStock(s, x) * batch;
+  const box = h('div', `isl-plan ${sl.repeat ? 'is-auto' : ''}`);
+  const label = h('small', 'isl-dim', t('作る数', 'Make'));
+  const range = h('input', 'isl-plan-range');
+  range.type = 'range';
+  range.min = '0';
+  range.max = String(max);
+  range.step = String(batch);
+  const cur = sl.repeat ? max : Math.min(sl.left ?? 0, max);
+  range.value = String(cur);
+  const num = h('input', 'isl-plan-num');
+  num.type = 'number';
+  num.min = '0';
+  num.max = String(max);
+  num.step = String(batch);
+  num.inputMode = 'numeric';
+  num.value = String(cur);
+  range.disabled = num.disabled = sl.repeat || max === 0;
+  const unit = h('small', '', t('個', 'pcs'));
+  const apply = (v: number) => {
+    const n = Math.max(0, Math.min(max, Math.ceil(v / batch) * batch));
+    setCraftPlan(s, k, n);
+    after(ctx);
+  };
+  range.addEventListener('input', () => (num.value = range.value));
+  range.addEventListener('change', () => apply(Number(range.value)));
+  num.addEventListener('change', () => apply(Number(num.value) || 0));
+  const auto = h('label', 'isl-plan-auto');
+  const cb = h('input');
+  cb.type = 'checkbox';
+  cb.checked = sl.repeat;
+  cb.addEventListener('change', () => {
+    setAutoCraft(s, k, cb.checked);
+    after(ctx);
+  });
+  auto.append(cb, h('span', '', t('自動製造', 'Auto')));
+  box.append(label, range, num, unit, auto);
+  const note = sl.repeat
+    ? t('素材があるかぎり作り続けます。', 'Keeps making while materials last.')
+    : max === 0
+      ? t('素材が足りないので、いまは作れません。', 'Not enough materials right now.')
+      : t(`手持ちの素材で最大 ${max} 個（1 ロット ${batch} 個ずつ）。${sl.running ? 'いま作っている 1 ロットのあとに、この数だけ作ります。' : ''}`, `Up to ${max} from stock (${batch} per lot).${sl.running ? ' Counted after the current lot.' : ''}`);
+  const wrap = h('div', 'isl-plan-wrap');
+  wrap.append(box, h('small', 'isl-dim', note));
+  return wrap;
 }
 
 /** 開いている札（1 日ごとに描き直す） */
@@ -154,6 +280,7 @@ export function open(ctx: Ctx, title: string, render: (body: HTMLElement) => voi
     title,
     () => {
       current = null;
+      hideDock();
       onClose?.();
       ctx.refresh();
     },
@@ -248,7 +375,7 @@ export function openWorkshop(ctx: Ctx) {
           label: t('作るもの', 'Making'),
           x: sl.sku,
           hot: ctx.step?.() === 'craft' && k === 0 && sl.worker != null && !sl.sku,
-          sub: sl.sku ? (sl.repeat ? t('続けて作る', 'Repeating') : t('1 回だけ', 'Once')) : undefined,
+          sub: sl.sku ? (sl.repeat ? t('自動製造', 'Auto') : (sl.left ?? 0) > 0 ? t(`あと ${sl.left} 個`, `${sl.left} more`) : t('この 1 ロットで止める', 'Stops after this lot')) : undefined,
           warn: !!sl.sku && !sl.running && !!craftCheck(s, sl.sku, sl.worker),
           onTap: () =>
             pickExt(ctx.root, s, {
@@ -285,17 +412,7 @@ export function openWorkshop(ctx: Ctx) {
       }
       const err = sl.worker == null ? 'worker' : sl.sku ? craftCheck(s, sl.sku, sl.worker) : null;
       if (err && !sl.running) card.append(h('p', 'isl-warn', CRAFT_ERR[err] ?? err));
-      if (sl.sku) {
-        const r = h('div', 'isl-row');
-        r.append(
-          btn(sl.repeat ? t('続けて作る：オン', 'Repeat: on') : t('続けて作る：オフ', 'Repeat: off'), () => {
-            sl.repeat = !sl.repeat;
-            if (sl.repeat && !sl.running && sl.worker != null && sl.sku) startCraft(s, k, sl.sku, true);
-            after(ctx);
-          }, sl.repeat ? 'is-on' : ''),
-        );
-        card.append(r);
-      }
+      if (sl.sku) card.append(craftPlan(ctx, s, k));
       body.append(card);
     });
 
@@ -345,6 +462,87 @@ export function openWorkshop(ctx: Ctx) {
 // ---------------------------------------------------------------- お店
 
 /** お店の中の小さな場面：窓・棚・店員・お客さん */
+/** 店員を選ぶ（お店の画面・地図の吹き出し） */
+export function pickClerk(ctx: Ctx, uid: number, done: () => void) {
+  const s = ctx.s();
+  const sh = s.shops[uid];
+  const b = s.buildings.find((x) => x.uid === uid);
+  if (!sh || !b) return;
+  pickHero(ctx.root, s, {
+    title: t(`${DEF[b.id].name}の店員`, `Clerk for ${DEF[b.id].name}`),
+    task: 'shop',
+    current: sh.staff,
+    onPick: (v) => {
+      if (v == null && sh.staff != null) assign(s, sh.staff, null);
+      else if (v != null) assign(s, v, 'shop', uid);
+      done();
+    },
+  });
+}
+
+/** 棚に並べるものを選ぶ（k：棚の番号。0 が主力商品） */
+export function pickShelf(ctx: Ctx, uid: number, k: number, done: () => void) {
+  const s = ctx.s();
+  const sh = s.shops[uid];
+  if (!sh) return;
+  pickExt(ctx.root, s, {
+    title: k === 0 ? t('主力商品を選ぶ', 'Choose the main product') : t(`棚 ${k + 1} に並べるもの`, `What shelf ${k + 1} sells`),
+    items: craftable(s),
+    current: sh.shelves[k] ?? null,
+    allowNone: true,
+    making: s.slots.map((y) => y.sku).filter((y): y is Sku => !!y),
+    badge: (() => {
+      const m = s.slots.find((y) => y.sku)?.sku;
+      return m ? { x: m, text: t('工房で作っている', 'Being crafted') } : null;
+    })(),
+    note: t('工房で作っているエクステを並べましょう。他社が少なく需要の大きいものほど売れます。', 'Shelve what your workshop makes. Items with high demand and few rivals sell best.'),
+    onPick: (v) => {
+      setShelf(s, uid, k, v);
+      done();
+    },
+  });
+}
+
+/**
+ * 店内の様子（お客さんが来て、棚を見て、レジで払って帰る）。
+ * 店員や主力商品が決まっていなければ、店員が立つ所・商品が並ぶ所に「＋」の枠を出して、その場で決められる。
+ */
+export function shopView(ctx: Ctx, uid: number, done: () => void): HTMLElement {
+  const s = ctx.s();
+  const sh = s.shops[uid];
+  const wrap = h('div', 'isl-shop-view');
+  wrap.append(shopScene(s, uid));
+  if (!sh) return wrap;
+  const tut = ctx.step?.() === 'sell';
+  if (!sh.shelves[0]) {
+    const b = h('button', `isl-shop-spot is-shelf ${tut ? 'is-hot' : ''}`);
+    b.type = 'button';
+    b.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('主力商品', 'Main product')));
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pickShelf(ctx, uid, 0, done);
+    });
+    wrap.append(b);
+  }
+  else if ((sh.shelf[sh.shelves[0]] ?? 0) <= 0) {
+    // 主力商品は決まっているが、まだ棚に無い：入荷待ち
+    const tag = h('div', 'isl-shop-tag');
+    tag.append(skuIcon(sh.shelves[0], 22), h('small', '', t(`${skuName(sh.shelves[0])}・入荷待ち`, `${skuName(sh.shelves[0])} · awaiting stock`)));
+    wrap.append(tag);
+  }
+  if (sh.staff == null && sh.part === 0) {
+    const b = h('button', `isl-shop-spot is-clerk ${tut && !!sh.shelves[0] ? 'is-hot' : ''}`);
+    b.type = 'button';
+    b.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('店員', 'Clerk')));
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pickClerk(ctx, uid, done);
+    });
+    wrap.append(b);
+  }
+  return wrap;
+}
+
 function shopScene(s: P1State, uid: number): HTMLCanvasElement {
   const c = h('canvas', 'isl-shop-scene');
   c.width = 320;
@@ -451,7 +649,7 @@ export function openShop(ctx: Ctx, uid: number) {
       body.append(h('p', '', t('工事が終わると開けます。', 'Opens when construction is done.')));
       return;
     }
-    body.append(shopScene(s, uid));
+    body.append(shopView(ctx, uid, () => after(ctx)));
     const info = h('div', 'isl-card2');
     info.append(h('h3', '', t('今月の売上', 'Sales this month')), h('p', 'isl-big', money(sh.rev)));
     const sat = h('div', 'isl-field');

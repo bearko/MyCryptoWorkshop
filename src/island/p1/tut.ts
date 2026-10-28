@@ -187,17 +187,17 @@ export const TUT: TutStep[] = [
       pages: [
         { text: t('[[お店]]ができたね！ 工房で作ったエクステは、ここに並べて売るよ。', 'The [[shop]] is ready! Extensions from the workshop are sold here.') },
         { text: t('話し上手の[[MCHタクティシャン]]に、店番を頼もう。', 'Let’s ask the smooth-talking [[MCH Tactician]] to mind it.'), show: 'crew', hero: 10002 },
-        { text: t('工房と同じで、[[お店]]も地図でタップすると中を開けるよ。', 'Just like the workshop, tap the [[shop]] on the map to open it.') },
+        { text: t('[[お店]]を地図でタップすると、店内の様子が見られるよ。', 'Tap the [[shop]] on the map to look inside.') },
       ],
       ok: t('やってみる', 'Let’s try'),
     },
-    say: () => t('店員がいないと、お店は開かないよ。地図の[[お店]]をタップして「お店を開く」から、並べるものと店員を決めよう！', 'No clerk, no business. Tap the [[shop]] on the map, then Open shop, and choose what to sell and who sells it!'),
+    say: () => t('店員がいないと、お店は開かないよ。地図の[[お店]]をタップして、店内の[[＋]]から並べるものと店員を決めよう！', 'No clerk, no business. Tap the [[shop]] on the map and use the [[+]] spots inside to choose what to sell and who sells it!'),
     act: [t('お店の場所へ', 'Show the shop'), 'shop'],
     tips: {
       shop: () => t('光っている四角をタップして、[[主力商品]]と[[店員]]を決めよう！', 'Tap the glowing squares to set the [[main product]] and the [[clerk]]!'),
     },
     checks: [
-      [t('地図のお店をタップして開く', 'Tap the shop and open it'), (_s, seen) => seen.has('shop')],
+      [t('地図のお店をタップする', 'Tap the shop on the map'), (_s, seen) => seen.has('shop') || seen.has('shopPop')],
       [t('並べる主力商品を決める', 'Choose the main product'), (s) => myShops(s).some((b) => !!s.shops[b.uid].shelves[0])],
       [t('店員を置く', 'Put a clerk in'), (s) => myShops(s).some((b) => s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)],
     ],
@@ -283,7 +283,7 @@ export const TUT: TutStep[] = [
         has(s, 'hire')
           ? t('開放できた！ 右上の [[✕]] で、元の画面に戻ろう！', 'Unlocked! Use [[✕]] at the top right to go back!')
           : hqOpen(s)
-            ? t('枝は ① 調達・② 製造・③ 物流・④ 販売・人材・経営の[[事業ごと]]に分かれているよ。いまは光っている[[人材の募集]]をダブルタップして開放しよう！', 'Branches are split by [[business]]: Buy, Craft, Haul, Sell, People, Operations. For now, double-tap the glowing [[Recruiting]] panel!')
+            ? t('枝は[[事業ごと]]（① 調達〜④ 販売・人材・経営）に分かれているよ。光っている[[人材の募集]]をダブルタップして開放しよう！', 'Branches are split by [[business]]: Buy, Craft, Haul, Sell, People, Operations. For now, double-tap the glowing [[Recruiting]] panel!')
             : t('真ん中の[[本社]]をタップして、「本社を開放する」を押そう！', 'Tap [[HQ]] in the middle and press Unlock HQ!'),
     },
     done: (s, seen) => has(s, 'hire') && hqOpen(s) && seen.has('skills'),

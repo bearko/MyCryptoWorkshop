@@ -90,7 +90,10 @@ export interface Slot {
   worker: number | null;
   progress: number;
   running: boolean;
+  /** 自動製造（素材があるかぎり続けて作る） */
   repeat: boolean;
+  /** 自動製造でないとき、あと何個作るか（1 ロット始めるごとに減る） */
+  left?: number;
 }
 
 export interface ShopState {
@@ -982,6 +985,26 @@ export function startCraft(s: P1State, slot: number, x: Sku, repeat = true): str
   return null;
 }
 
+/**
+ * 作る数を決める（自動製造でないとき）。n 個ぶん（ロットに切り上げ）作って止まる。
+ * 止まっていて作れるなら、すぐ 1 ロット目を始める。
+ */
+export function setCraftPlan(s: P1State, slot: number, n: number): void {
+  const sl = s.slots[slot];
+  if (!sl || !sl.sku) return;
+  sl.repeat = false;
+  sl.left = Math.max(0, Math.round(n));
+  if (!sl.running && sl.left > 0 && !startCraft(s, slot, sl.sku, false)) sl.left = Math.max(0, sl.left - batchOf(sl.sku));
+}
+/** 自動製造のオン・オフ */
+export function setAutoCraft(s: P1State, slot: number, on: boolean): void {
+  const sl = s.slots[slot];
+  if (!sl) return;
+  sl.repeat = on;
+  sl.left = 0;
+  if (on && !sl.running && sl.worker != null && sl.sku) startCraft(s, slot, sl.sku, true);
+}
+
 export const batchOf = (x: Sku) => {
   const [k, r] = skuParts(x);
   return r === 'U' ? Math.ceil(PRODUCT[k].batch / 2) : PRODUCT[k].batch;
@@ -1443,10 +1466,11 @@ export function step(s: P1State): DayResult {
   if (ws) s.util.cap += s.slots.length;
   s.slots.forEach((sl, slotIdx) => {
     const st = sl.worker != null ? staffOf(s, sl.worker) : null;
-    if (!sl.running && sl.repeat && sl.sku && st && !st.resting && !craftCheck(s, sl.sku, sl.worker)) {
+    if (!sl.running && (sl.repeat || (sl.left ?? 0) > 0) && sl.sku && st && !st.resting && !craftCheck(s, sl.sku, sl.worker)) {
       consume(s, sl.sku);
       sl.running = true;
       sl.progress = 0;
+      if (!sl.repeat) sl.left = Math.max(0, (sl.left ?? 0) - batchOf(sl.sku));
     }
     if (!sl.running || !sl.sku || !st || st.resting) return;
     working.add(st.hero);
@@ -1890,7 +1914,7 @@ export function facilityStatus(s: P1State, b: PBuilding): FacilityStatus | null 
     // 作業中か、続けて作る設定で次も作れる作業台（1 回ぶんができた直後も「作っている」とみなす）
     const live = s.slots.filter((sl) => {
       const st = sl.worker != null ? staffOf(s, sl.worker) : null;
-      return sl.sku && st && !st.resting && (sl.running || (sl.repeat && !craftCheck(s, sl.sku, sl.worker)));
+      return sl.sku && st && !st.resting && (sl.running || ((sl.repeat || (sl.left ?? 0) > 0) && !craftCheck(s, sl.sku, sl.worker)));
     });
     if (!live.length) {
       const sl = s.slots[0];
@@ -1956,6 +1980,15 @@ function haulDays(s: P1State, st: Staff): number {
 }
 
 /** お店の棚に商品があるとして、ひと月に売れそうな数（いまの売り場の強さ・認知度・ライバルで） */
+/** その商品を自社のお店（無ければ区画の真ん中のお店 1 軒）に並べたときの、ひと月に売れる見込みの数 */
+export function sellEstimate(s: P1State, key: string): number {
+  const rv = rivalOffers(s, key);
+  const shops = myShops(s);
+  const mine = shops.length ? shops.map((b) => ({ i: b.i, j: b.j, w: (P1B[b.id].pull ?? 1) * brandPull(s.brand), g: 'me' })) : [{ i: Math.floor(s.n / 2), j: Math.floor(s.n / 2), w: 1, g: 'me' }];
+  const out = capture(s, key, [...mine, ...rv]);
+  return mine.reduce((a, _, n) => a + out[n], 0);
+}
+
 export function salesPotential(s: P1State): number {
   let units = 0;
   for (const p of PRODUCTS) {

@@ -7,7 +7,7 @@ import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, RIVALS, sku, skuParts } from './data';
 import { gateToll, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
-import { investList, openBuy, openShop, openWorkshop, rivalName, type Ctx } from './screens';
+import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
 
 export interface TileHooks {
@@ -137,6 +137,13 @@ function empty(s: P1State, i: number, j: number, body: HTMLElement, hooks: TileH
 function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTMLElement {
   const s = ctx.s();
   const kind = P1B[b.id]?.kind;
+  const redo = () => {
+    ctx.save();
+    ctx.refresh();
+    hooks.redraw();
+  };
+  // お店：いちばん上に店内の様子（店員・主力商品が決まっていなければ、その場で決める枠）
+  if (kind === 'shop' && b.left <= 0 && s.shops[b.uid]) body.append(shopView(ctx, b.uid, redo));
   body.append(meta([[t('建築者', 'Builder'), t('あなたの会社', 'Your company')], [t('所有者', 'Owner'), t('あなたの会社', 'Your company')]]));
   body.append(h('p', '', DESC[b.id] ?? ''));
   const grid = h('div', 'isl-pop-grid');
@@ -149,7 +156,15 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     const sh = s.shops[b.uid];
     const st = sh?.staff != null ? staffOf(s, sh.staff) : null;
     const open = (st && !st.resting) || (sh?.part ?? 0) > 0;
-    stat(grid, t('状態', 'Status'), open ? t('営業中', 'Open') : t('休業中（売り場に人がいません）', 'Closed (nobody on the floor)'), `is-wide ${open ? '' : 'is-bad'}`);
+    if (open) stat(grid, t('状態', 'Status'), t('営業中', 'Open'), 'is-wide');
+    else {
+      // 休業中：理由のすぐ横に、直すボタン
+      const c = h('div', 'isl-pop-stat is-wide is-bad isl-pop-act');
+      const txt = h('div');
+      txt.append(h('small', '', t('状態', 'Status')), h('b', '', st?.resting ? t('休業中（店員が休憩中）', 'Closed (clerk resting)') : t('休業中（売り場に人がいません）', 'Closed (nobody on the floor)')));
+      c.append(txt, btn(t('ヒーローを配置', 'Assign a hero'), () => pickClerk(ctx, b.uid, redo), 'is-on'));
+      grid.append(c);
+    }
     if (sh) {
       stat(grid, t('今月の売上', 'Sales this month'), money(sh.rev));
       stat(grid, t('今月の粗利率', 'Gross margin'), rate(sh.rev, sh.cost));
@@ -195,7 +210,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
   else {
     // チュートリアル：建物の中の画面は、ここから開くと覚えてもらう
     const step = ctx.step?.();
-    const guide = (step === 'craft' && kind === 'workshop') || (step === 'sell' && kind === 'shop');
+    const guide = step === 'craft' && kind === 'workshop';
     acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), guide ? 'is-on is-guide' : 'is-on'));
   }
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));
