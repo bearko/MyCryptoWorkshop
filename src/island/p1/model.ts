@@ -398,14 +398,14 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     buildings: [],
     nextUid: 1,
     mats: { ...START_MATS },
-    routes: (Object.keys(MATS) as Mat[]).filter((m) => prof?.routesOpen || MATS[m].open),
+    routes: (Object.keys(MATS) as Mat[]).filter((m) => prof?.routesOpen || MATS[m].open || !!prof?.routes?.includes(m)),
     staff: START_STAFF.map((id) => newStaff(id, 0)),
     slots: [],
     stock: {},
     shops: {},
     trips: [],
     skills: [],
-    rivals: rivalDefs.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival })),
+    rivals: rivalDefs.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival * (prof?.rivalMul ?? 1) })),
     demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand * T.demand * (prof?.demand?.[p.key] ?? 1)])),
     monthSales: {},
     rivalSales: Object.fromEntries(rivalDefs.map((r) => [r.id, 0])),
@@ -483,7 +483,8 @@ function populate(s: P1State) {
   rivalsOf(s.sector).forEach((rv, k) => placeTown(s, rv.store, r, rv.id, at(near[k])));
   const homes = ['house', 'cottage', 'garage_house', 'japanese_house', 'apartment', 'manor'];
   // 住宅：外側の区画を中心に、空き地を 4 割ほど残す
-  const nHomes = Math.round(46 * ((s.n * s.n) / (N * N)));
+  // セクタの個性：町の大きさ（住宅の数の倍率）
+  const nHomes = Math.round(46 * ((s.n * s.n) / (N * N)) * (sectorProfile(s).homes ?? 1));
   for (let k = 0; k < nHomes; k++) placeTown(s, homes[Math.floor(r() * homes.length)], r, 'town');
 }
 
@@ -1191,20 +1192,17 @@ function missionMet(s: P1State, id: string): boolean {
   if (m?.sector && m.sector !== s.sector) return false;
   const last = s.reports[s.reports.length - 1];
   switch (id) {
-    case 'c2_mallet':
+    case 'c3_mallet':
       return (s.monthUnits.Mallet ?? 0) >= 10;
-    case 'c3_lantern':
+    case 'c2_lantern':
       return (s.monthUnits.Lantern ?? 0) >= 10;
     case 'u1_dev':
       return s.dev.length >= 1;
-    case 'u2_ads':
+    case 'u3_ads':
       return ADS.filter((a) => (s.ads[a.id] ?? 0) > 0).length >= 2;
-    case 'c2_top':
-    case 'c3_top':
-    case 'u1_top':
-    case 'u2_top':
-      return !!last && last.rank === 1 && last.revenue > 0;
   }
+  // 「○○で 1 位」：そのセクタの最新の月の報告で 1 位
+  if (m?.sector && id.endsWith('_top')) return !!last && last.rank === 1 && last.revenue > 0;
   return false;
 }
 /** 同時に受けられる依頼の数 */
@@ -1220,11 +1218,11 @@ export const offeredMissions = (s: P1State) =>
 /** 依頼の画面に出すもの：受けたもの・達成したもの、そのあとにまだ受けていないもの */
 export const openMissions = (s: P1State) => [...activeMissions(s), ...offeredMissions(s)];
 
-/** 依頼を受ける。受けた時点で条件を満たしていれば、次の日に達成になる */
+/** 依頼を受ける。受けた時点で条件を満たしていれば、その場で達成（done）になる（報酬は「受け取る」で） */
 export function accept(s: P1State, id: string): string | null {
   if (s.missions[id]) return 'done';
   if (MISSIONS.filter((m) => s.missions[m.id] === 'accepted').length >= MISSION_MAX) return 'full';
-  s.missions[id] = 'accepted';
+  s.missions[id] = missionMet(s, id) ? 'done' : 'accepted';
   return null;
 }
 
@@ -1239,10 +1237,10 @@ export function missionProgress(s: P1State, id: string): [number, number] | null
       return [Math.min(5, s.unitsU), 5];
     case 'two_shops':
       return [Math.min(2, myShops(s).length), 2];
-    case 'c2_mallet':
-      return [Math.min(10, s.sector === 'c2' ? (s.monthUnits.Mallet ?? 0) : 0), 10];
-    case 'c3_lantern':
-      return [Math.min(10, s.sector === 'c3' ? (s.monthUnits.Lantern ?? 0) : 0), 10];
+    case 'c3_mallet':
+      return [Math.min(10, s.sector === 'c3' ? (s.monthUnits.Mallet ?? 0) : 0), 10];
+    case 'c2_lantern':
+      return [Math.min(10, s.sector === 'c2' ? (s.monthUnits.Lantern ?? 0) : 0), 10];
   }
   return null;
 }

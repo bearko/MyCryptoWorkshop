@@ -213,6 +213,22 @@ export function mineTip(ctx: Ctx, screen: string, body: HTMLElement) {
 }
 
 /**
+ * 画面の下のマインちゃんの一言（チュートリアルの外。その場のひとこと）。✕ で閉じる。
+ * 例：依頼を受けた時点で条件を満たしていたとき「もう達成しているね！」。
+ */
+export function mineSay(ctx: Ctx, text: string) {
+  const d = dockEl(ctx.root);
+  d.text.replaceChildren(rich(text));
+  d.el.classList.remove('is-new');
+  void d.el.offsetWidth;
+  d.el.classList.add('is-new');
+  dockShown = text;
+  dockClosed = '';
+  d.el.hidden = false;
+  requestAnimationFrame(dockPad);
+}
+
+/**
  * 作る数：0〜手持ちの素材で作れる最大個数のバーと、数の直接入力。右に「自動製造」（素材があるかぎり作り続ける。オンならバーは使えない）。
  */
 function craftPlan(ctx: Ctx, s: P1State, k: number): HTMLElement {
@@ -1561,7 +1577,13 @@ export function openMissions(ctx: Ctx) {
         const b = btn(t('依頼を受ける', 'Accept'), () => {
           const e = accept(s, m.id);
           if (e === 'full') ctx.toast(t(`同時に受けられるのは ${MISSION_MAX} つまでです`, `Up to ${MISSION_MAX} at once`));
-          else if (!e) ctx.toast(t(`「${m.title}」を受けました。右上のミッションに出ます`, `Accepted “${m.title}”. It shows under Missions at the top right`));
+          else if (!e && s.missions[m.id] === 'done') {
+            // 受けた時点で条件を満たしていた：その場で達成。報酬は「報酬を受け取る」で
+            after(ctx);
+            ctx.sfx?.('mission');
+            mineSay(ctx, t('もう達成しているね！ さすが！', 'You have already done it! Nice work!'));
+            return;
+          } else if (!e) ctx.toast(t(`「${m.title}」を受けました。右上のミッションに出ます`, `Accepted “${m.title}”. It shows under Missions at the top right`));
           after(ctx);
         }, 'is-on');
         row.append(b);

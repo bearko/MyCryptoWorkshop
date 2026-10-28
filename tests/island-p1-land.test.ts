@@ -140,7 +140,7 @@ describe('関所の先：ランドセクタ', () => {
     expect(moveTo(s, 'u1', null)).toBe('money');
     s.money = 1e6;
     expect(moveTo(s, 'u1', null)).toBeNull();
-    // 港町の他社（セクタの個性）の売上に、ランクの倍率が掛かる
+    // ウメコタウン（港町）の他社（セクタの個性）の売上に、ランクの倍率が掛かる
     const lamp0 = rivalDef(s.rivals[0].id)!.base;
     expect(s.n).toBe(TIERS.U.n);
     expect(s.ground).toHaveLength(TIERS.U.n * TIERS.U.n);
