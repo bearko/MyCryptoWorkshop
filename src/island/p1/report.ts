@@ -10,7 +10,7 @@
  */
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
-import { PRODUCT, sku } from './data';
+import { PRODUCT, TOP_STREAK, sku } from './data';
 import { bottleneck, stageCaps, type P1State, type Report, type Stage } from './model';
 import { open, type Ctx } from './screens';
 import { btn, h, money, rich, select, skuIcon } from './ui';
@@ -20,21 +20,21 @@ const STAGE_ICON: Record<Stage, string> = { buy: '🧱', craft: '🔨', haul: '�
 /** 段ごとの直し方（ボトルネックのとき） */
 const STAGE_HINT: Record<Stage, string> = {
   buy: t('素材が足りていません。調達係を置くか、スキル「調達枠の拡大」「まとめ買い」で仕入れを太くしましょう。', 'Materials are short. Assign a buyer or widen buying with the Bigger quota / Bulk buying skills.'),
-  craft: t('作る数が足りていません。作業台を増やす・段取りの改善（スキル）か、製造の得意なヒーローを置きましょう。', 'Crafting is the limit. Add a bench or Better jigs (skills), or put a better crafter on the bench.'),
-  haul: t('運ぶ数が足りていません。荷車を増やす・小型トラック（スキル）、遠いお店には物流拠点を。', 'Hauling is the limit. More carts or a Small truck (skills); a hub for far shops.'),
-  sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす・案内係の育成（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves, Train hosts (skills) or ads strengthen your stores.'),
+  craft: t('作る数が足りていません。作業台を増やす（工房の設備投資）・段取りの改善（スキル）か、製造の得意なヒーローを置きましょう。', 'Crafting is the limit. Add a bench (workshop investment), Better jigs (skill), or put a better crafter on the bench.'),
+  haul: t('運ぶ数が足りていません。荷車を増やす・小型トラック（工房の設備投資）、遠いお店には物流拠点を。', 'Hauling is the limit. More carts or a Small truck (workshop investment); a hub for far shops.'),
+  sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす（お店の設備投資）・案内係の育成（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves (shop investment), Train hosts (skill) or ads strengthen your stores.'),
 };
 /** スマホ用の短い版（2 行以内） */
 const STAGE_HINT_SHORT: Record<Stage, string> = {
   buy: t('素材が足りない。調達係やスキルで仕入れを太く。', 'Short of materials. Add a buyer or buying skills.'),
-  craft: t('作る数が足りない。作業台・スキル・腕のいい職人を。', 'Crafting is short. Benches, skills or a better crafter.'),
-  haul: t('運ぶ数が足りない。荷車・スキル・物流拠点を。', 'Hauling is short. Carts, skills or a hub.'),
-  sell: t('売れる数が頭打ち。お店・棚・スキル・宣伝で売り場を強く。', 'Sales are capped. Shops, shelves, skills or ads.'),
+  craft: t('作る数が足りない。作業台（設備投資）・スキル・職人を。', 'Crafting is short. Benches (investment), skills or a crafter.'),
+  haul: t('運ぶ数が足りない。荷車（設備投資）・物流拠点を。', 'Hauling is short. Carts (investment) or a hub.'),
+  sell: t('売れる数が頭打ち。お店・棚（設備投資）・宣伝で売り場を強く。', 'Sales are capped. Shops, shelves (investment) or ads.'),
 };
 /** 段を太くするスキル（スキルツリーの枝） */
 const STAGE_BRANCH: Record<Stage, string> = { buy: 'buy', craft: 'craft', haul: 'logi', sell: 'shop' };
 
-/** ゴールの順位（いまはエリア 1 位で固定。セクタのランクで変える余地） */
+/** ゴールの順位（いまはエリア 1 位で固定。セクタのランクで変える余地）。制覇はこれを TOP_STREAK か月続ける */
 const GOAL_RANK = 1;
 
 export interface ReportHooks {
@@ -392,14 +392,37 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       else if (moved > 0) head.append(h('span', 'isl-rp-move is-up', t(`↑ ${moved} ランクアップ！`, `↑ Up ${moved}!`)));
       else if (moved < 0) head.append(h('span', 'isl-rp-move is-down', t(`↓ ${-moved} ランクダウン`, `↓ Down ${-moved}`)));
       else head.append(h('span', 'isl-rp-move', t('→ キープ', '→ Held')));
-      head.append(h('b', 'isl-rp-goalk', t(`ゴール：エリア ${GOAL_RANK} 位`, `Goal: #${GOAL_RANK} in the area`)));
+      // ゴール：2 か月続けて 1 位（制覇）。1 位の月は「いま n / 2」
+      const streak = r.streak ?? (r.rank === 1 ? 1 : 0);
+      const conquered = streak >= TOP_STREAK;
+      // スマホは短い文（順位の行に収める）
+      const goalK = h('b', `isl-rp-goalk ${conquered ? 'is-done' : ''}`);
+      const [goalLong, goalShort] = conquered
+        ? [t(`制覇！ ${TOP_STREAK} か月続けて 1 位`, `Conquered! #1 for ${TOP_STREAK} months`), t('👑 制覇！', '👑 Conquered!')]
+        : streak > 0
+          ? [t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`), t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`)]
+          : [t(`ゴール：${TOP_STREAK} か月続けて 1 位`, `Goal: #1 for ${TOP_STREAK} months in a row`), t(`ゴール：${TOP_STREAK} か月連続 1 位`, `Goal: #1 × ${TOP_STREAK} months`)];
+      goalK.append(h('span', 'is-long', goalLong), h('span', 'is-short', goalShort));
+      head.append(goalK);
       c2.append(head);
       const me = r.area.findIndex((x) => x.me);
       const mySales = me >= 0 ? r.area[me].sales : r.revenue;
       let gap = '';
       if (me > 0) gap = t(`次の順位（${me} 位の${r.area[me - 1].name}）まで あと ${money(Math.max(0, r.area[me - 1].sales - mySales))}`, `${money(Math.max(0, r.area[me - 1].sales - mySales))} to #${me} (${r.area[me - 1].name})`);
       else if (me === 0 && r.area.length > 1) gap = t(`2 位の${r.area[1].name}との差 ${money(Math.max(0, mySales - r.area[1].sales))}（守り切ろう！）`, `${money(Math.max(0, mySales - r.area[1].sales))} ahead of #2 ${r.area[1].name} — hold on!`);
-      if (gap) c2.append(h('p', 'isl-rp-goal', gap));
+      if (streak > 0 && !conquered) {
+        // 1 回目の 1 位：マインちゃんの一言（来月も守れば制覇）と、2 位との差を 1 行に（スマホで報告を 1 画面に収める）
+        const say = h('div', 'isl-rp-say');
+        const mi = h('img', 'isl-rp-mine');
+        mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+        mi.alt = '';
+        const p = h('p');
+        p.append(rich(t('来月も守り切れたら[[制覇]]だよ！', 'Hold on next month and the sector is [[yours]]!')));
+        say.append(mi, p);
+        if (me === 0 && r.area.length > 1) say.append(h('small', 'isl-rp-lead', t(`2 位との差 ${money(Math.max(0, mySales - r.area[1].sales))}`, `${money(Math.max(0, mySales - r.area[1].sales))} ahead of #2`)));
+        c2.append(say);
+        body.classList.add('has-say');
+      } else if (gap) c2.append(h('p', 'isl-rp-goal', gap));
       const rk = h('details', 'isl-rp-detail');
       rk.append(h('summary', '', t('ランキング表', 'Ranking table')));
       const list = h('ol', 'isl-rank isl-rp-list');

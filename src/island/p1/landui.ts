@@ -191,7 +191,7 @@ export function openLand(ctx: Ctx) {
       const name = st === 'cloud' ? '???' : d.name;
       n.append(ico, h('b', 'isl-land-name', name));
       n.setAttribute('aria-label', name);
-      // KGI（エリア 1 位）の達成と、最新の順位
+      // KGI（2 か月続けてエリア 1 位＝制覇）の達成と、最新の順位
       if (st === 'here' || st === 'mine') {
         const rk = lastRank(s, d.id);
         const crown = crowned(s, d.id);
@@ -243,7 +243,7 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
   if (d.teaser) box.append(h('p', 'isl-gold', d.teaser));
   if (st === 'here' || st === 'mine') {
     const rk = lastRank(s, id);
-    box.append(h('p', crowned(s, id) ? 'isl-good' : 'isl-dim', crowned(s, id) ? t(`👑 このセクタで 1 位になりました（最新 ${rk ?? 1} 位）`, `👑 You have been #1 here (latest #${rk ?? 1})`) : rk ? t(`目標：エリア 1 位（最新 ${rk} 位）`, `Goal: #1 in the area (latest #${rk})`) : t('目標：エリア 1 位（まだ月の締めがありません）', 'Goal: #1 in the area (no monthly close yet)')));
+    box.append(h('p', crowned(s, id) ? 'isl-good' : 'isl-dim', crowned(s, id) ? t(`👑 このセクタを制覇しました（2 か月続けて 1 位。最新 ${rk ?? 1} 位）`, `👑 Conquered: #1 two months running (latest #${rk ?? 1})`) : rk ? t(`目標：2 か月続けてエリア 1 位（最新 ${rk} 位）`, `Goal: #1 in the area two months running (latest #${rk})`) : t('目標：2 か月続けてエリア 1 位（まだ月の締めがありません）', 'Goal: #1 in the area two months running (no monthly close yet)')));
   }
   const grid = h('div', 'isl-land-stats');
   const stat = (k: string, v: string) => {
@@ -450,7 +450,7 @@ export function openBrand(ctx: Ctx) {
     how.append(h('h3', '', t('上がるとき・下がるとき', 'What moves it')));
     const ul = h('ul', 'isl-brand-how');
     for (const line of [
-      t(`ランドセクタで 1 位になる：+${BRAND.sectorTop}（守った月は +${BRAND.stayTop}）`, `#1 in a land sector: +${BRAND.sectorTop} (+${BRAND.stayTop} each month you stay)`),
+      t(`ランドセクタを制覇（2 か月続けて 1 位）：+${BRAND.sectorTop}（そのあと守った月は +${BRAND.stayTop}）`, `Conquer a land sector (#1 two months running): +${BRAND.sectorTop} (+${BRAND.stayTop} each month you stay)`),
       t(`順位が上がる：1 つにつき +${BRAND.rankUp}`, `Rank up: +${BRAND.rankUp} per place`),
       t(`依頼を達成：+${BRAND.mission}・アンコモンを開発：+${BRAND.uncommon}・関所を開通：+${BRAND.gate}`, `Request: +${BRAND.mission} · Uncommon: +${BRAND.uncommon} · Gate: +${BRAND.gate}`),
       t(`新しいセクタに出店：Common +${BRAND.enter.C}・Uncommon +${BRAND.enter.U}`, `Open in a new sector: Common +${BRAND.enter.C} · Uncommon +${BRAND.enter.U}`),

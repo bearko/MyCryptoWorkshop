@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
+import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -63,6 +63,7 @@ import {
   adBoost,
   market,
   trainingOf,
+  invLv,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -2032,7 +2033,9 @@ function tutorial(): { text: string; action?: [string, () => void] } {
     const a = actOf(st, s);
     return { text: st.say(s), action: a ? [a[0], () => tutGo(a[1])] : undefined };
   }
-  // 月末ポーズ：まず来月の計画、それから「次の月に進む」
+  // 月末ポーズ：まず来月の計画、それから「次の月に進む」。1 回目の 1 位の月は、ゴール（2 か月続けて 1 位）までの距離を先に
+  if (s.monthPause && !s.cleared && (s.topStreak ?? 0) > 0 && s.reports.at(-1)?.rank === 1)
+    return { text: t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
@@ -2076,7 +2079,17 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (low) return { text: t(`${MATS[low].name}が残り少なくなっています。「調達」で月の量を増やすか、いますぐ買い足しましょう（月の上限に注意）。`, `${MATS[low].name} is running low. Raise its monthly amount under Buy or buy some now (mind the monthly limit).`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
   if (s.staff.some((x) => x.resting)) return { text: t('休んでいる従業員がいます。「人事」→「給与・労務」の賞与ですぐ元気にできます。人手が足りないときは「人材登用」で雇えます。', 'Someone is resting. A bonus (HR → Pay & welfare) refreshes them at once; hire more under Recruiting.'), action: [t('給与・労務を開く', 'Open pay'), () => openPayroll(ctx)] };
   const last = s.reports[s.reports.length - 1];
-  if (s.cleared && !s.gateOpen) return { text: t(`エリア 1 位、おめでとう！ランドのふちの[[関所]]は、通行料 ${money(gateToll(s))} で開通できるよ。開けると、となりのランドセクタへ進めるんだ。`, `Congratulations on #1 in the area! The [[gate]] at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), action: [t('関所を見る', 'View the gate'), () => showGate()] };
+  // 1 回目の 1 位：ゴールは 2 か月続けて 1 位（いま 1 / 2）。他社の反撃中
+  if (!s.cleared && (s.topStreak ?? 0) > 0 && last?.rank === 1)
+    return {
+      text: (s.rally ?? 0) > 0 ? t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。他社が反撃中だけど、来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Rivals are fighting back — hold on next month and the sector is yours!`) : t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`),
+      action: [t('ランキングを見る', 'Open ranking'), () => openRanking(ctx)],
+    };
+  // タオックスの前半：作業台が 1 台のままなら、2 台にすると作る数が倍（工房の設備投資）。通常のプレイが遅い主因（docs/ISLAND_BALANCE.md）
+  const wsB = myWorkshop(s);
+  if ((s.sector ?? 'c1') === 'c1' && !s.cleared && wsB && invLv(wsB, 'bench') === 0)
+    return { text: t('[[作業台]]を 2 台にすると、作る数が倍になるよ（工房 → [[設備投資]]）。', 'Two [[workbenches]] double what you make (Workshop → [[Capital investment]]).'), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx, true)] };
+  if (s.cleared && !s.gateOpen) return { text: t(`2 か月続けてエリア 1 位、制覇おめでとう！ランドのふちの[[関所]]は、通行料 ${money(gateToll(s))} で開通できるよ。開けると、となりのランドセクタへ進めるんだ。`, `Congratulations — #1 two months running, the sector is yours! The [[gate]] at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), action: [t('関所を見る', 'View the gate'), () => showGate()] };
   if (quarterNew) {
     const q = quarterNew;
     return { text: t(`第 ${q} 四半期の[[決算書]]が出たよ。売上と利益、お金の残りを確かめよう！`, `Your Q${q} [[statements]] are ready. Check sales, profit and cash!`), action: [t('決算書を見る', 'Open statements'), () => ((quarterNew = null), openBooks(ctx))] };
@@ -2086,7 +2099,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
     const top = last.area.find((x) => !x.me);
     return { text: t(`いまエリア ${last.rank} 位。他社のお店をタップすると「調査」で売上の中身が分かります。まずは${top?.name ?? '他社'}を調べてみましょう。`, `You are #${last.rank} in the area. Tap a rival store to research its sales. Try ${top?.name ?? 'a rival'} first.`) };
   }
-  if (last.rank > 1) return { text: t(`いまエリア ${last.rank} 位。1 位の${last.area[0].name}を抜くには、棚や作業台を増やしたり（スキルツリー）、アンコモンで単価を上げたり（商品開発）、宣伝したりしましょう。`, `You are #${last.rank} in the area. To pass ${last.area[0].name}, add shelves and benches (skills), raise prices with Uncommons (products) or advertise.`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx)] };
+  if (last.rank > 1) return { text: t(`いまエリア ${last.rank} 位。1 位の${last.area[0].name}を抜くには、棚や作業台を増やしたり（お店／工房の設備投資）、アンコモンで単価を上げたり（商品開発）、宣伝したりしましょう。`, `You are #${last.rank} in the area. To pass ${last.area[0].name}, add shelves and benches (shop / workshop investment), raise prices with Uncommons (products) or advertise.`), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx)] };
   return { text: t('いい調子です！', 'Nice work!') };
 }
 
@@ -2655,6 +2668,9 @@ function advance(days: number) {
         const [who, what] = n.split('|');
         toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
       }
+      // 他社の反撃：1 位を取った月から、他社が宣伝を始める
+      const ra = r.report.rally;
+      if (ra) toast(plain(t(`他社が反撃！ [[${ra.by}]]が宣伝を始めた（${ra.months} か月）`, `Rivals strike back! [[${ra.by}]] started advertising (${ra.months} months)`)));
       save();
       // 流れの案内のあいだは、終わってから出す
       if (tour) tourReport = r.report;
@@ -2704,14 +2720,14 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
       save();
       modal(
         t('企業ランキングを紹介します', 'Meet the company ranking'),
-        t('はじめての売上報告、おつかれさまでした！会社の月の売上は「企業ランキング」で、エリア別・ランド別・世界全体と比べられます（「マーケティング」→「企業ランキング」、上の順位を押しても開けます）。まずは、同じエリアに出店している同業他社を月の売上で抜いて、エリア 1 位を目指しましょう！', 'Well done on your first sales report! The company ranking compares monthly sales by area, by land and worldwide (Marketing → Ranking, or tap your rank at the top). First, beat the rival retailers in your area and become #1 here!'),
+        t('はじめての売上報告、おつかれさまでした！会社の月の売上は「企業ランキング」で、エリア別・ランド別・世界全体と比べられます（「マーケティング」→「企業ランキング」、上の順位を押しても開けます）。まずは、同じエリアに出店している同業他社を月の売上で抜いて、エリア 1 位を 2 か月続けて守る（制覇）のが目標です！', 'Well done on your first sales report! The company ranking compares monthly sales by area, by land and worldwide (Marketing → Ranking, or tap your rank at the top). Your goal: beat the rival retailers in your area and hold #1 for two months in a row!'),
         [[t('ランキングを見る', 'Open ranking'), () => openRanking(ctx), 'is-on']],
         true,
       );
     } else if (s.cleared && !s.flags.clearSeen) {
       s.flags.clearSeen = true;
       save();
-      modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`エリアで売上 1 位になりました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `You are #1 in area sales! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
+      modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`2 か月続けてエリアで売上 1 位、このセクタを制覇しました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `#1 in area sales two months running — you conquered this sector! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
     } else {
       speed = 1;
       renderHud();

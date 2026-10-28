@@ -5,9 +5,9 @@
  * docs/ISLAND_PHASE1.md「ランドマップとセクタ」。
  */
 import { t } from '../../i18n';
-import { BRAND, MANAGER, P1B, SECTORS, type Mat, type Tier } from './data';
+import { BRAND, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, groundOf, newP1, staffOf, type P1State, type Report } from './model';
+import { assign, fitEquipment, groundOf, newP1, staffOf, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -46,6 +46,8 @@ export const SECTOR_KEYS = [
   'tier',
   'arrived',
   'known',
+  'topStreak',
+  'rally',
 ] as const;
 
 /** いまのセクタに自社の建物があるか（あれば、離れるときにマネージャーが要る） */
@@ -113,7 +115,11 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   // ---- 行き先へ
   const back = land.recs[target];
   if (!fresh && back?.snap) {
-    Object.assign(s, back.snap);
+    const snap = back.snap as Partial<P1State>;
+    Object.assign(s, snap);
+    // 以前の写し：制覇の月数・反撃は無い（もう 1 位なら制覇のまま）
+    s.topStreak = snap.topStreak ?? (snap.cleared ? TOP_STREAK : 0);
+    s.rally = snap.rally ?? 0;
     // マネージャーが投資したぶん、お客さんが増えている
     if (back.base && back.capital > 0) {
       const grow = Math.min(2, 1 + (back.capital * MANAGER.roi) / back.base.rev);
@@ -132,6 +138,9 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
       const x = staffOf(s, j.hero);
       if (x && x.task == null) assign(s, j.hero, j.task as never, j.target);
     }
+    // 設備は建物の設備投資の段で数える（以前の写しで、スキルで増やした作業台・棚が残っていれば外す）
+    s.ground = groundOf(s.n);
+    fitEquipment(s);
     back.snap = undefined;
     back.jobs = undefined;
     back.base = undefined;
@@ -164,7 +173,7 @@ function sectorView(s: P1State, id: string): { cleared: boolean; reports: Report
   const snap = s.land.recs[id]?.snap as { cleared?: boolean; reports?: Report[] } | undefined;
   return snap ? { cleared: !!snap.cleared, reports: snap.reports ?? [] } : null;
 }
-/** そのセクタで 1 位になったことがある（👑） */
+/** そのセクタを制覇した（2 か月続けて 1 位。👑） */
 export const crowned = (s: P1State, id: string) => !!sectorView(s, id)?.cleared;
 /** そのセクタの最新の順位（月の締めが無ければ null） */
 export function lastRank(s: P1State, id: string): number | null {

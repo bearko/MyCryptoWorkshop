@@ -42,7 +42,7 @@ describe('ブランド力', () => {
     expect(s.brandLog!.at(-1)!.why).toContain('売上');
   });
 
-  it('ランドセクタで 1 位になると大きく上がる', () => {
+  it('ランドセクタを制覇（2 か月続けて 1 位）すると大きく上がる', () => {
     const s = newP1(5);
     setup(s);
     s.money = 1e6;
@@ -53,6 +53,10 @@ describe('ブランド力', () => {
     }
     const before = s.brand ?? 0;
     run(s, 40);
+    // 1 回目の 1 位ではまだ制覇ではない
+    expect(s.reports.at(-1)!.rank).toBe(1);
+    expect(s.cleared).toBe(false);
+    run(s, 30);
     expect(s.cleared).toBe(true);
     expect((s.brand ?? 0) - before).toBeGreaterThanOrEqual(30);
   });

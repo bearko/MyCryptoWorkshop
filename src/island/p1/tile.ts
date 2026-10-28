@@ -4,8 +4,8 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { INTEL, P1B, PRODUCT, rivalDef, sku, skuParts } from './data';
-import { gateToll, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
+import { gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
@@ -193,6 +193,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     body.append(grid, h('small', 'isl-dim', t('工房からここまではトラックの定期便で速く運び、ここから近くのお店へ荷車で届けます。遠くにお店を出したら、そのそばに建てましょう。', 'A truck shuttles goods here from the workshop; carts deliver from here to nearby shops. Build one near your far shops.')));
   } else if (kind === 'warehouse') {
     stat(grid, t('置き場所（全体）', 'Storage (total)'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`), 'is-wide');
+    stat(grid, t('この倉庫', 'This warehouse'), t(`${STORE.warehouse + 100 * invLv(b, 'rack')} 個`, `${STORE.warehouse + 100 * invLv(b, 'rack')}`), 'is-wide');
     body.append(grid);
   } else if (kind === 'workshop') {
     stat(grid, t('作業台', 'Benches'), `${s.slots.length}`);
@@ -233,7 +234,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       }, 'is-danger'),
     );
   body.append(acts, h('small', 'isl-dim', t(`移転すると約 ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} 日休業します。在庫と設備はそのままです。`, `Moving closes it for about ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} days; stock and upgrades stay.`)));
-  if (kind === 'shop' || kind === 'workshop') body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
+  if (kind === 'shop' || kind === 'workshop' || kind === 'warehouse') body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
   return body;
 }
 

@@ -17,6 +17,7 @@ import {
   INTEL,
   INVESTS,
   LAND_COMPANIES,
+  MARKET,
   MISSIONS,
   PAY,
   MAT_KEYS,
@@ -362,7 +363,8 @@ function craftable(s: P1State, tut = false): Sku[] {
 
 // ---------------------------------------------------------------- 工房
 
-export function openWorkshop(ctx: Ctx) {
+/** 工房の画面。toInvest：いちばん下の「設備投資」の欄までスクロールして光らせる（マインちゃんの助言から） */
+export function openWorkshop(ctx: Ctx, toInvest = false) {
   open(ctx, t('工房', 'Workshop'), (body) => {
     const s = ctx.s();
     mineTip(ctx, 'workshop', body);
@@ -493,7 +495,17 @@ export function openWorkshop(ctx: Ctx) {
     }
     stock.append(sl, h('p', 'isl-dim', t('できた商品は、物流の担当がお店へ運びます。', 'Haulers carry finished goods to your shops.')));
     body.append(stock);
+    const wsB = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
+    if (wsB && !ctx.step?.()) body.append(investCard(ctx, wsB, t('作業台・荷車・トラック・物置など。建物ごと（セクタごと）の設備なので、新しいセクタでは入れ直します。', 'Workbenches, carts, truck, stockroom and more. Equipment belongs to each building, so new sectors start fresh.')));
   });
+  if (toInvest) {
+    const card = document.querySelector<HTMLElement>('.isl-sheet .isl-invest-card');
+    if (card) {
+      card.classList.add('is-flash');
+      requestAnimationFrame(() => card.scrollIntoView({ block: 'center' }));
+      setTimeout(() => card.classList.remove('is-flash'), 2400);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- お店
@@ -819,7 +831,8 @@ export function openShop(ctx: Ctx, uid: number) {
       );
     });
     shelves.append(row);
-    if (!has(s, 'shelf1')) shelves.append(h('p', 'isl-dim', t('棚はスキル「棚を増やす」で増やせます。', 'Add shelves with the “More shelves” skill.')));
+    const bNow = s.buildings.find((x) => x.uid === uid);
+    if (bNow && investCost(bNow, 'shelves') != null) shelves.append(h('p', 'isl-dim', t('棚は、下の「設備投資」の「棚を増やす」で増やせます（お店ごと）。', 'Add shelves with “More shelves” under Capital investment below (per shop).')));
     body.append(shelves);
 
     const crew = h('div', 'isl-card2');
@@ -848,7 +861,7 @@ export function openShop(ctx: Ctx, uid: number) {
     const pt = h('div', 'isl-part');
     pt.append(h('small', 'isl-slot-label', t('アルバイト', 'Part-timers')));
     const people = h('div', 'isl-part-people');
-    for (let k = 0; k < partMax(s); k++) people.append(h('span', `isl-person ${k < sh.part ? 'is-on' : ''}`, '👤'));
+    for (let k = 0; k < partMax(s, uid); k++) people.append(h('span', `isl-person ${k < sh.part ? 'is-on' : ''}`, '👤'));
     const pr = h('div', 'isl-row');
     const minus = btn('−', () => {
       setPart(s, uid, sh.part - 1);
@@ -859,12 +872,13 @@ export function openShop(ctx: Ctx, uid: number) {
       after(ctx);
     });
     minus.disabled = sh.part <= 0;
-    plus.disabled = sh.part >= partMax(s);
+    plus.disabled = sh.part >= partMax(s, uid);
     pr.append(minus, plus);
     pt.append(people, pr, h('small', 'isl-dim', t(`1 人 1 日 ${SHOP.partTimeWage} G`, `${SHOP.partTimeWage} G/day each`)));
     r2.append(pt);
     crew.append(r2, h('p', 'isl-dim', t('店員かアルバイトがいれば、届いた商品を棚に並べて自動で売ります。販売は INT が高いヒーローが得意です。', 'With a clerk or part-timer, deliveries are shelved and sold automatically. High-INT heroes sell best.')));
     body.append(crew);
+    if (bNow && !ctx.step?.()) body.append(investCard(ctx, bNow, t('このお店の棚・アルバイトの上限・看板など。建物ごと（セクタごと）の設備です。', 'Shelves, part-timer limit, signboard and more for this shop. Equipment belongs to each building (each sector).')));
   });
 }
 
@@ -1332,6 +1346,8 @@ export function openData(ctx: Ctx) {
       ),
     );
     body.append(tip);
+    const rb = rallyBadge(s);
+    if (rb) body.append(rb);
     if (need && need.kind !== 'dev' && ctx.skills) {
       const go = need.skill;
       body.append(btn(t('スキルツリーで見る', 'Open skill tree'), () => ctx.skills?.(go), 'is-on'));
@@ -1380,6 +1396,15 @@ export function openData(ctx: Ctx) {
 
 // ---------------------------------------------------------------- ランキング
 
+/** 他社の反撃中の札（市場データ・ランキング）。反撃していなければ null */
+export function rallyBadge(s: P1State): HTMLElement | null {
+  const n = s.rally ?? 0;
+  if (n <= 0) return null;
+  const box = h('p', 'isl-rally');
+  box.append(h('span', 'isl-tag is-bad', t(`反撃中（あと ${n} か月）`, `Fighting back (${n} mo left)`)), h('small', '', t(`あなたが 1 位を取ったので、他社が宣伝を始めた。他社の売り場の強さ ×${MARKET.rally}`, `You took #1, so rivals started advertising. Rival pull ×${MARKET.rally}`)));
+  return box;
+}
+
 export function openRanking(ctx: Ctx, tab: 'area' | 'land' | 'world' = 'area') {
   open(ctx, t('企業ランキング（月の売上）', 'Company ranking (monthly sales)'), (body) => {
     const s = ctx.s();
@@ -1391,15 +1416,20 @@ export function openRanking(ctx: Ctx, tab: 'area' | 'land' | 'world' = 'area') {
       tabs.append(btn(label, () => openRanking(ctx, k), tab === k ? 'is-on' : ''));
     body.append(tabs);
     const list = h('ol', 'isl-rank');
+    const rallying = tab === 'area' && (s.rally ?? 0) > 0;
     const row = (name: string, sales: number, me: boolean, n: number) => {
       const li = h('li', me ? 'is-me' : '');
-      li.append(h('span', 'isl-rank-n', `${n}`), h('span', '', me ? t('あなたの会社', 'Your company') : name), h('b', '', money(sales)));
+      const nm = h('span', '', me ? t('あなたの会社', 'Your company') : name);
+      if (rallying && !me) nm.append(h('span', 'isl-tag is-bad isl-rally-tag', t(`反撃中（あと ${s.rally} か月）`, `Fighting back (${s.rally} mo)`)));
+      li.append(h('span', 'isl-rank-n', `${n}`), nm, h('b', '', money(sales)));
       list.append(li);
     };
     if (tab === 'area') {
+      const rb = rallyBadge(s);
+      if (rb) body.append(rb);
       const rows = last ? last.area : areaRanking(s, mine, Object.fromEntries(s.rivals.map((r) => [r.id, r.base])));
       rows.forEach((r, k) => row(r.name, r.sales, r.me, k + 1));
-      body.append(h('p', 'isl-dim', t('同じエリアで物販をしている同業他社です。ここで 1 位になるのがフェーズ 1 の目標です。', 'Retail rivals in your area. Reaching #1 here clears Phase 1.')));
+      body.append(h('p', 'isl-dim', t('同じエリアで物販をしている同業他社です。ここで 2 か月続けて 1 位になる（制覇）のが目標です。', 'Retail rivals in your area. The goal: #1 here two months in a row (conquer the sector).')));
     } else if (tab === 'land') {
       const rows = [...LAND_COMPANIES.map(([n, v]) => ({ name: n, sales: v, me: false })), { name: '', sales: mine, me: true }].sort((a, b) => b.sales - a.sales);
       rows.forEach((r, k) => row(r.name, r.sales, r.me, k + 1));
@@ -1679,7 +1709,14 @@ export function openMissions(ctx: Ctx) {
 
 // ---------------------------------------------------------------- システム（設備投資）
 
-/** 建物 1 つの設備投資の一覧（タイルの吹き出しとシステム画面で使う） */
+/** 工房・お店の画面のいちばん下の「設備投資」の欄 */
+export function investCard(ctx: Ctx, b: PBuilding, note: string): HTMLElement {
+  const card = h('div', 'isl-card2 isl-invest-card');
+  card.append(h('h3', '', t('設備投資', 'Capital investment')), h('p', 'isl-dim', note), investList(ctx, b, () => current?.render()));
+  return card;
+}
+
+/** 建物 1 つの設備投資の一覧（工房・お店・倉庫の画面、タイルの吹き出し、システム画面で使う） */
 export function investList(ctx: Ctx, b: PBuilding, onDone: () => void): HTMLElement {
   const s = ctx.s();
   const box = h('div', 'isl-invest');
@@ -1690,6 +1727,8 @@ export function investList(ctx: Ctx, b: PBuilding, onDone: () => void): HTMLElem
     const row = h('div', 'isl-invest-row');
     const name = h('div');
     name.append(h('b', '', `${x.name}${x.cost.length > 1 ? `  ${lv}/${x.cost.length}` : lv ? ' ✓' : ''}`), h('small', 'isl-dim', x.note));
+    // 資金が足りないときは、その場で「あと ○○ G」
+    if (cost != null && s.money < cost && b.left <= 0) name.append(h('small', 'isl-warn', t(`あと ${money(cost - s.money)}`, `${money(cost - s.money)} short`)));
     const go = btn(cost == null ? t('最大', 'Max') : money(cost), () => {
       const e = invest(s, b.uid, x.id);
       if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));

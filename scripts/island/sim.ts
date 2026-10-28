@@ -1,11 +1,11 @@
 /**
  * アイランド（フェーズ 1）の高速自動プレイ：クリア時間の計測ハーネス（UI なし・モデル層だけ）。
- * 3 つの遊び方（最短 rta／通常 normal／100% full）で、セクタごとの「1 位までの月数」と実時間の見積もりを出す。
+ * 3 つの遊び方（最短 rta／通常 normal／100% full）で、セクタごとの「制覇（2 か月続けて 1 位）までの月数」と実時間の見積もりを出す。
  * 実行：`npm run island:sim`（tests/island-p1-sim.test.ts から呼ぶ。結果は console と docs/ISLAND_BALANCE.md）。
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
 import {
@@ -31,6 +31,7 @@ import {
   hire,
   invest,
   investCost,
+  invLv,
   learn,
   myShops,
   myWorkshop,
@@ -60,6 +61,7 @@ import {
   unitCost,
   matPrice,
   type P1State,
+  type PBuilding,
   type Report,
   type Stage,
 } from '../../src/island/p1/model';
@@ -87,18 +89,20 @@ export const POLICY_NAME: Record<PolicyId, string> = { rta: '最短', normal: '�
 export interface SectorRun {
   id: string;
   tier: Tier;
-  /** 着いた日・開店の日・1 位の月の締めの日・離れた日（ゲームの日） */
+  /** 着いた日・開店の日・制覇の月の締めの日・離れた日（ゲームの日） */
   arrived: number;
   open: number | null;
   topDay: number | null;
   left: number | null;
-  /** 1 位までの月数（開店からの月の締めの回数） */
+  /** 制覇（2 か月続けて 1 位）までの月数（開店からの月の締めの回数）。v3 までは「1 位までの月数」 */
   months: number | null;
-  /** 1 位の月の売上・そのときの資金・スキル数 */
+  /** 初めて 1 位になった月 */
+  first: number | null;
+  /** 制覇の月の売上・そのときの資金・スキル数 */
   rev: number;
   money: number;
   skills: number;
-  /** 1 位までの行動の数・月の締めの数 / 離れるまで */
+  /** 制覇までの行動の数・月の締めの数 / 離れるまで */
   actTop: number;
   pauseTop: number;
   act: number;
@@ -126,16 +130,28 @@ export interface RunResult {
 
 // ---------------------------------------------------------------- 方針
 
-/** 枝の中で、普通の人が説明を読んで選ぶ順（詰まりを直すのに効く順） */
+/**
+ * 枝の中で、普通の人が説明を読んで選ぶ順（詰まりを直すのに効く順）。
+ * 「@id:段」は設備投資（その段まで。お店・倉庫は全部の棟を。v4：棚・作業台・荷車などはスキルから建物ごとの設備投資へ移った）
+ */
 const BRANCH_ORDER: Record<Stage, string[]> = {
-  buy: ['stock1', 'bulk', 'swift', 'tidy', 'eye', 'stock2', 'bulk2', 'rack', 'stock3', 'b_partner'],
-  craft: ['bench2', 'jig', 'chair', 'jig2', 'bench3', 'pot'],
-  haul: ['loading', 'cart2', 'shortcut', 'backroom', 'truck', 'cart3', 'hub'],
-  sell: ['shelf1', 'host', 'parttime', 'display', 'shop2', 'shelf2', 'shop3', 'b_sign', 'b_premium'],
+  buy: ['stock1', 'bulk', 'swift', '@stockroom:1', 'eye', 'stock2', 'bulk2', '@rack:1', 'stock3', 'b_partner'],
+  craft: ['@bench:1', 'jig', 'chair', 'jig2', '@bench:2', 'pot'],
+  haul: ['loading', '@carts:1', 'shortcut', '@backroom:1', '@truck:1', '@carts:2', 'hub'],
+  sell: ['@shelves:1', 'host', '@staffroom:1', 'display', 'shop2', '@shelves:2', 'shop3', 'b_sign', 'b_premium'],
 };
 
-/** 最短：知っている人の取り方（アンコモンへ一直線、そのあと売り場と運搬） */
-const RTA_SKILLS = ['hire', 'bench2', 'pot', 'route_cloth', 'route_paper', 'shelf1', 'host', 'cart2', 'loading', 'stock1', 'jig', 'bulk', 'tidy', 'b_sign', 'shop2', 'route_gem', 'truck', 'bench3', 'jig2', 'stock2', 'shelf2', 'display', 'parttime', 'shortcut', 'backroom', 'chair', 'lounge', 'shop3', 'swift'];
+/** 最短：知っている人の取り方（アンコモンへ一直線、そのあと売り場と運搬）。「@id:段」は設備投資 */
+const RTA_SKILLS = ['hire', '@bench:1', 'pot', 'route_cloth', 'route_paper', '@shelves:1', 'host', '@carts:1', 'loading', 'stock1', 'jig', 'bulk', '@stockroom:1', 'b_sign', 'shop2', 'route_gem', '@truck:1', '@bench:2', 'jig2', 'stock2', '@shelves:2', 'display', '@staffroom:1', 'shortcut', '@backroom:1', 'chair', 'lounge', 'shop3', 'swift'];
+
+/** 「@id:段」→ 設備投資の id と段 */
+const invOf = (x: string): { id: string; lv: number } | null => {
+  if (!x.startsWith('@')) return null;
+  const [id, lv] = x.slice(1).split(':');
+  return { id, lv: Number(lv) || 1 };
+};
+/** 設備投資を付ける建物（工事が終わったもの）。工房は 1 つ、お店・倉庫は全部の棟 */
+const invTargets = (s: P1State, id: string): PBuilding[] => s.buildings.filter((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === INVEST[id]?.kind);
 
 interface Ctx {
   policy: PolicyId;
@@ -203,8 +219,9 @@ const uCrafters = (s: P1State) => crew(s).filter((x) => aptitude(x.stats, 'craft
 function chooseLineup(s: P1State, c: Ctx): Sku[] {
   const benches = Math.max(1, s.slots.length);
   // 並べられる種類：お店の棚の数（どのお店にも同じ並びを置く）
-  const shopIds = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop').map((b) => b.id);
-  const kinds = Math.max(1, Math.min(benches, ...(shopIds.length ? shopIds.map((id) => shelfCount(s, id)) : [1])));
+  const shopBs = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
+  // 棚はお店ごとの設備投資なので、いちばん棚の多いお店に合わせる（棚の少ないお店は前から並べる）
+  const kinds = Math.max(1, Math.min(benches, Math.max(1, ...shopBs.map((b) => shelfCount(s, b)))));
   const tier = s.tier ?? 'C';
   const nU = uCrafters(s).length;
   const cands: { x: Sku; v: number; key: string }[] = [];
@@ -302,13 +319,35 @@ export function policy(s: P1State, c: Ctx): Action[] {
     if (k?.train && (s.training || [...pending].some((x) => SKILL[x]?.train))) return false;
     return k && !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
   };
+  /** 設備投資「@id:段」：その段に届いていない建物ぜんぶ（無ければ取れない） */
+  const invNeed = (x: string) => {
+    const iv = invOf(x)!;
+    if (c.ban.has(`@${iv.id}`) || pending.has(x)) return [];
+    // 1 つ下の段まで来ている建物だけ（下の段は、枝の順で先に取る）
+    return invTargets(s, iv.id).filter((b) => invLv(b, iv.id) === iv.lv - 1 && investCost(b, iv.id) != null);
+  };
+  const invCost = (x: string) => invNeed(x).reduce((a, b) => a + (investCost(b, invOf(x)!.id) ?? 0), 0);
+  const takeInv = (x: string, keep = reserve) => {
+    const bs = invNeed(x);
+    const cost = invCost(x);
+    if (!bs.length || budget < cost + keep) return false;
+    spend(cost);
+    pending.add(x);
+    const iv = invOf(x)!;
+    for (const b of bs) acts.push({ kind: 'invest', run: () => invest(s, b.uid, iv.id) });
+    return true;
+  };
   const take = (id: string, keep = reserve) => {
+    if (invOf(id)) return takeInv(id, keep);
     if (!learnable(id) || budget < SKILL[id].cost + keep) return false;
     spend(SKILL[id].cost);
     pending.add(id);
     acts.push({ kind: 'skill', run: () => learn(s, id) });
     return true;
   };
+  /** 取れる（スキル：条件を満たしている／設備投資：その段に届いていない建物がある） */
+  const can = (id: string) => (invOf(id) ? invNeed(id).length > 0 : learnable(id));
+  const costOf = (id: string) => (invOf(id) ? invCost(id) : SKILL[id].cost);
   if (!has(s, 'hire')) take('hire', 0);
 
   // ---- お店（最初の 1 軒）
@@ -496,10 +535,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
       }
       if (need.kind === 'tech') take(need.skill, reserve / 2);
       else if (need.kind === 'route') for (const r of routeChain(need.mat)) take(r, reserve / 2);
-      else if (need.kind === 'pot') {
-        take('bench2', 0);
-        take('pot', 0);
-      } else if (need.kind === 'dev' && !s.lab && !pending.has('dev')) {
+      else if (need.kind === 'pot') take('pot', 0);
+      else if (need.kind === 'dev' && !s.lab && !pending.has('dev')) {
         const cost = Math.round(PRODUCT[key].price * 4);
         if (budget >= cost + reserve / 2) {
           spend(cost);
@@ -511,6 +548,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
     }
   };
   if (!saving) researching();
+  // 2 か所目以降：設備は建物ごと（セクタごと）なので、建てたら入れ直す。工房は作業台 → 荷車、お店は棚から
+  if (!saving && s.land && s.land.mine[0] !== s.sector && c.policy !== 'rta') for (const x of ['@bench:1', '@carts:1', '@shelves:1']) take(x, reserve / 2);
   // 新商品の認知：gap の商品を並べたら、駅のポスター（30 日）で早く広める
   const gapOnShelf = myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x && gapOf(s).includes(skuParts(x)[0]) && knownOf(s, skuParts(x)[0]) < 1));
   if (gapOnShelf && (s.ads.poster ?? 0) <= 0) {
@@ -526,7 +565,11 @@ export function policy(s: P1State, c: Ctx): Action[] {
       // 決まった順に 1 つずつ。資金が足りない所で止まって貯める（安いものに流れない）
       type Step = () => 'skip' | 'wait';
       const sk = (id: string): Step => () => {
-        if (!learnable(id)) return 'skip';
+        // 設備投資で、付ける工房・お店がまだ無い（これから建つ・工事中）なら待つ（できたらすぐ付ける）。倉庫は建てないこともあるので待たない
+        const iv = invOf(id);
+        const kind = iv ? INVEST[iv.id]?.kind : null;
+        if (iv && !can(id) && kind !== 'warehouse' && !invTargets(s, iv.id).length) return 'wait';
+        if (!can(id)) return 'skip';
         return take(id) ? 'skip' : 'wait';
       };
       const shopUpTo = (n: number, onlyIfSell: boolean): Step => () => {
@@ -563,7 +606,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
         acts.push({ kind: 'ad', run: () => runAd(s, id) });
         return 'skip';
       };
-      const queue: Step[] = [sk('hire'), shopUpTo(2, false), sk('shelf1'), sk('bench2'), sk('pot'), sk('route_cloth'), sk('route_paper'), dev1, sk('shelf1'), sk('host'), shopUpTo(5, true), sk('loading'), sk('cart2'), sk('stock1'), ad('poster'), sk('jig'), sk('bulk'), sk('tidy'), sk('b_sign'), sk('shop2'), sk('route_gem'), devMore, signs, ...RTA_SKILLS.map(sk), ad('flyer')];
+      const queue: Step[] = [sk('hire'), shopUpTo(2, false), sk('@shelves:1'), sk('@bench:1'), sk('pot'), sk('route_cloth'), sk('route_paper'), dev1, sk('@shelves:1'), sk('host'), shopUpTo(5, true), sk('loading'), sk('@carts:1'), sk('stock1'), ad('poster'), sk('jig'), sk('bulk'), sk('@stockroom:1'), sk('b_sign'), sk('shop2'), sk('route_gem'), devMore, signs, ...RTA_SKILLS.map(sk), ad('flyer')];
       for (const q of queue) if (q() === 'wait') break;
     }
     // アンコモンの職人がいなければ、候補から雇っておく
@@ -573,11 +616,12 @@ export function policy(s: P1State, c: Ctx): Action[] {
     const r = c.monthEnd;
     if (wantU && !saving) {
       // Uncommon のセクタに着いたら、案内に従って魔法の釜 → 商品開発
-      take('bench2', 0);
       take('pot', 0);
       develops();
       if (has(s, 'pot') && uCrafters(s).length === 0 && !hired) hireU(s, acts, () => (hired = true));
     } else if (has(s, 'pot')) develops();
+    // マインちゃんの助言（タオックスの前半）：作業台が 1 台なら、2 台にすると作る数が倍（工房 → 設備投資）
+    if (r && !saving && (s.sector ?? 'c1') === 'c1' && !s.cleared) take('@bench:1', reserve / 2);
     if (r && !saving) {
       const bn = c.lastBn ?? 'sell';
       // 売り場が細ければ、まずお店を 1 軒（月 1 軒まで。棚 2 の輸入品店は資金に余裕があるとき）
@@ -593,9 +637,10 @@ export function policy(s: P1State, c: Ctx): Action[] {
       for (const st of order) {
         for (const id of BRANCH_ORDER[st]) {
           if (n >= 2) break;
-          if (!learnable(id) || SKILL[id].cost > cap) continue;
+          if (!can(id) || costOf(id) > cap) continue;
+          const cost = costOf(id);
           if (take(id, 0)) {
-            cap -= SKILL[id].cost;
+            cap -= cost;
             n++;
           }
         }
@@ -623,12 +668,14 @@ export function policy(s: P1State, c: Ctx): Action[] {
           acts.push({ kind: 'assign', run: () => assign(s, pick, 'transport') });
         }
       }
-      // 100%：残りのスキルも、資金の 4 割までで安い順に
+      // 100%：残りのスキルと設備投資も、資金の 4 割までで安い順に
       if (c.policy === 'full') {
         let rest = budget * 0.4;
-        for (const k of [...SKILLS].sort((a, b) => a.cost - b.cost)) {
-          if (!learnable(k.id) || k.cost > rest) continue;
-          if (take(k.id, 0)) rest -= k.cost;
+        const all = [...SKILLS.map((k) => k.id), ...Object.values(INVEST).flatMap((x) => x.cost.map((_, k) => `@${x.id}:${k + 1}`))].filter(can).sort((a, b) => costOf(a) - costOf(b));
+        for (const id of all) {
+          const cost = costOf(id);
+          if (!can(id) || cost > rest) continue;
+          if (take(id, 0)) rest -= cost;
         }
       }
     }
@@ -706,7 +753,7 @@ export function routeOf(p: PolicyId): string[] {
 
 export interface RunOpts {
   ban?: string[];
-  /** 最初のセクタで 1 位になったら止める */
+  /** 最初のセクタで 制覇したら止める */
   onlyFirst?: boolean;
 }
 
@@ -714,10 +761,11 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
   const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst };
   const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [] };
-  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, log: [] });
+  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, log: [] });
   let cur = newRun('c1');
   res.sectors.push(cur);
   let skillsSeen = 0;
+  const invSeen: { n: number; sector: string | undefined; by: Record<string, number> } = { n: 0, sector: s.sector, by: {} };
   const allSkills = SKILLS.length;
   const fullMissions = MISSIONS.length;
 
@@ -737,6 +785,21 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       skillsSeen = s.skills.length;
       c.lineupDirty = true;
     }
+    // 設備投資（効き目の比較で外せるように「@id」で記録。作業台・棚が増えたら作るものを決め直す）
+    for (const a of acts) if (a.kind === 'invest') c.lineupDirty = true;
+    const invNow = s.buildings.filter((b) => b.owner === 'me').reduce((a, b) => a + Object.values(b.inv ?? {}).reduce<number>((x, v) => x + (v ?? 0), 0), 0);
+    if (invNow > invSeen.n || invSeen.sector !== s.sector) {
+      if (invSeen.sector === s.sector)
+        for (const b of s.buildings.filter((x) => x.owner === 'me'))
+          for (const [id, lv] of Object.entries(b.inv ?? {})) {
+            const k = `${b.uid}:${id}`;
+            if ((lv ?? 0) > (invSeen.by[k] ?? 0)) res.skillsAt.push({ id: `@${id}`, day: s.day, sector: s.sector ?? 'c1' });
+            invSeen.by[k] = lv ?? 0;
+          }
+      else invSeen.by = {};
+      invSeen.n = invNow;
+      invSeen.sector = s.sector;
+    }
 
     // ---- 1 日
     const d = step(s);
@@ -753,7 +816,9 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       if (p !== 'rta') c.lastBn = readBn(s);
       c.shopsThisMonth = 0;
       c.lineupDirty = true;
-      if (r.rank === 1 && cur.topDay == null) {
+      if (r.rank === 1 && r.revenue > 0 && cur.first == null) cur.first = r.month;
+      // 制覇（2 か月続けて 1 位）の月
+      if (s.cleared && cur.topDay == null) {
         cur.topDay = s.day;
         cur.months = r.month;
         cur.rev = r.revenue;
@@ -765,12 +830,12 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
       }
       if (cur.topDay == null && r.month >= MONTH_CAP) {
-        res.stop = `${cur.id} で ${MONTH_CAP} か月たっても 1 位になれない`;
+        res.stop = `${cur.id} で ${MONTH_CAP} か月たっても制覇できない`;
         break;
       }
     }
 
-    // ---- 1 位になったら、次のセクタへ（100% は依頼を済ませてから）
+    // ---- 制覇したら（2 か月続けて 1 位）、次のセクタへ（100% は依頼を済ませてから）
     if (s.cleared && cur.topDay != null) {
       const next = c.route[c.at + 1];
       const sectorMissionsLeft = MISSIONS.some((m) => m.sector === s.sector && s.missions[m.id] !== 'claimed');
@@ -838,7 +903,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
 
 // ---------------------------------------------------------------- 実時間
 
-/** セクタの区切りの実時間（秒）。until：'top'＝1 位まで、'left'＝離れるまで */
+/** セクタの区切りの実時間（秒）。until：'top'＝制覇まで、'left'＝離れるまで */
 export function secOf(p: PolicyId, r: SectorRun, until: 'top' | 'left'): number | null {
   const T = SIM_TIME[p];
   const end = until === 'top' ? r.topDay : r.left;
@@ -870,12 +935,12 @@ export function tables(rep: Report2): string {
   const out: string[] = [];
   const pols: PolicyId[] = ['rta', 'normal', 'full'];
   const seeds = [...new Set(rep.runs.map((r) => r.seed))];
-  out.push('### 表 1：方針 × セクタの「1 位までの月数」');
+  out.push('### 表 1：方針 × セクタの「制覇（2 か月続けて 1 位）までの月数」');
   out.push('');
-  out.push(`シード ${seeds.join('・')} の平均（最小〜最大）。月数は開店からの月の締めの回数。売上・資金は 1 位になった月の締めの時点。実時間は着いてから 1 位の締めまで（単価は下の SIM_TIME）。`);
+  out.push(`シード ${seeds.join('・')} の平均（最小〜最大）。月数は開店からの月の締めの回数。「初の 1 位」は初めて 1 位になった月（v3 までの「1 位までの月数」と同じもの）。売上・資金は制覇した月の締めの時点。実時間は着いてから制覇の締めまで（単価は下の SIM_TIME）。`);
   out.push('');
-  out.push('| 方針 | セクタ | ランク | 1 位までの月数 | 1 位の月の売上 | そのときの資金 | スキル数 | 実時間（1 位まで） | 1 位になれた |');
-  out.push('|---|---|---|---|---|---|---|---|---|');
+  out.push('| 方針 | セクタ | ランク | 制覇までの月数 | 初の 1 位 | 制覇の月の売上 | そのときの資金 | スキル数 | 実時間（制覇まで） | 制覇できた |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|');
   for (const p of pols) {
     const runs = rep.runs.filter((r) => r.policy === p);
     for (const id of routeOf(p)) {
@@ -883,16 +948,17 @@ export function tables(rep: Report2): string {
       const tops = rs.filter((x) => x.months != null);
       const months = tops.map((x) => x.months!);
       const secs = tops.map((x) => secOf(p, x, 'top')!);
-      const reach = `${tops.length}/${runs.length}${rs.length < runs.length ? `（未到達 ${runs.length - rs.length}）` : ''}${rs.length > tops.length ? `（1 位になれない ${rs.length - tops.length}）` : ''}`;
+      const reach = `${tops.length}/${runs.length}${rs.length < runs.length ? `（未到達 ${runs.length - rs.length}）` : ''}${rs.length > tops.length ? `（制覇できない ${rs.length - tops.length}）` : ''}`;
+      const firsts = rs.map((x) => x.first).filter((v): v is number => v != null);
       out.push(
-        `| ${POLICY_NAME[p]} | ${sectorName(id)} | ${sectorDef(id).tier} | ${tops.length ? `${mean(months).toFixed(1)}（${range(months)}）` : '1 位になれない'} | ${tops.length ? `${fmtG(mean(tops.map((x) => x.rev)))}（${range(tops.map((x) => x.rev), fmtG)}）` : '—'} | ${tops.length ? fmtG(mean(tops.map((x) => x.money))) : '—'} | ${tops.length ? mean(tops.map((x) => x.skills)).toFixed(0) : '—'} | ${tops.length ? `${fmtMin(mean(secs))}（${range(secs, fmtMin)}）` : '—'} | ${reach} |`,
+        `| ${POLICY_NAME[p]} | ${sectorName(id)} | ${sectorDef(id).tier} | ${tops.length ? `${mean(months).toFixed(1)}（${range(months)}）` : '制覇できない'} | ${firsts.length ? `${mean(firsts).toFixed(1)}（${range(firsts)}）` : '—'} | ${tops.length ? `${fmtG(mean(tops.map((x) => x.rev)))}（${range(tops.map((x) => x.rev), fmtG)}）` : '—'} | ${tops.length ? fmtG(mean(tops.map((x) => x.money))) : '—'} | ${tops.length ? mean(tops.map((x) => x.skills)).toFixed(0) : '—'} | ${tops.length ? `${fmtMin(mean(secs))}（${range(secs, fmtMin)}）` : '—'} | ${reach} |`,
       );
     }
   }
   out.push('');
   out.push('### 表 2：方針ごとの合計と、憲章の目標との差');
   out.push('');
-  out.push('合計は、着いてから次のセクタへ移るまで（1 位のあと資金をためる月も含む）＋ チュートリアル。Rare 以降は未実装なので「—」。');
+  out.push('合計は、着いてから次のセクタへ移るまで（制覇のあと資金をためる月も含む）＋ チュートリアル。Rare 以降は未実装なので「—」。');
   out.push('');
   out.push('| 方針 | 回ったセクタ | 合計の月数（ゲーム内） | 行動の数 | 合計の実時間 | うち Common | うち Uncommon | Rare〜Legendary | 憲章の目標（Lime 全体） | 目標の配分での C＋U の目安 | 差 |');
   out.push('|---|---|---|---|---|---|---|---|---|---|---|');
@@ -916,7 +982,7 @@ export function tables(rep: Report2): string {
     const m = mean(tot);
     const diff = m < tg.cu[0] ? `目安より ${fmtMin(tg.cu[0] - m)} 短い` : m > tg.cu[1] ? `目安より ${fmtMin(m - tg.cu[1])} 長い` : '目安の範囲';
     out.push(
-      `| ${POLICY_NAME[p]} | 1 位 ${visited.toFixed(1)} / ${routeOf(p).length}（完走 ${done}/${runs.length}） | ${mean(months).toFixed(1)}（${range(months.map((v) => Math.round(v)))}） | ${Math.round(mean(acts))} | ${fmtH(m)}（${range(tot, fmtH)}） | ${fmtH(mean(byTier('C')))} | ${fmtH(mean(byTier('U')))} | — | ${tg.label} | ${fmtH(tg.cu[0])}〜${fmtH(tg.cu[1])} | ${diff} |`,
+      `| ${POLICY_NAME[p]} | 制覇 ${visited.toFixed(1)} / ${routeOf(p).length}（完走 ${done}/${runs.length}） | ${mean(months).toFixed(1)}（${range(months.map((v) => Math.round(v)))}） | ${Math.round(mean(acts))} | ${fmtH(m)}（${range(tot, fmtH)}） | ${fmtH(mean(byTier('C')))} | ${fmtH(mean(byTier('U')))} | — | ${tg.label} | ${fmtH(tg.cu[0])}〜${fmtH(tg.cu[1])} | ${diff} |`,
     );
   }
   out.push('');
@@ -933,7 +999,7 @@ export function observations(rep: Report2): string {
   const out: string[] = [];
   out.push('### 計測の生データ（観察のもと）');
   out.push('');
-  out.push('ボトルネック（1 位になるまでの月の締め）の分布：ゲームの表示（`bottleneck()`）/ 人の読み（`readBn`：調達と製造の棒が同じ長さなら製造）');
+  out.push('ボトルネック（制覇するまでの月の締め）の分布：ゲームの表示（`bottleneck()`）/ 人の読み（`readBn`：調達と製造の棒が同じ長さなら製造）');
   out.push('');
   out.push('| 方針 | ランク | 月数 | 調達 | 製造 | 運搬 | 販売 |');
   out.push('|---|---|---|---|---|---|---|');
@@ -955,9 +1021,9 @@ export function observations(rep: Report2): string {
     }
   }
   out.push('');
-  out.push('月末の資金（1 位になるまで）：最小・最大・「3,000 G 未満」の月・「10 万 G 以上」の月');
+  out.push('月末の資金（制覇するまで）：最小・最大・「3,000 G 未満」の月・「10 万 G 以上」の月');
   out.push('');
-  out.push('| 方針 | セクタ | 最小 | 最大 | 3,000 G 未満 | 10 万 G 以上 | 1 位の月の 1 位の他社の売上 |');
+  out.push('| 方針 | セクタ | 最小 | 最大 | 3,000 G 未満 | 10 万 G 以上 | 制覇の月の 1 位の他社の売上 |');
   out.push('|---|---|---|---|---|---|---|');
   for (const p of ['rta', 'normal', 'full'] as PolicyId[]) {
     for (const id of routeOf(p)) {
@@ -969,18 +1035,18 @@ export function observations(rep: Report2): string {
   }
   out.push('');
   if (rep.ablation.length) {
-    out.push(`スキルの効き目（通常の方針・タオックスだけ・シード ${[...new Set(rep.runs.map((r) => r.seed))].join('・')}）：そのスキルを取らせないときの「1 位までの月数」`);
+    out.push(`スキル・設備投資の効き目（通常の方針・タオックスだけ・シード ${[...new Set(rep.runs.map((r) => r.seed))].join('・')}）：それを取らせないときの「制覇までの月数」。「@」は設備投資`);
     out.push('');
-    out.push('| スキル | ふつう | 取らないとき | 差 |');
+    out.push('| スキル・設備投資 | ふつう | 取らないとき | 差 |');
     out.push('|---|---|---|---|');
-    for (const a of rep.ablation) out.push(`| ${SKILL[a.skill]?.name ?? a.skill}（${a.skill}） | ${a.base.toFixed(1)} | ${a.without.toFixed(1)} | ${(a.without - a.base >= 0 ? '+' : '') + (a.without - a.base).toFixed(1)} |`);
+    for (const a of rep.ablation) out.push(`| ${SKILL[a.skill]?.name ?? INVEST[a.skill.slice(1)]?.name ?? a.skill}（${a.skill}） | ${a.base.toFixed(1)} | ${a.without.toFixed(1)} | ${(a.without - a.base >= 0 ? '+' : '') + (a.without - a.base).toFixed(1)} |`);
     out.push('');
   }
   if (rep.noTech?.length) {
     const base = rep.runs.filter((r) => r.policy === 'normal');
-    out.push(`技なしとの比べ（通常の方針・シード ${rep.noTech.map((r) => r.seed).join('・')}）：技を 1 つも取らず、基礎の商品（多くは他店で供給が足りている）だけで戦ったときの「1 位までの月数」。${MONTH_CAP} か月で 1 位になれなければ「なれない」`);
+    out.push(`技なしとの比べ（通常の方針・シード ${rep.noTech.map((r) => r.seed).join('・')}）：技を 1 つも取らず、基礎の商品（多くは他店で供給が足りている）だけで戦ったときの「制覇までの月数」。${MONTH_CAP} か月で制覇できなければ「なれない」`);
     out.push('');
-    out.push('| セクタ | ふつう | 技なし | 技なしで 1 位になれた |');
+    out.push('| セクタ | ふつう | 技なし | 技なしで制覇できた |');
     out.push('|---|---|---|---|');
     for (const id of routeOf('normal')) {
       const m = (rs: RunResult[]) => rs.map((r) => r.sectors.find((x) => x.id === id)?.months).filter((v): v is number => v != null);
