@@ -209,3 +209,19 @@ describe('はじまりの国 Lime：21 セクタ', () => {
     }
   });
 });
+
+describe('セクタの特産のルートと、詰まりの指し方', () => {
+  it('港町に移ると、紙・布・宝石のルートが会社のスキルなしで使える（hasRoute）', async () => {
+    const M = await import('../src/island/p1/model');
+    const s = M.newP1(1, 'U', 'u1');
+    expect(M.hasRoute(s, 'paper')).toBe(true);
+    const c = M.newP1(1, 'C', 'c1');
+    expect(M.hasRoute(c, 'paper')).toBe(false);
+  });
+  it('同じ細さなら、調達ではなく製造を詰まりと指す', async () => {
+    const M = await import('../src/island/p1/model');
+    const cap = (perMonth: number) => ({ perMonth, stopped: false }) as never;
+    expect(M.bottleneck({ buy: cap(10), craft: cap(10), haul: cap(20), sell: cap(30) })).toBe('craft');
+    expect(M.bottleneck({ buy: cap(5), craft: cap(10), haul: cap(20), sell: cap(30) })).toBe('buy');
+  });
+});

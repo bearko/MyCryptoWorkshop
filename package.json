@@ -14,6 +14,7 @@
     "typecheck": "tsc",
     "balance": "node scripts/sync-assets.mjs && node scripts/balance.mjs",
     "sim:empire": "node scripts/empire-sim.mjs",
+    "island:sim": "vitest run tests/island-p1-sim.test.ts --silent=false --reporter=verbose",
     "i18n:check": "node scripts/i18n-check.mjs",
     "design:tokens": "node scripts/design-tokens.mjs",
     "pixel:lint": "node scripts/pixel-lint.mjs",

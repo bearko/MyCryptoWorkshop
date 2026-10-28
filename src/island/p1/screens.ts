@@ -38,6 +38,7 @@ import {
   type Task,
 } from './data';
 import {
+  hasRoute,
   adBoost,
   fullUse,
   procCap,
@@ -880,7 +881,7 @@ export function openBuy(ctx: Ctx) {
       card.append(h('h3', '', t('素材を買い足す（卸問屋）', 'Top up materials (wholesaler)')));
       // 作っているものの素材（まだ何も作っていなければ、ルートのある素材）
       const mats = procMats(s).map((x) => x.m);
-      for (const m of mats.length ? mats : s.routes) {
+      for (const m of mats.length ? mats : MAT_KEYS.filter((m) => hasRoute(s, m))) {
         const row = h('div', 'isl-row');
         row.append(matIcon(m, 36), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}`, `have ${s.mats[m] ?? 0}`)));
         const b = btn(t(`1 ロット（${LOT} 個）注文する（${money(matPrice(s, m) * LOT)}・納期 ${leadDays(s)} 日）`, `Order 1 lot (${LOT}) — ${money(matPrice(s, m) * LOT)}, ${leadDays(s)} days`), () => {
@@ -955,7 +956,7 @@ export function openBuy(ctx: Ctx) {
     const order = [...MAT_KEYS].sort((a, b) => Number(!picked.some((x) => x.m === a)) - Number(!picked.some((x) => x.m === b)));
     for (const m of order) {
       const card = h('div', 'isl-card2 isl-matrow');
-      const route = s.routes.includes(m);
+      const route = hasRoute(s, m);
       const sel = picked.find((x) => x.m === m);
       const top = h('div', 'isl-row');
       top.append(matIcon(m, 32), h('b', '', MATS[m].name), h('span', 'isl-dim', t(`在庫 ${s.mats[m] ?? 0}・1 個 ${matPrice(s, m)} G`, `have ${s.mats[m] ?? 0}, ${matPrice(s, m)} G each`)));
@@ -1064,7 +1065,7 @@ export function jobOptions(s: P1State) {
   out.push({ value: 'transport', label: t('運搬', 'Haul') });
   out.push({ value: 'buy', label: t('調達（自動の買い付け）', 'Buying (automatic)') });
   for (const b of myShops(s)) out.push({ value: `shop:${b.uid}`, label: t(`販売：${DEF[b.id].name}`, `Sell: ${DEF[b.id].name}`) });
-  for (const m of MAT_KEYS) if (!s.routes.includes(m)) out.push({ value: `explore:${m}`, label: t(`開拓：${MATS[m].name}`, `Scout: ${MATS[m].name}`) });
+  for (const m of MAT_KEYS) if (!hasRoute(s, m)) out.push({ value: `explore:${m}`, label: t(`開拓：${MATS[m].name}`, `Scout: ${MATS[m].name}`) });
   for (const r of s.rivals) if (intelLv(s, r.id) < INTEL.length) out.push({ value: `intel:${r.id}`, label: t(`調査：${rivalName(r.id)}`, `Research: ${rivalName(r.id)}`) });
   return out;
 }

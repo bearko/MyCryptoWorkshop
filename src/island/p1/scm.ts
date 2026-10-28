@@ -7,7 +7,7 @@ import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { MAT_KEYS, MATS, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
-import { bottleneck, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { bottleneck, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
@@ -235,7 +235,7 @@ export function openSupply(ctx: Ctx) {
     const mats = h('div', 'isl-stock');
     mats.append(h('small', 'isl-scm-cap', t('素材の在庫', 'Materials')));
     for (const m of MAT_KEYS) {
-      if (!s.routes.includes(m) && !(s.mats[m] ?? 0)) continue;
+      if (!hasRoute(s, m) && !(s.mats[m] ?? 0)) continue;
       const c = h('span', `isl-chip ${(s.mats[m] ?? 0) < 6 ? 'is-bad' : ''}`);
       c.append(matIcon(m as Mat, 22), h('small', '', `${s.mats[m] ?? 0}`));
       mats.append(c);
