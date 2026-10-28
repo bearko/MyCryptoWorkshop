@@ -47,6 +47,7 @@ import {
   depotInfo,
   missionProgress,
   siteInfo,
+  tutSpot,
   walkDays,
   buildCatOpen,
   buildKnown,
@@ -79,6 +80,7 @@ import {
   type Ctx,
   mineTip,
   shopScene,
+  shopSceneSale,
   open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
@@ -258,6 +260,8 @@ const speedBox = h('div', 'isl-speed');
 speedBox.append(...speedBtns);
 hud.append(statMoney, statBrand, statSales, statRank, statSector, statDate, h('div', 'isl-spacer'), speedBox);
 
+/** 流れの案内：売れたけれど、店内のレジでまだ払っていない額（上の帯にはまだ出さない） */
+let tourUnpaid = 0;
 /** 資金の表示（減ったときは数字が下がっていく演出） */
 let shownMoney = s.money;
 let moneyAnim: { from: number; to: number; t0: number } | null = null;
@@ -297,7 +301,7 @@ function renderHud() {
     statMoney.classList.add('is-spending');
   } else if (!moneyAnim) {
     shownMoney = s.money;
-    moneyText(s.money);
+    moneyText(s.money - tourUnpaid);
   }
   const lb = t('ブランド力', 'Brand');
   statBrand.innerHTML = `<small>${lb}</small><b>★ ${s.brand ?? 0}</b>`;
@@ -308,7 +312,7 @@ function renderHud() {
   }
   brandNews();
   const ls = t('今月の売上', 'Sales this month');
-  statSales.innerHTML = `<small>${ls}</small><b>${money(monthRevenue(s))}</b>`;
+  statSales.innerHTML = `<small>${ls}</small><b>${money(monthRevenue(s) - tourUnpaid)}</b>`;
   const last = s.reports[s.reports.length - 1];
   statRank.hidden = !last;
   const lr = t('エリア', 'Area');
@@ -669,9 +673,12 @@ function openBuildSheet() {
         }
         closeSheet();
         selected = null;
-        const at = buildAt ?? undefined;
+        const sp = guideId === id ? tutSpot(s, id) : null;
+        const at = sp ? ([sp[0], sp[1]] as [number, number]) : (buildAt ?? undefined);
         buildAt = null;
-        startPlacing(id, { at });
+        startPlacing(id, { at, dir: sp?.[2] });
+        // チュートリアル：建ててもらう場所を大きく
+        if (sp) tween = { x0: cam.x, y0: cam.y, x1: (sp[0] - sp[1]) * 100, y1: (sp[0] + sp[1]) * 55, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 0.6 : 0.85, dur: 700 };
       });
       grid.append(c);
     }
@@ -686,7 +693,19 @@ function fitDir() {
   const ok = allowedDirs(s, placing.id, placing.i, placing.j, ignoreOf());
   if (ok.length && !ok.includes(placing.dir)) placing.dir = ok[0];
 }
-const placeErr = () => (placing ? (placing.move != null ? canMoveTo(s, placing.move, placing.i, placing.j, placing.dir) : canPlaceAt(s, placing.id, placing.i, placing.j, placing.dir)) : null);
+/** チュートリアルで建ててもらう場所（建築で光らせている建物を置くときだけ） */
+function tutSpotNow(): [number, number, Dir] | null {
+  if (!placing || placing.move != null) return null;
+  const st = tutStep();
+  return st?.card === placing.id ? tutSpot(s, placing.id) : null;
+}
+const placeErr = (): PlaceErr | 'spot' | null => {
+  if (!placing) return null;
+  const e = placing.move != null ? canMoveTo(s, placing.move, placing.i, placing.j, placing.dir) : canPlaceAt(s, placing.id, placing.i, placing.j, placing.dir);
+  if (e) return e;
+  const sp = tutSpotNow();
+  return sp && (sp[0] !== placing.i || sp[1] !== placing.j) ? 'spot' : null;
+};
 
 // 置くときの画面：右上に「選択中」と戻る、建物のそばに理由・建てる・回す
 const selBox = h('div', 'isl-selbox');
@@ -738,8 +757,9 @@ function tweenTo(i: number, j: number) {
 }
 
 /** 置けない理由（短く。地図の建物のそばに出す） */
-function reasonOf(err: PlaceErr | null): string {
+function reasonOf(err: PlaceErr | 'spot' | null): string {
   if (!err || !placing) return '';
+  if (err === 'spot') return t('光っている場所に建ててみて！', 'Build on the glowing spot!');
   if (err === 'ground') {
     const onRoad = cells(DEF[placing.id], placing.i, placing.j, placing.dir).some(([x, y]) => ground(s, x, y) === 'road');
     return onRoad ? t('道路には置けません', 'Not on a road') : t('ここには置けません', 'Can’t build here');
@@ -1288,6 +1308,17 @@ function tutTick() {
     tutSeen.add(tutOpen);
     tutOpen = null;
   }
+  // 段の条件を満たしたとき、画面を開いたまま説明する（例：工房の設定が終わったら、自動製造の説明）
+  const cur = TUT[k];
+  if (cur?.sheetTalk && sheetOpen() && !s.flags.craftTalk && !root.querySelector('.isl-modal') && !root.querySelector('.isl-picker') && cur.done(s, tutSeen)) {
+    s.flags.craftTalk = true;
+    save();
+    talk(cur.sheetTalk.pages, cur.sheetTalk.ok, () => {
+      closeSheet();
+      renderAll();
+    });
+    return;
+  }
   let moved = false;
   while (k < TUT.length && TUT[k].done(s, tutSeen)) {
     k++;
@@ -1333,6 +1364,12 @@ function tutTick() {
   // 初売上までの流れを、地図の上で順に見せる（スキップできない）
   if (st.id === 'firstSale' && !s.flags.tour && tutFree() && performance.now() >= tutIntroAfter) {
     startTour();
+    return;
+  }
+  if (st.autoGo && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
+    tutIntro = k;
+    const a = actOf(st, s);
+    if (a) tutGo(a[1]);
     return;
   }
   if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
@@ -1391,7 +1428,7 @@ const TOUR: TourStage[] = [
   { key: 'craft', label: t('② 製造', '② Craft'), say: t('[[② 製造]]。職人が作業台でセンスを作っているよ。建物のまわりの輪が一周したら、できあがり！', '[[② Craft]]: the crafter is making Sensu. When the ring around the building completes, a batch is done!'), then: t('できた！ 作るには、何日か時間がかかるんだね。', 'Done! Crafting takes a few days.'), wait: 'made', speed: 1 },
   { key: 'haul', label: t('③ 物流', '③ Haul'), say: t('[[③ 物流]]。運搬係が工房を出て、道路を通ってお店まで荷車を押していくよ。', '[[③ Haul]]: the hauler leaves the workshop and pushes the cart along the road to the shop.'), then: t('お店に着いた！ 遠いお店ほど、運ぶのに日数がかかるよ。', 'Delivered! The farther the shop, the longer it takes.'), wait: 'dropped', speed: 0.5 },
   { key: 'look', label: t('④ 販売', '④ Sell'), say: t('[[④ 販売]]。お店に注目！ 届いた商品を目当てに、お客さんが入っていくよ。', '[[④ Sell]]: watch the shop! Customers are heading in.'), then: t('[[お店]]をタップして、中をのぞいてみよう！', 'Tap the [[shop]] to look inside!'), speed: 0 },
-  { key: 'inside', label: t('④ 販売', '④ Sell'), say: t('店員が商品を棚に並べて、お客さんを待っているよ。お客さんが手に取って、レジに来るかな？', 'The clerk shelves the goods and waits. Will a customer pick one up and pay?'), then: t('売れた！ お客さんが買ってくれて、はじめて売上になるんだ。', 'Sold! Sales only happen when a customer buys.'), wait: 'sold', speed: 1 },
+  { key: 'inside', label: t('④ 販売', '④ Sell'), say: t('店員が商品を棚に並べて、お客さんを待っているよ。お客さんが手に取って、レジに来るかな？', 'The clerk shelves the goods and waits. Will a customer pick one up and pay?'), then: t('売れた！ お客さんがレジでお金を払ってくれて、はじめて売上になるんだ。', 'Sold! Sales only happen when a customer pays at the register.'), wait: 'sold', speed: 2 },
   { key: 'end', label: '', say: t('① 調達 → ② 製造 → ③ 物流 → ④ 販売。どれか 1 つでも止まると、売上も止まるよ。', '① Buy → ② Craft → ③ Haul → ④ Sell. If any one stops, sales stop too.'), speed: 0 },
 ];
 /** 一言を読む時間（ミリ秒） */
@@ -1420,6 +1457,8 @@ function startTour() {
 function tourStage() {
   if (!tour) return;
   const st = TOUR[tour.k];
+  // お店の中を見せるまでは売らない（売上はレジで払ったときに見せる）
+  s.holdSales = st.key !== 'inside' && st.key !== 'end';
   tour.t0 = performance.now();
   tour.ev = null;
   speed = st.speed;
@@ -1446,7 +1485,15 @@ function tourStage() {
       const shop = myShops(s)[0];
       if (shop) {
         const box = h('div', 'isl-tour-shop');
-        box.append(shopScene(s, shop.uid));
+        // レジの前で払ったら（店員の頭の上に +N GUM）、はじめて「売れた」
+        box.append(
+          shopScene(s, shop.uid, (yen) => {
+            sfx.play('sale');
+            tourUnpaid = Math.max(0, tourUnpaid - yen);
+            renderHud();
+            tourOn('sold');
+          }),
+        );
         tour.inside = box;
       }
     }
@@ -1472,7 +1519,6 @@ function tourOn(ev: TourEv | null, ev2: TourEv | null = null) {
     tour.ev = performance.now();
     // ゆっくりにして、一言を読んでもらう（動きは止めない）
     speed = 0.3;
-    if (st.key === 'inside' && tour.inside) tour.inside.append(h('div', 'isl-tour-sold', t('売れた！', 'Sold!')));
     sfx.play('check');
     tourRender();
   }
@@ -1525,7 +1571,7 @@ function tourFrame(now: number) {
     const trip = s.trips.find((x) => !x.dropped && myShops(s).some((b) => b.uid === x.to));
     const to = trip ? s.buildings.find((b) => b.uid === trip.to) : null;
     const from = trip ? ((trip.from != null ? s.buildings.find((b) => b.uid === trip.from) : null) ?? myWorkshop(s)) : null;
-    if (trip && to && from) {
+    if (trip && to && from && tour.ev == null) {
       const path = pathOf(doorOf(from), doorOf(to));
       if (path && path.length > 1) {
         const k = Math.min(1, (1 - (trip.left - acc / dayMs()) / trip.total) * 2);
@@ -1535,12 +1581,19 @@ function tourFrame(now: number) {
     }
   }
   // スポットライト：届ける人・荷車を追い、工房・お店は建物に
-  const bld = st.key === 'craft' || (st.key === 'haul' && !target) ? myWorkshop(s) : null;
+  // 物流：荷物をお店に届けたら、そのままお店を映す
+  const delivered = st.key === 'haul' && tour.ev != null;
+  const bld = st.key === 'craft' || (st.key === 'haul' && !target && !delivered) ? myWorkshop(s) : delivered && !target ? myShops(s)[0] : null;
   if (!target && bld) target = [bld.i, bld.j];
   anim.spot = target ? { i: target[0], j: target[1], r: st.key === 'buy' || (st.key === 'haul' && !bld) ? 150 : 210 } : null;
   if (target && !tween && (st.key === 'buy' || st.key === 'haul')) {
+    if (delivered) {
+      cam.x += ((target[0] - target[1]) * 100 - cam.x) * 0.08;
+      cam.y += ((target[0] + target[1]) * 55 - 40 - cam.y) * 0.08;
+    } else {
     cam.x += ((target[0] - target[1]) * 100 - cam.x) * 0.08;
     cam.y += ((target[0] + target[1]) * 55 - 30 - cam.y) * 0.08;
+    }
   }
   dirty = true;
   // 次へ進む：待つできごとが無い段は読む時間、ある段はできごと（か上限）のあと読む時間
@@ -1576,6 +1629,8 @@ function tourFrame(now: number) {
   root.classList.remove('is-tour');
   tourEl.hidden = true;
   s.flags.tour = true;
+  s.holdSales = false;
+  tourUnpaid = 0;
   speed = 1;
   save();
   renderAll();
@@ -1643,8 +1698,22 @@ function talk(pages: TutPage[], ok: string, then: () => void) {
   box.append(mine, name, text, foot);
   m.append(stage, box);
   let k = 0;
+  /** 画面の中の部分を、金色の枠で囲んで見せる（まわりは暗く） */
+  const ring = h('div', 'isl-talk-focus');
   const show = () => {
     const pg = pages[k];
+    ring.remove();
+    m.classList.toggle('has-focus', !!pg.focus);
+    const el = pg.focus ? root.querySelector<HTMLElement>(pg.focus) : null;
+    if (el) {
+      el.scrollIntoView({ block: 'center' });
+      requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        const pad = 8;
+        Object.assign(ring.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+        m.prepend(ring);
+      });
+    }
     const last = k === pages.length - 1;
     mine.src = assetUrl(last ? 'mch/Image/Characters/navi_ain_cross_01_smile.png' : 'mch/Image/Characters/navi_ain_speak_00_talk.png');
     text.replaceChildren(rich(pg.text));
@@ -2155,7 +2224,6 @@ function addCoin(uid: number, yen: number, t: number) {
   while (list.length > 12) list.shift();
   anim.coins.set(uid, list);
   sfx.play('sale');
-  if (tour) tourOn('sold');
 }
 // ---------------------------------------------------------------- 街の人通り（他社のお客さん・駅を行き交う人・散歩する人）
 
@@ -2266,7 +2334,7 @@ function tickAnim(dtGame: number) {
     if (path) anim.buyer = { hero: tour.deliver.hero, path, k: 0.5 + f * 0.5, carry: tour.deliver.mat };
   }
 }
-const animating = () => anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || s.trips.length > 0 || !!s.orders?.length || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
+const animating = () => !!anim.mark || anim.crowd.length > 0 || anim.walkers.length > 0 || !!anim.buyer || s.trips.length > 0 || !!s.orders?.length || anim.plus.length > 0 || s.slots.some((sl) => sl.running) || [...anim.coins.values()].some((l) => l.some((c) => anim.clock - c.t < 2600));
 let lastDraw = 0;
 let last = performance.now();
 let lastWater = -1;
@@ -2287,6 +2355,10 @@ function advance(days: number) {
     const wsb = myWorkshop(s);
     if (wsb) for (const m of r.made) anim.plus.push({ uid: wsb.uid, n: m.n, t: anim.clock });
     if (r.sales.length) spawnCustomers(r.sales);
+    // 開いている店内の様子に、買うお客さんを来させる
+    for (const x of r.sales) shopSceneSale(x.uid, x.sku, x.yen);
+    // 流れの案内で店内を見ているあいだは、レジで払うまで上の帯の数字に入れない
+    if (tour && TOUR[tour.k].key === 'inside') tourUnpaid += r.sales.reduce((a, x) => a + x.yen, 0);
     if (tour) tourOn(r.made.length > 0 ? 'made' : null, r.delivered.some((x) => x.n > 0 && myShops(s).some((b) => b.uid === x.to)) ? 'dropped' : null);
     if (r.missions.length) sfx.play('mission');
     for (const g of r.grew) toast(t(`${heroName(g.hero)}の ${g.stat.toUpperCase()} が 1 上がりました（バイトの経験）`, `${heroName(g.hero)}’s ${g.stat.toUpperCase()} rose by 1 (part-time work)`));
@@ -2424,6 +2496,9 @@ function frame(now: number) {
   lastWater = wf;
   if (dirty) {
     dirty = false;
+    // チュートリアル：建ててもらう場所に「ここに建ててみて！」
+    const sp = tutSpotNow();
+    anim.mark = sp ? { i: sp[0], j: sp[1], label: t('ここに建ててみて！', 'Build here!') } : null;
     const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr(), area: P1B[placing.id]?.kind === 'shop' } : null;
     lastDraw = now;
     drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim);

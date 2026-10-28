@@ -20,6 +20,8 @@ export type TutGo = 'build' | 'workshop' | 'shop' | 'staff' | 'hire' | 'buy' | '
 export interface TutPage {
   text: string;
   show?: 'crew' | 'cycle' | 'gift';
+  /** 一緒に枠で囲んで見せる画面の中の部分（CSS セレクタ） */
+  focus?: string;
   /** show: 'gift' のときの中身（無ければ「人材の募集」） */
   gift?: { icon: string; title: string; note: string };
   /** show: 'crew' のとき、前に出すヒーロー（ほかは少し暗く） */
@@ -50,6 +52,10 @@ export interface TutStep {
   tips?: Partial<Record<string, (s: P1State) => string>>;
   /** この段に入ったときの会話（1 枚ずつ。最後の枚のボタンが ok で、act の画面を開く） */
   intro?: { pages: TutPage[]; ok: string };
+  /** 段の条件を満たしたとき、画面を開いたまま出す会話（ok で画面を閉じる） */
+  sheetTalk?: { pages: TutPage[]; ok: string };
+  /** 段に入ったら（クリアの演出のあと）、会話なしで act の画面を開く */
+  autoGo?: boolean;
   /** この段に入るときに、マインちゃんが援助する資金（足りないときだけ。0 なら無し） */
   grant?: (s: P1State) => number;
   /** 次の段へ進む条件。seen：この段に入ってから開いて閉じた画面 */
@@ -82,7 +88,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('建てる場所を選ぶ', 'Choose a spot'),
     },
-    say: () => t('[[工房]]は、エクステを作る場所。光っている工房を選んで、道路沿いに置こう！', 'The [[workshop]] is where Extensions are made. Pick the glowing one and place it by a road!'),
+    say: () => t('[[工房]]は、エクステを作る場所。光っている工房を選んで、地図の「ここに建ててみて！」の場所に建てよう！', 'The [[workshop]] is where Extensions are made. Pick the glowing one and build it on the “Build here!” spot!'),
     act: [t('建築を開く', 'Open Build'), 'build'],
     hl: 'plan:build',
     card: 'workshop',
@@ -128,19 +134,21 @@ export const TUT: TutStep[] = [
       [t('作業台に職人を置く', 'Put a crafter on the bench'), (s) => s.slots.some((sl) => sl.worker != null)],
       [t('作るエクステを選ぶ', 'Choose what to make'), (s) => s.slots.some((sl) => !!sl.sku)],
     ],
+    sheetTalk: {
+      pages: [
+        { text: t('これで[[工房]]の設定は完了！', 'The [[workshop]] is all set!') },
+        { text: t('[[自動製造]]にチェックが入っていると、素材があるかぎり、エクステを作り続けてくれるよ！', 'With [[Auto]] checked, it keeps making Extensions as long as there are materials!'), focus: '.isl-plan-auto' },
+        { text: t('今ある素材がなくなると製造が止まっちゃうから、次は[[素材]]を調達しよう！', 'When the materials run out, crafting stops. Next, let’s get more [[materials]]!') },
+      ],
+      ok: t('素材を調達する', 'Get materials'),
+    },
     done: (s) => s.slots.some((sl) => sl.worker != null && !!sl.sku),
   },
   {
     id: 'mats',
     goal: (_s) => t('卸問屋に素材を注文する', 'Order materials from the wholesaler'),
     praise: t('これで当分、作り続けられるね！', 'That keeps the bench busy for a while!'),
-    intro: {
-      pages: [
-        { text: t('作り始めたね！ でも、持ってきた[[素材]]はほんの少しだけ。', 'Crafting has started! But we only brought a few [[materials]].') },
-        { text: t('[[卸問屋]]に、ロット単位で注文しておこう。納期になると届けてくれるよ。', 'Let’s order a lot from the [[wholesaler]]. They deliver on the due day.') },
-      ],
-      ok: t('調達を開く', 'Open buying'),
-    },
+    autoGo: true,
     say: () => t('[[素材]]が切れると、工房は止まってしまう。「SCM」→「調達」で注文しよう！', 'Without [[materials]], the workshop stops. Order under SCM → Buy!'),
     act: [t('調達を開く', 'Open buying'), 'buy'],
     hl: 'scm:buy',
@@ -152,7 +160,6 @@ export const TUT: TutStep[] = [
     },
     checks: [
       [t('素材を 1 ロット注文する', 'Order 1 lot of materials'), (s) => s.proc.bought > 0],
-      [t('調達の画面を閉じる', 'Close the buying screen'), (_s, seen) => seen.has('buy')],
     ],
     done: (s, seen) => s.proc.bought > 0 && seen.has('buy'),
   },
@@ -160,7 +167,7 @@ export const TUT: TutStep[] = [
     id: 'shop',
     goal: (_s) => t('お店を建てる', 'Build a shop'),
     praise: t('お店の工事が始まったよ！', 'Shop construction has started!'),
-    say: () => t('作ったエクステは、[[お店]]で売るよ。光っている「よろず屋」を道路沿いに建てよう！', 'Extensions are sold in a [[shop]]. Build the glowing General store by a road!'),
+    say: () => t('作ったエクステは、[[お店]]で売るよ。光っている「よろず屋」を、工房から少し離れた「ここに建ててみて！」の場所に建てよう！', 'Extensions are sold in a [[shop]]. Build the glowing General store on the “Build here!” spot, a little away from the workshop!'),
     act: [t('建築を開く', 'Open Build'), 'build'],
     hl: 'plan:build',
     card: 'general_store',
