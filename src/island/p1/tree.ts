@@ -16,12 +16,12 @@ type Branch = Skill['branch'];
 
 /** 枝の向き（度。0 = 右、90 = 下）と、根もとから外へ並べる段（段ごとに横へ広げる） */
 const LAYOUT: Record<Branch, { angle: number; rows: string[][]; color: string; stage?: string }> = {
-  buy: { angle: -150, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['route_cloth', 'stock1', 'bulk'], ['route_paper', 'swift', 'eye', 'tidy'], ['scoutmap', 'route_gem', 'stock2', 'bulk2', 'rack'], ['stock3']] },
+  buy: { angle: -150, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['route_cloth', 'stock1', 'bulk'], ['route_paper', 'swift', 'eye', 'tidy'], ['scoutmap', 'route_gem', 'stock2', 'bulk2', 'rack'], ['stock3', 'b_partner']] },
   craft: { angle: -90, color: '#f2b544', stage: t('② 製造', '② Craft'), rows: [['bench2', 'jig'], ['pot', 'chair', 'jig2'], ['bench3']] },
   logi: { angle: -30, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['cart2', 'loading'], ['cart3', 'truck', 'hub', 'shortcut', 'backroom']] },
-  shop: { angle: 30, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['shelf1', 'host', 'parttime'], ['shelf2', 'shop2', 'display'], ['shop3']] },
-  ops: { angle: 90, color: '#c49bff', rows: [['pace1'], ['pace2']] },
-  people: { angle: 150, color: '#ff8fb0', rows: [['hire', 'lounge']] },
+  shop: { angle: 30, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['shelf1', 'host', 'parttime'], ['shelf2', 'shop2', 'display'], ['shop3', 'b_sign'], ['b_premium']] },
+  ops: { angle: 90, color: '#c49bff', rows: [['pace1'], ['pace2', 'b_ads']] },
+  people: { angle: 150, color: '#ff8fb0', rows: [['hire', 'lounge'], ['b_scout']] },
 };
 
 /** パネルの絵：建物（b）・エクステ（sku）・素材（mat）・ヒーロー（hero）・絵文字（仮。docs/ISLAND_ART_TODO.md） */
@@ -63,6 +63,11 @@ const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; em
   lounge: { b: 'cafe' },
   pace1: { b: 'radio' },
   pace2: { b: 'power' },
+  b_sign: { b: 'media' },
+  b_premium: { sku: 'Lantern:U' },
+  b_partner: { b: 'harbor' },
+  b_ads: { b: 'tower' },
+  b_scout: { b: 'arena' },
 };
 
 const UNIT = 96;
@@ -114,11 +119,19 @@ function iconOf(id: string, size: number): HTMLElement {
 }
 
 type State = 'done' | 'open' | 'poor' | 'locked';
+/** ブランド力が足りない（ブランド力が要るパネル） */
+const brandShort = (s: P1State, k: Skill) => !!k.brand && (s.brand ?? 0) < k.brand;
 function stateOf(s: P1State, k: Skill): State {
   if (has(s, k.id)) return 'done';
-  if (k.requires?.some((r) => !has(s, r))) return 'locked';
+  if (k.requires?.some((r) => !has(s, r)) || brandShort(s, k)) return 'locked';
   return s.money >= k.cost ? 'open' : 'poor';
 }
+/** ブランド力の札（★30 など） */
+function brandTag(s: P1State, k: Skill): HTMLElement | null {
+  if (!k.brand) return null;
+  return h('span', `isl-tree-brand ${brandShort(s, k) ? '' : 'is-ok'}`, `★${k.brand}`);
+}
+const brandNeed = (s: P1State, k: Skill) => t(`ブランド力 ${k.brand} が要る（いま ${s.brand ?? 0}）`, `Needs brand ${k.brand} (now ${s.brand ?? 0})`);
 
 const HQ_NOTE = t('会社のすべての事業の中心。開放すると、① 調達・② 製造・③ 物流・④ 販売・人材・経営の強化の枝が広がり、資金でスキルを習得できるようになります。', 'The heart of every business. Unlock it and upgrade branches spread out for Buying, Crafting, Hauling, Selling, People and Operations.');
 
@@ -139,6 +152,7 @@ function skillCard(s: P1State, k: Skill): HTMLElement {
   top.append(iconOf(k.id, 36), h('b', '', k.name));
   c.append(top, h('p', '', k.note));
   if (L.stage) c.append(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
+  if (k.brand) c.append(h('small', brandShort(s, k) ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
   if (k.requires?.length) c.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join('　')}`, `Needs: ${k.requires.map((r) => SKILL[r]?.name ?? r).join(', ')}`)));
   c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('習得済み', 'Learned') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・押して習得`, `${money(k.cost)} · click to learn`)));
   return c;
@@ -280,7 +294,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const L = LAYOUT[k.branch];
       const p = px(POS.get(k.id)!);
       const st = stateOf(s, k);
-      const n = h('button', `isl-tree-node is-${st} ${view.sel === k.id ? 'is-sel' : ''}`);
+      const n = h('button', `isl-tree-node is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''}`);
       n.type = 'button';
       n.style.left = `${p.x}px`;
       n.style.top = `${p.y}px`;
@@ -288,6 +302,8 @@ export function openSkills(ctx: Ctx, focus?: string) {
       setBurst(n, POS.get(k.id)!);
       hover(n, () => skillCard(s, k));
       n.append(iconOf(k.id, 44), h('span', 'isl-tree-name', k.name));
+      const bt = brandTag(s, k);
+      if (bt) n.append(bt);
       if (st === 'done') n.append(h('span', 'isl-tree-mark', '✓'));
       else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
       else n.append(h('span', 'isl-tree-cost', money(k.cost)));
@@ -351,10 +367,12 @@ export function openSkills(ctx: Ctx, focus?: string) {
         const need = sel.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join(t('　', '  '));
         txt.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${need}`, `Needs: ${need}`)));
       }
+      if (sel.brand) txt.append(h('small', brandShort(s, sel) ? 'isl-warn' : 'isl-good', brandNeed(s, sel)));
       top.append(ic, txt);
       const b = btn(st === 'done' ? t('習得済み', 'Learned') : st === 'locked' ? t('まだ取れない', 'Locked') : t(`習得する（${money(sel.cost)}）`, `Learn (${money(sel.cost)})`), () => {
         const e = learn(s, sel.id);
         if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+        else if (e === 'brand') ctx.toast(brandNeed(s, sel));
         else if (!e) ctx.toast(t(`「${sel.name}」を習得しました`, `Learned: ${sel.name}`));
         after(ctx);
       }, st === 'open' ? 'is-on' : '');

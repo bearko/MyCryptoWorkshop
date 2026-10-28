@@ -20,6 +20,8 @@ export interface TileHooks {
   redraw: () => void;
   /** 関所の通行料を払う */
   gate: () => void;
+  /** ランドマップを開く */
+  land: () => void;
 }
 
 const DESC: Record<string, string> = {
@@ -89,7 +91,10 @@ function gate(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
   body.append(meta([[t('管理者', 'Keeper'), t('ランドの自治体', 'Land government')], [t('この先', 'Beyond'), t('となりのランドセクタ', 'Next land sector')]]));
   body.append(h('p', '', t('ランドのふちにある関所。この先は、まだ見ぬとなりのランドセクタです。まとまった通行料を納めると開通し、次のセクタへ進めるようになります。', 'A gate at the edge of the land. Beyond lies the next land sector. Pay the toll to open it and move on.')));
   if (s.gateOpen) {
-    body.append(h('p', 'isl-gold', t('開通済み！次のランドセクタは準備中です。', 'Open! The next land sector is coming soon.')));
+    body.append(h('p', 'isl-gold', t('開通済み！ 関所の先のセクタは、ランドマップから行けます。', 'Open! Reach the sectors beyond from the land map.')));
+    const row = h('div', 'isl-row');
+    row.append(btn(t('ランドマップを開く', 'Open the land map'), () => hooks.land(), 'is-on'));
+    body.append(row);
     return body;
   }
   const toll = gateToll(s);

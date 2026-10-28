@@ -125,7 +125,7 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side' | 'manager';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
@@ -163,6 +163,9 @@ export function aptitude(s: Stats, task: Task): number {
     case 'side':
       // 他店でのバイト：売り場の仕事なので販売と同じ
       return 0.6 * s.int + 0.4 * s.agi;
+    case 'manager':
+      // セクタマネージャー：能力値の合計（平均）
+      return (s.phy + s.int + s.agi) / 3;
   }
 }
 
@@ -179,6 +182,74 @@ export const SIDE = { pay: 180, grow: 0.04, rescue: 10000 };
  * at は置く場所の目安（東のふち、横の道路の出口のそば）。
  */
 export const GATE = { mult: 1, round: 1000, at: [15, 8] as [number, number] };
+
+/**
+ * ブランド力（0〜max）。ランドセクタで 1 位になったり、実績を上げると上がり、順位が大きく下がったり不祥事で下がる。
+ * 売り場の強さが brand × pullPer だけ上がる（最大 pullCap）。スキルツリーにブランド力が要るパネルがある。
+ */
+export const BRAND = {
+  max: 999,
+  log: 30,
+  pullPer: 0.001,
+  pullCap: 0.3,
+  /** 上がるとき */
+  firstSale: 5,
+  sectorTop: 30,
+  stayTop: 5,
+  rankUp: 2,
+  mission: 3,
+  uncommon: 4,
+  gate: 10,
+  enter: { C: 5, U: 15, R: 25, E: 40, L: 60 } as Record<Tier, number>,
+  adsSkill: 2,
+  /** 下がるとき：順位が 2 つ以上下がったら、下がった数 × rankDown */
+  rankDown: 6,
+  /** 不祥事（妨害工作がばれた など。いまはまだ起きない） */
+  scandal: 60,
+};
+
+/** ランドセクタのランク（地図の広さ・他社の強さ・お客さんの多さ・Common の商品の売れにくさ・出店許可申請の費用） */
+export type Tier = 'C' | 'U' | 'R' | 'E' | 'L';
+export const TIERS: Record<Tier, { n: number; rival: number; demand: number; commonPull: number; color: string }> = {
+  C: { n: 16, rival: 1, demand: 1, commonPull: 1, color: '#b8c0d4' },
+  U: { n: 21, rival: 2.2, demand: 2, commonPull: 0.55, color: '#7ee08f' },
+  R: { n: 21, rival: 3.5, demand: 3, commonPull: 0.35, color: '#6fc6f0' },
+  E: { n: 26, rival: 5, demand: 4.5, commonPull: 0.25, color: '#b49bff' },
+  L: { n: 26, rival: 8, demand: 7, commonPull: 0.15, color: '#ffd257' },
+};
+export interface SectorDef {
+  id: string;
+  tier: Tier;
+  name: string;
+  /** 出店許可申請の費用（入国料） */
+  fee: number;
+  /** ランドマップの上の位置（0〜100） */
+  at: [number, number];
+  /** 雲に覆われていて、まだ行けない */
+  cloud?: boolean;
+  /** 開放の条件：そのランクのセクタに n 個以上出店 */
+  need?: { tier: Tier; n: number };
+  /** 開放されても、まだ遊べない（準備中） */
+  soon?: boolean;
+}
+export const SECTORS: SectorDef[] = [
+  { id: 'c1', tier: 'C', name: t('はじまりの浜', 'Firstlight Beach'), fee: 0, at: [26, 76] },
+  { id: 'c2', tier: 'C', name: t('風見の丘', 'Windvane Hill'), fee: 5000, at: [54, 86] },
+  { id: 'c3', tier: 'C', name: t('湖のほとり', 'Lakeside'), fee: 8000, at: [19, 54] },
+  { id: 'u1', tier: 'U', name: t('港町', 'Harbor Town'), fee: 150000, at: [77, 66] },
+  { id: 'u2', tier: 'U', name: t('商人の坂', 'Merchant Slope'), fee: 220000, at: [36, 34] },
+  { id: 'r1', tier: 'R', name: t('王都の市場', 'Royal Market'), fee: 600000, at: [62, 46], need: { tier: 'U', n: 2 }, soon: true },
+  { id: 'e1', tier: 'E', name: t('天空の商都', 'Sky Exchange'), fee: 0, at: [82, 26], cloud: true },
+  { id: 'l1', tier: 'L', name: t('伝説の大都会', 'Legend Metropolis'), fee: 0, at: [55, 14], cloud: true },
+];
+
+/**
+ * セクタマネージャー：離れたセクタを、指名したヒーローが運営する。
+ * 月の売上 ＝ 離れたときの売上 ×（at0 ＋ 適性 × per。min〜max）× ゆらぎ（±noise）×（投資で伸びたぶん）。
+ * 適性は能力値の平均。見習い（約 28）で 0.83、コモンの強い人（約 45）で 1.0、レジェンダリー（約 75）で 1.3。
+ * 投資：利益のうち invest の割合をそのセクタへ。投資 1 G で月の売上が roi G 伸びる。
+ */
+export const MANAGER = { at0: 0.55, per: 0.01, min: 0.5, max: 1.4, none: 0.5, noise: 0.12, roi: 0.25, invest: 0.3, choices: [0, 0.3, 0.5, 0.8] };
 /** 1 日働くとスタミナが減る量と、休むと戻る量 */
 export const STAMINA = { work: 10, rest: 30, tired: 0.15, back: 0.8 };
 /** 雇ったヒーローの月給（基準）。能力の合計に比例 */
@@ -222,6 +293,8 @@ export interface Skill {
   note: string;
   cost: number;
   requires?: string[];
+  /** 取るのに要るブランド力 */
+  brand?: number;
 }
 
 export const SKILLS: Skill[] = [
@@ -262,6 +335,12 @@ export const SKILLS: Skill[] = [
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
   { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
   { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
+  // ブランド力が要る強いパネル
+  { id: 'b_sign', branch: 'shop', name: t('ブランドの看板', 'Brand signboards'), note: t('すべてのお店の売り場の強さ +25%', 'All shops’ pull +25%'), cost: 12000, requires: ['host'], brand: 30 },
+  { id: 'b_premium', branch: 'shop', name: t('プレミアム価格', 'Premium pricing'), note: t('すべての商品の値段 +15%', 'All prices +15%'), cost: 30000, requires: ['shop3', 'b_sign'], brand: 80 },
+  { id: 'b_partner', branch: 'buy', name: t('指名の取引先', 'Preferred supplier'), note: t('素材の値段 −15%・月の調達の上限 +50%', 'Materials −15%, monthly buying limit +50%'), cost: 15000, requires: ['bulk2'], brand: 50 },
+  { id: 'b_ads', branch: 'ops', name: t('ブランド広告', 'Brand advertising'), note: t('宣伝の効き目 ×1.5・ブランド力が月に +2', 'Ads 1.5× as strong; brand +2 a month'), cost: 10000, requires: ['pace1'], brand: 40 },
+  { id: 'b_scout', branch: 'people', name: t('憧れの職場', 'Dream employer'), note: t('雇える候補が 3 人 → 5 人に（アンコモンも来る）', 'Recruiting shows 5 candidates (Uncommons too)'), cost: 12000, requires: ['hire'], brand: 60 },
 ];
 export const SKILL: Record<string, Skill> = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 export const BRANCHES: { key: Skill['branch']; name: string }[] = [

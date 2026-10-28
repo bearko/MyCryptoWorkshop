@@ -4,11 +4,11 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { MATS, PRODUCT, RIVALS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
+import { MATS, PRODUCT, RIVALS, SECTORS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
 import { batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
-export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time') };
+export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager') };
 
 /**
  * 適性のランク：0〜100 の数を G・F・E・D・C・B・A・S の 8 段に。
@@ -102,6 +102,8 @@ export function jobLabel(s: P1State, st: Staff): string {
       return t(`調査・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Research · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
     case 'side':
       return t(`バイト・${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`, `Part-time · ${RIVALS.find((r) => r.id === st.target)?.name ?? ''}`);
+    case 'manager':
+      return t(`マネージャー・${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`, `Manager · ${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`);
     default:
       return t('待機中', 'Free');
   }
@@ -162,7 +164,8 @@ function drawer(root: HTMLElement, title: string, note: string, fill: (box: HTML
 
 /** ヒーローを選ぶ引き出し：その仕事の適性が高い順。待機中のヒーローには印 */
 export function pickHero(root: HTMLElement, s: P1State, o: { title: string; task: Task; current: number | null; onPick: (hero: number | null) => void; note?: string }) {
-  const list = [...s.staff].sort((a, b) => aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
+  // ほかのセクタでマネージャーをしている人は、ここにはいない
+  const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
   const best = list[0] ? aptitude(list[0].stats, o.task) : 0;
   drawer(root, o.title, o.note ?? t(`数字は「${TASK_NAME[o.task]}」の適性です。待機中のヒーローから選ぶと、ほかの仕事が空きません。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Picking a free hero leaves other jobs covered.`), (body, close) => {
     const grid = h('div', 'isl-pick-grid');

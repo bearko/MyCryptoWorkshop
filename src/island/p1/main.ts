@@ -81,6 +81,8 @@ import { openSkills } from './tree';
 import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
+import { openBooks, openBrand, openLand } from './landui';
+import { sectorDef, tierLabel } from './company';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -214,6 +216,7 @@ const ctx: Ctx = {
   },
   tip: (screen) => tutTip(screen),
   sfx: (k) => sfx.play(k),
+  moved: (target, fresh, manager) => afterMove(target, fresh, manager),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
   dismissed: () => {
     menu = null;
@@ -231,6 +234,14 @@ const statRank = h('button', 'isl-stat isl-stat-btn');
 statRank.type = 'button';
 statRank.addEventListener('click', () => openRanking(ctx));
 const statDate = h('div', 'isl-stat');
+// ブランド力（資金のとなり）。押すとブランド力の画面
+const statBrand = h('button', 'isl-stat isl-stat-btn isl-stat-brand');
+statBrand.type = 'button';
+statBrand.addEventListener('click', () => openBrand(ctx));
+// いまいるランドセクタ（関所を開いたあと）。押すとランドマップ
+const statSector = h('button', 'isl-stat isl-stat-btn isl-stat-sector');
+statSector.type = 'button';
+statSector.addEventListener('click', () => openLand(ctx));
 const SPEEDS = [0, 1, 4];
 const speedBtns = SPEEDS.map((v) =>
   btn(v === 0 ? '⏸' : v === 1 ? '▶' : '⏩', () => {
@@ -240,7 +251,7 @@ const speedBtns = SPEEDS.map((v) =>
 );
 const speedBox = h('div', 'isl-speed');
 speedBox.append(...speedBtns);
-hud.append(statMoney, statSales, statRank, statDate, h('div', 'isl-spacer'), speedBox);
+hud.append(statMoney, statBrand, statSales, statRank, statSector, statDate, h('div', 'isl-spacer'), speedBox);
 
 /** 資金の表示（減ったときは数字が下がっていく演出） */
 let shownMoney = s.money;
@@ -251,6 +262,23 @@ const moneyLabel = h('b');
 function moneyText(v: number) {
   moneyLabel.textContent = money(v);
 }
+/** ブランド力が動いたら知らせる（新しい履歴だけ） */
+let brandSeen = s.brandLog?.[0] ?? null;
+function brandNews() {
+  const log = s.brandLog ?? [];
+  if (!log.length || log[0] === brandSeen) return;
+  const k = brandSeen ? log.indexOf(brandSeen) : log.length;
+  const fresh = log.slice(0, k < 0 ? 1 : k).reverse();
+  brandSeen = log[0];
+  for (const e of fresh) {
+    toast(t(`ブランド力 ${e.d > 0 ? '+' : ''}${e.d}（${e.why}）`, `Brand ${e.d > 0 ? '+' : ''}${e.d} (${e.why})`));
+    statBrand.classList.remove('is-up', 'is-down');
+    void statBrand.offsetWidth;
+    statBrand.classList.add(e.d > 0 ? 'is-up' : 'is-down');
+  }
+  if (fresh.some((e) => e.d > 0)) sfx.play('levelup');
+}
+
 function renderHud() {
   statMoney.className = `isl-stat ${s.money < 0 ? 'is-bad' : ''} ${moneyAnim ? 'is-spending' : ''}`;
   if (!statMoney.firstChild) statMoney.append(h('small', '', t('資金', 'Funds')), moneyLabel);
@@ -266,6 +294,14 @@ function renderHud() {
     shownMoney = s.money;
     moneyText(s.money);
   }
+  const lb = t('ブランド力', 'Brand');
+  statBrand.innerHTML = `<small>${lb}</small><b>★ ${s.brand ?? 0}</b>`;
+  statSector.hidden = !s.land;
+  if (s.land) {
+    const d = sectorDef(s.land.cur);
+    statSector.innerHTML = `<small>${tierLabel(d.tier)}</small><b>📍 ${d.name}</b>`;
+  }
+  brandNews();
   const ls = t('今月の売上', 'Sales this month');
   statSales.innerHTML = `<small>${ls}</small><b>${money(monthRevenue(s))}</b>`;
   const last = s.reports[s.reports.length - 1];
@@ -273,7 +309,7 @@ function renderHud() {
   const lr = t('エリア', 'Area');
   if (last) statRank.innerHTML = `<small>${lr}</small><b>${t(`${last.rank} 位`, `#${last.rank}`)}</b>`;
   const d = date(s);
-  statDate.textContent = d ? (isEn ? `Y${d.year} M${d.month} D${d.day}` : `${d.year} 年目 ${d.month} 月 ${d.day} 日`) : t(`開業準備 ${s.day + 1} 日目`, `Prep day ${s.day + 1}`); // i18n-ja
+  statDate.textContent = d ? (isEn ? `Y${d.year} M${d.month} D${d.day}` : `${d.year} 年目 ${d.month} 月 ${d.day} 日`) : t(`開業準備 ${s.day - (s.arrived ?? 0) + 1} 日目`, `Prep day ${s.day - (s.arrived ?? 0) + 1}`); // i18n-ja
   speedBtns.forEach((b, k) => b.classList.toggle('is-on', SPEEDS[k] === speed));
 }
 
@@ -285,13 +321,15 @@ interface Sub {
   name: string;
   note: string;
   go: () => void;
-  needs?: 'workshop';
+  needs?: 'workshop' | 'land';
 }
 const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
   plan: [
     { key: 'build', name: t('建築', 'Build'), note: t('工房・お店・倉庫', 'Workshop, shops, storage'), go: () => undefined },
     { key: 'dev', name: t('商品開発', 'Products'), note: t('アンコモンを開発', 'Develop Uncommons'), go: () => openDev(ctx), needs: 'workshop' },
     { key: 'side', name: t('他店でバイト', 'Part-time'), note: t('資金が足りないとき', 'When funds run low'), go: () => openSide(ctx) },
+    { key: 'land', name: t('ランドマップ', 'Land map'), note: t('関所の先のセクタ', 'Sectors beyond the gate'), go: () => openLand(ctx), needs: 'land' },
+    { key: 'books', name: t('決算書', 'Statements'), note: t('四半期の P/L・B/S', 'Quarterly P/L, B/S'), go: () => openBooks(ctx) },
     { key: 'ma', name: 'M&A', note: t('買収・提携（準備中）', 'Deals (coming soon)'), go: () => openMA(ctx) },
   ],
   hr: [
@@ -354,6 +392,8 @@ for (const m of ['plan', 'hr', 'scm', 'skill', 'mkt', 'sys'] as Menu[]) {
 tabbar.append(leftG, tabBtns.skill, rightG);
 foot.append(panel, tabbar);
 
+/** サブタブがまだ使えない（工房が無い・関所を開いていない） */
+const needsOff = (x: Sub) => (x.needs === 'workshop' && !myWorkshop(s)) || (x.needs === 'land' && !s.land);
 const needWs = () => {
   toast(t('まずは工房を建てましょう', 'Build the workshop first'));
 };
@@ -362,7 +402,8 @@ const needWs = () => {
 function pickMenu(m: Menu) {
   const ws = !!myWorkshop(s);
   if (menuLocked(m)) return lockedNote();
-  if (m !== 'plan' && m !== 'mkt' && m !== 'sys' && !ws) return needWs();
+  // ほかのセクタに来たばかり（工房がまだ）でも、会社ぜんたいのスキルと人事は開ける
+  if (m !== 'plan' && m !== 'mkt' && m !== 'sys' && !ws && !(s.land && (m === 'skill' || m === 'hr'))) return needWs();
   closePop();
   if (menu === m) return closeMenu();
   if (placing && !placing.move) placing = null;
@@ -378,7 +419,7 @@ function pickMenu(m: Menu) {
   const ts = tutStep();
   const [hm, hk] = (ts ? hlOf(ts, s) : '').split(':');
   const target = hm === m && hk ? SUBS[m].find((x) => x.key === hk) : undefined;
-  const first = target ?? SUBS[m].find((x) => !(x.needs === 'workshop' && !ws) && !subLocked(m, x.key)) ?? SUBS[m][0];
+  const first = target ?? SUBS[m].find((x) => !needsOff(x) && !subLocked(m, x.key)) ?? SUBS[m][0];
   openSub(first);
 }
 
@@ -386,6 +427,7 @@ function pickMenu(m: Menu) {
 function openSub(x: Sub) {
   if (menu && menu !== 'skill' && subLocked(menu, x.key)) return lockedNote();
   if (x.needs === 'workshop' && !myWorkshop(s)) return needWs();
+  if (x.needs === 'land' && !s.land) return toast(t('ランドのふちの関所を開くと使えます', 'Open the gate at the edge of the land first'));
   sub = x.key;
   if (x.key !== 'build' && placing && !placing.move) placing = null;
   closeSheet();
@@ -422,7 +464,7 @@ function renderFoot() {
   if (!menu || menu === 'skill') return;
   subRow.replaceChildren(
     ...SUBS[menu as Exclude<Menu, 'skill'>].map((x) => {
-      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${x.needs === 'workshop' && !ws ? 'is-off' : ''} ${hm === menu && hk === x.key && sub !== x.key ? 'is-guide' : ''} ${subLocked(menu as Menu, x.key) ? 'is-lock' : ''}`);
+      const b = h('button', `isl-sub ${sub === x.key ? 'is-on' : ''} ${needsOff(x) ? 'is-off' : ''} ${hm === menu && hk === x.key && sub !== x.key ? 'is-guide' : ''} ${subLocked(menu as Menu, x.key) ? 'is-lock' : ''}`);
       b.type = 'button';
       b.append(h('b', '', x.name), h('small', '', x.note));
       if (x.key === 'missions' && ready) b.classList.add('has-dot');
@@ -752,6 +794,7 @@ function renderPop() {
     close: () => closePop(),
     redraw: () => renderPop(),
     gate: () => payGate(),
+    land: () => (closePop(), openLand(ctx)),
   });
   popTitle.textContent = title;
   popBody.replaceChildren(body);
@@ -777,12 +820,43 @@ function payGate() {
   talk(
     [
       { text: t(`通行料 ${money(toll)} を納めて、[[関所]]が開いたよ！`, `You paid the ${money(toll)} toll and the [[gate]] is open!`) },
-      { text: t('この先は、となりのランドセクタ。新しいお客さんと、新しいライバルが待っているはずだよ。', 'Beyond lies the next land sector, with new customers and new rivals.') },
-      { text: t('次のセクタの準備はまだ途中なんだ。整うまで、このエリアで会社を育てておこうね！', 'The next sector is still being prepared. Until then, keep growing the company here!') },
+      { text: t('この先には、いくつもの[[ランドセクタ]]が広がっているよ。新しいお客さんと、新しいライバルが待っているはず！', 'Beyond lie many [[land sectors]], with new customers and new rivals!') },
+      { text: t('ほかのセクタに出店すると、ここは[[セクタマネージャー]]に任せることになるよ。能力の高いヒーローほど、上手に運営してくれるんだ。', 'When you open in another sector, a [[sector manager]] runs this one. Stronger heroes run it better.') },
+      { text: t('まずは[[ランドマップ]]を見てみよう！', 'Let’s look at the [[land map]]!') },
     ],
-    t('楽しみ！', 'Can’t wait!'),
-    () => renderAll(),
+    t('ランドマップへ', 'To the land map'),
+    () => openLand(ctx),
   );
+}
+
+/** ほかのセクタへ移ったあと：地図を描き直し、真ん中へ。マインちゃんが一言 */
+function afterMove(target: string, fresh: boolean, manager: number | null) {
+  closeSheet();
+  closePop();
+  menu = null;
+  sub = null;
+  placing = null;
+  anim.walkers = [];
+  anim.crowd = [];
+  anim.coins.clear();
+  anim.plus = [];
+  anim.buyer = null;
+  cam.x = 0;
+  cam.y = (s.n - 1) * 55;
+  cam.zoom = innerWidth < 600 ? 0.3 : 0.5;
+  speed = 1;
+  save();
+  renderAll();
+  sfx.play('win');
+  const d = sectorDef(target);
+  const pages: TutPage[] = [];
+  if (fresh) {
+    pages.push({ text: t(`[[${d.name}]]の出店許可がおりたよ！ ここは${tierLabel(d.tier)}。`, `We got the permit for [[${d.name}]]! It is a ${tierLabel(d.tier)}.`) });
+    if (d.tier !== 'C') pages.push({ text: t('ここは商売敵が大きくて、Common の商品はあまり相手にされないんだ。アンコモンを並べられるように、エクステのランクアップを急ごう！', 'Rivals are big here and Common goods barely sell. Rank up your extensions to Uncommon!') });
+    pages.push({ text: t('建物はセクタごと。まずはここに[[工房]]を建てて、お店を開こう。資金・ヒーロー・スキルは会社でいっしょだよ。', 'Buildings belong to each sector. Build a [[workshop]] and a shop here first. Funds, heroes and skills are shared.') });
+  } else pages.push({ text: t(`[[${d.name}]]に戻ってきたよ。建物も担当も、離れたときのままだよ。`, `Back in [[${d.name}]]. Buildings and jobs are as you left them.`) });
+  if (manager != null) pages.push({ text: t(`前のセクタは[[${heroName(manager)}]]に任せたよ。月ごとの結果はトーストと「ランドマップ」、お金の流れは「決算書」で見られるよ。`, `[[${heroName(manager)}]] runs the previous sector. See monthly results on the land map and money flows in Statements.`) });
+  talk(pages, t('はじめよう！', 'Let’s go!'), () => renderAll());
 }
 
 /** 関所のマスを開く（カメラも寄せる） */
@@ -1421,6 +1495,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
   const rec = PRODUCT[recommend(s)].name;
+  if (!ws && s.land && s.land.mine.length > 1 && s.sector !== s.land.mine[0]) return { text: t('このセクタにも[[工房]]を建てましょう。建物はセクタごとです。「営業企画」→「建築」から、道路に面した空き地へ。', 'Build a [[workshop]] in this sector too — buildings belong to each sector. Planning → Build, then a lot facing a road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (!ws) return { text: t('新天地へようこそ！まずは Workshop から引き継いだ「工房」を建てましょう。下の「営業企画」→「建築」から工房を選び、道路に面した空き地へ。入口は道路の方にしか向けられません。', 'Welcome to the new land! First, build the Workshop you brought from home: Planning → Build, then place it on a lot facing a road — the entrance can only face the road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (ws.left > 0) return { text: t('工房の工事中です。⏩ で時間を早められます。地図のマスを押すと、建物の詳しい情報が見られます。', 'The workshop is under construction. ⏩ speeds things up. Tap any tile on the map for details.') };
   if (!s.flags.data) return { text: t('[[市場データ]]で、売れ筋と、まだ誰も売っていない商品が分かるよ（「マーケティング」→「市場調査データ」）。', 'The [[market data]] shows what sells and what nobody sells yet (Marketing → Market data).'), action: [t('データを見る', 'Open data'), () => openData(ctx)] };
@@ -1449,7 +1524,11 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (s.staff.some((x) => x.resting)) return { text: t('休んでいる従業員がいます。「人事」→「給与・労務」の賞与ですぐ元気にできます。人手が足りないときは「人材登用」で雇えます。', 'Someone is resting. A bonus (HR → Pay & welfare) refreshes them at once; hire more under Recruiting.'), action: [t('給与・労務を開く', 'Open pay'), () => openPayroll(ctx)] };
   const last = s.reports[s.reports.length - 1];
   if (s.cleared && !s.gateOpen) return { text: t(`エリア 1 位、おめでとう！ランドのふちの[[関所]]は、通行料 ${money(gateToll(s))} で開通できるよ。開けると、となりのランドセクタへ進めるんだ。`, `Congratulations on #1 in the area! The [[gate]] at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), action: [t('関所を見る', 'View the gate'), () => showGate()] };
-  if (s.cleared) return { text: t('関所が開通しました！となりのランドセクタは準備中です。このまま会社を育てられます。', 'The gate is open! The next land sector is coming soon. Keep growing the company.') };
+  if (quarterNew) {
+    const q = quarterNew;
+    return { text: t(`第 ${q} 四半期の[[決算書]]が出たよ。売上と利益、お金の残りを確かめよう！`, `Your Q${q} [[statements]] are ready. Check sales, profit and cash!`), action: [t('決算書を見る', 'Open statements'), () => ((quarterNew = null), openBooks(ctx))] };
+  }
+  if (s.land && s.land.mine.length === 1) return { text: t('関所の先は[[ランドマップ]]で見られるよ。ほかの Common セクタなら、出店許可の費用も軽いんだ。', 'See what lies beyond the gate on the [[land map]]. Other Common sectors have cheap permits.'), action: [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)] };
   if (!Object.keys(s.intel).length) {
     const top = last.area.find((x) => !x.me);
     return { text: t(`いまエリア ${last.rank} 位。他社のお店をタップすると「調査」で売上の中身が分かります。まずは${top?.name ?? '他社'}を調べてみましょう。`, `You are #${last.rank} in the area. Tap a rival store to research its sales. Try ${top?.name ?? 'a rival'} first.`) };
@@ -1971,6 +2050,7 @@ function advance(days: number) {
     for (const x of r.intel) toast(t(`${rivalName(x.rid)}の調査が段階 ${x.lv} に進みました`, `Research on ${rivalName(x.rid)} reached stage ${x.lv}`));
     for (const k2 of r.developed) toast(t(`${PRODUCT[k2].name}のアンコモンを開発しました！`, `Developed the ${PRODUCT[k2].name} Uncommon!`));
     for (const id of r.missions) toast(t(`依頼「${MISSIONS.find((m) => m.id === id)?.title ?? ''}」を達成しました`, `Request done: ${MISSIONS.find((m) => m.id === id)?.title ?? ''}`));
+    if (r.company) companyNews(r.company);
     if (r.report) {
       save();
       // 流れの案内のあいだは、終わってから出す
@@ -1984,6 +2064,25 @@ function advance(days: number) {
   renderAll();
   ticking = false;
 }
+
+/** 会社の月の締め：マネージャーのセクタの結果・四半期の決算 */
+function companyNews(c: NonNullable<ReturnType<typeof step>['company']>) {
+  for (const x of c.managed) {
+    const name = sectorDef(x.id).name;
+    toast(
+      x.profit >= 0
+        ? t(`${name}：利益 ${money(x.profit)}（本社へ ${money(x.toHQ)}・投資 ${money(x.invest)}）`, `${name}: profit ${money(x.profit)} (to HQ ${money(x.toHQ)}, reinvested ${money(x.invest)})`)
+        : t(`${name}：赤字 ${money(-x.profit)}（本社が負担）`, `${name}: loss ${money(-x.profit)} (paid by HQ)`),
+    );
+  }
+  if (c.quarter) {
+    sfx.play('report');
+    toast(t(`第 ${c.quarter} 四半期の決算が出ました（営業企画 → 決算書）`, `Q${c.quarter} statements are ready (Planning → Statements)`));
+    quarterNew = c.quarter;
+  }
+}
+/** 見ていない四半期の決算（マインちゃんが勧める） */
+let quarterNew: number | null = null;
 
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;

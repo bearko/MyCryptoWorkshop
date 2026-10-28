@@ -2,15 +2,20 @@
  * フェーズ 1 の中身（画面に依存しない。tests/island-p1.test.ts）。
  * 1 日ごとに：工事 → 従業員（休む・働く）→ クラフト → 運搬 → 陳列と販売。月末に報告とランキング。
  */
+import { t } from '../../i18n';
 import { heroById } from '../../game/catalog';
 import { DEF } from '../defs';
 import { cells, type Dir } from '../sim';
+import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, runSector, type BrandEv, type Books, type Land, type LedgerKey } from './company';
 import {
   ADS,
   AWARE,
   STORE,
   DEV,
   ENTRY_AFTER,
+  BRAND,
+  TIERS,
+  type Tier,
   GATE,
   PROC,
   procNeed,
@@ -156,6 +161,8 @@ export interface Flags {
   tour?: boolean;
   /** スキルツリーの本社パネルを開放した */
   hq?: boolean;
+  /** はじめて売れた（ブランド力） */
+  firstSale?: boolean;
 }
 
 export interface P1State {
@@ -200,6 +207,16 @@ export interface P1State {
   sideMonth?: number;
   /** 関所の通行料を払って開通したか */
   gateOpen?: boolean;
+  /** このセクタ（ランドセクタの id とランク）。以前のセーブは c1・C */
+  sector?: string;
+  /** このセクタに来た日（開業準備の日数を数える） */
+  arrived?: number;
+  tier?: Tier;
+  /** 会社ぜんたい：ブランド力・その履歴・帳簿・ランド（ほかのセクタ） */
+  brand?: number;
+  brandLog?: BrandEv[];
+  books?: Books;
+  land?: Land;
   /** アンコモンを開発した商品 */
   dev: string[];
   /** 開発中の商品 */
@@ -253,8 +270,21 @@ export interface Proc {
 
 export const START_MONEY = 30000;
 export const DAYS = 30;
+
+/** 費用：このセクタの月の報告（monthCost）と、会社の帳簿の両方へ。as：帳簿では別の科目に（通行料 → fees） */
+export function spend(s: P1State, k: keyof Report['costs'], v: number, as?: LedgerKey) {
+  s.monthCost[k] = (s.monthCost[k] ?? 0) + v;
+  book(s, as ?? (k === 'materials' ? 'mats' : k), v);
+}
 export const N = 16;
-const ROAD_LINES = [2, 7, 12];
+/** 道路：2 マス目から 5 マスおき（16 マスなら 2・7・12、21 マスなら 2・7・12・17） */
+export const roadLines = (n: number) => Array.from({ length: Math.ceil((n - 3) / 5) }, (_, k) => 2 + 5 * k).filter((x) => x < n - 1);
+export function groundOf(n: number): Ground[] {
+  const r = roadLines(n);
+  const g: Ground[] = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) g.push(r.includes(i) || r.includes(j) ? 'road' : 'grass');
+  return g;
+}
 
 // ---------------------------------------------------------------- 乱数と地図
 
@@ -296,11 +326,14 @@ function lotFree(s: P1State, id: string, i: number, j: number, dir: Dir, ignore?
   });
 }
 
-/** 区画：道路が縦横 3 本ずつ。住宅・駅・公園・他社の店が建っている */
-export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
-  const n = N;
-  const g: Ground[] = [];
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) g.push(ROAD_LINES.includes(i) || ROAD_LINES.includes(j) ? 'road' : 'grass');
+/**
+ * 区画：道路が縦横 3 本ずつ（Uncommon より上は広く 4 本）。住宅・駅・公園・他社の店が建っている。
+ * tier：ランドセクタのランク。上のランクほど地図が広く、他社が強く、お客さんが多い（data.ts の TIERS）。
+ */
+export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', sector = 'c1'): P1State {
+  const T = TIERS[tier];
+  const n = tier === 'C' ? N : T.n;
+  const g = groundOf(n);
   const s: P1State = {
     v: 1,
     kind: 'p1',
@@ -320,8 +353,8 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     shops: {},
     trips: [],
     skills: [],
-    rivals: RIVALS.map((r) => ({ id: r.id, sells: { ...r.sells }, base: r.base })),
-    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand])),
+    rivals: RIVALS.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival })),
+    demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, p.demand * T.demand])),
     monthSales: {},
     rivalSales: Object.fromEntries(RIVALS.map((r) => [r.id, 0])),
     monthCost: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 },
@@ -333,6 +366,11 @@ export function newP1(seed = Math.floor(Math.random() * 1e9)): P1State {
     tut: 0,
     tutV: 3,
     statV: 2,
+    sector,
+    tier,
+    brand: 0,
+    brandLog: [],
+    books: newBooks(),
     ...extras(),
   };
   populate(s);
@@ -381,16 +419,20 @@ function placeTown(s: P1State, id: string, r: () => number, owner: Owner, near?:
 
 function populate(s: P1State) {
   const r = rng(s.seed);
-  placeTown(s, 'station', r, 'town', [7, 1]);
-  placeTown(s, 'park', r, 'town', [9, 9]);
-  placeTown(s, 'police', r, 'town', [13, 4]);
-  placeTown(s, 'wholesale', r, 'town', [1, 14]);
-  placeTown(s, GATE_ID, r, 'town', GATE.at);
+  // 16 マスの区画での位置を、広い区画では同じ割合のところへ
+  const k16 = (s.n - 1) / 15;
+  const at = (p: [number, number]): [number, number] => [Math.round(p[0] * k16), Math.round(p[1] * k16)];
+  placeTown(s, 'station', r, 'town', at([7, 1]));
+  placeTown(s, 'park', r, 'town', at([9, 9]));
+  placeTown(s, 'police', r, 'town', at([13, 4]));
+  placeTown(s, 'wholesale', r, 'town', at([1, 14]));
+  placeTown(s, GATE_ID, r, 'town', at(GATE.at));
   const near: [number, number][] = [[4, 4], [10, 5], [5, 10], [10, 10]];
-  RIVALS.forEach((rv, k) => placeTown(s, rv.store, r, rv.id, near[k]));
+  RIVALS.forEach((rv, k) => placeTown(s, rv.store, r, rv.id, at(near[k])));
   const homes = ['house', 'cottage', 'garage_house', 'japanese_house', 'apartment', 'manor'];
   // 住宅：外側の区画を中心に、空き地を 4 割ほど残す
-  for (let k = 0; k < 46; k++) placeTown(s, homes[Math.floor(r() * homes.length)], r, 'town');
+  const nHomes = Math.round(46 * ((s.n * s.n) / (N * N)));
+  for (let k = 0; k < nHomes; k++) placeTown(s, homes[Math.floor(r() * homes.length)], r, 'town');
 }
 
 // ---------------------------------------------------------------- 従業員
@@ -437,11 +479,17 @@ export const wageOf = (hero: number) => {
   return Math.round((s.phy + s.int + s.agi) * WAGE_PER_STAT);
 };
 
+/** アンコモンのヒーロー（スキル「憧れの職場」で雇える候補に入る） */
+let uncommons: number[] | null = null;
+const uncommonHeroes = () =>
+  (uncommons ??= ([...(heroById.values() as Iterable<unknown>)] as { id: number; rarity?: string; stats?: unknown }[]).filter((h) => h.rarity === 'Uncommon' && h.stats).map((h) => h.id));
+
 function pickHires(s: P1State): number[] {
-  const r = rng(s.seed + s.reports.length * 7919);
-  const pool = HIRE_POOL.filter((id) => heroById.has(id) && !s.staff.some((x) => x.hero === id));
+  const r = rng(s.seed + s.reports.length * 7919 + (s.books?.months.length ?? 0) * 31);
+  const scout = has(s, 'b_scout');
+  const pool = [...HIRE_POOL, ...(scout ? uncommonHeroes() : [])].filter((id) => heroById.has(id) && !s.staff.some((x) => x.hero === id));
   const out: number[] = [];
-  while (out.length < 3 && pool.length) out.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
+  while (out.length < (scout ? 5 : 3) && pool.length) out.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
   return out;
 }
 
@@ -543,7 +591,7 @@ export function build(s: P1State, id: string, i: number, j: number, dir: Dir): P
   if (e) return e;
   const b = P1B[id];
   s.money -= b.cost;
-  s.monthCost.build += b.cost;
+  spend(s, 'build', b.cost);
   const pb: PBuilding = { uid: s.nextUid++, id, i, j, dir, left: b.days, owner: 'me' };
   s.buildings.push(pb);
   return pb;
@@ -597,7 +645,7 @@ export function relocate(s: P1State, uid: number, i: number, j: number, dir: Dir
   const b = s.buildings.find((x) => x.uid === uid)!;
   const cost = moveCost(b);
   s.money -= cost;
-  s.monthCost.build += cost;
+  spend(s, 'build', cost);
   b.i = i;
   b.j = j;
   b.dir = dir;
@@ -622,7 +670,7 @@ export function demolish(s: P1State, uid: number): string | null {
   }
   const back = refundOf(b);
   s.money += back;
-  s.monthCost.build -= back;
+  spend(s, 'build', -back);
   s.buildings.splice(k, 1);
   return null;
 }
@@ -644,7 +692,7 @@ export function invest(s: P1State, uid: number, id: string): string | null {
   if (cost == null) return 'max';
   if (s.money < cost) return 'money';
   s.money -= cost;
-  s.monthCost.build += cost;
+  spend(s, 'build', cost);
   b.inv = { ...b.inv, [id]: invLv(b, id) + 1 };
   return null;
 }
@@ -725,8 +773,11 @@ export function openGate(s: P1State): boolean {
   const toll = gateToll(s);
   if (s.money < toll) return false;
   s.money -= toll;
-  s.monthCost.build += toll;
+  spend(s, 'build', toll, 'fees');
   s.gateOpen = true;
+  // 関所の先：ランド（ほかのセクタ）が会社ぜんたいで開く
+  s.land ??= newLand(s.sector ?? 'c1');
+  brandAdd(s, BRAND.gate, t('関所を開通', 'Opened the gate'));
   return true;
 }
 
@@ -750,10 +801,10 @@ function syncShop(s: P1State, b: PBuilding) {
 
 // ---------------------------------------------------------------- 調達
 
-export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1));
+export const matPrice = (s: P1State, m: Mat) => Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1) * (has(s, 'b_partner') ? 0.85 : 1));
 
 /** 月に買える素材の数の上限（ランクとスキル） */
-export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0) + (has(s, 'stock3') ? 1 : 0)));
+export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0) + (has(s, 'stock3') ? 1 : 0) + (has(s, 'b_partner') ? 0.5 : 0)));
 export const procLeft = (s: P1State) => Math.max(0, procCap(s) - s.proc.bought);
 
 /** 経験値を足して、ランクを上げる。上がったら新しいランクを返す */
@@ -778,7 +829,7 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   const cost = matPrice(s, m) * qty;
   if (cost > s.money) return 'money';
   s.money -= cost;
-  s.monthCost.materials += cost;
+  spend(s, 'materials', cost);
   s.mats[m] = (s.mats[m] ?? 0) + qty;
   s.proc.bought += qty;
   procExp(s, (qty * gain + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
@@ -853,9 +904,10 @@ export function learn(s: P1State, id: string): string | null {
   const k = SKILL[id];
   if (!k || has(s, id)) return 'done';
   if (k.requires?.some((r) => !has(s, r))) return 'requires';
+  if (k.brand && (s.brand ?? 0) < k.brand) return 'brand';
   if (s.money < k.cost) return 'money';
   s.money -= k.cost;
-  s.monthCost.build += k.cost;
+  spend(s, 'build', k.cost);
   s.skills.push(id);
   if (id.startsWith('route_')) {
     const m = id.slice(6) as Mat;
@@ -932,21 +984,21 @@ export function develop(s: P1State, key: string): string | null {
   const cost = devCost(key);
   if (s.money < cost) return 'money';
   s.money -= cost;
-  s.monthCost.build += cost;
+  spend(s, 'build', cost);
   s.lab = { key, left: DEV.days };
   return null;
 }
 
 // ---------------------------------------------------------------- 宣伝・調査・依頼・給与
 
-export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0);
+export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0) * (has(s, 'b_ads') ? 1.5 : 1);
 export function runAd(s: P1State, id: string): string | null {
   const x = ADS.find((a) => a.id === id);
   if (!x) return 'locked';
   if ((s.ads[id] ?? 0) > 0) return 'busy';
   if (s.money < x.cost) return 'money';
   s.money -= x.cost;
-  s.monthCost.ads = (s.monthCost.ads ?? 0) + x.cost;
+  spend(s, 'ads', x.cost);
   s.ads[id] = x.days;
   return null;
 }
@@ -1011,6 +1063,8 @@ export function claim(s: P1State, id: string): string | null {
   if (!m || s.missions[id] !== 'done') return 'not-yet';
   s.missions[id] = 'claimed';
   s.money += m.reward;
+  book(s, 'other', m.reward);
+  brandAdd(s, BRAND.mission, t(`依頼「${m.title}」を達成`, `Request done: ${m.title}`));
   return null;
 }
 
@@ -1022,7 +1076,7 @@ export function bonus(s: P1State, hero: number): string | null {
   const cost = bonusCost(st);
   if (s.money < cost) return 'money';
   s.money -= cost;
-  s.monthCost.wages += cost;
+  spend(s, 'wages', cost);
   st.stamina = st.stats.hp;
   st.resting = false;
   return null;
@@ -1061,7 +1115,7 @@ function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku): number {
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
   const [, r] = skuParts(x);
-  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : 1);
+  return (P1B[b.id].pull ?? 1) * (has(s, 'host') ? 1.15 : 1) * (has(s, 'b_sign') ? 1.25 : 1) * brandPull(s.brand) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : r === 'C' ? TIERS[s.tier ?? 'C'].commonPull : 1);
 }
 
 export const dist = (a: PBuilding, b: PBuilding) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
@@ -1277,6 +1331,8 @@ export interface DayResult {
   delivered: { to: number; n: number }[];
   routes: Mat[];
   report: Report | null;
+  /** 会社の月の締め（30 日ごと） */
+  company?: CompanyMonth;
   /** 新しく達成した依頼・調査が進んだ他社・開発できた商品 */
   missions: string[];
   intel: { rid: string; lv: number }[];
@@ -1477,6 +1533,7 @@ export function step(s: P1State): DayResult {
     const pay = sidePay(st);
     s.money += pay;
     s.sideMonth = (s.sideMonth ?? 0) + pay;
+    book(s, 'side', pay);
     if (rng(s.seed + s.day * 131 + st.hero)() < SIDE.grow) {
       const keys: (keyof Stats)[] = ['int', 'agi', 'phy'];
       const k = keys[Math.floor(rng(s.seed + s.day * 977 + st.hero)() * 3)];
@@ -1489,6 +1546,7 @@ export function step(s: P1State): DayResult {
   if (s.lab && --s.lab.left <= 0) {
     if (!s.dev.includes(s.lab.key)) s.dev.push(s.lab.key);
     res.developed.push(s.lab.key);
+    brandAdd(s, BRAND.uncommon, t(`${PRODUCT[s.lab.key]?.name ?? s.lab.key}のアンコモンを開発`, `Developed an Uncommon ${PRODUCT[s.lab.key]?.name ?? s.lab.key}`));
     s.lab = null;
   }
 
@@ -1511,7 +1569,7 @@ export function step(s: P1State): DayResult {
     if (open) sh.aw = Math.min(1, (sh.aw ?? 1) + AWARE.perDay);
     const empty = sh.shelves.some((x) => x && (sh.shelf[x] ?? 0) <= 0);
     if (open) sh.sat = empty ? Math.max(0.5, sh.sat - 0.01) : Math.min(1, sh.sat + 0.02);
-    s.monthCost.part += sh.part * SHOP.partTimeWage;
+    spend(s, 'part', sh.part * SHOP.partTimeWage);
     s.money -= sh.part * SHOP.partTimeWage;
     sh.cost += sh.part * SHOP.partTimeWage;
   }
@@ -1525,12 +1583,19 @@ export function step(s: P1State): DayResult {
       const sold = Math.min(Math.floor(want), o.sh.shelf[o.x] ?? 0);
       o.sh.carry[o.x] = Math.min(1, want - sold);
       o.sh.shelf[o.x] = (o.sh.shelf[o.x] ?? 0) - sold;
-      const yen = sold * skuPrice(o.x);
+      const yen = sold * priceOf(s, o.x);
       s.money += yen;
       s.monthSales[p.key] = (s.monthSales[p.key] ?? 0) + yen;
       o.sh.rev += yen;
       o.sh.cost += sold * unitCost(s, o.x);
-      for (let k = 0; k < sold; k++) res.sales.push({ uid: o.b.uid, yen: skuPrice(o.x), sku: o.x });
+      for (let k = 0; k < sold; k++) res.sales.push({ uid: o.b.uid, yen: priceOf(s, o.x), sku: o.x });
+      if (sold > 0) {
+        book(s, 'sales', yen);
+        if (!s.flags.firstSale) {
+          s.flags.firstSale = true;
+          brandAdd(s, BRAND.firstSale, t('はじめての売上', 'First sale'));
+        }
+      }
       s.monthUnits[p.key] = (s.monthUnits[p.key] ?? 0) + sold;
       if (skuParts(o.x)[1] === 'U') s.unitsU += sold;
     });
@@ -1564,6 +1629,8 @@ export function step(s: P1State): DayResult {
     res.report = endMonth(s);
     checkMissions(s, res);
   }
+  // 会社の月の締め（ゲームの最初から 30 日ごと）：ほかのセクタの運営と、帳簿
+  if (s.day % DAYS === 0) res.company = closeCompanyMonth(s);
   return res;
 }
 
@@ -1602,8 +1669,8 @@ export function endMonth(s: P1State): Report {
   s.rivalProd = {};
   const wages = s.staff.reduce((a, st) => a + st.wage, 0);
   s.money -= upkeep + wages;
-  s.monthCost.upkeep += upkeep;
-  s.monthCost.wages += wages;
+  spend(s, 'upkeep', upkeep);
+  spend(s, 'wages', wages);
   const revenue = Object.values(s.monthSales).reduce<number>((a, v) => a + (v ?? 0), 0);
   const rivals: Record<string, number> = {};
   for (const r of s.rivals) rivals[r.id] = r.base + (s.rivalSales[r.id] ?? 0);
@@ -1632,6 +1699,14 @@ export function endMonth(s: P1State): Report {
   }
   for (const k of Object.keys(s.demand)) s.demand[k] = (s.demand[k] ?? 0) * 1.015;
 
+  // ブランド力：セクタで 1 位・順位が上がった・大きく下がった
+  const prev = s.reports.length ? s.reports[s.reports.length - 1].rank : null;
+  if (rank === 1 && revenue > 0) {
+    if (!s.cleared) brandAdd(s, BRAND.sectorTop, t('ランドセクタで 1 位', '#1 in the land sector'));
+    else brandAdd(s, BRAND.stayTop, t('1 位を守った', 'Stayed #1'));
+  } else if (prev !== null && rank < prev) brandAdd(s, BRAND.rankUp * (prev - rank), t(`順位が ${prev} 位 → ${rank} 位に`, `Rank up: #${prev} → #${rank}`));
+  if (prev !== null && rank - prev >= 2) brandAdd(s, -BRAND.rankDown * (rank - prev), t(`順位が ${prev} 位 → ${rank} 位に大きく下がった`, `Rank fell: #${prev} → #${rank}`));
+  if (has(s, 'b_ads')) brandAdd(s, BRAND.adsSkill, t('ブランド広告', 'Brand advertising'));
   if (rank === 1 && revenue > 0) s.cleared = true;
   s.reports.push(report);
   s.monthSales = {};
@@ -1646,6 +1721,58 @@ export function endMonth(s: P1State): Report {
   s.monthCost = { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 };
   s.hirePool = pickHires(s);
   return report;
+}
+
+/** 会社の月の締め：ほかのセクタ（マネージャーが運営）の結果を本社へ、帳簿をひと月ぶん閉じる */
+export interface CompanyMonth {
+  m: number;
+  managed: { id: string; rev: number; profit: number; invest: number; toHQ: number; hero: number | null }[];
+  /** 四半期が終わった（3 か月ごと） */
+  quarter: number | null;
+}
+export function closeCompanyMonth(s: P1State): CompanyMonth {
+  const m = Math.round(s.day / DAYS);
+  const managed: CompanyMonth['managed'] = [];
+  if (s.land) {
+    for (const id of s.land.mine) {
+      if (id === s.land.cur) continue;
+      const rec = s.land.recs[id];
+      if (!rec?.base) continue;
+      // マネージャーがほかの仕事に移っていたら、マネージャー不在（売上は下がる）
+      const st0 = rec.manager != null ? staffOf(s, rec.manager) : null;
+      const st = st0 && st0.task === 'manager' && st0.target === id ? st0 : null;
+      const r = runSector(rec, st?.stats ?? null, m, rng(s.seed + s.day * 31 + id.length * 7 + id.charCodeAt(1)));
+      s.money += r.toHQ;
+      book(s, 'managed', r.toHQ);
+      managed.push({ id, ...r, hero: rec.manager ?? null });
+    }
+  }
+  const books = (s.books ??= newBooks());
+  books.months.push({ m, l: books.cur, bs: balance(s) });
+  books.months = books.months.slice(-48);
+  books.cur = emptyLedger();
+  return { m, managed, quarter: books.months.length % 3 === 0 ? books.months.length / 3 : null };
+}
+
+/** 貸借対照表の材料：現金・在庫（原価）・建物（取得額）・ほかのセクタへの投資 */
+export function balance(s: P1State) {
+  const matV = (Object.entries(s.mats) as [Mat, number][]).reduce((a, [m, n]) => a + (n ?? 0) * matPrice(s, m), 0);
+  let goods = 0;
+  const add = (x: Sku, n: number) => (goods += n * unitCost(s, x));
+  for (const [x, n] of Object.entries(s.stock) as [Sku, number][]) add(x, n ?? 0);
+  for (const sh of Object.values(s.shops)) {
+    for (const [x, n] of Object.entries(sh.shelf) as [Sku, number][]) add(x, n ?? 0);
+    for (const [x, n] of Object.entries(sh.storage) as [Sku, number][]) add(x, n ?? 0);
+  }
+  const bcost = (list: PBuilding[]) => list.filter((b) => b.owner === 'me').reduce((a, b) => a + (P1B[b.id]?.cost ?? 0), 0);
+  let buildings = bcost(s.buildings);
+  let invest = 0;
+  if (s.land)
+    for (const rec of Object.values(s.land.recs)) {
+      if (rec.snap) buildings += bcost((rec.snap.buildings as PBuilding[]) ?? []);
+      invest += rec.capital;
+    }
+  return { cash: Math.round(s.money), stock: Math.round(matV + goods), buildings: Math.round(buildings), invest: Math.round(invest) };
 }
 
 /** 営業カレンダー（開店日が 1 年目 1 月 1 日）。開店前は null */
@@ -1678,6 +1805,8 @@ export function recommend(s: P1State): string {
 }
 
 export const skuOf = (key: string, r: Rar = 'C') => sku(key, r);
+/** 売るときの値段（スキル「プレミアム価格」で +15%） */
+export const priceOf = (s: P1State, x: Sku) => Math.round(skuPrice(x) * (has(s, 'b_premium') ? 1.15 : 1));
 
 // ---------------------------------------------------------------- セーブ
 
@@ -1690,10 +1819,16 @@ export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
     if (o.v !== 1 || o.kind !== 'p1') return null;
-    const g: Ground[] = [];
-    for (let j = 0; j < o.n; j++) for (let i = 0; i < o.n; i++) g.push(ROAD_LINES.includes(i) || ROAD_LINES.includes(j) ? 'road' : 'grass');
+    const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
+    // 以前のセーブ：セクタ・ブランド力・帳簿・ランド
+    s.sector ??= 'c1';
+    s.tier ??= 'C';
+    s.brand ??= 0;
+    s.brandLog ??= [];
+    s.books ??= newBooks();
+    if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
     // 以前のセーブ：能力値が MCH の値のままなら縮める（バイトで上がったぶんも同じ割合で）
