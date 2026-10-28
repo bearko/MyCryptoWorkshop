@@ -4314,3 +4314,412 @@ button.isl-mis {
 #isl-ui.is-tour .isl-toasts {
   display: none;
 }
+
+/* 流れの案内：押して進む一言（時間は止まっている） */
+.isl-tour-box.is-click {
+  cursor: pointer;
+}
+.isl-tour-wait.is-click {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+  font-weight: 900;
+  animation: isl-tour-click 0.9s ease-in-out infinite alternate;
+}
+@keyframes isl-tour-click {
+  to {
+    transform: translateX(4px);
+  }
+}
+
+/* ================================================================ 月の進み（日付の下のゲージ。満タンで月が終わる） */
+.isl-stat-date {
+  display: grid;
+  gap: 3px;
+  align-items: start;
+  padding-bottom: 6px;
+}
+.isl-month {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.isl-month i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--isl-gold);
+  transition: width 0.3s linear;
+}
+.isl-month.is-near i {
+  background: #ff9f5a;
+}
+.isl-speed.is-off {
+  opacity: 0.4;
+}
+
+/* ================================================================ 月の売上報告 */
+.isl-rp-hero {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 18px 12px 14px;
+  overflow: hidden;
+  border: 3px solid var(--isl-gold);
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 0%, #4a3a12, #1d2a44 70%);
+  text-align: center;
+}
+.isl-rp-label {
+  color: var(--isl-dim);
+}
+.isl-rp-big {
+  color: #ffd257;
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-shadow: 0 0 18px rgba(255, 210, 87, 0.5);
+  font-variant-numeric: tabular-nums;
+  animation: isl-rp-pop 0.9s ease-out;
+}
+@keyframes isl-rp-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.isl-rp-diff {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.isl-rp-diff.is-up {
+  background: rgba(111, 208, 140, 0.18);
+  color: var(--isl-good);
+}
+.isl-rp-diff.is-down {
+  background: rgba(240, 112, 112, 0.18);
+  color: var(--isl-bad);
+}
+.isl-rp-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.isl-rp-kpi {
+  display: grid;
+  gap: 0;
+  min-width: 96px;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.isl-rp-kpi small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-rp-kpi b {
+  font-size: 16px;
+}
+.isl-rp-kpi.is-good b {
+  color: var(--isl-good);
+}
+.isl-rp-kpi.is-bad b {
+  color: var(--isl-bad);
+}
+.isl-rp-kpi.is-gold b {
+  color: #ffd257;
+}
+.isl-rp-coins {
+  position: absolute;
+  left: 50%;
+  top: 70%;
+  pointer-events: none;
+}
+.isl-rp-coin {
+  --x: 0px;
+  --d: 0s;
+  --r: 0deg;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff2b0, #ffd257 55%, #b8860b);
+  box-shadow: 0 0 8px rgba(255, 210, 87, 0.8);
+  opacity: 0;
+  animation: isl-rp-coin 1.4s var(--d) ease-out forwards;
+}
+@keyframes isl-rp-coin {
+  0% {
+    transform: translate(0, 0) rotate(0) scale(0.6);
+    opacity: 1;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--x), -120px) rotate(var(--r)) scale(1);
+    opacity: 0;
+  }
+}
+/* 順位 */
+.isl-rp-rank {
+  display: grid;
+  gap: 8px;
+}
+.isl-rp-rankhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.isl-rp-rankhead small {
+  color: var(--isl-dim);
+}
+.isl-rp-ranknum {
+  font-size: 34px;
+  font-weight: 900;
+  opacity: 0;
+  transform: scale(0.5);
+}
+.isl-rp-ranknum.is-show {
+  animation: isl-rp-pop 0.7s ease-out forwards;
+}
+.isl-rp-crown {
+  font-size: 30px;
+  animation: isl-tree-tap 0.7s ease-in-out infinite alternate;
+}
+.isl-rp-move {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #1d2a44;
+  color: var(--isl-dim);
+  font-weight: 900;
+}
+.isl-rp-move.is-up {
+  background: rgba(111, 208, 140, 0.2);
+  color: var(--isl-good);
+  animation: isl-tree-learned 1.2s 0.9s ease-out;
+}
+.isl-rp-move.is-down {
+  background: rgba(240, 112, 112, 0.2);
+  color: var(--isl-bad);
+}
+.isl-rp-list li {
+  opacity: 0;
+  animation: isl-rp-in 0.3s var(--d, 0s) ease-out forwards;
+}
+@keyframes isl-rp-in {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+/* 推移のグラフ */
+.isl-rp-chartwrap {
+  display: grid;
+  gap: 4px;
+}
+.isl-rp-chart {
+  width: 100%;
+  height: auto;
+}
+.isl-rp-zero {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+.isl-rp-bar {
+  fill: rgba(111, 208, 140, 0.75);
+  transform-origin: bottom;
+  animation: isl-rp-grow 0.6s var(--d, 0s) ease-out both;
+}
+.isl-rp-bar.is-neg {
+  fill: rgba(240, 112, 112, 0.75);
+}
+@keyframes isl-rp-grow {
+  from {
+    opacity: 0;
+  }
+}
+.isl-rp-line {
+  fill: none;
+  stroke: #ffd257;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: isl-rp-draw 1.2s 0.3s ease-out forwards;
+}
+@keyframes isl-rp-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.isl-rp-dot {
+  fill: #ffd257;
+  stroke: #0f1626;
+  stroke-width: 2;
+}
+.isl-rp-dot.is-last {
+  fill: #fff;
+}
+.isl-rp-xl {
+  fill: var(--isl-dim);
+  font-size: 8px;
+}
+.isl-rp-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--isl-dim);
+}
+.isl-rp-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: #ffd257;
+  vertical-align: middle;
+}
+.isl-rp-legend .is-bar::before {
+  height: 10px;
+  background: rgba(111, 208, 140, 0.75);
+}
+/* 流れの図（1 行） */
+.isl-rp-flow {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 2px;
+  margin: 4px 0;
+}
+.isl-rp-stage {
+  position: relative;
+  flex: 1;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 4px 4px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: #1d2a44;
+}
+.isl-rp-stage b {
+  font-size: 17px;
+}
+.isl-rp-stage small {
+  color: var(--isl-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.isl-rp-sicon {
+  font-size: 18px;
+}
+.isl-rp-sbar {
+  display: flex;
+  align-items: flex-end;
+  width: 22px;
+  height: 46px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.isl-rp-sbar i {
+  display: block;
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  background: var(--isl-good);
+  animation: isl-rp-grow 0.6s ease-out;
+}
+.isl-rp-stage.is-bn {
+  border-color: var(--isl-bad);
+  background: rgba(240, 112, 112, 0.12);
+}
+.isl-rp-stage.is-bn .isl-rp-sbar i {
+  background: var(--isl-bad);
+}
+.isl-rp-bnmark {
+  position: absolute;
+  top: -10px;
+  right: -4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--isl-bad);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+}
+.isl-rp-arrow {
+  align-self: center;
+  color: var(--isl-dim);
+  font-size: 12px;
+}
+.isl-rp-hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.isl-rp-detail {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.isl-rp-detail summary {
+  cursor: pointer;
+  color: var(--isl-dim);
+  font-size: 13px;
+}
+/* 次の一手 */
+.isl-rp-next {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 4px 10px;
+  border-color: var(--isl-gold);
+}
+.isl-rp-next p {
+  margin: 2px 0 0;
+}
+.isl-rp-mine {
+  width: 64px;
+  height: 84px;
+  image-rendering: pixelated;
+}
+.isl-rp-acts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (max-width: 599px) {
+  .isl-rp-big {
+    font-size: 32px;
+  }
+  .isl-rp-stage b {
+    font-size: 15px;
+  }
+}
