@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, skuParts, STORE, type Mat, type Tier } from './data';
+import { BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -36,6 +36,8 @@ import {
   newP1,
   occupant,
   recommend,
+  needFor,
+  gapOf,
   relocate,
   serializeP1,
   step,
@@ -229,6 +231,7 @@ const ctx: Ctx = {
   tip: (screen) => tutTip(screen),
   sfx: (k) => sfx.play(k),
   moved: (target, fresh, manager) => afterMove(target, fresh, manager),
+  skills: (focus) => openSkills(ctx, focus),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
   dismissed: () => {
     menu = null;
@@ -1090,14 +1093,18 @@ function introPages(): TutPage[] {
   ];
 }
 
-/** 到着の案内を出す。最初の一手が工房なら、閉じたら建築を開く */
+/** 到着の案内を出す。最初の一手が工房なら、閉じたら建築を開く。2 枚目（リサーチ）には「市場データを開く」ボタン */
 function showIntro(pages: TutPage[]) {
   const id = s.sector ?? 'c1';
   const ws = s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop');
-  talk(pages, ws ? t('はじめよう！', 'Let’s go!') : t('建築を開く', 'Open Build'), () => {
+  const seen = () => {
     s.flags.sectorIntro = [...new Set([...(s.flags.sectorIntro ?? []), id])];
     save();
     renderAll();
+  };
+  const withData = pages.map((pg): TutPage => (isResearchPage(pg.text) ? { ...pg, button: [t('市場データを開く', 'Open market data'), () => (seen(), openData(ctx))] } : pg));
+  talk(withData, ws ? t('はじめよう！', 'Let’s go!') : t('建築を開く', 'Open Build'), () => {
+    seen();
     if (!ws) openBuildTab();
   });
 }
@@ -1905,6 +1912,15 @@ function talk(pages: TutPage[], ok: string, then: () => void) {
     else if (pg.show === 'gift') stage.append(giftEl(pg.gift));
     stage.hidden = !pg.show;
     foot.replaceChildren(h('small', 'isl-dim', `${k + 1} / ${pages.length}`));
+    // その枚だけのボタン（到着の案内の「市場データを開く」など）：押すと会話を閉じて、その画面へ
+    const extra = pg.button;
+    if (extra)
+      foot.append(
+        btn(extra[0], () => {
+          m.remove();
+          extra[1]();
+        }, 'is-on isl-talk-extra'),
+      );
     foot.append(
       last
         ? btn(ok, () => {
@@ -1976,6 +1992,26 @@ function cycleEl(): HTMLElement {
   return row;
 }
 
+/**
+ * 2 か所目以降のセクタのリサーチの案内（docs/ISLAND_PHASE1.md「商品と技」）。
+ * このセクタの gap（まだ誰も売っていない商品）をまだ作っても並べてもいないあいだだけ出す。
+ */
+function researchTip(): { text: string; action?: [string, () => void] } | null {
+  const here = s.sector ?? 'c1';
+  if (!s.land || s.land.mine[0] === here) return null;
+  if (!(s.flags.dataSeen ?? []).includes(here)) return { text: t('この町ではもう他店が売っている商品が多いよ。[[市場データ]]で、まだ誰も売っていない商品を探そう！', 'Other shops here already sell many goods. Use the [[market data]] to find goods nobody sells yet!'), action: [t('市場データを開く', 'Open market data'), () => openData(ctx)] };
+  const gap = gapOf(s);
+  const started = s.slots.some((sl) => sl.sku && gap.includes(skuParts(sl.sku)[0])) || myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x && gap.includes(skuParts(x)[0])));
+  if (started) return null;
+  const rec = recommend(s);
+  const need = needFor(s, rec);
+  const name = PRODUCT[rec].name;
+  if (need?.kind === 'tech') return { text: t(`「${name}」が売れそう。まずは[[${SKILL[need.skill].name}]]を開放しよう（スキルツリーの技の枝）。`, `${name} looks promising. First unlock [[${SKILL[need.skill].name}]] (Crafts branch of the skill tree).`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
+  if (need?.kind === 'route') return { text: t(`「${name}」には[[${MATS[need.mat].name}]]が要るよ。スキルツリーで[[${SKILL[need.skill].name}]]を開放しよう。`, `${name} needs [[${MATS[need.mat].name}]]. Unlock the [[${SKILL[need.skill].name}]] in the skill tree.`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
+  if (need?.kind === 'dev' && s.dev.length && !s.lab) return { text: t(`「${name}」を[[商品開発]]でアンコモンにしよう（営業企画 → 商品開発）。`, `Develop ${name} into an Uncommon in [[Product development]] (Planning → Products).`), action: [t('商品開発を開く', 'Open products'), () => openDev(ctx)] };
+  return null;
+}
+
 function tutorial(): { text: string; action?: [string, () => void] } {
   const tk = tutOf(s);
   if (tk < TUT_DONE && TUT[tk]) {
@@ -1999,6 +2035,9 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (!ws && s.land && s.land.mine.length > 1 && s.sector !== s.land.mine[0]) return { text: t('このセクタにも[[工房]]を建てましょう。建物はセクタごとです。「営業企画」→「建築」から、道路に面した空き地へ。', 'Build a [[workshop]] in this sector too — buildings belong to each sector. Planning → Build, then a lot facing a road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (!ws) return { text: t('新天地へようこそ！まずは Workshop から引き継いだ「工房」を建てましょう。下の「営業企画」→「建築」から工房を選び、道路に面した空き地へ。入口は道路の方にしか向けられません。', 'Welcome to the new land! First, build the Workshop you brought from home: Planning → Build, then place it on a lot facing a road — the entrance can only face the road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (ws.left > 0) return { text: t('工房の工事中です。⏩ で時間を早められます。地図のマスを押すと、建物の詳しい情報が見られます。', 'The workshop is under construction. ⏩ speeds things up. Tap any tile on the map for details.') };
+  // 2 か所目以降：市場データ → 勧めた商品の技 → 素材のルート（→ Uncommon は魔法の釜・商品開発）の順に導く
+  const research = researchTip();
+  if (research) return research;
   // Uncommon のセクタ：Common の商品は売れにくいので、まずアンコモンを開発
   if ((s.tier ?? 'C') !== 'C' && !s.dev.length && !s.lab) {
     if (!has(s, 'pot')) return { text: t('ここではアンコモンが要るよ。スキルツリーの[[魔法の釜]]を先に開放しよう（工房の枝）。', 'Uncommons are needed here. Unlock the [[Magic pot]] in the skill tree first (Workshop branch).'), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, 'craft')] };

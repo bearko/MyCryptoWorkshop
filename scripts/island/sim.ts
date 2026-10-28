@@ -5,7 +5,7 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, ADS, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
 import {
@@ -19,8 +19,13 @@ import {
   craftDays,
   batchOf,
   develop,
+  gapOf,
   gateToll,
   has,
+  hasRoute,
+  needFor,
+  recommend,
+  tierOk,
   heroStats,
   hire,
   invest,
@@ -115,7 +120,7 @@ export interface RunResult {
   stop?: string;
   skillsAt: { id: string; day: number; sector: string }[];
   /** 100% のゴールの中身 */
-  goal?: { crowns: number; skills: number; missions: number };
+  goal?: { crowns: number; skills: number; missions: number; missing?: string[] };
 }
 
 // ---------------------------------------------------------------- 方針
@@ -186,8 +191,10 @@ function pickLot(s: P1State, id: string, first: boolean): [number, number, (type
   return null;
 }
 
-/** その商品の素材のルートが全部ある */
-const routesOk = (s: P1State, x: Sku) => Object.keys(recipeOf(x)).every((m) => s.routes.includes(m as Mat));
+/** その商品の素材のルートが全部ある（会社のルート ∪ セクタの特産） */
+const routesOk = (s: P1State, x: Sku) => Object.keys(recipeOf(x)).every((m) => hasRoute(s, m as Mat));
+/** その商品の技がある（技が要らない基礎の商品も true） */
+const techOk = (s: P1State, key: string) => !PRODUCT[key].tech || has(s, techSkill(PRODUCT[key].tech!));
 /** アンコモンを作れる職人（いまいる人） */
 const uCrafters = (s: P1State) => crew(s).filter((x) => aptitude(x.stats, 'craft') >= UNCOMMON.minCraft);
 
@@ -201,8 +208,10 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
   const nU = uCrafters(s).length;
   const cands: { x: Sku; v: number; key: string }[] = [];
   for (const p of PRODUCTS) {
-    const est = Math.max(4, sellEstimate(s, p.key));
+    if (!techOk(s, p.key) || !tierOk(p, tier)) continue;
     for (const r of ['C', 'U'] as const) {
+      // 売れる見込み：飽和（他店で供給が足りている）を入れた見込み
+      const est = Math.max(r === 'U' ? 4 : 1, sellEstimate(s, p.key, r));
       const x = sku(p.key, r);
       if (!routesOk(s, x)) continue;
       if (r === 'U' && (!has(s, 'pot') || !s.dev.includes(p.key) || nU === 0)) continue;
@@ -217,7 +226,7 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
   let usedU = 0;
   // 依頼で要る商品（100% だけ）：受けている依頼の商品を 1 台ぶん入れる
   if (c.policy === 'full') {
-    const want: Record<string, string> = { sensu100: 'Sensu', lantern50: 'Lantern', c2_lantern: 'Lantern', c3_mallet: 'Mallet' };
+    const want: Record<string, string> = { sensu100: 'Sensu', lantern50: 'Lantern', c2_goblet: 'Goblet', c3_knife: 'Knife' };
     for (const [m, key] of Object.entries(want)) {
       if (s.missions[m] !== 'accepted' || out.length >= kinds) continue;
       if (out.some((x) => skuParts(x)[0] === key)) continue;
@@ -288,7 +297,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
   const pending = new Set<string>();
   const learnable = (id: string) => {
     const k = SKILL[id];
-    return k && !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
+    return k && !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
   };
   const take = (id: string, keep = reserve) => {
     if (!learnable(id) || budget < SKILL[id].cost + keep) return false;
@@ -450,7 +459,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
   const develops = () => {
     if (!has(s, 'pot') || s.lab) return;
     // アンコモンの価値が高い順。素材のルートが無ければルートのスキルを先に
-    const order = PRODUCTS.map((p) => p.key)
+    const order = PRODUCTS.filter((p) => techOk(s, p.key) && tierOk(p, s.tier ?? 'C'))
+      .map((p) => p.key)
       .filter((k) => !s.dev.includes(k))
       .sort((a, b) => uValue(s, b) - uValue(s, a));
     for (const k of order) {
@@ -466,6 +476,33 @@ export function policy(s: P1State, c: Ctx): Action[] {
       return;
     }
   };
+  /**
+   * リサーチ（2 か所目以降）：市場データのおすすめ（recommend）と、このセクタの gap の商品に要る
+   * 技 → 素材のルート →（Uncommon 以上）魔法の釜 → 商品開発 を順に取る。1 日に 1 つの商品ぶん
+   */
+  const researching = () => {
+    if (!s.land || s.land.mine[0] === s.sector) return;
+    const keys = [...new Set([recommend(s), ...gapOf(s)])].filter((k) => gapOf(s).includes(k));
+    for (const key of keys) {
+      const need = needFor(s, key);
+      if (!need) continue;
+      if (need.kind === 'tech') take(need.skill, reserve / 2);
+      else if (need.kind === 'route') for (const r of routeChain(need.mat)) take(r, reserve / 2);
+      else if (need.kind === 'pot') {
+        take('bench2', 0);
+        take('pot', 0);
+      } else if (need.kind === 'dev' && !s.lab && !pending.has('dev')) {
+        const cost = Math.round(PRODUCT[key].price * 4);
+        if (budget >= cost + reserve / 2) {
+          spend(cost);
+          pending.add('dev');
+          acts.push({ kind: 'dev', run: () => develop(s, key) });
+        }
+      }
+      return;
+    }
+  };
+  if (!saving) researching();
   const wantU = (s.tier ?? 'C') !== 'C' || c.policy === 'rta';
   if (c.policy === 'rta') {
     if (!saving) {
@@ -635,7 +672,7 @@ function routeChain(m: Mat): string[] {
 /** アンコモンのひと月の粗利の目安（作業台 1 つ） */
 function uValue(s: P1State, key: string) {
   const x = sku(key, 'U');
-  const units = Math.min(Math.max(4, sellEstimate(s, key)) * UNCOMMON.pull, ((30 * 0.85) / craftDays(s, x)) * batchOf(x));
+  const units = Math.min(Math.max(4, sellEstimate(s, key, 'U')) * UNCOMMON.pull, ((30 * 0.85) / craftDays(s, x)) * batchOf(x));
   return units * (priceOf(s, x) - unitCost(s, x));
 }
 
@@ -777,7 +814,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.days = s.day;
   if (p === 'full') {
     const crowns = SECTORS.filter((x) => (x.tier === 'C' || x.tier === 'U') && !x.cloud && !x.soon).filter((x) => crowned(s, x.id)).length;
-    res.goal = { crowns, skills: s.skills.length, missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length };
+    res.goal = { crowns, skills: s.skills.length, missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
   }
   return res;
 }
@@ -805,6 +842,8 @@ const range = (xs: number[], f: (v: number) => string = (v) => String(v)) => (xs
 export interface Report2 {
   runs: RunResult[];
   ablation: { skill: string; base: number; without: number; n: number }[];
+  /** 技を 1 つも取らない「通常」（gap の商品を立ち上げず、基礎の商品だけで戦う）。新しい商材が要るかの確かめ */
+  noTech?: RunResult[];
   ms: number;
 }
 
@@ -920,6 +959,21 @@ export function observations(rep: Report2): string {
     for (const a of rep.ablation) out.push(`| ${SKILL[a.skill]?.name ?? a.skill}（${a.skill}） | ${a.base.toFixed(1)} | ${a.without.toFixed(1)} | ${(a.without - a.base >= 0 ? '+' : '') + (a.without - a.base).toFixed(1)} |`);
     out.push('');
   }
+  if (rep.noTech?.length) {
+    const base = rep.runs.filter((r) => r.policy === 'normal');
+    out.push(`技なしとの比べ（通常の方針・シード ${rep.noTech.map((r) => r.seed).join('・')}）：技を 1 つも取らず、基礎の商品（多くは他店で供給が足りている）だけで戦ったときの「1 位までの月数」。${MONTH_CAP} か月で 1 位になれなければ「なれない」`);
+    out.push('');
+    out.push('| セクタ | ふつう | 技なし | 技なしで 1 位になれた |');
+    out.push('|---|---|---|---|');
+    for (const id of routeOf('normal')) {
+      const m = (rs: RunResult[]) => rs.map((r) => r.sectors.find((x) => x.id === id)?.months).filter((v): v is number => v != null);
+      const a = m(base);
+      const b = m(rep.noTech);
+      const reached = rep.noTech.filter((r) => r.sectors.some((x) => x.id === id)).length;
+      out.push(`| ${sectorName(id)} | ${a.length ? mean(a).toFixed(1) : '—'} | ${b.length ? `${mean(b).toFixed(1)}（${range(b)}）` : 'なれない'} | ${b.length}/${reached}${reached < rep.noTech.length ? `（未到達 ${rep.noTech.length - reached}）` : ''} |`);
+    }
+    out.push('');
+  }
   out.push('行動の内訳（3 シードの平均）：');
   out.push('');
   out.push('| 方針 | ' + ['build', 'assign', 'hire', 'skill', 'craft', 'proc', 'buy', 'shelf', 'part', 'ad', 'invest', 'dev', 'accept', 'claim', 'gate', 'move'].join(' | ') + ' |');
@@ -931,7 +985,7 @@ export function observations(rep: Report2): string {
   out.push('');
   const fulls = rep.runs.filter((x) => x.policy === 'full');
   if (fulls.length) {
-    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${SKILLS.length}・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
+    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${SKILLS.length}・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
     out.push('');
   }
   const stops = rep.runs.filter((r) => r.stop && r.policy !== 'full');
@@ -945,6 +999,8 @@ export function observations(rep: Report2): string {
 // ---------------------------------------------------------------- まとめて回す
 
 export const SEEDS = [1, 2, 3];
+/** 技の枝のスキル（技なしの比較で外す） */
+export const TECH_SKILLS = SKILLS.filter((k) => k.branch === 'tech').map((k) => k.id);
 
 export function runAll(seeds = SEEDS, opts: { ablation?: boolean } = {}): Report2 {
   const t0 = performance.now();
@@ -962,7 +1018,8 @@ export function runAll(seeds = SEEDS, opts: { ablation?: boolean } = {}): Report
     }
     ablation.sort((a, b) => a.without - a.base - (b.without - b.base));
   }
-  return { runs, ablation, ms: performance.now() - t0 };
+  const noTech = opts.ablation ? seeds.map((seed) => runOnce('normal', seed, { ban: TECH_SKILLS })) : undefined;
+  return { runs, ablation, noTech, ms: performance.now() - t0 };
 }
 
 /** docs/ISLAND_BALANCE.md の「自動で書く」部分を差し替える（前後の手書きの文はそのまま） */

@@ -4,8 +4,8 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { MATS, PRODUCT, rivalDef, SECTORS, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, type Mat, type Sku, type Task } from './data';
-import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, recipeOf, staffOf, unitCost, type P1State, type Staff } from './model';
+import { MATS, PRODUCT, rivalDef, SECTORS, SKILL, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, techSkill, type Mat, type Sku, type Task } from './data';
+import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, recipeOf, saturated, staffOf, unitCost, type Need, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager') };
@@ -195,6 +195,28 @@ export function pickHero(root: HTMLElement, s: P1State, o: { title: string; task
 
 // ---------------------------------------------------------------- エクステ（素材 → 商品）
 
+/** 技が要る商品の、作れない理由（「技：ガラス細工が要る（スキルツリー）」）。技が要らなければ null */
+export function techNeed(key: string): string | null {
+  const tech = PRODUCT[key]?.tech;
+  if (!tech) return null;
+  const name = SKILL[techSkill(tech)]?.name ?? tech;
+  return t(`技：${name}が要る（スキルツリー）`, `Needs the ${name} skill (skill tree)`);
+}
+
+/** 作るのに足りないもの（model の needFor）を 1 行で */
+export function needText(n: Need): string {
+  switch (n.kind) {
+    case 'tech':
+      return t(`技：${SKILL[n.skill]?.name ?? n.skill}（スキルツリー）`, `Skill: ${SKILL[n.skill]?.name ?? n.skill} (skill tree)`);
+    case 'route':
+      return t(`素材：${SKILL[n.skill]?.name ?? MATS[n.mat].name}（スキルツリー）`, `Material: ${SKILL[n.skill]?.name ?? MATS[n.mat].name} (skill tree)`);
+    case 'pot':
+      return t(`アンコモン：${SKILL.pot.name}（スキルツリー）`, `Uncommon: ${SKILL.pot.name} (skill tree)`);
+    case 'dev':
+      return t('アンコモン：商品開発がまだ（営業企画 → 商品開発）', 'Uncommon: not developed yet (Planning → Product development)');
+  }
+}
+
 /** 素材 → 商品のつながり（BOM）：素材のアイコン×数 → エクステ×できる数 */
 export function bomRow(s: P1State, x: Sku, size = 22): HTMLElement {
   const row = h('div', 'isl-bom-row');
@@ -243,7 +265,7 @@ export function monthOutlook(s: P1State, x: Sku) {
   const demand = Math.round(s.demand[k] ?? PRODUCT[k].demand);
   const margin = skuPrice(x) - unitCost(s, x);
   // 売れる数：お店の場所・他社との取り合いを入れた見込み（作れる数が上限）
-  const sell = Math.min(make, Math.round(sellEstimate(s, k)));
+  const sell = Math.min(make, Math.round(sellEstimate(s, k, skuParts(x)[1])));
   return { make, demand, margin, sell, profit: Math.round(sell * margin) };
 }
 
@@ -266,6 +288,7 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   const tags = h('div', 'isl-ext-tags');
   if (o.making) tags.append(h('span', 'isl-tag is-good', t('工房で作っている', 'Being crafted')));
   const err = craftCheck(s, x, o.worker ?? null);
+  if (err === 'tech') tags.append(h('span', 'isl-tag is-bad', techNeed(k) ?? ''));
   if (r === 'U' && err === 'skill') tags.append(h('span', 'isl-tag is-bad', t(`製造の適性 ${UNCOMMON.minCraft} 以上が要る`, `Needs aptitude ${UNCOMMON.minCraft}+`)));
   if (tags.childElementCount) left.append(tags);
   // 1 ロットの素材（保有数）→ できる数
@@ -287,6 +310,7 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   // 右：数字
   const m = monthOutlook(s, x);
   const sellers = s.rivals.filter((v) => (v.sells[k] ?? 0) > 0).length;
+  const sat = saturated(s, k);
   const stat = (label: string, value: string, cls = '') => {
     const row = h('div', `isl-ext-stat ${cls}`);
     row.append(h('small', '', label), h('b', '', value));
@@ -297,7 +321,7 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   stat(t('需要', 'Demand'), t(`${m.demand} 個／月`, `${m.demand} / mo`));
   stat(t('見込利益', 'Est. profit'), t(`${money(m.profit)}／月`, `${money(m.profit)} / mo`), 'is-gold');
   right.lastElementChild?.append(h('small', '', t(`売れる見込み ${m.sell} 個／月`, `~${m.sell} sold / mo`)));
-  stat(t('取扱企業', 'Sellers'), sellers ? t(`${sellers} 社`, `${sellers}`) : t('なし', 'None'), sellers ? '' : 'is-good');
+  stat(t('取扱企業', 'Sellers'), sellers ? (sat ? t(`${sellers} 社（供給が足りている）`, `${sellers} (well supplied)`) : t(`${sellers} 社`, `${sellers}`)) : t('なし', 'None'), sellers ? (sat ? 'is-bad' : '') : 'is-good');
   card.append(left, right);
   if (o.badge) card.append(h('span', 'isl-best', o.badge));
   else if (o.best) card.append(h('span', 'isl-best', t('いちばん効率がよい', 'Most efficient')));
@@ -311,7 +335,9 @@ export function pickExt(
   s: P1State,
   o: { title: string; items: Sku[]; current: Sku | null; worker?: number | null; note?: string; onPick: (x: Sku | null) => void; allowNone?: boolean; badge?: { x: Sku; text: string } | null; making?: Sku[] },
 ) {
-  const list = [...o.items].sort((a, b) => profitPerDay(s, b) - profitPerDay(s, a));
+  // 技がまだの商品はうしろへ（カードに「技：○○が要る」）
+  const locked = (x: Sku) => Number(craftCheck(s, x, null) === 'tech');
+  const list = [...o.items].sort((a, b) => locked(a) - locked(b) || profitPerDay(s, b) - profitPerDay(s, a));
   // 印をつけたもの（おすすめ・工房で作っているもの）を先頭に
   if (o.badge && list.includes(o.badge.x)) list.splice(0, 0, ...list.splice(list.indexOf(o.badge.x), 1));
   const ok = list.filter((x) => lotsFromStock(s, x) > 0 && !craftCheck(s, x, o.worker ?? null));

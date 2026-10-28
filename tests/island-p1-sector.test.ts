@@ -13,10 +13,11 @@ describe('セクタの個性', () => {
     expect(rivalDef('fusha')?.name).toBe('風車堂');
     // 地図にも、その会社の店がある
     for (const id of ids) expect(s.buildings.some((b) => b.owner === id)).toBe(true);
-    // 需要：マレット ×1.6・ランタン ×0.6、センスはそのまま
-    expect(s.demand.Mallet).toBeCloseTo(PRODUCT.Mallet.demand * 1.6);
-    expect(s.demand.Lantern).toBeCloseTo(PRODUCT.Lantern.demand * 0.6);
+    // 需要：gap のナイフ ×1.6・コンパス ×1.5、基礎の商品はそのまま、gap でない技の商品は MARKET.niche 倍
+    expect(s.demand.Knife).toBeCloseTo(PRODUCT.Knife.demand * 1.6);
+    expect(s.demand.Compass).toBeCloseTo(PRODUCT.Compass.demand * 1.5);
     expect(s.demand.Sensu).toBeCloseTo(PRODUCT.Sensu.demand);
+    expect(s.demand.Goblet).toBeCloseTo(PRODUCT.Goblet.demand * 0.5);
     // ランキングの名前もセクタの他社
     const rows = areaRanking(s, 0, Object.fromEntries(s.rivals.map((r) => [r.id, r.base])));
     expect(rows.map((r) => r.name)).toContain('カザミ金物');
@@ -111,12 +112,12 @@ describe('セクタの依頼とランド制覇', () => {
     s.money = 1e6;
     expect(moveTo(s, 'c2', null)).toBeNull();
     const offered = offeredMissions(s).map((m) => m.id);
-    expect(offered.slice(0, 2)).toEqual(['c2_lantern', 'c2_top']);
-    expect(accept(s, 'c2_lantern')).toBeNull();
-    expect(s.missions.c2_lantern).toBe('accepted');
-    s.monthUnits.Lantern = 10;
+    expect(offered.slice(0, 2)).toEqual(['c2_goblet', 'c2_top']);
+    expect(accept(s, 'c2_goblet')).toBeNull();
+    expect(s.missions.c2_goblet).toBe('accepted');
+    s.monthUnits.Goblet = 10;
     step(s);
-    expect(s.missions.c2_lantern).toBe('done');
+    expect(s.missions.c2_goblet).toBe('done');
   });
 
   it('Common の 8 セクタすべてで 1 位になるとランド制覇', () => {

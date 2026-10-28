@@ -5274,3 +5274,21 @@ button.isl-mis {
     font-size: 9px;
   }
 }
+
+/* 市場データ：商品名の下に「作れるか」の 1 行とおすすめの印。供給が足りている商品は少し薄く */
+.isl-data-name {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+}
+.isl-data-name small {
+  font-size: 11px;
+  line-height: 1.3;
+}
+.isl-data-row.is-sat {
+  opacity: 0.72;
+}
+/* 会話の枚だけのボタン（到着の案内の「市場データを開く」） */
+.isl-talk-foot {
+  flex-wrap: wrap;
+}
