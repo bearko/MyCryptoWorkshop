@@ -147,7 +147,6 @@ describe('フェーズ 1：従業員とサプライチェーン', () => {
     s.mats.paper = 10;
     s.money = 1e6;
     expect(craftCheck(s, 'Sensu:U', 10003)).toBe('pot');
-    learn(s, 'bench2');
     learn(s, 'pot');
     s.dev.push('Sensu');
     expect(craftCheck(s, 'Sensu:U', 10003)).toBe('skill');
@@ -213,6 +212,8 @@ describe('フェーズ 1：タイルの操作とメニューの仕組み', () =>
     expect(invest(s, uid, 'tools')).toBe('locked');
     expect(invest(s, uid, 'backroom')).toBeNull();
     expect(invest(s, uid, 'backroom')).toBeNull();
+    // 以前のスキル「お店の裏倉庫」を統合して 3 段
+    expect(invest(s, uid, 'backroom')).toBeNull();
     expect(invest(s, uid, 'backroom')).toBe('max');
   });
 
@@ -224,7 +225,6 @@ describe('フェーズ 1：タイルの操作とメニューの仕組み', () =>
     s.mats.paper = 50;
     s.mats.wood = 100;
     expect(develop(s, 'Sensu')).toBe('pot');
-    learn(s, 'bench2');
     learn(s, 'pot');
     s.staff.push({ ...s.staff[2], hero: 99999, stats: { hp: 200, phy: 70, int: 70, agi: 70 }, task: null, target: null });
     expect(craftCheck(s, 'Sensu:U', 99999)).toBe('dev');

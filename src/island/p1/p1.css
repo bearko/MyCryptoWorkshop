@@ -4757,6 +4757,64 @@ button.isl-mis {
   color: var(--isl-gold);
   font-size: 12px;
 }
+.isl-rp-goalk .is-short {
+  display: none;
+}
+.isl-rp-goalk.is-done {
+  border-color: var(--isl-gold);
+  background: rgba(242, 181, 68, 0.18);
+}
+/* 1 回目の 1 位：マインちゃんの一言（来月も守れば制覇） */
+.isl-rp-say {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+.isl-rp-say .isl-rp-mine {
+  width: 30px;
+  height: 40px;
+}
+.isl-rp-lead {
+  color: var(--isl-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.isl-rp-say p {
+  margin: 0 !important;
+  padding: 3px 10px;
+  border: 1px solid var(--isl-line);
+  border-radius: 10px;
+  background: var(--isl-paper);
+  color: var(--isl-ink);
+  font-size: 13px !important;
+  font-weight: 700;
+  line-height: 1.4 !important;
+}
+/* 他社の反撃中（市場データ・ランキング） */
+.isl-invest-card.is-flash {
+  outline: 2px solid var(--isl-gold);
+  box-shadow: 0 0 0 4px rgba(242, 181, 68, 0.25);
+}
+.isl-rally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(240, 112, 112, 0.5);
+  border-radius: 10px;
+  background: rgba(240, 112, 112, 0.1);
+}
+.isl-rally small {
+  color: var(--isl-dim);
+}
+.isl-rally-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .isl-rp-subrow {
   display: flex;
   flex-wrap: wrap;
@@ -5119,6 +5177,33 @@ button.isl-mis {
   }
   .isl-rp-goalk {
     font-size: 11px;
+  }
+  .isl-rp-goalk .is-long {
+    display: none;
+  }
+  .isl-rp-goalk .is-short {
+    display: inline;
+  }
+  /* 1 回目の 1 位の一言：スマホでは小さく（報告を 1 画面に） */
+  .isl-rp-say {
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    margin: 0;
+  }
+  .isl-rp-lead {
+    font-size: 11px;
+  }
+  /* 一言のぶん、推移のグラフを少し低く */
+  .is-report.has-say .isl-rp-chart {
+    max-height: 104px;
+  }
+  .isl-rp-say .isl-rp-mine {
+    width: 20px;
+    height: 26px;
+  }
+  .isl-rp-say p {
+    padding: 1px 8px;
+    font-size: 12px !important;
   }
   .isl-rp-hint .is-short {
     display: inline;

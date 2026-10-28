@@ -6,8 +6,8 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
-import { MAT_KEYS, MATS, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
-import { bottleneck, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { INVEST, MAT_KEYS, MATS, P1B, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
+import { invest, investCost, type PBuilding, bottleneck, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
@@ -25,6 +25,19 @@ const STAGE: Record<Stage, { n: string; name: string; branch: string; what: stri
 /** まだ取れるスキル（先に要るものを取ってあるもの）を、その段の系統から 2 つ */
 function nextSkills(s: P1State, branch: string) {
   return SKILLS.filter((k) => k.branch === branch && !has(s, k.id) && !(k.requires ?? []).some((r) => !has(s, r))).slice(0, 2);
+}
+
+/** その段を太くする設備投資（建物ごと）：段 → 設備の id（上から順に、まだ付けられるものを 2 つ） */
+const STAGE_INVEST: Record<Stage, string[]> = { buy: ['stockroom'], craft: ['bench', 'tools'], haul: ['carts', 'truck'], sell: ['shelves', 'staffroom'] };
+function nextInvests(s: P1State, k: Stage): { b: PBuilding; id: string; cost: number }[] {
+  const out: { b: PBuilding; id: string; cost: number }[] = [];
+  for (const id of STAGE_INVEST[k]) {
+    // 付けられる建物のうち、段がいちばん低いもの（お店は棚の少ないお店から）
+    const bs = s.buildings.filter((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === INVEST[id].kind && investCost(b, id) != null);
+    const b = bs.sort((x, y) => (x.inv?.[id] ?? 0) - (y.inv?.[id] ?? 0))[0];
+    if (b) out.push({ b, id, cost: investCost(b, id)! });
+  }
+  return out.slice(0, 2);
 }
 
 function lampEl(l: Lamp): HTMLElement {
@@ -200,6 +213,23 @@ export function openSupply(ctx: Ctx) {
           const e = learn(s, sk.id);
           if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
           else if (!e) ctx.toast(t(`「${sk.name}」を習得しました`, `Learned: ${sk.name}`));
+          after(ctx);
+        });
+        box.append(b);
+      }
+      // その段を太くする設備投資（棚・作業台・荷車は建物ごと）：その場で導入できる（チュートリアル中は出さない）
+      const ivs = k === bn && !ctx.step?.() ? nextInvests(s, k) : [];
+      if (ivs.length) box.append(h('small', 'isl-dim', t('ボトルネックを太くする設備投資（建物ごと）', 'Equipment to widen the bottleneck (per building)')));
+      for (const iv of ivs) {
+        const x = INVEST[iv.id];
+        const b = h('button', 'isl-scm-skill');
+        b.type = 'button';
+        b.append(h('b', '', x.name), h('small', '', t(`${DEF[iv.b.id].name}：${x.note}`, `${DEF[iv.b.id].name}: ${x.note}`)), h('span', 'isl-gold', money(iv.cost)));
+        b.disabled = s.money < iv.cost;
+        b.addEventListener('click', () => {
+          const e = invest(s, iv.b.uid, iv.id);
+          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+          else if (!e) ctx.toast(t(`「${x.name}」を導入しました`, `Installed: ${x.name}`));
           after(ctx);
         });
         box.append(b);
