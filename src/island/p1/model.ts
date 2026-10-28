@@ -167,6 +167,10 @@ export interface Flags {
   hq?: boolean;
   /** はじめて売れた（ブランド力） */
   firstSale?: boolean;
+  /** チュートリアル：工房の設定のあとの説明を見た */
+  craftTalk?: boolean;
+  /** チュートリアル：建ててもらう場所（工房とお店。運ぶ様子が見えるよう、少し離す） */
+  spots?: Record<string, [number, number, Dir]>;
   /** 「人材の募集」を開放したあと、人事タブで人材登用のアンロックの演出を見た */
   hireUnlocked?: boolean;
   /** 建築の一覧で、ロックが外れる演出を見たカテゴリ */
@@ -256,6 +260,8 @@ export interface P1State {
   buyTrip: BuyTrip | null;
   /** 卸問屋への注文（納期に届く） */
   orders?: Order[];
+  /** チュートリアルの流れの案内：お店の中を見せるまで、売るのを待つ */
+  holdSales?: boolean;
   /** ゲームの進行速度（1・1.5・2。スキルで選べる） */
   pace?: number;
 }
@@ -583,6 +589,43 @@ export function setRest(s: P1State, hero: number, rest: boolean) {
 export type PlaceErr = 'ground' | 'taken' | 'road' | 'money' | 'locked' | 'soon' | 'limit';
 
 /** 入口が道路に向く向きだけ */
+/**
+ * チュートリアルで建ててもらう場所。工房は区画の左下寄り、お店は工房から道のりで 7〜10 マス離れた、家の多い所。
+ * 一度決めたら覚えておく（Flags.spots）。
+ */
+export function tutSpot(s: P1State, id: string): [number, number, Dir] | null {
+  const memo = (s.flags.spots ??= {});
+  if (memo[id] && allowedDirs(s, id, memo[id][0], memo[id][1]).includes(memo[id][2])) return memo[id];
+  const lots: [number, number, Dir][] = [];
+  for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) for (const d of allowedDirs(s, id, i, j)) lots.push([i, j, d]);
+  if (!lots.length) return null;
+  let pick: [number, number, Dir] | null = null;
+  if (P1B[id]?.kind === 'workshop') {
+    const ti = s.n * 0.3;
+    const tj = s.n * 0.62;
+    pick = lots.sort((a, b) => Math.hypot(a[0] - ti, a[1] - tj) - Math.hypot(b[0] - ti, b[1] - tj))[0];
+  } else {
+    const ws = myWorkshop(s) ?? s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
+    if (!ws) return null;
+    const homes = sources(s).list;
+    let best = -Infinity;
+    for (const l of lots) {
+      const fake: PBuilding = { uid: -1, id, i: l[0], j: l[1], dir: l[2], left: 0, owner: 'me' };
+      const len = roadPath(s, doorOf(ws), doorOf(fake))?.length ?? 99;
+      if (len < 6 || len > 11) continue;
+      const near = homes.filter((k) => Math.abs(k.i - l[0]) + Math.abs(k.j - l[1]) <= 3).reduce((a, k) => a + k.pop, 0);
+      const score = near - Math.abs(len - 8) * 0.6;
+      if (score > best) {
+        best = score;
+        pick = l;
+      }
+    }
+    pick ??= lots[0];
+  }
+  if (pick) memo[id] = pick;
+  return pick;
+}
+
 export function allowedDirs(s: P1State, id: string, i: number, j: number, ignore?: number): Dir[] {
   return (['rd', 'ld', 'lu', 'ru'] as Dir[]).filter((d) => facesRoad(s, id, i, j, d) && lotFree(s, id, i, j, d, ignore));
 }
@@ -1680,7 +1723,7 @@ export function step(s: P1State): DayResult {
   }
   // 売れる：住む場所ごとに、近くて強いお店へお客さんが分かれる（棚が空のお店には来ない＝他社へ流れる）
   for (const p of PRODUCTS) {
-    const mine = myOffers(s, p.key, true);
+    const mine = s.holdSales ? [] : myOffers(s, p.key, true);
     const rv = rivalOffers(s, p.key);
     const month = capture(s, p.key, [...mine, ...rv]);
     mine.forEach((o, n) => {
@@ -1928,6 +1971,8 @@ export function deserializeP1(json: string): P1State | null {
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
     // 以前のセーブ：セクタ・ブランド力・帳簿・ランド
+    // 流れの案内の途中で閉じたときに、売らないままにならないように
+    s.holdSales = false;
     s.sector ??= 'c1';
     s.tier ??= 'C';
     s.brand ??= 0;

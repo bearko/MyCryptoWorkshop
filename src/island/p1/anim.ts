@@ -50,6 +50,8 @@ export interface Anim {
   plus: { uid: number; n: number; t: number }[];
   /** チュートリアルの流れの案内：スポットライトを当てるマス（まわりを暗く） */
   spot?: { i: number; j: number; r: number } | null;
+  /** チュートリアル：建ててもらう場所の印 */
+  mark?: { i: number; j: number; label: string } | null;
 }
 
 export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, dayMs: 1200, walkers: [], crowd: [], buyer: null, coins: new Map(), plus: [] });

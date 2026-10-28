@@ -115,6 +115,12 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
         diamond(ctx, i, j, `rgba(255,205,90,${(0.55 * reach(d)).toFixed(3)})`);
       }
 
+  // チュートリアル：建ててもらう場所（金色に光るマスと「ここに建ててみて！」）
+  if (anim?.mark) {
+    const a = 0.35 + 0.25 * Math.sin(now / 220);
+    diamond(ctx, anim.mark.i, anim.mark.j, `rgba(255,214,90,${a.toFixed(3)})`);
+    edge(ctx, anim.mark.i, anim.mark.j, '#ffd65a');
+  }
   const sel = selected != null ? s.buildings.find((b) => b.uid === selected) : null;
   if (sel) for (const [x, y] of cells(DEF[sel.id], sel.i, sel.j, sel.dir)) diamond(ctx, x, y, 'rgba(255,230,120,0.35)');
   else if (cell) diamond(ctx, cell[0], cell[1], 'rgba(255,230,120,0.45)');
@@ -215,6 +221,28 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
+  if (anim?.mark) {
+    const c = center(anim.mark.i, anim.mark.j);
+    const y = c.y - 150 - Math.abs(Math.sin(now / 300)) * 10;
+    ctx.font = "900 30px 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif";
+    const w = ctx.measureText(anim.mark.label).width + 28;
+    ctx.fillStyle = '#ffd65a';
+    ctx.strokeStyle = '#0f1626';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(c.x - w / 2, y - 26, w, 52, 14);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(c.x - 12, y + 24);
+    ctx.lineTo(c.x, y + 44);
+    ctx.lineTo(c.x + 12, y + 24);
+    ctx.fill();
+    ctx.fillStyle = '#0f1626';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(anim.mark.label, c.x, y + 1);
+  }
   // スポットライト：見せたいところのまわりを暗く
   if (anim?.spot) {
     const c = center(anim.spot.i, anim.spot.j);

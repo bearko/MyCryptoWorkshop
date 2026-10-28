@@ -546,7 +546,19 @@ export function shopView(ctx: Ctx, uid: number, done: () => void): HTMLElement {
   return wrap;
 }
 
-export function shopScene(s: P1State, uid: number): HTMLCanvasElement {
+/** 開いている店内の様子（お店ごと）。売れたらお客さんが来店する */
+const scenes = new Map<number, Set<(sku: Sku, yen: number) => void>>();
+/** お店で売れた（main.ts が日を進めたときに呼ぶ）：開いている店内に、買うお客さんを来させる */
+export function shopSceneSale(uid: number, sku: Sku, yen: number) {
+  for (const f of scenes.get(uid) ?? []) f(sku, yen);
+}
+
+/**
+ * 店内の様子。売れた 1 個ごとにお客さんが入ってきて、棚から商品を取り（棚の商品が 1 つ減る）、
+ * 持ったままレジへ。レジの前に来たら、店員の頭の上に「+N GUM」が出る（onPay）。払ったら出ていく。
+ * 買わずに見て帰るお客さんもときどき来る。店員はレジの後ろに立つ（お客さんと同じ大きさ）。
+ */
+export function shopScene(s: P1State, uid: number, onPay?: (yen: number) => void): HTMLCanvasElement {
   const c = h('canvas', 'isl-shop-scene');
   c.width = 320;
   c.height = 180;
@@ -554,17 +566,56 @@ export function shopScene(s: P1State, uid: number): HTMLCanvasElement {
   ctx.imageSmoothingEnabled = false;
   const sh = s.shops[uid];
   const guests = [1001, 1002, 1005, 1008, 1011, 1014].filter((id) => heroById.has(id));
-  let walkers: { hero: number; x: number; goal: number; wait: number; bob: number; shelf: number; facing?: number }[] = [];
-  let nextAt = performance.now() + 600;
+  type W = { hero: number; x: number; goal: number; wait: number; bob: number; shelf: number; facing?: number; buy: Sku | null; yen: number; held: boolean; paid?: boolean };
+  let walkers: W[] = [];
+  /** 売れたけれど、まだ棚から取られていない数（棚の絵に残しておく） */
+  const reserved = new Map<string, number>();
+  const pops: { yen: number; t: number }[] = [];
+  let browseAt = performance.now() + 2500;
   let lastT = performance.now();
   const view = new Image();
   view.src = assetUrl(raw.windowView);
+  const gum = new Image();
+  gum.src = assetUrl('mch/Image/Icons/gum.png');
+  const SIZE = 44;
+  const FLOOR = 122;
+  const COUNTER = { x: 214, y: 128, w: 96, h: 26 };
+  const CASH = COUNTER.x - 18;
+  const shelfX = (k: number) => 30 + Math.min(5, k) * 23;
+  const spawn = (buy: Sku | null, yen: number) => {
+    const slot = buy ? Math.max(0, (sh.shelf[buy] ?? 0) + (reserved.get(buy) ?? 0) - 1) : Math.floor(Math.random() * 5);
+    if (buy) reserved.set(buy, (reserved.get(buy) ?? 0) + 1);
+    walkers.push({ hero: guests[Math.floor(Math.random() * guests.length)], x: 340 + walkers.length * 26, goal: 0, wait: 0, bob: 0, shelf: shelfX(Math.min(5, slot)) + 10, buy, yen, held: false });
+  };
+  const listener = (x: Sku, yen: number) => {
+    if (walkers.filter((w) => w.buy).length < 4) spawn(x, yen);
+    else onPay?.(yen);
+  };
+  if (!scenes.has(uid)) scenes.set(uid, new Set());
+  scenes.get(uid)!.add(listener);
   let raf = 0;
   const startAt = performance.now();
+  const drawHero = (hero: number, x: number, y: number, facing: number, alpha = 1) => {
+    const g = heroById.get(hero);
+    if (!g) return;
+    const flip = heroFacesRight(hero) ? facing < 0 : facing > 0;
+    const px = x - (flip ? 64 - g.cx : g.cx) * (SIZE / 64);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (flip) {
+      ctx.translate(px + SIZE, y);
+      ctx.scale(-1, 1);
+      drawRef(ctx, g.image, 0, 0, SIZE, SIZE);
+    } else drawRef(ctx, g.image, px, y, SIZE, SIZE);
+    ctx.restore();
+  };
   const draw = (now: number) => {
-    if (!c.isConnected) {
-      if (now - startAt > 500) return cancelAnimationFrame(raf);
+    if (!c.isConnected && now - startAt > 500) {
+      scenes.get(uid)?.delete(listener);
+      return cancelAnimationFrame(raf);
     }
+    const dt = Math.min(100, now - lastT);
+    lastT = now;
     ctx.fillStyle = '#5a3a24';
     ctx.fillRect(0, 0, 320, 180);
     if (view.complete && view.naturalWidth) ctx.drawImage(view, 0, 0, 320, 80);
@@ -572,67 +623,108 @@ export function shopScene(s: P1State, uid: number): HTMLCanvasElement {
     ctx.fillRect(0, 80, 320, 100);
     ctx.fillStyle = '#8c6440';
     for (let x = 0; x < 320; x += 32) ctx.fillRect(x, 80, 2, 100);
-    // 棚
+    // 棚：並んでいる数（売れてまだ取られていない分も含む）を 1 つずつ。6 つまで
     ctx.fillStyle = '#3a2416';
     ctx.fillRect(16, 60, 150, 70);
     sh.shelves.forEach((x, k) => {
       ctx.fillStyle = '#c9925a';
       ctx.fillRect(20, 70 + k * 20, 142, 4);
       if (!x) return;
-      const n = Math.min(6, Math.ceil((sh.shelf[x] ?? 0) / 5));
+      const n = Math.min(6, (sh.shelf[x] ?? 0) + (reserved.get(x) ?? 0));
       const [key, r] = skuParts(x);
       const ref = getExtension(PRODUCT[key].ext[r]).image;
       for (let i = 0; i < n; i++) drawRef(ctx, ref, 22 + i * 23, 52 + k * 20, 20, 20);
     });
-    // レジと店員
+    // 店員はレジの後ろ（足もとはレジに隠れる）。お客さんと同じ大きさ
+    const staff = sh.staff != null ? sh.staff : null;
+    if (staff != null) drawHero(staff, COUNTER.x + COUNTER.w / 2, COUNTER.y - SIZE + 14, -1);
     ctx.fillStyle = '#3a2416';
-    ctx.fillRect(210, 110, 100, 26);
+    ctx.fillRect(COUNTER.x, COUNTER.y, COUNTER.w, COUNTER.h);
     ctx.fillStyle = '#d8b07a';
-    ctx.fillRect(210, 110, 100, 5);
-    const staff = sh.staff != null ? heroById.get(sh.staff) : null;
-    if (staff) drawRef(ctx, staff.image, 236, 58, 56, 56);
-    // お客さん（Workshop と同じ歩き方）：入口から入って棚を見て、レジで払って出ていく。ゆっくり来店する
-    const dt = Math.min(100, now - lastT);
-    lastT = now;
-    if ((staff || sh.part > 0) && now >= nextAt && walkers.length < 2) {
-      walkers.push({ hero: guests[Math.floor(Math.random() * guests.length)], x: 340, goal: 0, wait: 0, bob: 0, shelf: 60 + Math.random() * 80 });
-      nextAt = now + 4200 + Math.random() * 3000;
+    ctx.fillRect(COUNTER.x, COUNTER.y, COUNTER.w, 5);
+    ctx.fillStyle = '#9a7a52';
+    ctx.fillRect(COUNTER.x + 10, COUNTER.y - 10, 22, 10);
+    // 見て帰るだけのお客さんも、ときどき
+    const open = staff != null || sh.part > 0;
+    if (open && now >= browseAt && walkers.length < 3) {
+      if (Math.random() < 0.5) spawn(null, 0);
+      browseAt = now + 5000 + Math.random() * 5000;
     }
-    const STOPS = 3;
     for (const w of walkers) {
-      const stop = [{ x: w.shelf, wait: 1600 }, { x: 196, wait: 900 }, { x: 350, wait: 0 }][w.goal];
-      if (w.wait > 0) w.wait -= dt;
-      else {
+      // 入る → 棚の前（商品を取る）→ レジの前（払う）→ 出る。買わない人は棚を見て出る
+      const stops = w.buy ? [{ x: w.shelf, wait: 1300 }, { x: CASH, wait: 1100 }, { x: 350, wait: 0 }] : [{ x: w.shelf, wait: 1800 }, { x: 350, wait: 0 }];
+      const stop = stops[w.goal];
+      if (!stop) continue;
+      if (w.wait > 0) {
+        w.wait -= dt;
+        // 棚の前：手に取る（棚の商品が 1 つ減る）
+        if (w.buy && w.goal === 1 && !w.held && w.wait < 700) {
+          w.held = true;
+          reserved.set(w.buy, Math.max(0, (reserved.get(w.buy) ?? 0) - 1));
+        }
+        // レジの前：払う
+        if (w.buy && w.goal === 2 && !w.paid && w.wait < 800) {
+          w.paid = true;
+          w.held = false;
+          pops.push({ yen: w.yen, t: now });
+          onPay?.(w.yen);
+        }
+      } else {
         const dx = stop.x - w.x;
-        const step = Math.sign(dx) * Math.min(Math.abs(dx), (dt / 1000) * 70);
         if (Math.abs(dx) > 1) {
-          w.x += step;
+          w.x += Math.sign(dx) * Math.min(Math.abs(dx), (dt / 1000) * 70);
           w.facing = dx < 0 ? -1 : 1;
           w.bob += dt / 100;
         } else {
+          w.x = stop.x;
           w.wait = stop.wait;
           w.goal++;
+          // レジの前では、店員のほうを向く
+          if (stop.x === CASH) w.facing = 1;
         }
       }
-      const g = heroById.get(w.hero);
-      if (!g) continue;
+    }
+    walkers = walkers.filter((w) => w.goal < (w.buy ? 3 : 2) || w.wait > 0 || w.x < 345);
+    // 奥にいる人から描く
+    for (const w of [...walkers].sort((a, b) => a.x - b.x)) {
       const walking = w.wait <= 0;
       const hop = walking ? Math.abs(Math.sin(w.bob)) * 3 : 0;
-      const flip = heroFacesRight(w.hero) ? (w.facing ?? -1) < 0 : (w.facing ?? -1) > 0;
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
-      ctx.ellipse(w.x, 164, 12, 3.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(w.x, FLOOR + SIZE - 2, 12, 3.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      const px = w.x - (flip ? 64 - g.cx : g.cx) * (44 / 64);
-      if (flip) {
-        ctx.save();
-        ctx.translate(px + 44, 122 - hop);
-        ctx.scale(-1, 1);
-        drawRef(ctx, g.image, 0, 0, 44, 44);
-        ctx.restore();
-      } else drawRef(ctx, g.image, px, 122 - hop, 44, 44);
+      // 帰り道はレジの手前を通る（レジの上に立って見えないように）
+      const leaving = w.goal >= (w.buy ? 2 : 1) && w.wait <= 0;
+      const lane = leaving ? Math.max(0, Math.min(1, (w.x - (CASH - 30)) / 30)) * 10 : 0;
+      drawHero(w.hero, w.x, FLOOR + lane - hop, w.facing ?? -1, Math.min(1, (345 - w.x) / 25));
+      // 持っている商品
+      if (w.held && w.buy) {
+        const [key, r] = skuParts(w.buy);
+        drawRef(ctx, getExtension(PRODUCT[key].ext[r]).image, w.x - 9 + (w.facing ?? -1) * 8, FLOOR + 16 - hop, 18, 18);
+      }
     }
-    walkers = walkers.filter((w) => w.goal < STOPS);
+    // 店員の頭の上に「+N GUM」
+    for (const p of pops) {
+      const age = (now - p.t) / 1600;
+      if (age > 1) continue;
+      const cx = COUNTER.x + COUNTER.w / 2;
+      const y = COUNTER.y - SIZE + 4 - age * 18;
+      ctx.save();
+      ctx.globalAlpha = 1 - age * age;
+      ctx.font = "900 13px 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif";
+      ctx.textBaseline = 'middle';
+      const txt = `+${p.yen.toLocaleString('en-US')}`;
+      const tw = ctx.measureText(txt).width;
+      const x0 = cx - (tw + 16) / 2;
+      if (gum.complete && gum.naturalWidth) ctx.drawImage(gum, x0, y - 7, 14, 14);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#0f1626';
+      ctx.strokeText(txt, x0 + 16, y);
+      ctx.fillStyle = '#ffd257';
+      ctx.fillText(txt, x0 + 16, y);
+      ctx.restore();
+    }
+    while (pops.length && now - pops[0].t > 1600) pops.shift();
     raf = requestAnimationFrame(draw);
   };
   raf = requestAnimationFrame(draw);
