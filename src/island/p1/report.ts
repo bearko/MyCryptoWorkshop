@@ -11,7 +11,7 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
-import { bottleneck, stageCaps, type P1State, type Report, type Stage } from './model';
+import { jamOf, type P1State, type Report, type Stage } from './model';
 import { open, type Ctx } from './screens';
 import { btn, h, money, rich, select, skuIcon } from './ui';
 
@@ -208,10 +208,15 @@ function chart(reports: Report[]): SVGSVGElement {
   return svg;
 }
 
-/** 流れの図：① → ② → ③ → ④ の数。細いところを赤く */
+/**
+ * 報告の詰まり：締めの時点で保存した値（Report.bottleneck = jamOf）。SCM ダッシュボードと同じ判定。
+ * 古いセーブで保存が無ければ、いまの状態で同じ判定をする（実績の数の少なさでは決めない）
+ */
+export const reportJam = (s: P1State, r: Report): Stage => r.bottleneck ?? jamOf(s);
+
+/** 流れの図：① → ② → ③ → ④ の実績の数。詰まり（reportJam）の段を赤く */
 function flowRow(s: P1State, r: Report): HTMLElement {
-  const caps = stageCaps(s);
-  const bn = r.bottleneck ?? bottleneck(caps);
+  const bn = reportJam(s, r);
   const f = r.flow ?? { bought: 0, made: 0, hauled: 0, sold: 0 };
   const vals: Record<Stage, number> = { buy: f.bought, craft: f.made, haul: f.hauled, sell: f.sold };
   const max = Math.max(1, ...Object.values(vals));
@@ -337,7 +342,7 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       const cards: HTMLElement[] = [];
 
       // ---- ① 【KPI ①】売上報告
-      const bn = r.bottleneck ?? bottleneck(stageCaps(s));
+      const bn = reportJam(s, r);
       const c1 = h('div', 'isl-card2 isl-rp-card');
       c1.append(cardHead(t('KPI ①', 'KPI 1'), false, t('売上報告', 'Sales'), btn(t('投資：スキルツリー', 'Invest: Skills'), () => hooks.openSkills(STAGE_BRANCH[bn]), 'isl-rp-go')));
       const grid = h('div', 'isl-rp-sales');
@@ -458,7 +463,12 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       // ---- ④ 【KPI ③】サプライチェーン管理
       const c4 = h('div', 'isl-card2 isl-rp-card');
       c4.append(cardHead(t('KPI ③', 'KPI 3'), false, t('サプライチェーン管理', 'Supply chain'), btn(t('分析：SCM ダッシュボード', 'Analyze: SCM'), () => hooks.openSupply(), 'isl-rp-go'), t('（SCM）', ' (SCM)')));
-      c4.append(flowRow(s, r));
+      const note = h('small', 'isl-rp-bnnote');
+      note.append(
+        h('span', 'is-long', t('詰まり＝ひと月に流せる数がいちばん少ない段（SCM ダッシュボードと同じ）', 'Jam = the stage that can move the fewest per month (same as the SCM dashboard)')),
+        h('span', 'is-short', t('詰まり＝ひと月に流せる数が最少の段（SCM と同じ）', 'Jam = fewest per month (same as SCM)')),
+      );
+      c4.append(flowRow(s, r), note);
       const hint = h('p', 'isl-rp-hint');
       const long = h('span', 'is-long');
       long.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。${STAGE_HINT[bn]}`, `[[${STAGE_NAME[bn]}]] is the jam. ${STAGE_HINT[bn]}`)));

@@ -93,6 +93,7 @@ import {
   open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
+import { pickHooks } from './heroui';
 import { openMonthReport } from './report';
 import { openSkills } from './tree';
 import { openSide } from './side';
@@ -233,6 +234,7 @@ const ctx: Ctx = {
     startPlacing(id);
   },
   tip: (screen) => tutTip(screen),
+  closeGlow: (screen) => !!tutStep()?.closeOn?.includes(screen),
   sfx: (k) => sfx.play(k),
   moved: (target, fresh, manager) => afterMove(target, fresh, manager),
   skills: (focus) => openSkills(ctx, focus),
@@ -242,6 +244,15 @@ const ctx: Ctx = {
     sub = null;
     renderAll();
   },
+};
+
+// ヒーロー選びの引き出し（heroui.ts）：休憩中を押したときのトースト・効果音・✕ で担当を外したあとの描き直し
+pickHooks.toast = toast;
+pickHooks.sfx = (k) => sfx.play(k);
+pickHooks.changed = () => {
+  save();
+  refreshSheet();
+  renderAll();
 };
 
 // ---------------------------------------------------------------- 上の帯
@@ -1870,9 +1881,14 @@ function tourRender() {
     tour.tap = tap;
     parts.push(tap);
   } else if (tour.tap) tour.tap = undefined;
-  if (tour.inside) parts.push(tour.inside);
-  parts.push(box);
-  tourEl.replaceChildren(...parts);
+  // 店内の箱（shopScene）は、店内の段に入ったときに 1 回だけ作り、end まで同じものを置いたままにする。
+  // 札・吹き出しの文だけを差し替える（作り直すと、お客さんの動き・出てくる演出が最初からになるため）
+  for (const el of [...tourEl.children]) if (el !== tour.inside) el.remove();
+  if (tour.inside) {
+    if (tour.inside.parentElement !== tourEl) tourEl.append(tour.inside);
+    tourEl.prepend(...parts);
+    tourEl.append(box);
+  } else tourEl.append(...parts, box);
 }
 
 /**
@@ -2107,7 +2123,10 @@ function tutorial(): { text: string; action?: [string, () => void] } {
 function introPending(): boolean {
   const k = tutOf(s);
   const st = k < TUT_DONE ? TUT[k] : undefined;
-  return !!st && (!!st.intro || !!st.autoGo) && tutIntro !== k;
+  if (!st) return false;
+  // 自分で押してもらう段で会話が無いもの（前の段の会話の続き）：クリアの演出と一拍のあいだは、吹き出しと光る場所を出さない
+  if (st.lesson && !st.intro && performance.now() < tutIntroAfter) return true;
+  return (!!st.intro || !!st.autoGo) && tutIntro !== k;
 }
 
 function renderAdvisor() {

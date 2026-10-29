@@ -2090,7 +2090,6 @@ export function endMonth(s: P1State): Report {
     flow: { bought: s.proc.bought, made: s.ws.last.made, hauled: hauledThisMonth, sold },
     money: { start: s.moneyStart ?? s.money, end: Math.round(s.money) },
     brand: 0,
-    bottleneck: bottleneck(stageCaps(s)),
   };
   void brandStart;
 
@@ -2152,6 +2151,8 @@ export function endMonth(s: P1State): Report {
   report.brand = (s.brand ?? 0) - brandStart;
   s.moneyStart = Math.round(s.money);
   s.brandStart = s.brand ?? 0;
+  // 詰まり：締めが終わった時点（他社・需要の伸びも入れたあと）の能力で。月末ポーズで開く SCM ダッシュボードと同じ値になる
+  report.bottleneck = jamOf(s);
   return report;
 }
 
@@ -2496,6 +2497,13 @@ export function bottleneck(c: Record<Stage, StageCap>): Stage {
   const min = Math.min(...order.map((k) => c[k].perMonth));
   return pref.find((k) => c[k].perMonth <= min + 1e-9) ?? order[0];
 }
+
+/**
+ * 詰まりの段：月次報告と SCM ダッシュボードで共通の判定（docs/ISLAND_PHASE1.md「詰まりの判定」）。
+ * いつも「ひと月に流せる数」（stageCaps）のいちばん少ない段。その月の実績（買った・作った数）では決めない
+ * （手持ちの素材で足りて買わなかった月は「調達 0」になるが、詰まりではないため）
+ */
+export const jamOf = (s: P1State): Stage => bottleneck(stageCaps(s));
 
 /** 素材のルートが使えるか：会社で開いたルート、またはいまのセクタの特産で最初から開いているルート */
 export function hasRoute(s: Pick<P1State, 'routes' | 'sector'>, m: Mat): boolean {

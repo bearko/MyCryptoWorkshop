@@ -123,6 +123,8 @@ export interface Ctx {
   dismissed?: () => void;
   /** チュートリアル：この画面でマインちゃんが言うこと（無ければ null） */
   tip?: (screen: string) => string | null;
+  /** チュートリアル：この画面の ✕ を光らせるか（見終わったら閉じてほしい画面） */
+  closeGlow?: (screen: string) => boolean;
   /** 札を閉じて、その建物を置くモードへ */
   build?: (id: string) => void;
   /** チュートリアルのいまの段（tut.ts の id。終わっていれば null） */
@@ -182,6 +184,8 @@ export function hideDock() {
   dockPad();
 }
 export function mineTip(ctx: Ctx, screen: string, body: HTMLElement) {
+  // 閉じてほしい画面：右上の ✕ を金色に光らせる（👆）
+  body.closest('.isl-sheet')?.querySelector('.isl-sheet-head .isl-btn')?.classList.toggle('is-guide', !!ctx.closeGlow?.(screen));
   const text = ctx.tip?.(screen);
   if (!text) {
     hideDock();

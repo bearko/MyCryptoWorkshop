@@ -60,6 +60,8 @@ export interface TutStep {
   lesson?: boolean;
   /** 段に入ったら（クリアの演出のあと）、会話なしで act の画面を開く */
   autoGo?: boolean;
+  /** この画面を開いているあいだ、右上の ✕ を光らせる（見終わったら閉じて次へ、の画面） */
+  closeOn?: string[];
   /** この段に入るときに、マインちゃんが援助する資金（足りないときだけ。0 なら無し） */
   grant?: (s: P1State) => number;
   /** 次の段へ進む条件。seen：この段に入ってから開いて閉じた画面 */
@@ -142,9 +144,10 @@ export const TUT: TutStep[] = [
       pages: [
         { text: t('これで[[工房]]の設定は完了！', 'The [[workshop]] is all set!') },
         { text: t('[[自動製造]]にチェックが入っていると、素材があるかぎり、エクステを作り続けてくれるよ！', 'With [[Auto]] checked, it keeps making Extensions as long as there are materials!'), focus: '.isl-plan-auto' },
-        { text: t('今ある素材がなくなると製造が止まっちゃうから、次は[[素材]]を調達しよう！', 'When the materials run out, crafting stops. Next, let’s get more [[materials]]!') },
+        { text: t('でも、今ある[[素材]]がなくなると、製造が止まっちゃうんだ。', 'But when the [[materials]] run out, crafting stops.') },
+        { text: t('次は[[素材]]の調達。画面の下の「[[SCM]]」タブから開こう！', 'Next, [[materials]]. Open them from the [[SCM]] tab at the bottom!') },
       ],
-      ok: t('素材を調達する', 'Get materials'),
+      ok: t('わかった', 'Got it'),
     },
     done: (s) => s.slots.some((sl) => sl.worker != null && !!sl.sku),
   },
@@ -152,9 +155,9 @@ export const TUT: TutStep[] = [
     id: 'mats',
     goal: (_s) => t('卸問屋に素材を注文する', 'Order materials from the wholesaler'),
     praise: t('これで当分、作り続けられるね！', 'That keeps the bench busy for a while!'),
-    autoGo: true,
+    // 会話は前の段（工房の設定）の最後の枚。ここでは「SCM」タブ → 「調達」サブタブを自分で押してもらう
+    lesson: true,
     say: () => t('[[素材]]が切れると、工房は止まってしまう。「SCM」→「調達」で注文しよう！', 'Without [[materials]], the workshop stops. Order under SCM → Buy!'),
-    act: [t('調達を開く', 'Open buying'), 'buy'],
     hl: 'scm:buy',
     tips: {
       buy: (s) =>
@@ -239,6 +242,11 @@ export const TUT: TutStep[] = [
     focus: 'shop',
     goal: () => t('売れるまでの流れを見る', 'Watch how a sale happens'),
     say: () => t('エクステが売れるまでの流れを、一緒に見てみよう！', 'Let’s watch how an Extension gets sold!'),
+    // 運搬係を置いた直後：配置の画面の ✕ を光らせて、閉じたら流れの案内へ
+    closeOn: ['staff'],
+    tips: {
+      staff: () => t('運ぶ人が決まった！ [[✕]] で閉じると、売れるまでの流れを一緒に見るよ。', 'The hauler is set! Close with [[✕]] and we’ll watch how a sale happens.'),
+    },
     done: (s) => !!s.flags.tour,
   },
   {
@@ -256,8 +264,9 @@ export const TUT: TutStep[] = [
     say: () => t('どこが詰まっているかは、ダッシュボードでひと目で分かるよ。「SCM」→「サプライチェーン」を開こう！', 'The dashboard shows at a glance where things jam. Open SCM → Supply chain!'),
     act: [t('ダッシュボードを開く', 'Open the dashboard'), 'scm'],
     hl: 'scm:flow',
+    closeOn: ['scm'],
     tips: {
-      scm: () => t('赤く光っているのが、いちばん詰まっているところ。ここを直すほど、売上が伸びるよ！', 'The red glow marks the biggest jam. Fix it, and sales grow!'),
+      scm: () => t('赤いところがいちばんの詰まり。見終わったら [[✕]] で閉じて次へ！', 'The red part is the biggest jam. When you’re done, close with [[✕]] to move on!'),
     },
     done: (_s, seen) => seen.has('scm'),
   },
