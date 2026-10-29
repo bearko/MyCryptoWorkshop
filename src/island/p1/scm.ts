@@ -6,12 +6,12 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
-import { INVEST, MAT_KEYS, MATS, P1B, SKILLS, TRANSPORT, type Mat, type Sku } from './data';
-import { invest, investCost, type PBuilding, bottleneck, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { INVEST, MAT_KEYS, MATS, P1B, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
+import { invest, investCost, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
-import { bar, btn, h, heroIcon, matIcon, money, skuIcon, skuName } from './ui';
+import { bar, btn, h, heroIcon, matIcon, money, rich, skuIcon, skuName } from './ui';
 
 type Lamp = 'ok' | 'warn' | 'stop';
 const LAMP_NAME: Record<Lamp, string> = { ok: t('順調', 'Running'), warn: t('注意', 'Watch'), stop: t('停止', 'Stopped') };
@@ -38,6 +38,90 @@ function nextInvests(s: P1State, k: Stage): { b: PBuilding; id: string; cost: nu
     if (b) out.push({ b, id, cost: investCost(b, id)! });
   }
   return out.slice(0, 2);
+}
+
+const ORDER: Stage[] = ['buy', 'craft', 'haul', 'sell'];
+
+/** ダッシュボードの詰まり：月次報告（report.ts の reportJam）と同じ判定 */
+export const scmJam = (s: P1State): Stage => jamOf(s);
+
+/** 平均の単価：今月（無ければ先月）の売上 ÷ 売れた数。まだ売れていなければ、並べている・作っている商品の値段の平均 */
+export function avgPrice(s: P1State): number {
+  const units = Object.values(s.monthUnits).reduce<number>((a, n) => a + (n ?? 0), 0);
+  const rev = Object.values(s.monthSales).reduce<number>((a, n) => a + (n ?? 0), 0);
+  if (units > 0) return rev / units;
+  const last = s.reports[s.reports.length - 1];
+  if (last?.flow && last.flow.sold > 0) return last.revenue / last.flow.sold;
+  const xs = [...myShops(s).flatMap((b) => s.shops[b.uid].shelves), ...s.slots.map((sl) => sl.sku)].filter((x): x is Sku => !!x);
+  return xs.length ? xs.reduce((a, x) => a + skuPrice(x), 0) / xs.length : 0;
+}
+
+/**
+ * 詰まりを太くしたときの見込み：次に細い段との差（個／月）× 平均の単価。
+ * 止まっている段は 0 として数える。差が無ければ null
+ */
+export function jamGain(s: P1State, caps: ReturnType<typeof stageCaps>, bn: Stage): { n: number; g: number } | null {
+  const cur = caps[bn].stopped ? 0 : caps[bn].perMonth;
+  const others = ORDER.filter((k) => k !== bn && !caps[k].stopped).map((k) => caps[k].perMonth);
+  if (!others.length) return null;
+  const n = Math.round(Math.min(...others) - cur);
+  if (n <= 0) return null;
+  return { n, g: Math.round(n * avgPrice(s)) };
+}
+
+/** 「数字を上げるには」の 1 つ（buy：その場で設備を買う。short：資金が足りない） */
+interface Up {
+  label: string;
+  sub: string;
+  go: () => void;
+  buy?: boolean;
+  short?: boolean;
+}
+
+/** その段の数字を上げる手（2 つまで）。設備投資はその場で導入（チュートリアル中は出さない）、ほかは該当の画面へ */
+function upsOf(ctx: Ctx, s: P1State, k: Stage): Up[] {
+  const out: Up[] = [];
+  const skill = (id: string, label: string): Up | null => (SKILL[id] && !has(s, id) ? { label, sub: t('スキル', 'Skill'), go: () => openSkills(ctx, id) } : null);
+  const staff = (label: string): Up => ({ label, sub: t('配置', 'Staff'), go: () => openStaff(ctx) });
+  const iv = !ctx.step?.() ? nextInvests(s, k)[0] : undefined;
+  const ivUp: Up | null = iv
+    ? {
+        label: INVEST[iv.id].name,
+        sub: s.money < iv.cost ? t(`あと ${money(iv.cost - s.money)}`, `${money(iv.cost - s.money)} short`) : t(`設備投資 ${money(iv.cost)}`, `Invest ${money(iv.cost)}`),
+        buy: true,
+        short: s.money < iv.cost,
+        go: () => {
+          const e = invest(s, iv.b.uid, iv.id);
+          if (e === 'money') {
+            ctx.sfx?.('error');
+            ctx.toast(t('資金が足りません', 'Not enough funds'));
+          } else if (!e) {
+            ctx.sfx?.('spend');
+            ctx.toast(t(`「${INVEST[iv.id].name}」を導入しました（${DEF[iv.b.id].name}）`, `Installed: ${INVEST[iv.id].name} (${DEF[iv.b.id].name})`));
+          }
+          after(ctx);
+        },
+      }
+    : null;
+  const push = (...xs: (Up | null)[]) => {
+    for (const x of xs) if (x && out.length < 2) out.push(x);
+  };
+  if (k === 'buy') {
+    const buyer = s.staff.some((x) => x.task === 'buy');
+    push(
+      buyer ? { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) } : staff(t('調達係を置く', 'Assign a buyer')),
+      skill('stock1', t('調達枠のスキル', 'Quota skill')) ?? skill('stock2', t('調達枠のスキル', 'Quota skill')) ?? skill('stock3', t('調達枠のスキル', 'Quota skill')),
+      buyer ? null : { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) },
+    );
+  } else if (k === 'craft') push(ivUp, staff(t('製造の得意な人を置く', 'A better crafter')), skill('jig', t('段取りの改善', 'Better jigs')));
+  else if (k === 'haul') {
+    const far = myShops(s).some((b) => oneWay(s, b).days > 2.5);
+    const hub: Up | null = far ? (has(s, 'hub') ? { label: t('物流拠点を建てる', 'Build a hub'), sub: t('建築', 'Build'), go: () => ctx.build?.('logistics') } : skill('hub', t('物流拠点', 'Logistics hub'))) : null;
+    push(ivUp, hub, staff(t('運搬係を増やす', 'More haulers')), skill('shortcut', t('近道の地図', 'Shortcut map')));
+  } else {
+    push(ivUp, { label: t('お店を増やす', 'Build a shop'), sub: t('建築', 'Build'), go: () => ctx.build?.('general_store') }, skill('host', t('案内係の育成', 'Train hosts')), { label: t('宣伝', 'Advertise'), sub: t('マーケ', 'Marketing'), go: () => openAds(ctx) });
+  }
+  return out;
 }
 
 function lampEl(l: Lamp): HTMLElement {
@@ -138,9 +222,8 @@ export function openSupply(ctx: Ctx) {
     }
     if (shops.length) issues.sell.acts.push([t('お店を開く', 'Open shop'), () => openShop(ctx, shops[0].uid), 'is-on'], [t('宣伝広報', 'Advertising'), () => openAds(ctx)]);
 
-    // ボトルネック：止まっている段があればそこ（流れの上から）、無ければ回せる数がいちばん少ない段
-    const ORDER: Stage[] = ['buy', 'craft', 'haul', 'sell'];
-    const bn = ORDER.find((k) => issues[k].lamp === 'stop') ?? bottleneck(caps);
+    // 詰まり：月次報告と同じ判定（ひと月に流せる数がいちばん少ない段。jamOf）。段のランプ（停止・注意）は状態の表示だけ
+    const bn = scmJam(s);
 
     // ---------------------------------------------------------------- 見出し：ボトルネック
     const top = h('div', `isl-scm-head is-${issues[bn].lamp}`);
@@ -149,7 +232,7 @@ export function openSupply(ctx: Ctx) {
     mine.alt = '';
     const words = h('div');
     words.append(
-      h('small', '', t('いまのボトルネック', 'Current bottleneck')),
+      h('small', '', t('いまの詰まり（ボトルネック）', 'Current jam (bottleneck)')),
       h('b', 'isl-scm-bn', `${STAGE[bn].n} ${STAGE[bn].name}`),
       h('p', '', issues[bn].lines[0] ?? t('いちばん細いところです。ここを太くすると、サイクル全体の売上が伸びます。', 'This is the narrowest stage. Widen it and the whole cycle sells more.')),
     );
@@ -159,18 +242,66 @@ export function openSupply(ctx: Ctx) {
     top.append(mine, words, kpi);
     body.append(top);
 
-    // ---------------------------------------------------------------- 段ごとの「ひと月に回せる数」
-    const meter = h('div', 'isl-card2 isl-scm-caps');
-    meter.append(h('h3', '', t('ひと月に回せる数（商品の数）', 'Monthly capacity (products)')));
-    const max = Math.max(1, ...(['buy', 'craft', 'haul', 'sell'] as Stage[]).map((k) => caps[k].perMonth));
-    for (const k of ['buy', 'craft', 'haul', 'sell'] as Stage[]) {
-      const row = h('div', `isl-cap-row ${k === bn ? 'is-bn' : ''}`);
-      row.append(h('span', 'isl-cap-name', `${STAGE[k].n} ${STAGE[k].name}`), bar(caps[k].perMonth / max, k === bn ? 'var(--isl-bad)' : issues[k].lamp === 'warn' ? 'var(--isl-gold)' : 'var(--isl-good)'), h('b', '', caps[k].stopped ? t('止まっている', 'stopped') : t(`${caps[k].perMonth} 個`, `${caps[k].perMonth}`)));
-      row.addEventListener('click', () => cards[k]?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      meter.append(row);
-    }
-    meter.append(h('small', 'isl-dim', t('いちばん短い棒がボトルネック。販売は「棚に商品があれば売れそうな数」、調達は「調達係の月の量（いなければ手元の素材）でまかなえる数」です。', 'The shortest bar is the bottleneck. Sell = what would sell with stocked shelves; Buy = what the monthly buying (or current stock) supports.')));
-    body.append(meter);
+    // ---------------------------------------------------------------- 数字の見方（スマホでは折りたたみ）
+    const how = h('details', 'isl-scm-how');
+    if (innerWidth >= 600) how.open = true;
+    const howP = h('p');
+    howP.append(
+      rich(
+        t(
+          '4 つの段を商品が流れます。数字は[[その段がひと月に流せる商品の数]]です。数字は大きいほどよく、[[いちばん小さい段が詰まり]]（赤）。詰まりの段より多くは売れないので、そこを太くするのが近道。全部をそろえる必要はなく、詰まりを順に直していきます。',
+          'Goods flow through four stages. Each number is [[how many products that stage can move per month]]. Bigger is better; [[the smallest stage is the jam]] (red). You can’t sell more than the jam allows, so widen it first. No need to even out everything — fix the jams one by one.',
+        ),
+      ),
+    );
+    how.append(h('summary', '', t('数字の見方', 'How to read the numbers')), howP);
+    body.append(how);
+
+    // ---------------------------------------------------------------- 4 つの段：ひと月に流せる数・数字を上げるには
+    const sum = h('div', 'isl-scm-sum');
+    const max = Math.max(1, ...ORDER.map((k) => caps[k].perMonth));
+    const gain = jamGain(s, caps, bn);
+    ORDER.forEach((k, i) => {
+      if (i) sum.append(h('span', 'isl-scm-sum-arrow', '▶'));
+      const c = h('div', `isl-scm-sumcard ${k === bn ? 'is-bn' : ''}`);
+      const head = h('div', 'isl-scm-sumhead');
+      head.append(h('b', '', `${STAGE[k].n} ${STAGE[k].name}`));
+      if (k === bn) head.append(h('span', 'isl-scm-jam', t('詰まり', 'Jam')));
+      c.append(head);
+      c.append(h('small', 'isl-scm-sumlabel', t('ひと月に流せる数（個）', 'Per month (pcs)')));
+      c.append(h('b', `isl-scm-sumnum ${caps[k].stopped ? 'is-stop' : ''}`, caps[k].stopped ? t('止まっている', 'Stopped') : `${caps[k].perMonth}`));
+      c.append(bar(caps[k].stopped ? 0 : caps[k].perMonth / max, k === bn ? 'var(--isl-bad)' : issues[k].lamp === 'warn' ? 'var(--isl-gold)' : 'var(--isl-good)'));
+      if (k === bn && gain) {
+        const g = h('small', 'isl-scm-gain');
+        g.append(
+          h('span', 'is-long', t(`ここを太くすると、売上は最大で +${gain.n} 個／月（≒ +${money(gain.g)}）`, `Widen this: up to +${gain.n} sold / mo (≈ +${money(gain.g)})`)),
+          h('span', 'is-short', t(`太くすると最大 +${gain.n} 個／月（≒ +${money(gain.g)}）`, `Up to +${gain.n} / mo (≈ +${money(gain.g)})`)),
+        );
+        c.append(g);
+      }
+      const ups = upsOf(ctx, s, k);
+      if (ups.length) {
+        const box = h('div', 'isl-scm-ups');
+        const cap = h('small', 'isl-dim');
+        cap.append(h('span', 'is-long', t('数字を上げるには', 'To raise it')), h('span', 'is-short', t('上げるには', 'Raise')));
+        box.append(cap);
+        for (const u of ups) {
+          const b = h('button', `isl-scm-up ${u.buy ? 'is-buy' : ''}`);
+          b.type = 'button';
+          b.append(h('b', '', u.label), h('small', u.short ? 'isl-bad' : '', u.sub));
+          if (u.short) b.classList.add('is-poor');
+          b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            u.go();
+          });
+          box.append(b);
+        }
+        c.append(box);
+      }
+      c.addEventListener('click', () => cards[k]?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      sum.append(c);
+    });
+    body.append(sum);
 
     // ---------------------------------------------------------------- 流れ：4 つの段
     const flow = h('div', 'isl-scm');
@@ -203,7 +334,7 @@ export function openSupply(ctx: Ctx) {
       // その段を太くするスキル：その場で習得できる
       const sks = k === bn ? nextSkills(s, STAGE[k].branch) : [];
       const box = h('div', 'isl-scm-skills');
-      if (sks.length) box.append(h('small', 'isl-dim', t('ボトルネックを太くするスキル', 'Skills to widen the bottleneck')));
+      if (sks.length) box.append(h('small', 'isl-dim', t('詰まりを太くするスキル', 'Skills to widen the jam')));
       for (const sk of sks) {
         const b = h('button', 'isl-scm-skill');
         b.type = 'button';
@@ -213,23 +344,6 @@ export function openSupply(ctx: Ctx) {
           const e = learn(s, sk.id);
           if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
           else if (!e) ctx.toast(t(`「${sk.name}」を習得しました`, `Learned: ${sk.name}`));
-          after(ctx);
-        });
-        box.append(b);
-      }
-      // その段を太くする設備投資（棚・作業台・荷車は建物ごと）：その場で導入できる（チュートリアル中は出さない）
-      const ivs = k === bn && !ctx.step?.() ? nextInvests(s, k) : [];
-      if (ivs.length) box.append(h('small', 'isl-dim', t('ボトルネックを太くする設備投資（建物ごと）', 'Equipment to widen the bottleneck (per building)')));
-      for (const iv of ivs) {
-        const x = INVEST[iv.id];
-        const b = h('button', 'isl-scm-skill');
-        b.type = 'button';
-        b.append(h('b', '', x.name), h('small', '', t(`${DEF[iv.b.id].name}：${x.note}`, `${DEF[iv.b.id].name}: ${x.note}`)), h('span', 'isl-gold', money(iv.cost)));
-        b.disabled = s.money < iv.cost;
-        b.addEventListener('click', () => {
-          const e = invest(s, iv.b.uid, iv.id);
-          if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
-          else if (!e) ctx.toast(t(`「${x.name}」を導入しました`, `Installed: ${x.name}`));
           after(ctx);
         });
         box.append(b);

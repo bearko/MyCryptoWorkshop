@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { MATS, PRODUCT, rivalDef, SECTORS, SKILL, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, techSkill, type Mat, type Sku, type Task } from './data';
-import { DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
+import { assign, DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager'), train: t('修行', 'Training') };
@@ -89,13 +89,13 @@ export function jobLabel(s: P1State, st: Staff): string {
     case 'craft':
       return t(`製造・作業台 ${(st.target as number) + 1}`, `Craft · bench ${(st.target as number) + 1}`);
     case 'transport':
-      return t('物流', 'Haul');
+      return t('運搬係', 'Hauler');
     case 'shop': {
       const b = s.buildings.find((x) => x.uid === st.target);
       return t(`販売・${b ? DEF[b.id].name : ''}`, `Sell · ${b ? DEF[b.id].name : ''}`);
     }
     case 'buy':
-      return t('調達', 'Buying');
+      return t('調達係', 'Buyer');
     case 'explore':
       return t(`開拓・${MATS[st.target as Mat]?.name ?? ''}`, `Scout · ${MATS[st.target as Mat]?.name ?? ''}`);
     case 'intel':
@@ -103,11 +103,11 @@ export function jobLabel(s: P1State, st: Staff): string {
     case 'side':
       return t(`バイト・${rivalDef(String(st.target))?.name ?? ''}`, `Part-time · ${rivalDef(String(st.target))?.name ?? ''}`);
     case 'manager':
-      return t(`マネージャー・${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`, `Manager · ${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`);
+      return t(`マネージャー：${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`, `Manager: ${SECTORS.find((x) => x.id === st.target)?.name ?? ''}`);
     case 'train': {
       const name = SKILL[String(st.target)]?.name ?? '';
       const left = s.training?.hero === st.hero ? s.training.left : 0;
-      return t(`修行中・${name}（あと ${left} 日）`, `Training · ${name} (${left} d left)`);
+      return t(`修行中：${name}（あと ${left} 日）`, `Training: ${name} (${left} d left)`);
     }
     default:
       return t('待機中', 'Free');
@@ -167,29 +167,125 @@ function drawer(root: HTMLElement, title: string, note: string, fill: (box: HTML
   return close;
 }
 
-/** ヒーローを選ぶ引き出し：その仕事の適性が高い順。待機中のヒーローには印 */
+/** 引き出しの外（main.ts）につなぐもの：トースト・効果音・担当を外したあとの描き直し */
+export const pickHooks: { toast?: (text: string) => void; sfx?: (k: 'tap' | 'error') => void; changed?: () => void } = {};
+
+/**
+ * ヒーロー選びのカードの見分け（docs/ISLAND_PHASE1.md「ヒーロー選びの見分け」）。
+ * current：いまの引き出しで選んでいる担当の人（灰色にしない）／free：待機中／busy：ほかの担当（灰色・✕ で外すと選べる）／
+ * resting：スタミナ切れで休憩中（灰色・選べない）／training：修行中（選べない）
+ */
+export type PickKind = 'current' | 'free' | 'busy' | 'resting' | 'training';
+export function pickKind(st: Staff, current: number | null): PickKind {
+  if (st.task === 'train') return 'training';
+  if (st.hero === current) return 'current';
+  if (st.resting) return 'resting';
+  return st.task == null ? 'free' : 'busy';
+}
+/** 押して選べるか（current・free だけ） */
+export const pickable = (k: PickKind) => k === 'current' || k === 'free';
+/** カードの右上の ✕ で担当を外せるか（ほかの担当についている人。修行中は外せない） */
+export const canRelease = (st: Staff, current: number | null) => st.hero !== current && st.task != null && st.task !== 'train' && st.task !== 'manager';
+/** 並び：待機中 → いまの担当 → ほかの担当 → 休憩中 → 修行中 */
+const KIND_ORDER: Record<PickKind, number> = { free: 0, current: 1, busy: 2, resting: 3, training: 4 };
+/** 引き出しの ✕：担当を外す（選べる状態に戻る）。外せなければ false */
+export function releaseHero(s: P1State, hero: number): boolean {
+  const st = staffOf(s, hero);
+  if (!st || st.task == null || st.task === 'train' || st.task === 'manager') return false;
+  return assign(s, hero, null) == null;
+}
+/** 休憩中の札（「スタミナ 12%」） */
+const staminaPct = (st: Staff) => Math.round((st.stamina / st.stats.hp) * 100);
+
+/** ヒーローを選ぶ引き出し：待機中が先、担当済み・休憩中はあと（灰色）。同じ組の中は、その仕事の適性が高い順 */
 export function pickHero(
   root: HTMLElement,
   s: P1State,
   o: { title: string; task: Task; current: number | null; onPick: (hero: number | null) => void; note?: string; extra?: (st: Staff) => string | null; badge?: string },
 ) {
-  // ほかのセクタでマネージャーをしている人は、ここにはいない。修行中の人は選べない（札だけ見せる）
-  const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => Number(a.task === 'train') - Number(b.task === 'train') || aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
-  const best = list[0] && list[0].task !== 'train' ? aptitude(list[0].stats, o.task) : 0;
-  drawer(root, o.title, o.note ?? t(`数字は「${TASK_NAME[o.task]}」の適性です。待機中のヒーローから選ぶと、ほかの仕事が空きません。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Picking a free hero leaves other jobs covered.`), (body, close) => {
+  // ほかのセクタでマネージャーをしている人は、ここにはいない
+  const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => KIND_ORDER[pickKind(a, o.current)] - KIND_ORDER[pickKind(b, o.current)] || aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
+  const best = Math.max(0, ...list.filter((x) => x.task !== 'train' && !x.resting).map((x) => Math.round(aptitude(x.stats, o.task))));
+  drawer(root, o.title, o.note ?? t(`数字は「${TASK_NAME[o.task]}」の適性です。灰色のヒーローはほかの担当か休憩中。右上の ✕ で担当を外すと選べます。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Grey heroes are busy or resting; use ✕ at the top right to free them.`), (body, close) => {
     const grid = h('div', 'isl-pick-grid');
-    for (const st of list) {
+    /** ✕ を 1 回押して「担当を外す」になっているカード（もう一度で外す。ほかを押すか 3 秒で戻る） */
+    let armed: { card: HTMLElement; undo: () => void; timer: number } | null = null;
+    const disarm = () => {
+      if (!armed) return;
+      clearTimeout(armed.timer);
+      armed.undo();
+      armed = null;
+    };
+    body.addEventListener('click', () => disarm());
+    const fill = (card: HTMLButtonElement, st: Staff) => {
+      const kind = pickKind(st, o.current);
       const apt = Math.round(aptitude(st.stats, o.task));
-      const free = st.task == null;
-      const training = st.task === 'train';
-      const card = h('button', `isl-hero-pick ${st.hero === o.current ? 'is-on' : ''} ${free ? 'is-free' : ''} ${training ? 'is-training' : ''}`);
-      card.type = 'button';
-      card.disabled = training;
-      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), rankEl(apt), stamina(st), h('small', free ? 'isl-good' : training ? 'isl-warn' : 'isl-dim', st.hero === o.current ? t('いまの担当', 'Current') : jobLabel(s, st)));
-      const ex = !training ? o.extra?.(st) : null;
+      card.className = `isl-hero-pick is-${kind} ${kind === 'current' ? 'is-on' : ''} ${kind === 'busy' || kind === 'resting' ? 'is-grey' : ''}`;
+      card.replaceChildren();
+      card.disabled = kind === 'training';
+      card.append(heroIcon(st.hero, 56), h('b', '', heroName(st.hero)), rankEl(apt), stamina(st));
+      if (kind === 'resting') card.append(h('span', 'isl-pick-rest', t('😴 休憩中', '😴 Resting')), h('small', 'isl-bad', t(`スタミナ ${staminaPct(st)}%`, `Stamina ${staminaPct(st)}%`)));
+      const job = h('small', kind === 'free' ? 'isl-good isl-pick-job' : kind === 'training' ? 'isl-warn isl-pick-job' : 'isl-dim isl-pick-job', kind === 'current' ? t('いまの担当', 'Current') : jobLabel(s, st));
+      if (kind !== 'resting' || st.task != null) card.append(job);
+      const ex = kind !== 'training' ? o.extra?.(st) : null;
       if (ex) card.append(h('small', 'isl-gold', ex));
-      if (!training && Math.round(best) === apt) card.append(h('span', 'isl-best', o.badge ?? t('いちばん向いている', 'Best fit')));
-      card.addEventListener('click', () => {
+      if (kind !== 'training' && kind !== 'resting' && best > 0 && apt === best) card.append(h('span', 'isl-best', o.badge ?? t('いちばん向いている', 'Best fit')));
+      if (canRelease(st, o.current)) {
+        const x = h('span', 'isl-pick-x', '✕');
+        x.title = t('担当を外す', 'Unassign');
+        x.setAttribute('role', 'button');
+        const release = () => {
+          disarm();
+          if (!releaseHero(s, st.hero)) return;
+          pickHooks.sfx?.('tap');
+          pickHooks.changed?.();
+          fill(card, st);
+        };
+        x.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (armed?.card === card) return release();
+          disarm();
+          // 1 回目：「担当を外す」に変わる（✕ は ↩）
+          card.classList.add('is-armed');
+          x.textContent = '↩';
+          job.textContent = t('担当を外す', 'Unassign');
+          job.className = 'isl-bad isl-pick-job';
+          armed = {
+            card,
+            undo: () => {
+              card.classList.remove('is-armed');
+              fill(card, st);
+            },
+            timer: window.setTimeout(() => disarm(), 3000),
+          };
+        });
+        card.append(x);
+      }
+    };
+    for (const st of list) {
+      const card = h('button', 'isl-hero-pick');
+      card.type = 'button';
+      fill(card, st);
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // 「担当を外す」になっているカードを押した：外す（✕ をもう一度押したのと同じ）
+        if (armed?.card === card) {
+          (card.querySelector('.isl-pick-x') as HTMLElement | null)?.click();
+          return;
+        }
+        disarm();
+        const kind = pickKind(st, o.current);
+        if (kind === 'resting') {
+          pickHooks.sfx?.('error');
+          pickHooks.toast?.(t('休憩中は配置できません（賞与で元気にできます）', 'Resting heroes can’t be assigned (a bonus refreshes them)'));
+          return;
+        }
+        if (kind === 'busy') {
+          pickHooks.sfx?.('error');
+          pickHooks.toast?.(t(`いまは「${jobLabel(s, st)}」の担当です。右上の ✕ で外すと選べます`, `Busy with ${jobLabel(s, st)}. Use ✕ at the top right to free them`));
+          return;
+        }
+        if (!pickable(kind)) return;
         close();
         o.onPick(st.hero);
       });
