@@ -22,14 +22,14 @@ const STAGE_HINT: Record<Stage, string> = {
   buy: t('素材が足りていません。調達係を置くか、スキル「調達枠の拡大」「まとめ買い」で仕入れを太くしましょう。', 'Materials are short. Assign a buyer or widen buying with the Bigger quota / Bulk buying skills.'),
   craft: t('作る数が足りていません。作業台を増やす（工房の設備投資）・段取りの改善（スキル）か、製造の得意なヒーローを置きましょう。', 'Crafting is the limit. Add a bench (workshop investment), Better jigs (skill), or put a better crafter on the bench.'),
   haul: t('運ぶ数が足りていません。荷車を増やす・小型トラック（工房の設備投資）、遠いお店には物流拠点を。', 'Hauling is the limit. More carts or a Small truck (workshop investment); a hub for far shops.'),
-  sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす（お店の設備投資）・接客の研修や VMD（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves (shop investment), customer service training or VMD (skills) or ads strengthen your stores.'),
+  sell: t('売れる数が頭打ち。棚やお店の数ではなく、別の商品・届く場所・売り場の強さ・認知で伸びます（SCM の販売の内訳へ）。', 'Sales are capped. They grow with another item, reaching new homes, stronger shops or awareness — not more shelves or shops (see the SCM sales breakdown).'),
 };
 /** スマホ用の短い版（2 行以内） */
 const STAGE_HINT_SHORT: Record<Stage, string> = {
   buy: t('素材が足りない。調達係やスキルで仕入れを太く。', 'Short of materials. Add a buyer or buying skills.'),
   craft: t('作る数が足りない。作業台（設備投資）・スキル・職人を。', 'Crafting is short. Benches (investment), skills or a crafter.'),
   haul: t('運ぶ数が足りない。荷車（設備投資）・物流拠点を。', 'Hauling is short. Carts (investment) or a hub.'),
-  sell: t('売れる数が頭打ち。お店・棚（設備投資）・宣伝で売り場を強く。', 'Sales are capped. Shops, shelves (investment) or ads.'),
+  sell: t('売れる数が頭打ち。別の商品・届く場所・売り場・認知で（販売の内訳へ）。', 'Sales capped: new item, reach, pull or awareness (breakdown).'),
 };
 /** 段を太くするスキル（スキルツリーの枝） */
 const STAGE_BRANCH: Record<Stage, string> = { buy: 'buy', craft: 'craft', haul: 'logi', sell: 'shop' };

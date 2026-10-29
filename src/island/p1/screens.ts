@@ -127,8 +127,8 @@ export interface Ctx {
   tip?: (screen: string) => string | null;
   /** チュートリアル：この画面の ✕ を光らせるか（見終わったら閉じてほしい画面） */
   closeGlow?: (screen: string) => boolean;
-  /** 札を閉じて、その建物を置くモードへ */
-  build?: (id: string) => void;
+  /** 札を閉じて、その建物を置くモードへ（at：そのマスから置き始める） */
+  build?: (id: string, at?: [number, number]) => void;
   /** チュートリアルのいまの段（tut.ts の id。終わっていれば null） */
   step?: () => string | null;
   /** 効果音 */

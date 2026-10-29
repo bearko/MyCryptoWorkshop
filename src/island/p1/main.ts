@@ -237,9 +237,9 @@ const ctx: Ctx = {
   save,
   refresh: () => renderAll(),
   toast,
-  build: (id) => {
+  build: (id, at) => {
     closeSheet();
-    startPlacing(id);
+    startPlacing(id, at ? { at } : {});
   },
   tip: (screen) => tutTip(screen),
   closeGlow: (screen) => !!tutStep()?.closeOn?.includes(screen),

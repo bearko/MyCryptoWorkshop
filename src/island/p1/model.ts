@@ -1571,10 +1571,10 @@ export function setPart(s: P1State, uid: number, n: number): boolean {
   return true;
 }
 
-/** お店の売り場での強さ（商品ごと） */
-function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku): number {
+/** お店の売り場での強さ（商品ごと）。plan：見込み（いつもの体制。店員の休憩は数えない） */
+function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku, plan = false): number {
   const st = sh.staff != null ? staffOf(s, sh.staff) : null;
-  const staffed = st && !st.resting ? 0.6 + 0.4 * speed(st, 'shop', s) : 0;
+  const staffed = st && (plan || !st.resting) ? 0.6 + 0.4 * speed(st, 'shop', s) : 0;
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
   const [k, r] = skuParts(x);
@@ -1736,7 +1736,7 @@ export function rivalOffers(s: P1State, key: string): (Offer & { rid: string })[
   return out;
 }
 
-/** 自社の棚（stocked：棚に商品があるものだけ。false なら並んでいるとして見込む） */
+/** 自社の棚（stocked：棚に商品があるものだけ。false なら並んでいるとして見込む＝店員の休憩も数えない、いつもの体制） */
 function myOffers(s: P1State, key: string, stocked: boolean) {
   const out: (Offer & { b: PBuilding; sh: ShopState; x: Sku })[] = [];
   for (const b of myShops(s)) {
@@ -1744,7 +1744,7 @@ function myOffers(s: P1State, key: string, stocked: boolean) {
     for (const x of sh.shelves) {
       if (!x || skuParts(x)[0] !== key) continue;
       if (stocked && (sh.shelf[x] ?? 0) <= 0) continue;
-      const w = pull(s, b, sh, x) * (sh.aw ?? 1);
+      const w = pull(s, b, sh, x, !stocked) * (sh.aw ?? 1);
       if (w > 0) out.push({ i: b.i, j: b.j, w, g: 'me', b, sh, x });
     }
   }
@@ -2131,8 +2131,7 @@ export function step(s: P1State): DayResult {
     const sh = s.shops[b.uid];
     const st = sh.staff != null ? staffOf(s, sh.staff) : null;
     if (st && !st.resting) working.add(st.hero);
-    const open0 = (st && !st.resting) || sh.part > 0;
-    let cap = ((st && !st.resting ? SHOP.displayPerDay * speed(st, 'shop', s) : 0) + sh.part * SHOP.partTimeDisplay) * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1) + (has(s, 'hours') && open0 ? 2 : 0);
+    let cap = displayRate(s, b, sh, st && !st.resting ? st : null);
     for (const x of sh.shelves) {
       if (!x || cap <= 0) continue;
       const move = Math.min(Math.floor(cap), sh.storage[x] ?? 0, SHOP.shelfCap - (sh.shelf[x] ?? 0));
@@ -2688,6 +2687,10 @@ export interface StageCap {
   perMonth: number;
   /** 担当がいない・止まっている */
   stopped: boolean;
+  /** ④ 販売だけ：どちらの制限が効いているか（需要から取れる数／お店の処理力）と、その 2 つの数 */
+  why?: 'demand' | 'capacity';
+  demand?: number;
+  capacity?: number;
 }
 
 /** 作業台の体制で、ひと月に作れる商品の数と、そのとき要る素材 */
@@ -2725,15 +2728,281 @@ export function sellEstimate(s: P1State, key: string, r: Rar = 'C'): number {
   return mine.reduce((a, _, n) => a + out[n], 0);
 }
 
-export function salesPotential(s: P1State): number {
+/**
+ * 需要から取れる数（並べている商品ごとに、エリアの需要を家ごとに自社と他社で取り合った自社の取り分の合計）。
+ * capture は家ごとに「自社のいちばん来やすいお店 1 軒」の強さで会社を選ぶので、同じ商圏に同じ商品のお店・棚を足しても増えない。
+ * mul：自社の売り場の強さに掛ける倍率（打ち手の見込み用）
+ */
+function potentialOf(s: P1State, mul = 1) {
   let units = 0;
+  let yen = 0;
+  const byKey: Record<string, number> = {};
+  /** `${uid}:${sku}` → その棚の月の数 */
+  const byShelf: Record<string, number> = {};
+  for (const p of PRODUCTS) {
+    const mine = myOffers(s, p.key, false).map((o) => ({ ...o, w: o.w * mul }));
+    if (!mine.length) continue;
+    const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
+    for (let n = 0; n < mine.length; n++) {
+      units += month[n];
+      yen += month[n] * priceAt(s, mine[n].x, mine[n].sh);
+      byKey[p.key] = (byKey[p.key] ?? 0) + month[n];
+      byShelf[`${mine[n].b.uid}:${mine[n].x}`] = (byShelf[`${mine[n].b.uid}:${mine[n].x}`] ?? 0) + month[n];
+    }
+  }
+  return { units, yen, byKey, byShelf };
+}
+
+export function salesPotential(s: P1State): number {
+  return potentialOf(s).units;
+}
+
+/**
+ * お店 1 軒が 1 日に棚へ並べられる数（店員の品出し × 速さ ＋ アルバイト）×（陳列の什器 +30%／段）×（品出しの名人 ×1.5）＋ 営業時間の延長 +2。
+ * clerk：品出しをする店員（休憩中なら null を渡す）。step の陳列と、販売の段の「お店の処理力」で同じ式
+ */
+function displayRate(s: P1State, b: PBuilding, sh: ShopState, clerk: Staff | null): number {
+  const base = (clerk ? SHOP.displayPerDay * speed(clerk, 'shop', s) : 0) + sh.part * SHOP.partTimeDisplay;
+  const open = !!clerk || sh.part > 0;
+  return base * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1) + (has(s, 'hours') && open ? 2 : 0);
+}
+/** お店 1 軒の 1 日の品出しの数（いつもの体制：店員の休憩は数えない） */
+export function displayPerDayOf(s: P1State, b: PBuilding): number {
+  const sh = s.shops[b.uid];
+  if (!sh) return 0;
+  return displayRate(s, b, sh, sh.staff != null ? staffOf(s, sh.staff) : null);
+}
+/** お店の処理力：商品を並べている自社のお店の「1 日に棚に並べられる数 × 30」の合計（ひと月に売れる数の上限） */
+export function displayCap(s: P1State): number {
+  return myShops(s).reduce((a, b) => a + (s.shops[b.uid]?.shelves.some((x) => x) ? displayPerDayOf(s, b) * DAYS : 0), 0);
+}
+
+// ---------------------------------------------------------------- ④ 販売の内訳（SCM ダッシュボード）
+
+/** 家から見て、自社のお店の届き方がこれより小さいと「遠くて届かない」（およそ 4 マス以上） */
+export const FAR_REACH = 0.3;
+/** 頭打ちの理由（まとめの 1 行。判定の順） */
+export type SellWhy = 'capacity' | 'demand' | 'far' | 'known' | 'rival';
+/** 商品ごとの「なぜ取れていないか」 */
+export type GoodsWhy = 'saturated' | 'known' | 'far' | 'rival' | 'ok';
+export interface SellGoods {
+  key: string;
+  x: Sku;
+  /** エリアの需要（個／月。demand × MARKET.pot） */
+  demand: number;
+  /** いま売れる見込み（個／月） */
+  units: number;
+  /** 自社の取り分（units ÷ demand） */
+  share: number;
+  sellers: number;
+  saturated: boolean;
+  /** 認知（商品の認知 × 並べているお店の認知度の平均） */
+  known: number;
+  /** どのお店からも遠い家の需要の割合 */
+  far: number;
+  why: GoodsWhy;
+}
+export interface SellShop {
+  b: PBuilding;
+  /** 商圏の家（届く家の数）と、その家の需要がエリア全体に占める割合 */
+  homes: number;
+  reach: number;
+  /** 商圏の家のうち、ほかの自社のお店（同じ商品）のほうが来やすい・同じ割合（＝自社どうしの取り合い） */
+  overlap: number;
+  /** 同じ商品を扱う他社のうち、いちばん近いお店までのマス数（無ければ null）と、商圏の近くの他社の数 */
+  rivalDist: number | null;
+  rivals: number;
+  goods: Sku[];
+}
+export interface SellInfo {
+  /** 需要から取れる数・お店の処理力・販売の数字（小さいほう） */
+  potential: number;
+  capacity: number;
+  perMonth: number;
+  why: SellWhy;
+  /** 需要で重みをつけた平均：取り分・飽和の割合・遠い家の割合・認知 */
+  share: number;
+  satShare: number;
+  far: number;
+  known: number;
+  goods: SellGoods[];
+  shops: SellShop[];
+}
+
+const manhattan = (a: { i: number; j: number }, b: { i: number; j: number }) => Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
+
+/** ④ 販売の内訳：頭打ちの理由・商品ごと・お店ごと（docs/ISLAND_PHASE1.md「販売の内訳」） */
+export function sellInfo(s: P1State): SellInfo {
+  const pot = potentialOf(s);
+  const capacity = displayCap(s);
+  const { list, total } = sources(s);
+  const goods: SellGoods[] = [];
   for (const p of PRODUCTS) {
     const mine = myOffers(s, p.key, false);
     if (!mine.length) continue;
-    const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
-    for (let n = 0; n < mine.length; n++) units += month[n];
+    const demand = (s.demand[p.key] ?? 0) * MARKET.pot;
+    const units = pot.byKey[p.key] ?? 0;
+    const shops = [...new Set(mine.map((o) => o.b))];
+    let farPop = 0;
+    for (const k of list) if (Math.max(...shops.map((b) => reach(manhattan(b, k)))) < FAR_REACH) farPop += k.pop;
+    const far = farPop / total;
+    const aw = shops.reduce((a, b) => a + (s.shops[b.uid].aw ?? 1), 0) / shops.length;
+    const known = knownOf(s, p.key) * aw;
+    const sat = saturated(s, p.key);
+    const sellers = sellersOf(s, p.key);
+    const why: GoodsWhy = sat ? 'saturated' : known < 0.7 ? 'known' : far >= 0.4 ? 'far' : sellers > 0 ? 'rival' : 'ok';
+    goods.push({ key: p.key, x: mine[0].x, demand, units, share: demand > 0 ? units / demand : 0, sellers, saturated: sat, known, far, why });
   }
-  return units;
+  goods.sort((a, b) => b.demand - a.demand);
+  const dSum = goods.reduce((a, g) => a + g.demand, 0) || 1;
+  const wavg = (f: (g: SellGoods) => number) => goods.reduce((a, g) => a + f(g) * g.demand, 0) / dSum;
+  const share = goods.reduce((a, g) => a + g.units, 0) / dSum;
+  const satShare = wavg((g) => (g.saturated ? 1 : 0));
+  const far = wavg((g) => g.far);
+  const known = goods.length ? wavg((g) => g.known) : 1;
+
+  // お店ごと：商圏の家・自社どうしの重なり（capture の gmax：家ごとに自社は最も来やすい 1 軒ぶんしか数えない）
+  const shopsOn = myShops(s).filter((b) => s.shops[b.uid]?.shelves.some((x) => x));
+  const keysOf = (b: PBuilding) => new Set(s.shops[b.uid].shelves.filter((x): x is Sku => !!x).map((x) => skuParts(x)[0]));
+  const shops: SellShop[] = shopsOn.map((b) => {
+    const keys = keysOf(b);
+    const peers = shopsOn.filter((o) => o.uid !== b.uid && [...keysOf(o)].some((k) => keys.has(k)));
+    let homes = 0;
+    let pop = 0;
+    let over = 0;
+    for (const k of list) {
+      const r = reach(manhattan(b, k));
+      if (r < FAR_REACH) continue;
+      homes++;
+      pop += k.pop;
+      if (peers.some((o) => reach(manhattan(o, k)) >= r)) over += k.pop;
+    }
+    let rivalDist: number | null = null;
+    let rivals = 0;
+    for (const r of s.rivals) {
+      const rb = s.buildings.find((x) => x.owner === r.id);
+      if (!rb || ![...keys].some((k) => (r.sells[k] ?? 0) > 0)) continue;
+      const d = manhattan(rb, b);
+      if (d <= MARKET.d0 * 1.5) rivals++;
+      rivalDist = rivalDist == null ? d : Math.min(rivalDist, d);
+    }
+    return { b, homes, reach: pop / total, overlap: pop > 0 ? over / pop : 0, rivalDist, rivals, goods: s.shops[b.uid].shelves.filter((x): x is Sku => !!x) };
+  });
+
+  const perMonth = Math.min(pot.units, capacity);
+  const why: SellWhy = capacity < pot.units ? 'capacity' : share >= 0.5 || satShare >= 0.5 ? 'demand' : far >= 0.4 ? 'far' : known < 0.7 ? 'known' : 'rival';
+  return { potential: pot.units, capacity, perMonth, why, share, satShare, far, known, goods, shops };
+}
+
+/** 打ち手の種類：別の商品・次のお店・売り場の強さ +15%・認知 100%・アルバイト +1・陳列の什器 +1 */
+export type WhatIfKind = 'goods' | 'shop' | 'pull' | 'known' | 'part' | 'fixtures';
+export interface WhatIf {
+  kind: WhatIfKind;
+  /** 販売の数字（需要から取れる数と処理力の小さいほう）の増え方（個／月）と、売上の増え方（G／月） */
+  units: number;
+  yen: number;
+  /** 効き目が +2 個以上（それ未満は「いまは効かない」） */
+  ok: boolean;
+  /** goods：並べる商品・お店・棚（replace：入れ替え） */
+  key?: string;
+  uid?: number;
+  replace?: Sku | null;
+  /** shop：建てるマス（人流解析の区画なら hot） */
+  at?: [number, number];
+  hot?: boolean;
+}
+
+/** 販売の数字と売上（処理力で頭打ちなら、その割合で売上も縮める） */
+function sellNow(s: P1State, mul = 1): { units: number; yen: number } {
+  const pot = potentialOf(s, mul);
+  const cap = displayCap(s);
+  const units = Math.min(pot.units, cap);
+  return { units, yen: pot.units > 0 ? (pot.yen * units) / pot.units : 0 };
+}
+
+/** お店の写し（打ち手の見込み用。元の状態は書き換えない） */
+const withShops = (s: P1State, shops: Record<number, ShopState>): P1State => ({ ...s, shops: { ...s.shops, ...shops } });
+
+/**
+ * 打ち手ごとの見込み：候補を状態の写しに仮に当てて、販売の数字（salesPotential と処理力の小さいほう）を計算し直す。
+ * 純粋関数（s は書き換えない）。効き目の大きい順
+ */
+export function sellWhatIf(s: P1State): WhatIf[] {
+  const base = sellNow(s);
+  const out: WhatIf[] = [];
+  const add = (w: Omit<WhatIf, 'units' | 'yen' | 'ok'>, after: { units: number; yen: number }) => {
+    const units = after.units - base.units;
+    out.push({ ...w, units, yen: after.yen - base.yen, ok: units >= 2 });
+  };
+  const shops = myShops(s).filter((b) => s.shops[b.uid]?.shelves.some((x) => x));
+  const served = shops.filter((b) => s.shops[b.uid].staff != null || s.shops[b.uid].part > 0);
+  if (!served.length) return out;
+  const { list } = sources(s);
+  // いちばん強いお店：商圏の家（来やすさの重み）× 売り場に人がいる
+  const area = (b: { i: number; j: number }) => list.reduce((a, k) => a + k.pop * reach(manhattan(b, k)), 0);
+  const strong = [...served].sort((a, b) => area(b) - area(a))[0];
+  const pot = potentialOf(s);
+
+  // 別の商品：マインちゃんのおすすめを、いちばん強いお店の空き棚（無ければ見込みのいちばん小さい棚と入れ替え）に
+  const rec = recommend(s);
+  const stocked = new Set(Object.values(s.shops).flatMap((sh) => sh.shelves.filter((x): x is Sku => !!x).map((x) => skuParts(x)[0])));
+  if (!stocked.has(rec)) {
+    const sh = s.shops[strong.uid];
+    const x = sku(rec, (s.tier ?? 'C') !== 'C' && s.dev.includes(rec) ? 'U' : 'C');
+    let idx = sh.shelves.findIndex((y) => !y);
+    if (idx < 0) idx = sh.shelves.reduce((m, y, k) => ((pot.byShelf[`${strong.uid}:${y}`] ?? 0) < (pot.byShelf[`${strong.uid}:${sh.shelves[m]}`] ?? 0) ? k : m), 0);
+    const shelves = [...sh.shelves];
+    const replace = shelves[idx];
+    shelves[idx] = x;
+    add({ kind: 'goods', key: rec, uid: strong.uid, replace }, sellNow(withShops(s, { [strong.uid]: { ...sh, shelves } })));
+  }
+
+  // 次のお店（よろず屋）：置ける区画のうち、いちばん伸びる所。並べるのは需要の大きい商品、売り場はいちばん強いお店と同じ体制（慣れたあと）
+  const id = 'general_store';
+  if (canBuild(s, id) === null || canBuild(s, id) === 'money') {
+    const top = [...stocked].sort((a, b) => (s.demand[b] ?? 0) - (s.demand[a] ?? 0));
+    const from = s.shops[strong.uid];
+    const pick = (k: string) => from.shelves.find((y) => y && skuParts(y)[0] === k) ?? Object.values(s.shops).flatMap((sh) => sh.shelves).find((y) => y && skuParts(y)[0] === k) ?? null;
+    const shelves = top.slice(0, P1B[id].shelves ?? 1).map(pick);
+    const hot = hotCells(s);
+    let best: { at: [number, number]; r: { units: number; yen: number }; hot: boolean } | null = null;
+    for (let j = 0; j < s.n; j++)
+      for (let i = 0; i < s.n; i++) {
+        const dirs = allowedDirs(s, id, i, j);
+        if (!dirs.length) continue;
+        const uid = s.nextUid;
+        const b: PBuilding = { uid, id, i, j, dir: dirs[0], left: 0, owner: 'me' };
+        const sh: ShopState = { uid, shelves, staff: from.staff, part: from.part, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0, cost: 0, last: null, aw: 1 };
+        const r = sellNow({ ...withShops(s, { [uid]: sh }), buildings: [...s.buildings, b] });
+        const isHot = hot.has(j * s.n + i);
+        // 同じくらいなら人流解析の区画を選ぶ
+        if (!best || r.units > best.r.units + 0.5 || (r.units > best.r.units - 0.5 && isHot && !best.hot)) best = { at: [i, j], r, hot: isHot };
+      }
+    if (best) add({ kind: 'shop', at: best.at, hot: best.hot }, best.r);
+  }
+
+  // 売り場の強さ +15%（接客の研修・看板 1 段）
+  add({ kind: 'pull' }, sellNow(s, 1.15));
+
+  // 認知を 100% に（宣伝）：並べている商品の認知と、お店の認知度
+  const known = { ...s.known };
+  for (const k of stocked) known[k] = 1;
+  const aw: Record<number, ShopState> = {};
+  for (const b of shops) aw[b.uid] = { ...s.shops[b.uid], aw: 1 };
+  add({ kind: 'known' }, sellNow({ ...withShops(s, aw), known }));
+
+  // 処理力が効いているときだけ：アルバイト +1・陳列の什器 +1（処理力のいちばん小さいお店に）
+  if (displayCap(s) < pot.units) {
+    const weak = [...served].sort((a, b) => displayPerDayOf(s, a) - displayPerDayOf(s, b));
+    const pt = weak.find((b) => s.shops[b.uid].part < partMax(s, b.uid));
+    if (pt) add({ kind: 'part', uid: pt.uid }, sellNow(withShops(s, { [pt.uid]: { ...s.shops[pt.uid], part: s.shops[pt.uid].part + 1 } })));
+    const fx = weak.find((b) => investCost(b, 'fixtures') != null);
+    if (fx) {
+      const nb: PBuilding = { ...fx, inv: { ...fx.inv, fixtures: invLv(fx, 'fixtures') + 1 } };
+      add({ kind: 'fixtures', uid: fx.uid }, sellNow({ ...s, buildings: s.buildings.map((x) => (x.uid === fx.uid ? nb : x)) }));
+    }
+  }
+  return out.sort((a, b) => b.units - a.units || b.yen - a.yen);
 }
 
 export function stageCaps(s: P1State): Record<Stage, StageCap> {
@@ -2753,7 +3022,16 @@ export function stageCaps(s: P1State): Record<Stage, StageCap> {
   const carts = cartsOf(s);
   const cap = cartCap(s);
   const haul = { perMonth: Math.round(haulers.reduce((a, st) => a + (haulDays(s, st) ? (DAYS / haulDays(s, st)) * carts * cap : 0), 0)), stopped: !haulers.length };
-  const sell = { perMonth: Math.round(salesPotential(s)), stopped: !myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x) && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)) };
+  // 販売：需要から取れる数（salesPotential）と、お店の処理力（品出しの数 × 30 日。displayCap）の小さいほう
+  const demand = salesPotential(s);
+  const capacity = displayCap(s);
+  const sell: StageCap = {
+    perMonth: Math.round(Math.min(demand, capacity)),
+    stopped: !myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x) && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)),
+    why: capacity < demand ? 'capacity' : 'demand',
+    demand: Math.round(demand),
+    capacity: Math.round(capacity),
+  };
   return { buy, craft, haul, sell };
 }
 
