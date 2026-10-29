@@ -253,17 +253,41 @@ function diffChip(cur: number, prev: number): HTMLElement {
   return h('span', `isl-rp-diff ${d >= 0 ? 'is-up' : 'is-down'}`, d >= 0 ? t(`先月比 +${money(d)}`, `+${money(d)} vs last`) : t(`先月比 −${money(-d)}`, `−${money(-d)} vs last`));
 }
 
-/** 開幕の発表（全画面）。終わったら done */
-function reveal(ctx: Ctx, r: Report, hooks: ReportHooks, top1: boolean, alive: () => boolean, done: () => void) {
+/** 発表の長さ（ミリ秒）：カウント（金額に関係なく一定）→ 跳ね → 金貨 → 「タップで続ける」。待ちきれなければ 6 秒で自動 */
+export const REVEAL = { count: 1600, hit: 400, coins: 800, auto: 6000, zero: 1200, tut: 400 } as const;
+
+/**
+ * 発表のカウントアップの値（0〜1 の進み k → 表示する金額）。
+ * 進みは減速（1 − (1 − k)²）。途中は下 3 桁が転がる（桁数が多い月は転がり方が速く見えるだけで、長さは同じ）。最後の 15% で正確な値へ。
+ * 純粋関数（テスト用に切り出し）
+ */
+export function countValue(to: number, k: number, rnd = Math.random): number {
+  if (k >= 1) return to;
+  const e = 1 - Math.pow(1 - k, 2);
+  const jitter = k < 0.85 && to >= 1000 ? Math.floor(rnd() * 1000) - 500 : 0;
+  return Math.min(to, Math.max(0, Math.round(to * e) + jitter));
+}
+
+/**
+ * 開幕の発表（全画面）。終わったら done。
+ * カウントが終わって金額が跳ね、金貨が舞い終わるまでは本体に移らない。そのあと「タップで続ける」を出し、タップで本体へ
+ * （REVEAL.auto たてば自動）。カウント中のタップは即到達（スキップ）で、本体へは移らない。
+ * tut：チュートリアル（見習い期間）は従来どおり、金貨のあと自動で本体へ（案内の流れを変えない）
+ */
+function reveal(ctx: Ctx, r: Report, hooks: ReportHooks, top1: boolean, alive: () => boolean, done: () => void, tut = false) {
   const d = ym(r.month);
   const ov = h('div', 'isl-rp-reveal');
   const box = h('div', 'isl-rp-rvbox');
   const coinBox = h('div', 'isl-rp-coins');
   const num = h('b', 'isl-rp-rvnum', '0 G');
   box.append(h('small', 'isl-rp-rvlabel', t(`${d.year}年目・${d.month}月の売上`, `Sales · Y${d.year} M${d.month}`)), coinBox, num);
-  ov.append(box, h('small', 'isl-rp-rvtap', t('タップで続ける', 'Tap to continue')));
+  const tap = h('small', 'isl-rp-rvtap', t('タップで続ける', 'Tap to continue'));
+  tap.hidden = true;
+  ov.append(box, tap);
   ctx.root.append(ov);
   let over = false;
+  /** 'count'：転がっている（タップで即到達）／'fx'：跳ね・金貨（タップは待つ）／'ready'：タップで本体へ */
+  let phase: 'count' | 'fx' | 'ready' = 'count';
   let timer = 0;
   const finish = () => {
     if (over) return;
@@ -273,15 +297,33 @@ function reveal(ctx: Ctx, r: Report, hooks: ReportHooks, top1: boolean, alive: (
     setTimeout(() => ov.remove(), 260);
     done();
   };
+  /** 到達：跳ね → 金貨 → タップ待ち（tut は自動） */
+  const to = r.revenue;
+  let hit = false;
+  const land = () => {
+    if (hit || over) return;
+    hit = true;
+    phase = 'fx';
+    num.textContent = money(to);
+    num.classList.add('is-hit');
+    hooks.sfx?.(top1 ? 'win' : 'sale');
+    timer = window.setTimeout(() => {
+      coins(coinBox, Math.min(24, 8 + Math.floor(to / 3000)));
+      timer = window.setTimeout(() => {
+        phase = 'ready';
+        ov.classList.add('is-ready');
+        tap.hidden = false;
+        timer = window.setTimeout(finish, tut ? REVEAL.tut : REVEAL.auto);
+      }, REVEAL.coins);
+    }, REVEAL.hit);
+  };
   ov.addEventListener('click', (e) => {
     e.stopPropagation();
-    finish();
+    if (phase === 'count') land();
+    else if (phase === 'ready') finish();
   });
-  const later = () => {
-    timer = window.setTimeout(finish, 1200);
-  };
-  // 売上 0：ドラムロールなし。灰色の 0 G とマインちゃんの一言
-  if (r.revenue <= 0) {
+  // 売上 0：ドラムロールなし。灰色の 0 G とマインちゃんの一言（従来どおり、しばらくして自動で本体へ。タップでも）
+  if (to <= 0) {
     num.classList.add('is-zero');
     const say = h('div', 'isl-rp-rvsay');
     const mi = h('img', 'isl-rp-mine');
@@ -290,34 +332,24 @@ function reveal(ctx: Ctx, r: Report, hooks: ReportHooks, top1: boolean, alive: (
     say.append(mi, h('p', '', t('今月は売れなかった…。商品がお店に届いているか、店員がいるかを確かめよう。', 'Nothing sold this month… Check that goods reach the shop and that someone is on the floor.')));
     box.append(say);
     hooks.sfx?.('check');
-    later();
+    phase = 'ready';
+    tap.hidden = false;
+    timer = window.setTimeout(finish, REVEAL.zero);
     return;
   }
-  const to = r.revenue;
-  const ms = 1400;
   const t0 = performance.now();
   hooks.sfx?.('drum');
   const tick = (now: number) => {
-    if (over) return;
+    if (over || hit) return;
     if (!alive()) {
       ov.remove();
       over = true;
       return;
     }
-    const k = Math.min(1, (now - t0) / ms);
-    const e = 1 - Math.pow(1 - k, 2);
-    // 途中は下 3 桁が転がる。最後の 15% で正確な値へ
-    const jitter = k < 0.85 ? Math.floor(Math.random() * 1000) : 0;
-    const v = k < 1 ? Math.min(to, Math.max(0, Math.round(to * e) + (to >= 1000 ? jitter - 500 : 0))) : to;
-    num.textContent = money(v);
-    if (k < 1) {
-      requestAnimationFrame(tick);
-      return;
-    }
-    num.classList.add('is-hit');
-    coins(coinBox, Math.min(24, 8 + Math.floor(to / 3000)));
-    hooks.sfx?.(top1 ? 'win' : 'sale');
-    later();
+    const k = Math.min(1, (now - t0) / REVEAL.count);
+    num.textContent = money(countValue(to, k));
+    if (k < 1) requestAnimationFrame(tick);
+    else land();
   };
   requestAnimationFrame(tick);
 }
@@ -500,21 +532,30 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
     then,
   );
   const alive = () => !!bodyEl?.isConnected;
-  reveal(ctx, r, hooks, r.rank === 1, alive, () => {
-    shown = true;
-    const body = bodyEl;
-    if (!body || !body.isConnected) return;
-    body.classList.remove('is-wait');
-    body.classList.add('is-in');
-    const num = body.querySelector('.isl-rp-ranknum');
-    setTimeout(() => {
-      num?.classList.add('is-show');
-      if (prev && prev.rank > r.rank) hooks.sfx?.('levelup');
-    }, 420);
-    setTimeout(() => {
-      animated = true;
-      body.classList.remove('is-in');
-      body.querySelectorAll('.isl-rp-ranknum').forEach((e) => e.classList.add('is-done'));
-    }, 1300);
-  });
+  reveal(
+    ctx,
+    r,
+    hooks,
+    r.rank === 1,
+    alive,
+    () => {
+      shown = true;
+      const body = bodyEl;
+      if (!body || !body.isConnected) return;
+      body.classList.remove('is-wait');
+      body.classList.add('is-in');
+      const num = body.querySelector('.isl-rp-ranknum');
+      setTimeout(() => {
+        num?.classList.add('is-show');
+        if (prev && prev.rank > r.rank) hooks.sfx?.('levelup');
+      }, 420);
+      setTimeout(() => {
+        animated = true;
+        body.classList.remove('is-in');
+        body.querySelectorAll('.isl-rp-ranknum').forEach((e) => e.classList.add('is-done'));
+      }, 1300);
+    },
+    // チュートリアル中は従来どおり自動で本体へ
+    !!ctx.step?.(),
+  );
 }

@@ -4630,6 +4630,46 @@ button.isl-mis {
 .isl-shop-spot.is-hot {
   animation: isl-guide 1.1s ease-in-out infinite;
 }
+/* 決まったあとの棚・店員：絵はそのまま見せ、押すと差し替え。「替える」の札はホバー（PC）／触れる端末では薄く出しておく */
+.isl-shop-spot.is-set {
+  border-color: transparent;
+  background: transparent;
+  align-content: end;
+  justify-items: end;
+  padding: 0 4px 4px 0;
+}
+/* 店員の札は上（店員の体に重ねない） */
+.isl-shop-spot.is-clerk.is-set {
+  align-content: start;
+  padding: 4px 4px 0 0;
+}
+.isl-shop-swap {
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.8);
+  color: var(--isl-gold);
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.isl-shop-spot.is-set:hover,
+.isl-shop-spot.is-set:focus-visible,
+.isl-shop-spot.is-set:active {
+  border-color: rgba(242, 181, 68, 0.7);
+  background: rgba(15, 22, 38, 0.18);
+}
+.isl-shop-spot.is-set:hover .isl-shop-swap,
+.isl-shop-spot.is-set:focus-visible .isl-shop-swap,
+.isl-shop-spot.is-set:active .isl-shop-swap {
+  opacity: 1;
+}
+@media (hover: none) {
+  .isl-shop-swap {
+    opacity: 0.8;
+  }
+}
 .isl-pop-act {
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -4851,7 +4891,12 @@ button.isl-mis {
 }
 .isl-rp-reveal.is-out {
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.25s ease-out;
+}
+/* 「タップで続ける」が出るまでは、押しても本体へは移らない（カウント中は即到達） */
+.isl-rp-reveal:not(.is-ready) {
+  cursor: default;
 }
 @keyframes isl-rp-fadein {
   from {
@@ -5796,6 +5841,26 @@ button.isl-mis {
 .isl-data-row.is-sat {
   opacity: 0.72;
 }
+/* 市場データ → 工房へ（作れる商品だけ）。作っている商品は金色 */
+.isl-btn.isl-data-make {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.isl-btn.isl-data-make.is-making {
+  background: var(--isl-gold);
+}
+.isl-sheet-body > .isl-btn.isl-data-make {
+  min-height: 40px;
+  font-size: 15px;
+}
+/* 工房の「作る数」：市場データから来たとき、しばらく光らせる */
+.isl-plan-wrap.is-flash {
+  outline: 2px solid var(--isl-gold);
+  outline-offset: 4px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 6px rgba(242, 181, 68, 0.25);
+}
 /* 会話の枚だけのボタン（到着の案内の「市場データを開く」） */
 .isl-talk-foot {
   flex-wrap: wrap;
@@ -6358,4 +6423,215 @@ button.isl-mis {
 /* チュートリアル（マインちゃんの一言が出ているあいだ）は通貨の帯を出さない（チュートリアルの見た目を変えない） */
 .isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-cur {
   display: none;
+}
+
+/* ================================================================ SCM「販売管理」（お店の一覧・その場で変える・一括） */
+.isl-sales-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.isl-sales-sort {
+  display: flex;
+  gap: 4px;
+}
+.isl-sales-sort .isl-btn,
+.isl-btn.isl-sales-dash {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.isl-sales-bulk .isl-row .isl-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+}
+.isl-sales-list {
+  display: grid;
+  gap: 8px;
+}
+/* 1 行＝カード：名前｜店員｜アルバイト｜棚｜数字 */
+.isl-sales-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) auto auto minmax(140px, 1.6fr) minmax(150px, 1.2fr);
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+}
+.isl-sales-row.is-jam {
+  border-color: rgba(240, 112, 112, 0.6);
+}
+.isl-sales-name {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.isl-sales-name b {
+  font-size: 15px;
+}
+.isl-sales-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.isl-tag.is-warn {
+  background: rgba(255, 210, 122, 0.18);
+  color: #ffd27a;
+}
+.isl-sales-clerk,
+.isl-sales-shelf {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 2px;
+  width: 64px;
+  min-height: 78px;
+  padding: 4px 2px 5px;
+  border: 2px solid var(--isl-line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #34497a, #24335a);
+  color: var(--isl-text);
+  font: inherit;
+  cursor: pointer;
+}
+.isl-sales-clerk.is-empty,
+.isl-sales-shelf.is-empty {
+  border-style: dashed;
+  border-color: #6c7fa8;
+  background: rgba(36, 51, 90, 0.55);
+}
+.isl-sales-shelf.is-warn {
+  border-color: var(--isl-bad);
+}
+.isl-sales-clerk .isl-slot-plus,
+.isl-sales-shelf .isl-slot-plus {
+  width: 36px;
+  height: 36px;
+  margin: 2px 0;
+  font-size: 20px;
+}
+.isl-sales-clerk .isl-slot-tag {
+  top: 16px;
+}
+.isl-sales-shelf-name {
+  max-width: 60px;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.isl-sales-part {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.isl-sales-part .isl-row {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+.isl-sales-part .isl-btn {
+  min-height: 30px;
+  min-width: 30px;
+  padding: 0 8px;
+}
+.isl-sales-part b {
+  min-width: 1.2em;
+  text-align: center;
+}
+.isl-sales-shelves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.isl-sales-nums {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+.isl-sales-nums > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.isl-sales-nums small {
+  font-size: 11px;
+}
+.isl-sales-aw {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.isl-sales-aw .isl-bar {
+  width: 56px;
+  height: 7px;
+}
+@media (max-width: 899px) {
+  .isl-sales-row {
+    grid-template-columns: 1fr auto auto;
+  }
+  .isl-sales-shelves {
+    grid-column: 1 / -1;
+  }
+  .isl-sales-nums {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, auto);
+    justify-content: space-between;
+  }
+  .isl-sales-nums > div {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+}
+@media (max-width: 599px) {
+  .isl-sales-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .isl-sales-sort .isl-btn {
+    flex: 1;
+  }
+  .isl-sales-bulk .isl-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .isl-sales-row {
+    gap: 6px 8px;
+    padding: 8px;
+  }
+  .isl-sales-name b,
+  .isl-sales-name small {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  .isl-sales-shelves {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .isl-sales-shelf,
+  .isl-sales-clerk {
+    flex: none;
+    width: 60px;
+    min-height: 72px;
+  }
 }
