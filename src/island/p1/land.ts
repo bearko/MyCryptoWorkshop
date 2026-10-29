@@ -48,6 +48,8 @@ export const SECTOR_KEYS = [
   'known',
   'topStreak',
   'rally',
+  'dustShop',
+  'yday',
 ] as const;
 
 /** いまのセクタに自社の建物があるか（あれば、離れるときにマネージャーが要る） */

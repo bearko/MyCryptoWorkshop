@@ -83,7 +83,8 @@ describe('設備投資（スキルツリーから移した設備）', () => {
     expect(SKILL.shop2.requires).toEqual(['host']);
     expect(SKILL.shop3.requires).toEqual(['shop2']);
     expect(SKILL.display.requires).toBeUndefined();
-    expect(SKILL.hub.requires).toEqual(['loading']);
+    // v2：物流拠点は定期便の時刻表のあと（docs/ISLAND_PHASE1.md「スキルツリー」）
+    expect(SKILL.hub.requires).toEqual(['timetable']);
   });
 
   it('工房：作業台・荷車・トラック・物置は、その工房の段で効く', () => {

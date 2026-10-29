@@ -5709,3 +5709,411 @@ button.isl-mis {
     max-height: 132px;
   }
 }
+
+/* ================================================================ スキルツリー v2：通貨の帯・外周（ランクのエリア）・エンブレム・ゴールドダスト */
+.isl-tree-top {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  z-index: 4;
+  display: grid;
+  gap: 6px;
+  pointer-events: none;
+}
+.isl-tree-top > * {
+  pointer-events: auto;
+}
+.isl-tree-top .isl-tree-tip,
+.isl-tree-top .isl-tree-chips {
+  position: static;
+}
+.isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-chips {
+  top: auto;
+}
+.isl-tree-cur {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-self: start;
+}
+.isl-tree-cur[hidden],
+.isl-tree-chips[hidden] {
+  display: none;
+}
+.isl-tree-curitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 2px solid var(--isl-line);
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.88);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.isl-tree-curitem small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-tree-curitem b {
+  font-size: 14px;
+}
+.isl-tree-curitem.is-money b {
+  color: var(--isl-gold);
+}
+.isl-tree-curitem.is-brand {
+  border-color: #ffd257;
+  color: #ffd257;
+}
+.isl-tree-curitem.is-emblem {
+  border-color: #c7a7ff;
+}
+.isl-tree-curitem.is-dust {
+  border-color: #ffd257;
+  box-shadow: 0 0 10px rgba(255, 210, 87, 0.25);
+}
+.isl-tree-curimg {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.isl-tree-chip.is-cur {
+  background: color-mix(in srgb, var(--br) 30%, #0f1626);
+  box-shadow: 0 0 0 2px var(--br), 0 0 12px color-mix(in srgb, var(--br) 70%, transparent);
+}
+@media (max-width: 599px) {
+  .isl-tree-chips {
+    flex-wrap: nowrap;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .isl-tree-chips::-webkit-scrollbar {
+    display: none;
+  }
+  .isl-tree-chip {
+    padding: 2px 8px;
+  }
+  .isl-tree-curitem {
+    padding: 1px 7px;
+  }
+  .isl-tree-curitem small {
+    display: none;
+  }
+}
+
+/* 外周：ランクのエリアの境目の同心円と札 */
+.isl-tree-lines circle.isl-tree-ringline {
+  fill: none;
+  stroke-width: 4;
+  stroke-dasharray: 14 12;
+  opacity: 0.22;
+}
+.isl-tree-lines circle.isl-tree-ringline.is-on {
+  stroke-dasharray: none;
+  opacity: 0.5;
+}
+.isl-tree-lines circle.isl-tree-ringline.is-glow {
+  stroke: #ffd65a;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: isl-ring-grow 1.5s cubic-bezier(0.2, 0.9, 0.3, 1) both, isl-ring-glow 1.1s ease-in-out 1.5s infinite alternate;
+}
+@keyframes isl-ring-grow {
+  from {
+    transform: scale(0.05);
+    opacity: 0;
+    stroke-width: 18;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+    stroke-width: 8;
+  }
+}
+@keyframes isl-ring-glow {
+  from {
+    opacity: 0.75;
+    filter: drop-shadow(0 0 6px rgba(255, 214, 90, 0.6));
+  }
+  to {
+    opacity: 1;
+    filter: drop-shadow(0 0 18px rgba(255, 214, 90, 0.95));
+  }
+}
+.isl-tree-lines line.is-closed {
+  opacity: 0.1;
+  stroke-dasharray: 6 8;
+}
+.isl-tree-lines line.is-dust {
+  stroke-dasharray: 8 6;
+  opacity: 0.6;
+}
+.isl-tree-ringlab {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
+  border: 2px solid var(--tc);
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.92);
+  color: var(--tc);
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.65;
+}
+.isl-tree-ringlab.is-on {
+  opacity: 1;
+}
+.isl-tree-ringlab img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.isl-tree-ringlab small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-tree-ringlab.is-glow {
+  opacity: 1;
+  border-color: #ffd65a;
+  box-shadow: 0 0 22px rgba(255, 214, 90, 0.8);
+  animation: isl-tree-burst 0.8s cubic-bezier(0.2, 1.35, 0.4, 1) 1.2s both;
+}
+.isl-tree-ringwave {
+  position: absolute;
+  border: 6px solid rgba(255, 214, 110, 0.9);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  animation: isl-ringwave 1.6s ease-out forwards;
+}
+@keyframes isl-ringwave {
+  0% {
+    transform: scale(0.02);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+}
+
+/* パネル：外周が閉じている（薄い輪郭と「？」）・封印（???）・準備中・✨ */
+.isl-tree-node.is-ring {
+  background: rgba(15, 22, 38, 0.35);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--tc) 60%, transparent);
+  box-shadow: none;
+  align-content: center;
+}
+.isl-tree-q {
+  font-size: 34px;
+  font-weight: 900;
+  color: color-mix(in srgb, var(--tc, #fff) 70%, transparent);
+}
+.isl-tree-dicon .isl-tree-q {
+  font-size: 30px;
+}
+.isl-tree-node.is-sealed {
+  border-style: dashed;
+  border-color: var(--tc);
+  background: radial-gradient(circle, color-mix(in srgb, var(--tc) 25%, #0f1626), #0f1626);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--tc) 40%, transparent);
+}
+.isl-tree-node.is-sealed .isl-tree-name {
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: var(--tc);
+}
+.isl-tree-sealimg {
+  opacity: 0.45;
+  filter: saturate(0.6);
+}
+.isl-tree-node.is-soon {
+  filter: grayscale(0.7) brightness(0.75);
+}
+.isl-tree-node.is-dust {
+  border-color: #ffd257;
+  background: linear-gradient(180deg, #5a4614, #2a2210);
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.45), 0 0 18px rgba(255, 210, 87, 0.45);
+}
+.isl-tree-node.is-dust.is-done {
+  background: linear-gradient(180deg, #6b5a1d, #3d3212);
+}
+.isl-tree-cost.is-dust {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #ffd257;
+}
+.isl-tree-cost.is-dust .isl-tree-curimg {
+  width: 14px;
+  height: 14px;
+}
+.isl-tree-tags {
+  position: absolute;
+  top: -10px;
+  left: -8px;
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+}
+.isl-tree-tags .isl-tree-brand {
+  position: static;
+}
+.isl-tree-emb {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 6px 0 2px;
+  border: 2px solid #c7a7ff;
+  border-radius: 999px;
+  background: #2a1f45;
+  color: #c7a7ff;
+  font-size: 11px;
+}
+.isl-tree-emb .isl-tree-curimg {
+  width: 14px;
+  height: 14px;
+}
+.isl-tree-emb.is-ok {
+  background: #c7a7ff;
+  color: #2a1f45;
+}
+.isl-tag.is-tier {
+  justify-self: start;
+  background: rgba(126, 224, 143, 0.16);
+  color: #7ee08f;
+}
+.isl-tree-dicon.is-dust {
+  box-shadow: 0 0 14px rgba(255, 210, 87, 0.5);
+}
+.isl-btn.is-on.is-dust {
+  background: linear-gradient(180deg, #ffe08a, #e0a92a);
+  color: #3a2a06;
+}
+
+/* 外周が開く演出：画面を暗くし、開くエリアのパネルを本社から飛び出させる。終わるまで操作を受けない */
+.isl-tree.is-ringfx {
+  background: radial-gradient(circle at 50% 45%, #141c30, #05080f 75%);
+}
+.isl-tree.is-ringfx .isl-tree-node:not(.is-ringpop),
+.isl-tree.is-ringfx .isl-tree-hub,
+.isl-tree.is-ringfx .isl-tree-ringlab:not(.is-glow) {
+  filter: brightness(0.35) saturate(0.6);
+}
+.isl-tree.is-ringfx .isl-tree-lines line {
+  opacity: 0.08;
+}
+.isl-tree-node.is-ringpop {
+  z-index: 3;
+  animation: isl-tree-burst 0.75s cubic-bezier(0.2, 1.35, 0.4, 1) both;
+  animation-delay: var(--d, 0s);
+  box-shadow: 0 0 0 3px rgba(255, 214, 90, 0.7), 0 0 22px rgba(255, 214, 90, 0.7);
+}
+.isl-tree-curtain {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  cursor: wait;
+}
+.isl-tree-curtain.is-talk {
+  cursor: default;
+  background: linear-gradient(180deg, transparent 55%, rgba(5, 8, 15, 0.7));
+}
+.isl-tree-ringtalk {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  width: min(640px, 100%);
+  animation: isl-ringtalk 0.35s ease-out both;
+}
+.isl-tree-ringtalk > img {
+  flex: none;
+  width: 84px;
+  height: auto;
+  image-rendering: pixelated;
+}
+.isl-tree-ringtalk-body {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  padding: 12px 14px;
+  border: 3px solid #ffd65a;
+  border-radius: 14px;
+  background: rgba(29, 42, 68, 0.97);
+  box-shadow: 0 0 24px rgba(255, 214, 90, 0.4);
+}
+.isl-tree-ringtalk-body p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.isl-tree-ringtalk-body .isl-btn {
+  justify-self: end;
+  min-width: 96px;
+}
+@keyframes isl-ringtalk {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (max-width: 599px) {
+  .isl-tree-ringtalk > img {
+    width: 60px;
+  }
+  .isl-tree-ringtalk-body p {
+    font-size: 14px;
+  }
+}
+/* お知らせに添える絵（エンブレム・ゴールドダスト） */
+#isl-ui .isl-toast.has-icon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.isl-toast-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+/* POS レジ：市場データに「きのう売れた」の列 */
+@media (min-width: 600px) {
+  .isl-data.is-pos .isl-data-row {
+    grid-template-columns: 1.6fr 1.3fr 1.2fr 0.9fr 0.8fr 1.3fr;
+  }
+}
+/* 月次 PDCA：来月の見込み */
+.isl-rp-fc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.isl-tree.is-ringfx .isl-tree-node.is-ringpop {
+  filter: none;
+}
+/* チュートリアル（マインちゃんの一言が出ているあいだ）は通貨の帯を出さない（チュートリアルの見た目を変えない） */
+.isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-cur {
+  display: none;
+}

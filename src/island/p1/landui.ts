@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
-import { CAPITAL, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
+import { CAPITAL, TIER_NAME, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
 import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
 import { balance, date, staffOf, type P1State } from './model';
 import { pickHero, rankEl } from './heroui';
@@ -435,14 +435,17 @@ export function openBrand(ctx: Ctx) {
     const s = ctx.s();
     const v = s.brand ?? 0;
     const top = h('div', 'isl-card2 isl-brand-top');
-    top.append(h('small', 'isl-dim', t('いまのブランド力', 'Brand power')), h('b', 'isl-brand-big', `★ ${v}`), h('small', 'isl-good', t(`売り場の強さ +${Math.round((brandPull(v) - 1) * 100)}%（最大 +${Math.round(BRAND.pullCap * 100)}%）`, `Shop pull +${Math.round((brandPull(v) - 1) * 100)}% (max +${Math.round(BRAND.pullCap * 100)}%)`)));
+    top.append(h('small', 'isl-dim', t('いまのブランド力', 'Brand power')), h('b', 'isl-brand-big', `★ ${v}`), h('small', 'isl-good', t(`売り場の強さ +${Math.round((brandPull(v, s.skills.includes('d_ops')) - 1) * 100)}%（最大 +${Math.round(BRAND.pullCap * (s.skills.includes('d_ops') ? 2 : 1) * 100)}%）`, `Shop pull +${Math.round((brandPull(v, s.skills.includes('d_ops')) - 1) * 100)}% (max +${Math.round(BRAND.pullCap * (s.skills.includes('d_ops') ? 2 : 1) * 100)}%)`)));
     body.append(top);
     // ブランド力が要るスキル
     const sk = h('div', 'isl-card2');
     sk.append(h('h3', '', t('ブランド力で開くスキル', 'Skills unlocked by brand')));
     for (const k of SKILLS.filter((x) => x.brand).sort((a, b) => (a.brand ?? 0) - (b.brand ?? 0))) {
-      const r = h('div', `isl-brand-skill ${v >= (k.brand ?? 0) ? 'is-on' : ''}`);
-      r.append(h('b', '', `★ ${k.brand}`), h('span', '', k.name), h('small', 'isl-dim', k.note));
+      // v2：ブランド力が要るパネルは外周（Uncommon・Rare）。外周が開いていなければ、エリアの名前を添える
+      const tier = k.tier ?? 'C';
+      const closed = tier !== 'C' && !s.flags.rings?.includes(tier);
+      const r = h('div', `isl-brand-skill ${v >= (k.brand ?? 0) && !closed ? 'is-on' : ''}`);
+      r.append(h('b', '', `★ ${k.brand}`), h('span', '', k.name), h('small', 'isl-dim', closed ? t(`${k.note}（${TIER_NAME[tier]} のセクタに進出すると開く）`, `${k.note} (opens in a ${TIER_NAME[tier]} sector)`) : k.note));
       sk.append(r);
     }
     body.append(sk);

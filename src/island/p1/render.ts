@@ -20,6 +20,8 @@ export interface P1Ghost {
   ok: boolean;
   /** お店を置くとき：商圏（近いマスほど濃く） */
   area?: boolean;
+  /** 人流解析：お客さんの多い区画（上位 20%）。薄い金色に塗る */
+  hot?: Set<number>;
 }
 
 function roadMask(s: P1State, i: number, j: number) {
@@ -105,6 +107,14 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   if (placeable)
     for (let j = 0; j < s.n; j++)
       for (let i = 0; i < s.n; i++) if (!placeable.has(j * s.n + i) && visible(i, j)) diamond(ctx, i, j, 'rgba(14,18,30,0.55)');
+
+  // 人流解析：お客さんの多い区画を薄い金色に（置けないマスの暗さの上に）
+  if (ghost?.hot)
+    for (const k of ghost.hot) {
+      const i = k % s.n;
+      const j = Math.floor(k / s.n);
+      if (visible(i, j)) diamond(ctx, i, j, 'rgba(255,200,60,0.5)');
+    }
 
   // お店を置くとき：お客さんが来やすい範囲（商圏）を金色に。近いほど濃い
   if (ghost?.area)
