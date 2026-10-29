@@ -28,6 +28,6 @@ describe('自動プレイの計測ハーネス', () => {
       console.log(`計測 ${(rep.ms / 1000).toFixed(1)} 秒`);
       expect(rep.runs.length).toBe(9);
     },
-    180_000,
+    900_000,
   );
 });

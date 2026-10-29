@@ -7,7 +7,7 @@ import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { INVEST, MAT_KEYS, MATS, P1B, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
-import { invest, investCost, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { invest, investCost, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
@@ -22,9 +22,16 @@ const STAGE: Record<Stage, { n: string; name: string; branch: string; what: stri
   sell: { n: '④', name: t('販売', 'Sell'), branch: 'shop', what: t('売れた', 'sold') },
 };
 
+/** いま資金で取れる（資金だけが足りないものも含む）スキルか。外周・エンブレム・ブランド力・✨ のパネルは除く */
+const canNow = (s: P1State, id: string) => {
+  const k = SKILL[id];
+  if (!k || k.dust) return false;
+  const e = skillLock(s, k);
+  return e === null || e === 'money';
+};
 /** まだ取れるスキル（先に要るものを取ってあるもの）を、その段の系統から 2 つ */
 function nextSkills(s: P1State, branch: string) {
-  return SKILLS.filter((k) => k.branch === branch && !has(s, k.id) && !(k.requires ?? []).some((r) => !has(s, r))).slice(0, 2);
+  return SKILLS.filter((k) => k.branch === branch && canNow(s, k.id)).slice(0, 2);
 }
 
 /** その段を太くする設備投資（建物ごと）：段 → 設備の id（上から順に、まだ付けられるものを 2 つ） */
@@ -81,7 +88,8 @@ interface Up {
 /** その段の数字を上げる手（2 つまで）。設備投資はその場で導入（チュートリアル中は出さない）、ほかは該当の画面へ */
 function upsOf(ctx: Ctx, s: P1State, k: Stage): Up[] {
   const out: Up[] = [];
-  const skill = (id: string, label: string): Up | null => (SKILL[id] && !has(s, id) ? { label, sub: t('スキル', 'Skill'), go: () => openSkills(ctx, id) } : null);
+  // 取れるものだけ（先に要るもの・外周・エンブレムが足りないものは出さない）。label が無ければパネルの名前
+  const skill = (id: string, label?: string): Up | null => (canNow(s, id) ? { label: label ?? SKILL[id].name, sub: t('スキル', 'Skill'), go: () => openSkills(ctx, id) } : null);
   const staff = (label: string): Up => ({ label, sub: t('配置', 'Staff'), go: () => openStaff(ctx) });
   const iv = !ctx.step?.() ? nextInvests(s, k)[0] : undefined;
   const ivUp: Up | null = iv
@@ -110,16 +118,16 @@ function upsOf(ctx: Ctx, s: P1State, k: Stage): Up[] {
     const buyer = s.staff.some((x) => x.task === 'buy');
     push(
       buyer ? { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) } : staff(t('調達係を置く', 'Assign a buyer')),
-      skill('stock1', t('調達枠のスキル', 'Quota skill')) ?? skill('stock2', t('調達枠のスキル', 'Quota skill')) ?? skill('stock3', t('調達枠のスキル', 'Quota skill')),
+      skill('stock1', t('調達枠のスキル', 'Quota skill')) ?? skill('stock2', t('調達枠のスキル', 'Quota skill')) ?? skill('stock3', t('調達枠のスキル', 'Quota skill')) ?? skill('auto_order') ?? skill('abc'),
       buyer ? null : { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) },
     );
-  } else if (k === 'craft') push(ivUp, staff(t('製造の得意な人を置く', 'A better crafter')), skill('jig', t('段取りの改善', 'Better jigs')));
+  } else if (k === 'craft') push(ivUp, staff(t('製造の得意な人を置く', 'A better crafter')), skill('jig') ?? skill('five_s') ?? skill('jig2') ?? skill('kaizen') ?? skill('lot'));
   else if (k === 'haul') {
     const far = myShops(s).some((b) => oneWay(s, b).days > 2.5);
-    const hub: Up | null = far ? (has(s, 'hub') ? { label: t('物流拠点を建てる', 'Build a hub'), sub: t('建築', 'Build'), go: () => ctx.build?.('logistics') } : skill('hub', t('物流拠点', 'Logistics hub'))) : null;
-    push(ivUp, hub, staff(t('運搬係を増やす', 'More haulers')), skill('shortcut', t('近道の地図', 'Shortcut map')));
+    const hub: Up | null = far ? (has(s, 'hub') ? { label: t('物流拠点を建てる', 'Build a hub'), sub: t('建築', 'Build'), go: () => ctx.build?.('logistics') } : skill('hub') ?? skill('timetable')) : null;
+    push(ivUp, hub, staff(t('運搬係を増やす', 'More haulers')), skill('loading') ?? skill('shortcut') ?? skill('timetable') ?? skill('route_opt'));
   } else {
-    push(ivUp, { label: t('お店を増やす', 'Build a shop'), sub: t('建築', 'Build'), go: () => ctx.build?.('general_store') }, skill('host', t('案内係の育成', 'Train hosts')), { label: t('宣伝', 'Advertise'), sub: t('マーケ', 'Marketing'), go: () => openAds(ctx) });
+    push(ivUp, { label: t('お店を増やす', 'Build a shop'), sub: t('建築', 'Build'), go: () => ctx.build?.('general_store') }, skill('host') ?? skill('vmd') ?? skill('golden') ?? skill('display'), { label: t('宣伝', 'Advertise'), sub: t('マーケ', 'Marketing'), go: () => openAds(ctx) });
   }
   return out;
 }
@@ -409,7 +417,7 @@ export function openSupply(ctx: Ctx) {
       const st = sl.worker != null ? staffOf(s, sl.worker) : null;
       const p = sl.running && sl.sku && st ? sl.progress / craftDays(s, sl.sku) : 0;
       r.append(h('small', 'isl-dim', t(`台 ${i + 1}`, `#${i + 1}`)), sl.sku ? skuIcon(sl.sku as Sku, 32) : h('span', 'isl-slot-plus', '?'), bar(p, 'var(--isl-gold)'), h('small', '', sl.sku ? (st?.resting ? t('休憩中', 'resting') : sl.running ? `${Math.round(p * 100)}%` : t('止まっている', 'idle')) : t('未定', 'unset')));
-      if (sl.sku && st && !st.resting) r.append(h('small', 'isl-dim', t(`${(craftDays(s, sl.sku) / speed(st, 'craft')).toFixed(1)} 日/ロット`, `${(craftDays(s, sl.sku) / speed(st, 'craft')).toFixed(1)} d/lot`)));
+      if (sl.sku && st && !st.resting) r.append(h('small', 'isl-dim', t(`${(craftDays(s, sl.sku) / speed(st, 'craft', s)).toFixed(1)} 日/ロット`, `${(craftDays(s, sl.sku) / speed(st, 'craft', s)).toFixed(1)} d/lot`)));
       benches.append(r);
     });
     flow.append(card('craft', s.slots.map((sl, i) => assignSlot(t(`作業台 ${i + 1}`, `Bench ${i + 1}`), 'craft', sl.worker, i)), [benches]));

@@ -707,10 +707,13 @@ export const STORE = { base: 80, warehouse: 200 };
 
 // ---------------------------------------------------------------- スキルツリー
 
+export type Branch = 'shop' | 'craft' | 'logi' | 'buy' | 'people' | 'ops' | 'sys' | 'tech';
+
 export interface Skill {
   id: string;
-  branch: 'shop' | 'craft' | 'logi' | 'buy' | 'people' | 'ops' | 'tech';
+  branch: Branch;
   name: string;
+  /** 効き目（数字で書く） */
   note: string;
   cost: number;
   requires?: string[];
@@ -720,22 +723,87 @@ export interface Skill {
   brand?: number;
   /** 技の修行の日数（取ったあと、職人が修行して身につけるまで。製造の適性で縮む。無ければ即日） */
   train?: number;
+  /**
+   * 外周（ランクのエリア。無ければ C＝内側）。そのランクのセクタに出店したあと、スキルツリーを開いたときに開く（Flags.rings）。
+   * docs/ISLAND_PHASE1.md「スキルツリー」
+   */
+  tier?: Tier;
+  /** 取るのに要るエンブレムの数（持っている数。使って減らない） */
+  emblem?: number;
+  /** ゴールドダストで取る（資金は要らない。cost は 0） */
+  dust?: number;
+  /** 封印（Epic・Legendary の外周。名前は「???」。まだ取れない） */
+  sealed?: boolean;
+  /** 準備中（まだ取れない） */
+  soon?: boolean;
 }
 /** 修行の日数の縮み方：適性 apt で ×(1 − min(cut, apt / per))（適性 100 で −40%） */
 export const TRAIN = { cut: 0.4, per: 250 };
+/** ゴールドダストのパネルの値段（どの枝も同じ） */
+export const DUST_COST = 3;
 
+const sealed = (branch: Branch, tier: 'E' | 'L'): Skill => ({
+  id: `seal_${branch}_${tier.toLowerCase()}`,
+  branch,
+  name: '???',
+  note: tier === 'E' ? t('Epic のセクタに進出すると開く', 'Opens when you expand into an Epic sector') : t('Legendary のセクタに進出すると開く', 'Opens when you expand into a Legendary sector'),
+  cost: 0,
+  tier,
+  sealed: true,
+});
+
+/**
+ * スキルツリー v2（docs/ISLAND_PHASE1.md「スキルツリー」）。実際の店舗運営で使われている工夫をパネルにし、効き目は数字で書く。
+ * 内側（C）＋外周（U・R・E・L）。U・R の最初のパネルはエンブレムが要る。✨ はゴールドダストで取る。
+ * 既存のパネルの値段は変えない。
+ */
 export const SKILLS: Skill[] = [
-  { id: 'host', branch: 'shop', name: t('案内係の育成', 'Train hosts'), note: t('売り場での強さ +15%', 'Shop pull +15%'), cost: 4000 },
-  { id: 'shop2', branch: 'shop', name: t('輸入品店', 'Import store'), note: t('棚 2 の輸入品店を建てられる', 'Unlocks the import store (2 shelves)'), cost: 6000, requires: ['host'] },
+  // ---------------------------------------------------------------- ④ 販売
+  { id: 'host', branch: 'shop', name: t('接客の研修', 'Customer service training'), note: t('すべてのお店の売り場の強さ +15%', 'All shops’ pull +15%'), cost: 4000 },
   { id: 'display', branch: 'shop', name: t('品出しの名人', 'Shelving pros'), note: t('棚に並べる速さ +50%', 'Shelving speed +50%'), cost: 3500 },
-  { id: 'shop3', branch: 'shop', name: t('ブティック', 'Boutique'), note: t('売り場が強いブティックを建てられる', 'Unlocks the boutique (strong pull)'), cost: 14000, requires: ['shop2'] },
-  { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better jigs'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
+  { id: 'vmd', branch: 'shop', name: t('売り場の見せ方（VMD）', 'Visual merchandising'), note: t('棚が 2 つ以上あるお店の売り場の強さ +10%', 'Pull +10% at shops with 2+ shelves'), cost: 5000, requires: ['host'] },
+  { id: 'pop', branch: 'shop', name: t('手書き POP', 'Handwritten POP cards'), note: t('新商品の認知の育ち +50%', 'New items get known 50% faster'), cost: 3000, requires: ['display'] },
+  { id: 'golden', branch: 'shop', name: t('ゴールデンゾーンの棚割', 'Golden-zone planogram'), note: t('各お店の 1 番目の棚（主力商品）の売り場の強さ +12%', 'Pull +12% for each shop’s first shelf (main product)'), cost: 6000, requires: ['vmd'] },
+  { id: 'set', branch: 'shop', name: t('セット販売', 'Bundle sales'), note: t('2 種類以上並べているお店の商品の値段 +5%', 'Prices +5% at shops stocking 2+ kinds'), cost: 7000, requires: ['golden'] },
+  { id: 'point', branch: 'shop', name: t('ポイントカード', 'Loyalty cards'), note: t('他社の反撃の効き目が半分（他社の売り場の強さ ×1.25 → ×1.12）', 'Rival counterattacks hit half as hard (rival pull ×1.25 → ×1.12)'), cost: 8000, requires: ['pop'] },
+  { id: 'hours', branch: 'shop', name: t('営業時間の延長', 'Longer opening hours'), note: t('棚に並べる数 +2／日（お店ごと）・店員のスタミナの減り +20%', 'Shelve +2 a day per shop; clerks tire 20% faster'), cost: 4500, requires: ['display'] },
+  { id: 'shop2', branch: 'shop', name: t('輸入品店', 'Import store'), note: t('棚 2 の輸入品店を建てられる（売り場の強さ ×1.15）', 'Unlocks the import store (2 shelves, pull ×1.15)'), cost: 6000, requires: ['host'] },
+  { id: 'shop3', branch: 'shop', name: t('ブティック', 'Boutique'), note: t('売り場が強いブティックを建てられる（棚 2・売り場の強さ ×1.35）', 'Unlocks the boutique (2 shelves, pull ×1.35)'), cost: 14000, requires: ['shop2'] },
+  { id: 'b_sign', branch: 'shop', name: t('ブランドの看板', 'Brand signboards'), note: t('すべてのお店の売り場の強さ +25%', 'All shops’ pull +25%'), cost: 12000, requires: ['host'], brand: 30, tier: 'U', emblem: 1 },
+  { id: 'order', branch: 'shop', name: t('客注・取り寄せ', 'Special orders'), note: t('自社のお店に来るお客さん +10%（エリアの需要 +10%）', 'Customers at your shops +10% (area demand +10%)'), cost: 15000, requires: ['set'], tier: 'U' },
+  { id: 'fair', branch: 'shop', name: t('季節の催事', 'Seasonal fairs'), note: t('宣伝の費用 −30%・効き目 +10%', 'Ads cost 30% less and work 10% better'), cost: 12000, requires: ['point'], tier: 'U' },
+  { id: 'b_premium', branch: 'shop', name: t('プレミアム価格', 'Premium pricing'), note: t('すべての商品の値段 +15%', 'All prices +15%'), cost: 30000, requires: ['shop3', 'b_sign'], brand: 80, tier: 'R' },
+  { id: 'concierge', branch: 'shop', name: t('接客の匠', 'Master hosts'), note: t('すべてのお店の売り場の強さ +20%', 'All shops’ pull +20%'), cost: 40000, requires: ['b_sign'], tier: 'R', emblem: 3 },
+  { id: 'd_shop', branch: 'shop', name: t('名物店主', 'Famous shopkeeper'), note: t('選んだ 1 軒の売り場の強さ +40%（お店の画面で選ぶ。替えられる）', 'One chosen shop’s pull +40% (pick it in the shop screen; you can switch)'), cost: 0, dust: DUST_COST },
+  sealed('shop', 'E'),
+  sealed('shop', 'L'),
+  // ---------------------------------------------------------------- ② 製造
+  { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better setups'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
   { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 31 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 31+)'), cost: 10000 },
+  { id: 'five_s', branch: 'craft', name: t('5S（整理・整頓）', '5S (sort and tidy)'), note: t('クラフトの日数 −5%・職人のスタミナの減り −10%', 'Crafting −5% days; crafters tire 10% slower'), cost: 3000 },
   { id: 'jig2', branch: 'craft', name: t('型の工夫', 'Better molds'), note: t('クラフトの日数 −15%', 'Crafting −15% days'), cost: 7000, requires: ['jig'] },
-  { id: 'chair', branch: 'craft', name: t('職人の椅子', 'Crafter chairs'), note: t('職人のスタミナの減り −30%', 'Crafters tire 30% slower'), cost: 3000 },
+  { id: 'lot', branch: 'craft', name: t('ロットの改善', 'Bigger lots'), note: t('基礎の商品（技なし）の 1 ロット +1 個', 'Basic goods (no craft skill) +1 per lot'), cost: 6000, requires: ['jig'] },
+  { id: 'chair', branch: 'craft', name: t('職人の椅子', 'Crafter chairs'), note: t('職人のスタミナの減り −30%', 'Crafters tire 30% slower'), cost: 3000, requires: ['five_s'] },
+  { id: 'kaizen', branch: 'craft', name: t('カイゼン提案箱', 'Kaizen suggestion box'), note: t('クラフトの日数 −10%', 'Crafting −10% days'), cost: 9000, requires: ['five_s', 'jig2'] },
+  { id: 'night', branch: 'craft', name: t('夜間稼働', 'Night shifts'), note: t('クラフトの日数 −15%・職人のスタミナの減り +20%', 'Crafting −15% days; crafters tire 20% faster'), cost: 12000, requires: ['kaizen'], tier: 'U', emblem: 1 },
+  { id: 'mold', branch: 'craft', name: t('共通の型', 'Shared molds'), note: t('アンコモンの 1 ロット +1 個', 'Uncommons +1 per lot'), cost: 15000, requires: ['pot'], tier: 'U' },
+  { id: 'line', branch: 'craft', name: t('自動化ライン', 'Automated line'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 40000, requires: ['night'], tier: 'R', emblem: 3 },
+  { id: 'd_craft', branch: 'craft', name: t('名工の作業台', 'Master’s workbench'), note: t('全員の製造の適性 +15', 'Everyone’s crafting aptitude +15'), cost: 0, dust: DUST_COST },
+  sealed('craft', 'E'),
+  sealed('craft', 'L'),
+  // ---------------------------------------------------------------- ③ 物流
   { id: 'loading', branch: 'logi', name: t('積み込みの工夫', 'Smart loading'), note: t('荷車に積める数 +30%', 'Cart load +30%'), cost: 2500 },
   { id: 'shortcut', branch: 'logi', name: t('近道の地図', 'Shortcut map'), note: t('運ぶ日数 −15%', 'Hauling −15% days'), cost: 3500, requires: ['loading'] },
-  { id: 'hub', branch: 'logi', name: t('物流拠点', 'Logistics hub'), note: t('物流拠点を建てられる（工房から遠いお店への便が速くなる）', 'Lets you build logistics hubs (faster runs to far shops)'), cost: 5000, requires: ['loading'] },
+  { id: 'timetable', branch: 'logi', name: t('定期便の時刻表', 'Scheduled runs'), note: t('お店の裏が半分以上埋まっていても便を出す（待ちなし）', 'Send runs even when a backroom is over half full (no waiting)'), cost: 4000, requires: ['loading'] },
+  { id: 'route_opt', branch: 'logi', name: t('配送ルートの最適化', 'Route optimization'), note: t('運ぶ日数 −10%', 'Hauling −10% days'), cost: 5000, requires: ['shortcut'] },
+  { id: 'hub', branch: 'logi', name: t('物流拠点', 'Logistics hub'), note: t('物流拠点を建てられる（工房 → 拠点はトラックで日数 ×0.3）', 'Lets you build hubs (workshop → hub by truck, days ×0.3)'), cost: 5000, requires: ['timetable'] },
+  { id: 'crossdock', branch: 'logi', name: t('クロスドッキング', 'Cross-docking'), note: t('工房 → 拠点の日数 ×0.3 → ×0.2', 'Workshop → hub days ×0.3 → ×0.2'), cost: 12000, requires: ['hub'], tier: 'U', emblem: 1 },
+  { id: 'joint', branch: 'logi', name: t('共同配送', 'Shared deliveries'), note: t('運搬係 1 人が同時に出せる便 +1', 'Each hauler runs one more trip at once'), cost: 15000, requires: ['route_opt'], tier: 'U' },
+  { id: 'fleet', branch: 'logi', name: t('自社トラック網', 'Own truck fleet'), note: t('運ぶ速さ ×1.3', 'Hauling speed ×1.3'), cost: 40000, requires: ['crossdock'], tier: 'R', emblem: 3 },
+  { id: 'd_logi', branch: 'logi', name: t('配送センター', 'Distribution center'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 0, dust: DUST_COST },
+  sealed('logi', 'E'),
+  sealed('logi', 'L'),
+  // ---------------------------------------------------------------- ① 調達
   { id: 'route_cloth', branch: 'buy', name: t('布のルート', 'Cloth route'), note: t('布を買えるようになる', 'Lets you buy cloth'), cost: 2000 },
   { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000, requires: ['route_cloth'] },
   { id: 'route_gem', branch: 'buy', name: t('宝石のルート', 'Gem route'), note: t('宝石を買えるようになる', 'Lets you buy gems'), cost: 6000, requires: ['route_paper'] },
@@ -747,9 +815,53 @@ export const SKILLS: Skill[] = [
   { id: 'swift', branch: 'buy', name: t('早足の買い付け', 'Brisk buying trips'), note: t('調達係の往復の日数 −30%', 'Buyer round trips −30% days'), cost: 3000, requires: ['stock1'] },
   { id: 'eye', branch: 'buy', name: t('目利き', 'Sharp eye'), note: t('調達ランクの経験 +50%', 'Buying rank exp +50%'), cost: 2500, requires: ['stock1'] },
   { id: 'scoutmap', branch: 'buy', name: t('開拓の手引き', 'Scouting guide'), note: t('ルートの開拓の日数 −40%', 'Scouting −40% days'), cost: 3000, requires: ['route_paper'] },
-  { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる', 'Hire heroes'), cost: 3000 },
+  { id: 'abc', branch: 'buy', name: t('ABC 分析', 'ABC analysis'), note: t('調達係の買う量を消費にぴったり合わせる（買いすぎなし）・素材の値段 −5%', 'Buyers match purchases to use (no overbuying); materials −5%'), cost: 4000, requires: ['stock1'] },
+  { id: 'contract', branch: 'buy', name: t('長期契約', 'Long-term contract'), note: t('素材の値段 −5%（値段の変動が入ったら 6 か月固定）', 'Materials −5% (locks prices for 6 months once prices fluctuate)'), cost: 10000, requires: ['bulk2'], tier: 'U', emblem: 1 },
+  { id: 'b_partner', branch: 'buy', name: t('指名の取引先', 'Preferred supplier'), note: t('素材の値段 −15%・月の調達の上限 +50%', 'Materials −15%, monthly buying limit +50%'), cost: 15000, requires: ['bulk2'], brand: 50, tier: 'U' },
+  { id: 'direct', branch: 'buy', name: t('産地との直接取引', 'Direct sourcing'), note: t('素材の値段 −10%・月の調達の上限 +50%', 'Materials −10%, monthly buying limit +50%'), cost: 35000, requires: ['contract'], tier: 'R', emblem: 3 },
+  { id: 'd_buy', branch: 'buy', name: t('商社との提携', 'Trading-house alliance'), note: t('すべての素材のルートが開く・素材の値段 −10%', 'Opens every material route; materials −10%'), cost: 0, dust: DUST_COST },
+  sealed('buy', 'E'),
+  sealed('buy', 'L'),
+  // ---------------------------------------------------------------- 人材
+  { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる（候補 3 人・毎月入れ替わる）', 'Hire heroes (3 candidates, refreshed monthly)'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
-  // 技（作れる商品を増やす。docs/ISLAND_PHASE1.md「商品と技」）
+  { id: 'manual', branch: 'people', name: t('マニュアル整備', 'Work manuals'), note: t('全員の適性 +3（すべての仕事）', 'Everyone’s aptitude +3 (all jobs)'), cost: 4000, requires: ['hire'] },
+  { id: 'shift', branch: 'people', name: t('シフト制の導入', 'Shift system'), note: t('働くときのスタミナの減り −20%', 'Stamina drain while working −20%'), cost: 5000, requires: ['lounge'] },
+  { id: 'slots', branch: 'people', name: t('採用枠の拡大', 'More openings'), note: t('雇える候補 3 → 4 人', 'Hiring candidates 3 → 4'), cost: 7000, requires: ['hire'] },
+  { id: 'ojt', branch: 'people', name: t('OJT', 'On-the-job training'), note: t('担当のある人の、担当に効く能力が月に +1（PHY・INT・AGI。上限 100）', 'Assigned staff gain +1 a month in the stat their job uses (PHY/INT/AGI, max 100)'), cost: 6000, requires: ['manual'] },
+  { id: 'incentive', branch: 'people', name: t('インセンティブ', 'Incentives'), note: t('売り場の強さ +5%・給料 +10%', 'Pull +5%; wages +10%'), cost: 5000, requires: ['manual'] },
+  { id: 'welfare', branch: 'people', name: t('福利厚生', 'Benefits'), note: t('休むと戻るスタミナ +50%・給料 +5%', 'Rest recovers 50% more stamina; wages +5%'), cost: 6000, requires: ['shift'] },
+  { id: 'b_scout', branch: 'people', name: t('憧れの職場', 'Dream employer'), note: t('雇える候補が 5 人に（アンコモンも来る）', 'Recruiting shows 5 candidates (Uncommons too)'), cost: 12000, requires: ['slots'], brand: 60, tier: 'U' },
+  { id: 'training', branch: 'people', name: t('社内研修', 'In-house training'), note: t('技の修行の日数 −30%', 'Craft-skill training −30% days'), cost: 12000, requires: ['ojt'], tier: 'U', emblem: 1 },
+  { id: 'mgr', branch: 'people', name: t('マネージャー研修', 'Manager training'), note: t('セクタマネージャーの売上の倍率 +0.1', 'Sector managers’ sales rate +0.1'), cost: 15000, requires: ['incentive'], tier: 'U' },
+  { id: 'headhunt', branch: 'people', name: t('ヘッドハンティング', 'Headhunting'), note: t('雇える候補にレアのヒーローが 1 人来る', 'One Rare hero joins the hiring candidates'), cost: 40000, requires: ['b_scout'], tier: 'R', emblem: 3 },
+  { id: 'd_people', branch: 'people', name: t('カリスマ採用', 'Star recruiter'), note: t('雇うときの能力 +20%（PHY・INT・AGI。上限 100）', 'New hires’ stats +20% (PHY/INT/AGI, max 100)'), cost: 0, dust: DUST_COST },
+  sealed('people', 'E'),
+  sealed('people', 'L'),
+  // ---------------------------------------------------------------- 経営
+  { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
+  { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
+  { id: 'budget', branch: 'ops', name: t('予算管理', 'Budgeting'), note: t('建物の維持費 −10%', 'Building upkeep −10%'), cost: 4000 },
+  { id: 'pdca', branch: 'ops', name: t('月次 PDCA', 'Monthly PDCA'), note: t('月次報告に来月の見込み（売上・利益）が出る', 'Monthly reports show next month’s forecast (sales, profit)'), cost: 5000, requires: ['budget'] },
+  { id: 'b_ads', branch: 'ops', name: t('ブランド広告', 'Brand advertising'), note: t('宣伝の効き目 ×1.5・ブランド力が月に +2', 'Ads 1.5× as strong; brand +2 a month'), cost: 10000, requires: ['pace1'], brand: 40, tier: 'U' },
+  { id: 'pr', branch: 'ops', name: t('広報室', 'PR office'), note: t('ブランド力が月に +1', 'Brand +1 a month'), cost: 12000, requires: ['pdca'], tier: 'U', emblem: 1 },
+  { id: 'holding', branch: 'ops', name: t('持株会社', 'Holding company'), note: t('マネージャーのセクタの利益 +10%', 'Managed sectors’ profit +10%'), cost: 40000, requires: ['pr'], tier: 'R', emblem: 3 },
+  { id: 'd_ops', branch: 'ops', name: t('ブランド戦略室', 'Brand strategy office'), note: t('ブランド力の効き目 ×2（売り場の強さ 最大 +30% → +60%）', 'Brand effect ×2 (pull bonus cap +30% → +60%)'), cost: 0, dust: DUST_COST },
+  sealed('ops', 'E'),
+  sealed('ops', 'L'),
+  // ---------------------------------------------------------------- システム
+  { id: 'pos', branch: 'sys', name: t('POS レジ', 'POS registers'), note: t('市場データに商品ごとの「きのう売れた数」が出る・売り場の強さ +3%', 'Market data shows yesterday’s sales per item; pull +3%'), cost: 5000 },
+  { id: 'auto_order', branch: 'sys', name: t('自動発注（EDI）', 'Auto-ordering (EDI)'), note: t('調達係の買い付けが毎日届く（往復なし）・注文の納期 −50%', 'Buyer purchases arrive daily (no round trip); order lead time −50%'), cost: 8000, requires: ['pos'] },
+  { id: 'inventory', branch: 'sys', name: t('在庫管理システム', 'Inventory system'), note: t('お店の裏 +10・工房の物置 +20', 'Backrooms +10; workshop stockroom +20'), cost: 6000, requires: ['pos'] },
+  { id: 'erp', branch: 'sys', name: t('ERP', 'ERP'), note: t('全段の「ひと月に流せる数」+5%（調達・製造・物流・販売）', 'Every stage’s monthly flow +5% (buy, craft, haul, sell)'), cost: 20000, requires: ['auto_order', 'inventory'], tier: 'U', emblem: 1 },
+  { id: 'dyn', branch: 'sys', name: t('ダイナミックプライシング', 'Dynamic pricing'), note: t('需要が供給より多い商品（扱う他社が 1 社以下）の値段 +8%', 'Prices +8% where demand beats supply (1 rival or fewer)'), cost: 18000, requires: ['pos'], tier: 'U' },
+  { id: 'flow', branch: 'sys', name: t('人流解析', 'Foot-traffic analytics'), note: t('建てるときにお客さんの多い区画（上位 20%）が光る・売り場の強さ +5%', 'Busiest blocks (top 20%) glow when placing; pull +5%'), cost: 15000, requires: ['inventory'], tier: 'U' },
+  { id: 'forecast', branch: 'sys', name: t('需要予測 AI', 'Demand-forecast AI'), note: t('新商品の認知が 30% → 50% から始まる', 'New items start 50% known instead of 30%'), cost: 40000, requires: ['erp'], tier: 'R', emblem: 3 },
+  { id: 'ec', branch: 'sys', name: t('EC サイト', 'Online store'), note: t('遠いお客さんも買う（自社のお店の届き方が最低 25%）', 'Far customers buy too (your shops reach at least 25%)'), cost: 45000, requires: ['dyn'], tier: 'R' },
+  { id: 'd_sys', branch: 'sys', name: t('基幹システム刷新', 'Core system overhaul'), note: t('全段の「ひと月に流せる数」+10%（調達・製造・物流・販売）', 'Every stage’s monthly flow +10% (buy, craft, haul, sell)'), cost: 0, dust: DUST_COST },
+  sealed('sys', 'E'),
+  sealed('sys', 'L'),
+  // ---------------------------------------------------------------- 技（作れる商品を増やす。docs/ISLAND_PHASE1.md「商品と技」）
   { id: 't_wood', branch: 'tech', name: t('木工の技', 'Woodworking'), note: t('椅子を作れる', 'Lets you make Chairs'), cost: 4000, train: 8 },
   { id: 't_paper', branch: 'tech', name: t('紙工の技', 'Papercraft'), note: t('傘・ペンを作れる', 'Lets you make Parasols and Quills'), cost: 5000, train: 10 },
   { id: 't_metal', branch: 'tech', name: t('金工の技', 'Metalwork'), note: t('ナイフ・コンパスを作れる', 'Lets you make Knives and Compasses'), cost: 6000, train: 12 },
@@ -758,23 +870,20 @@ export const SKILLS: Skill[] = [
   { id: 't_textile', branch: 'tech', name: t('織物の技', 'Weaving'), note: t('リボン・ハットを作れる', 'Lets you make Ribbons and Hats'), cost: 6000, train: 12 },
   { id: 't_jewel', branch: 'tech', name: t('宝飾の技', 'Jewelcraft'), note: t('オルゴールを作れる', 'Lets you make Music Boxes'), cost: 12000, train: 20, requires: ['t_metal'] },
   { id: 't_master', branch: 'tech', name: t('匠の技', 'Master craft'), note: t('技が要る商品の売り場の強さ +15%（技を 3 つ取ると開放できる）', 'Pull +15% for goods that need a craft skill (unlock after any 3 craft skills)'), cost: 15000, anyOf: { ids: ['t_wood', 't_paper', 't_metal', 't_glass', 't_clay', 't_textile', 't_jewel'], n: 3 } },
-  { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
-  { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
-  // ブランド力が要る強いパネル
-  { id: 'b_sign', branch: 'shop', name: t('ブランドの看板', 'Brand signboards'), note: t('すべてのお店の売り場の強さ +25%', 'All shops’ pull +25%'), cost: 12000, requires: ['host'], brand: 30 },
-  { id: 'b_premium', branch: 'shop', name: t('プレミアム価格', 'Premium pricing'), note: t('すべての商品の値段 +15%', 'All prices +15%'), cost: 30000, requires: ['shop3', 'b_sign'], brand: 80 },
-  { id: 'b_partner', branch: 'buy', name: t('指名の取引先', 'Preferred supplier'), note: t('素材の値段 −15%・月の調達の上限 +50%', 'Materials −15%, monthly buying limit +50%'), cost: 15000, requires: ['bulk2'], brand: 50 },
-  { id: 'b_ads', branch: 'ops', name: t('ブランド広告', 'Brand advertising'), note: t('宣伝の効き目 ×1.5・ブランド力が月に +2', 'Ads 1.5× as strong; brand +2 a month'), cost: 10000, requires: ['pace1'], brand: 40 },
-  { id: 'b_scout', branch: 'people', name: t('憧れの職場', 'Dream employer'), note: t('雇える候補が 3 人 → 5 人に（アンコモンも来る）', 'Recruiting shows 5 candidates (Uncommons too)'), cost: 12000, requires: ['hire'], brand: 60 },
+  { id: 't_rare', branch: 'tech', name: t('レアの技', 'Rare craft'), note: t('レアの商品を作れる（準備中）', 'Lets you make Rare goods (coming soon)'), cost: 50000, requires: ['t_master'], tier: 'U', emblem: 1, soon: true },
+  sealed('tech', 'E'),
+  sealed('tech', 'L'),
 ];
 export const SKILL: Record<string, Skill> = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
-export const BRANCHES: { key: Skill['branch']; name: string }[] = [
+/** 枝（8 本）。docs/ISLAND_PHASE1.md「スキルツリー」：物流が主軸・人材で勝負・システムでハイテク企業 */
+export const BRANCHES: { key: Branch; name: string }[] = [
   { key: 'shop', name: t('お店', 'Shops') },
   { key: 'craft', name: t('工房', 'Workshop') },
   { key: 'logi', name: t('物流', 'Logistics') },
   { key: 'buy', name: t('調達', 'Buying') },
   { key: 'people', name: t('人材', 'People') },
   { key: 'ops', name: t('経営', 'Operations') },
+  { key: 'sys', name: t('システム', 'Systems') },
   { key: 'tech', name: t('技', 'Crafts') },
 ];
 /** 技の「技を n つ」の条件を満たしているか（has：取ったスキル） */
@@ -888,6 +997,8 @@ export interface Mission {
   title: string;
   text: string;
   reward: number;
+  /** ゴールドダストの報酬（受け取るときに会社のダストへ） */
+  dust?: number;
 }
 export const MISSIONS: Mission[] = [
   { id: 'first_sale', from: t('町内会', 'Neighborhood council'), title: t('はじめての売上', 'First sale'), text: t('お店で商品を 1 つ売る', 'Sell one item in your shop'), reward: 1000 },
@@ -896,26 +1007,26 @@ export const MISSIONS: Mission[] = [
   { id: 'two_shops', from: t('商店会', 'Merchants’ association'), title: t('通りににぎわいを', 'Liven up the street'), text: t('お店を 2 軒にする', 'Open a second shop'), reward: 3000 },
   { id: 'research', from: t('商店会', 'Merchants’ association'), title: t('ライバルを知る', 'Know your rivals'), text: t('他社のお店を調査する', 'Research a rival store'), reward: 1500 },
   { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 10 個売る', 'Sell 10 Lanterns in one month'), reward: 3000 },
-  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000 },
-  { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000 },
+  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000, dust: 1 },
+  { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000, dust: 1 },
   // セクタの依頼（そのセクタでだけ受けられる。id はセーブと繋がる）
   // 湖・丘の依頼は、そのセクタの「まだ誰も売っていない」商品（ランタン・マレットは他店で供給が足りているので、ゴブレット・ナイフに）
-  { id: 'c2_goblet', sector: 'c2', from: t('湖の宿', 'The lakeside inn'), title: t('湖畔で乾杯', 'A toast by the lake'), text: t('ひと月にゴブレットを 10 個売る', 'Sell 10 Goblets in one month'), reward: 4000 },
-  { id: 'c2_top', sector: 'c2', from: t('ユーホタウンの町内会', 'Yuho Town council'), title: t('湖の一番店', 'Top shop on the lake'), text: t('ユーホタウンで 2 か月続けて 1 位になる', 'Become #1 in Yuho Town two months in a row'), reward: 10000 },
-  { id: 'c3_knife', sector: 'c3', from: t('丘の上の大工さん', 'A hilltop carpenter'), title: t('ナイフを 10 本', 'Ten Knives'), text: t('ひと月にナイフを 10 本売る', 'Sell 10 Knives in one month'), reward: 4000 },
-  { id: 'c3_top', sector: 'c3', from: t('リデル・ヒルズの町内会', 'Riddle Hills council'), title: t('丘の一番店', 'Top shop on the hill'), text: t('リデル・ヒルズで 2 か月続けて 1 位になる', 'Become #1 in Riddle Hills two months in a row'), reward: 10000 },
-  { id: 'c4_top', sector: 'c4', from: t('キッチョムシティの町内会', 'Kitchom City council'), title: t('町いちばんの店', 'Top shop in town'), text: t('キッチョムシティで 2 か月続けて 1 位になる', 'Become #1 in Kitchom City two months in a row'), reward: 10000 },
-  { id: 'c5_top', sector: 'c5', from: t('お祭りの実行委員会', 'The festival committee'), title: t('お祭りの顔に', 'Face of the festival'), text: t('オマツリタウンで 2 か月続けて 1 位になる', 'Become #1 in Omatsuri Town two months in a row'), reward: 10000 },
-  { id: 'c6_top', sector: 'c6', from: t('ジラ・カントリーの村長', 'Zira Country’s village head'), title: t('村の一番店', 'Top shop in the village'), text: t('ジラ・カントリーで 2 か月続けて 1 位になる', 'Become #1 in Zira Country two months in a row'), reward: 10000 },
-  { id: 'c7_top', sector: 'c7', from: t('サクラコシティの町内会', 'Sakurako City council'), title: t('桜の一番店', 'Top shop under the blossoms'), text: t('サクラコシティで 2 か月続けて 1 位になる', 'Become #1 in Sakurako City two months in a row'), reward: 10000 },
-  { id: 'c8_top', sector: 'c8', from: t('ペストタウンの商店会', 'Pest Town merchants'), title: t('激戦区の一番店', 'Top of the battleground'), text: t('ペストタウンで 2 か月続けて 1 位になる', 'Become #1 in Pest Town two months in a row'), reward: 10000 },
-  { id: 'u1_dev', sector: 'u1', from: t('港の商人', 'A harbor merchant'), title: t('新しい品を', 'Something new'), text: t('アンコモンを 1 つ開発する', 'Develop one Uncommon'), reward: 8000 },
-  { id: 'u1_top', sector: 'u1', from: t('ウメコタウンの商工会', 'Umeko Town guild'), title: t('港の一番店', 'Top shop in the harbor'), text: t('ウメコタウンで 2 か月続けて 1 位になる', 'Become #1 in Umeko Town two months in a row'), reward: 30000 },
-  { id: 'u2_top', sector: 'u2', from: t('ヤツカノタウンの鍛冶組合', 'Yatsukano smiths’ guild'), title: t('金物の町の一番店', 'Top shop in the hardware town'), text: t('ヤツカノタウンで 2 か月続けて 1 位になる', 'Become #1 in Yatsukano Town two months in a row'), reward: 32000 },
+  { id: 'c2_goblet', sector: 'c2', from: t('湖の宿', 'The lakeside inn'), title: t('湖畔で乾杯', 'A toast by the lake'), text: t('ひと月にゴブレットを 10 個売る', 'Sell 10 Goblets in one month'), reward: 4000, dust: 1 },
+  { id: 'c2_top', sector: 'c2', from: t('ユーホタウンの町内会', 'Yuho Town council'), title: t('湖の一番店', 'Top shop on the lake'), text: t('ユーホタウンで 2 か月続けて 1 位になる', 'Become #1 in Yuho Town two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c3_knife', sector: 'c3', from: t('丘の上の大工さん', 'A hilltop carpenter'), title: t('ナイフを 10 本', 'Ten Knives'), text: t('ひと月にナイフを 10 本売る', 'Sell 10 Knives in one month'), reward: 4000, dust: 1 },
+  { id: 'c3_top', sector: 'c3', from: t('リデル・ヒルズの町内会', 'Riddle Hills council'), title: t('丘の一番店', 'Top shop on the hill'), text: t('リデル・ヒルズで 2 か月続けて 1 位になる', 'Become #1 in Riddle Hills two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c4_top', sector: 'c4', from: t('キッチョムシティの町内会', 'Kitchom City council'), title: t('町いちばんの店', 'Top shop in town'), text: t('キッチョムシティで 2 か月続けて 1 位になる', 'Become #1 in Kitchom City two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c5_top', sector: 'c5', from: t('お祭りの実行委員会', 'The festival committee'), title: t('お祭りの顔に', 'Face of the festival'), text: t('オマツリタウンで 2 か月続けて 1 位になる', 'Become #1 in Omatsuri Town two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c6_top', sector: 'c6', from: t('ジラ・カントリーの村長', 'Zira Country’s village head'), title: t('村の一番店', 'Top shop in the village'), text: t('ジラ・カントリーで 2 か月続けて 1 位になる', 'Become #1 in Zira Country two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c7_top', sector: 'c7', from: t('サクラコシティの町内会', 'Sakurako City council'), title: t('桜の一番店', 'Top shop under the blossoms'), text: t('サクラコシティで 2 か月続けて 1 位になる', 'Become #1 in Sakurako City two months in a row'), reward: 10000, dust: 1 },
+  { id: 'c8_top', sector: 'c8', from: t('ペストタウンの商店会', 'Pest Town merchants'), title: t('激戦区の一番店', 'Top of the battleground'), text: t('ペストタウンで 2 か月続けて 1 位になる', 'Become #1 in Pest Town two months in a row'), reward: 10000, dust: 1 },
+  { id: 'u1_dev', sector: 'u1', from: t('港の商人', 'A harbor merchant'), title: t('新しい品を', 'Something new'), text: t('アンコモンを 1 つ開発する', 'Develop one Uncommon'), reward: 8000, dust: 1 },
+  { id: 'u1_top', sector: 'u1', from: t('ウメコタウンの商工会', 'Umeko Town guild'), title: t('港の一番店', 'Top shop in the harbor'), text: t('ウメコタウンで 2 か月続けて 1 位になる', 'Become #1 in Umeko Town two months in a row'), reward: 30000, dust: 2 },
+  { id: 'u2_top', sector: 'u2', from: t('ヤツカノタウンの鍛冶組合', 'Yatsukano smiths’ guild'), title: t('金物の町の一番店', 'Top shop in the hardware town'), text: t('ヤツカノタウンで 2 か月続けて 1 位になる', 'Become #1 in Yatsukano Town two months in a row'), reward: 32000, dust: 2 },
   { id: 'u3_ads', sector: 'u3', from: t('坂の商店会', 'Slope merchants'), title: t('坂を宣伝で', 'Advertise the slope'), text: t('宣伝を 2 種類以上同時にする', 'Run 2 or more kinds of ads at once'), reward: 6000 },
-  { id: 'u3_top', sector: 'u3', from: t('エムケーシティの商店会', 'MK City association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('エムケーシティで 2 か月続けて 1 位になる', 'Become #1 in MK City two months in a row'), reward: 35000 },
-  { id: 'u4_top', sector: 'u4', from: t('ゴリ・ラグズの織物組合', 'Gori Rugs weavers’ guild'), title: t('織物の町の一番店', 'Top shop in the weaving town'), text: t('ゴリ・ラグズで 2 か月続けて 1 位になる', 'Become #1 in Gori Rugs two months in a row'), reward: 38000 },
-  { id: 'u5_top', sector: 'u5', from: t('ザックシティの商工会議所', 'Zack City chamber of commerce'), title: t('大都市の一番店', 'Top shop in the big city'), text: t('ザックシティで 2 か月続けて 1 位になる', 'Become #1 in Zack City two months in a row'), reward: 40000 },
+  { id: 'u3_top', sector: 'u3', from: t('エムケーシティの商店会', 'MK City association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('エムケーシティで 2 か月続けて 1 位になる', 'Become #1 in MK City two months in a row'), reward: 35000, dust: 2 },
+  { id: 'u4_top', sector: 'u4', from: t('ゴリ・ラグズの織物組合', 'Gori Rugs weavers’ guild'), title: t('織物の町の一番店', 'Top shop in the weaving town'), text: t('ゴリ・ラグズで 2 か月続けて 1 位になる', 'Become #1 in Gori Rugs two months in a row'), reward: 38000, dust: 2 },
+  { id: 'u5_top', sector: 'u5', from: t('ザックシティの商工会議所', 'Zack City chamber of commerce'), title: t('大都市の一番店', 'Top shop in the big city'), text: t('ザックシティで 2 か月続けて 1 位になる', 'Become #1 in Zack City two months in a row'), reward: 40000, dust: 2 },
 ];
 
 /** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */

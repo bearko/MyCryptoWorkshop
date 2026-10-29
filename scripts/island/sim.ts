@@ -5,7 +5,7 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, DUST_COST, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
 import {
@@ -60,6 +60,13 @@ import {
   tutSpot,
   unitCost,
   matPrice,
+  LEARNABLE,
+  openRing,
+  ringOpen,
+  ringsDue,
+  setDustShop,
+  skillSoon,
+  skillTier,
   type P1State,
   type PBuilding,
   type Report,
@@ -135,14 +142,23 @@ export interface RunResult {
  * 「@id:段」は設備投資（その段まで。お店・倉庫は全部の棟を。v4：棚・作業台・荷車などはスキルから建物ごとの設備投資へ移った）
  */
 const BRANCH_ORDER: Record<Stage, string[]> = {
-  buy: ['stock1', 'bulk', 'swift', '@stockroom:1', 'eye', 'stock2', 'bulk2', '@rack:1', 'stock3', 'b_partner'],
-  craft: ['@bench:1', 'jig', 'chair', 'jig2', '@bench:2', 'pot'],
-  haul: ['loading', '@carts:1', 'shortcut', '@backroom:1', '@truck:1', '@carts:2', 'hub'],
-  sell: ['@shelves:1', 'host', '@staffroom:1', 'display', 'shop2', '@shelves:2', 'shop3', 'b_sign', 'b_premium'],
+  // v5：スキルツリー v2 の新しいパネル（ABC 分析・POS・自動発注・5S・ロット・カイゼン・定期便・配送ルート・VMD・ゴールデンゾーン など）。外周（U・R）は開いてから
+  buy: ['stock1', 'bulk', 'abc', 'swift', '@stockroom:1', 'eye', 'pos', 'auto_order', 'stock2', 'bulk2', '@rack:1', 'stock3', 'contract', 'b_partner', 'direct'],
+  craft: ['@bench:1', 'jig', 'five_s', 'chair', 'jig2', 'lot', 'kaizen', '@bench:2', 'pot', 'night', 'mold', 'line'],
+  haul: ['loading', '@carts:1', 'shortcut', 'timetable', '@backroom:1', 'route_opt', '@truck:1', '@carts:2', 'hub', 'joint', 'crossdock', 'fleet'],
+  sell: ['@shelves:1', 'host', '@staffroom:1', 'display', 'vmd', 'hours', 'shop2', 'golden', 'pop', '@shelves:2', 'set', 'point', 'shop3', 'b_sign', 'order', 'fair', 'concierge', 'b_premium'],
 };
+/** 詰まりの段 → その段の ✨（ゴールドダスト）のパネル。通常の方針は、ダストが 3 たまったら詰まりの段のものを取る */
+const DUST_OF: Record<Stage, string> = { buy: 'd_buy', craft: 'd_craft', haul: 'd_logi', sell: 'd_shop' };
+/** 100% のゴール：Common・Uncommon の外周までの取れるパネル（Rare 以降のセクタはまだ遊べないので外周が開かない） */
+export const fullSkills = () => LEARNABLE().filter((k) => ['C', 'U'].includes(skillTier(k)));
 
 /** 最短：知っている人の取り方（アンコモンへ一直線、そのあと売り場と運搬）。「@id:段」は設備投資 */
-const RTA_SKILLS = ['hire', '@bench:1', 'pot', 'route_cloth', 'route_paper', '@shelves:1', 'host', '@carts:1', 'loading', 'stock1', 'jig', 'bulk', '@stockroom:1', 'b_sign', 'shop2', 'route_gem', '@truck:1', '@bench:2', 'jig2', 'stock2', '@shelves:2', 'display', '@staffroom:1', 'shortcut', '@backroom:1', 'chair', 'lounge', 'shop3', 'swift'];
+const RTA_SKILLS = [
+  'hire', '@bench:1', 'pot', 'route_cloth', 'route_paper', '@shelves:1', 'host', '@carts:1', 'loading', 'stock1', 'jig', 'bulk', '@stockroom:1', 'b_sign', 'shop2', 'route_gem', '@truck:1', '@bench:2', 'jig2', 'stock2', '@shelves:2', 'display', '@staffroom:1', 'shortcut', '@backroom:1', 'chair', 'lounge', 'shop3', 'swift',
+  // v5（スキルツリー v2）：売り場を強くする工夫 → ✨ 名物店主 → Uncommon の外周 → 製造・物流・調達の工夫
+  'vmd', 'golden', 'pos', 'point', 'set', 'd_shop', 'order', 'fair', 'flow', 'dyn', 'five_s', 'kaizen', 'lot', 'night', 'mold', 'timetable', 'route_opt', 'joint', 'abc', 'auto_order', 'inventory', 'erp', 'manual', 'incentive',
+];
 
 /** 「@id:段」→ 設備投資の id と段 */
 const invOf = (x: string): { id: string; lv: number } | null => {
@@ -311,13 +327,25 @@ export function policy(s: P1State, c: Ctx): Action[] {
   }
   const ws = myWorkshop(s);
 
+  // ---- 外周：そのランクのセクタに出店したら、スキルツリーを開いて外周を開く（演出を見る）
+  for (const tier of ringsDue(s)) openRing(s, tier);
+  // ---- 名物店主（✨）：選んだお店がなければ、いちばん売れているお店に
+  if (has(s, 'd_shop') && (s.dustShop == null || !s.shops[s.dustShop])) {
+    const best = myShops(s).sort((a, b) => (s.shops[b.uid].last?.rev ?? s.shops[b.uid].rev) - (s.shops[a.uid].last?.rev ?? s.shops[a.uid].rev))[0];
+    if (best) acts.push({ kind: 'skill', run: () => setDustShop(s, best.uid) || null });
+  }
   // ---- スキル（人材の募集はチュートリアルでも取る）
   const pending = new Set<string>();
+  let dustUsed = 0;
   const learnable = (id: string) => {
     const k = SKILL[id];
+    if (!k) return false;
     // 技の修行は 1 つずつ（修行中・同じ日にもう 1 つ取ろうとしているときは待つ）
-    if (k?.train && (s.training || [...pending].some((x) => SKILL[x]?.train))) return false;
-    return k && !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
+    if (k.train && (s.training || [...pending].some((x) => SKILL[x]?.train))) return false;
+    // v5：外周（開いていない）・封印・準備中・エンブレム・ゴールドダスト
+    if (k.sealed || skillSoon(k) || !ringOpen(s, skillTier(k)) || (s.emblem ?? 0) < (k.emblem ?? 0)) return false;
+    if (k.dust && (s.dust ?? 0) - dustUsed < k.dust) return false;
+    return !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
   };
   /** 設備投資「@id:段」：その段に届いていない建物ぜんぶ（無ければ取れない） */
   const invNeed = (x: string) => {
@@ -341,6 +369,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
     if (invOf(id)) return takeInv(id, keep);
     if (!learnable(id) || budget < SKILL[id].cost + keep) return false;
     spend(SKILL[id].cost);
+    dustUsed += SKILL[id].dust ?? 0;
     pending.add(id);
     acts.push({ kind: 'skill', run: () => learn(s, id) });
     return true;
@@ -646,6 +675,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
         }
         if (n > 0) break;
       }
+      // ゴールドダストが 3 たまったら、詰まりの段の ✨ のパネル（どこを重点的に伸ばすか）。100% は下でまとめて取る
+      if (c.policy === 'normal' && (s.dust ?? 0) >= DUST_COST) take(DUST_OF[bn] ?? 'd_logi', 0) || take('d_logi', 0);
       // 売り場が細いのに枝で取れるものが無ければ、お店（月 1 軒まで）・チラシ・看板
       if (bn === 'sell') {
         const ad = ADS[0];
@@ -766,7 +797,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.sectors.push(cur);
   let skillsSeen = 0;
   const invSeen: { n: number; sector: string | undefined; by: Record<string, number> } = { n: 0, sector: s.sector, by: {} };
-  const allSkills = SKILLS.length;
+  const allSkills = fullSkills().length;
   const fullMissions = MISSIONS.length;
 
   for (let guard = 0; guard < 30 * 600; guard++) {
@@ -846,7 +877,10 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
         // 100%：全スキル・全依頼まで続ける
         const claimed = MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length;
-        if (s.skills.length >= allSkills && claimed >= fullMissions) {
+        // ✨ はダストが続くかぎり（全部の依頼のダストを使い切ったら終わり）
+        const got = fullSkills().filter((k) => has(s, k.id)).length;
+        const dustLeft = fullSkills().some((k) => k.dust && !has(s, k.id)) && (s.dust ?? 0) >= DUST_COST;
+        if (got >= allSkills - fullSkills().filter((k) => k.dust && !has(s, k.id)).length && !dustLeft && claimed >= fullMissions) {
           res.done = true;
           break;
         }
@@ -896,7 +930,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.days = s.day;
   if (p === 'full') {
     const crowns = SECTORS.filter((x) => (x.tier === 'C' || x.tier === 'U') && !x.cloud && !x.soon).filter((x) => crowned(s, x.id)).length;
-    res.goal = { crowns, skills: s.skills.length, missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
+    res.goal = { crowns, skills: fullSkills().filter((k) => has(s, k.id)).length, missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
   }
   return res;
 }
@@ -1068,7 +1102,7 @@ export function observations(rep: Report2): string {
   out.push('');
   const fulls = rep.runs.filter((x) => x.policy === 'full');
   if (fulls.length) {
-    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${SKILLS.length}・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
+    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${fullSkills().length}（C・U の取れるパネル。✨ ${fullSkills().filter((k) => k.dust).length} 枚を含む）・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
     out.push('');
   }
   const stops = rep.runs.filter((r) => r.stop && r.policy !== 'full');

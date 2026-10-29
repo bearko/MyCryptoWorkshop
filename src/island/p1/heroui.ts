@@ -356,7 +356,7 @@ export function lotsFromStock(s: P1State, x: Sku): number {
 }
 
 /** 1 作業台・1 日あたりの粗利（効率の目安） */
-export const profitPerDay = (s: P1State, x: Sku) => ((skuPrice(x) - unitCost(s, x)) * batchOf(x)) / craftDays(s, x);
+export const profitPerDay = (s: P1State, x: Sku) => ((skuPrice(x) - unitCost(s, x)) * batchOf(x, s)) / craftDays(s, x);
 
 /** 素材のアイコン ×数（保有数）。足りなければ赤 */
 function matLine(s: P1State, need: Partial<Record<Mat, number>>, showHave: boolean): HTMLElement {
@@ -375,7 +375,7 @@ function matLine(s: P1State, need: Partial<Record<Mat, number>>, showHave: boole
 /** 1 つの作業台で作り続けたときの、ひと月の見込み（作れる数・売れる数・利益） */
 export function monthOutlook(s: P1State, x: Sku) {
   const [k] = skuParts(x);
-  const make = Math.round((DAYS / craftDays(s, x)) * batchOf(x));
+  const make = Math.round((DAYS / craftDays(s, x)) * batchOf(x, s));
   const demand = Math.round(s.demand[k] ?? PRODUCT[k].demand);
   const margin = skuPrice(x) - unitCost(s, x);
   // 売れる数：お店の場所・他社との取り合いを入れた見込み（作れる数が上限）
@@ -410,11 +410,11 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   const lot = h('div', 'isl-ext-lot');
   lot.append(h('small', 'isl-dim', t('1 ロット', '1 lot')), matLine(s, recipe, true), h('span', 'isl-bom-arrow', '→'));
   const out = h('span', 'isl-bom-out');
-  out.append(skuIcon(x, 26), h('small', '', `×${batchOf(x)}`));
+  out.append(skuIcon(x, 26), h('small', '', `×${batchOf(x, s)}`));
   lot.append(out);
   left.append(lot);
   const lots = lotsFromStock(s, x);
-  left.append(h('div', `isl-ext-can ${lots > 0 ? 'is-good' : 'is-bad'}`, lots > 0 ? t(`生産可能数：${lots * batchOf(x)} 個（${lots} ロット）`, `Can make: ${lots * batchOf(x)} (${lots} lots)`) : t('生産可能数：0 個（素材が足りない）', 'Can make: 0 (not enough materials)')));
+  left.append(h('div', `isl-ext-can ${lots > 0 ? 'is-good' : 'is-bad'}`, lots > 0 ? t(`生産可能数：${lots * batchOf(x, s)} 個（${lots} ロット）`, `Can make: ${lots * batchOf(x, s)} (${lots} lots)`) : t('生産可能数：0 個（素材が足りない）', 'Can make: 0 (not enough materials)')));
   if (lots > 0) {
     const all = Object.fromEntries(Object.entries(recipe).map(([m, q]) => [m, (q ?? 0) * lots])) as Partial<Record<Mat, number>>;
     const use = h('div', 'isl-ext-use');

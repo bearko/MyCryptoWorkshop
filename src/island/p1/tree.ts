@@ -1,44 +1,62 @@
 /**
- * スキルツリー（Workshop のスキルツリーにならった、引っぱって動かせる木）。
- * 真ん中の「本社」から、事業の領域ごとに違う向きへ枝がのびる：
- *   左 = ① 調達・左上 = 技（作れる商品）・上 = ② 製造（工房）・右 = ③ 物流・右下 = ④ 販売（お店）・下 = 経営・左下 = 人材。
- * サプライチェーン（調達・製造・物流）の枝がいちばん豊か。パネルの絵は建物・エクステ・素材の絵を使う。
- * 線は「先に要るスキル」から引く（無ければ枝の根もと）。docs/ISLAND_PHASE1.md「スキルツリー」。
+ * スキルツリー v2（引っぱって動かせる木）。真ん中の「本社」から、事業の領域ごとに 8 本の枝がのびる：
+ *   左 = ① 調達・左上 = 技・上 = ② 製造・右上 = ③ 物流・右 = システム・右下 = ④ 販売・下 = 経営・左下 = 人材。
+ * 内側（Common）の段のさらに外へ、ランクごとの外周（Uncommon・Rare・Epic・Legendary）が同心円で広がる。
+ * 外周は、そのランクのセクタに出店したあと、はじめてツリーを開いたときの演出で開く（Flags.rings）。
+ * ✨（ゴールドダスト）のパネルは枝の根もとの近くに金色の縁で。線は「先に要るスキル」から引く（無ければ枝の根もと）。
+ * docs/ISLAND_PHASE1.md「スキルツリー」。
  */
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
-import { BRANCHES, SKILL, SKILLS, anyOfMet, type Mat, type Skill, type Sku } from './data';
-import { has, hqOpen, learn, openHQ, trainDays, trainingOf, trainees, type P1State } from './model';
+import { TIER_NAME } from './company';
+import { BRANCHES, SKILL, SKILLS, TIERS, anyOfMet, type Branch, type Mat, type Skill, type Sku, type Tier } from './data';
+import { has, hqOpen, learn, LEARNABLE, openHQ, openRing, ringOpen, ringsDue, skillLock, skillTier, trainDays, trainingOf, trainees, type P1State } from './model';
 import { after, mineTip, open, type Ctx } from './screens';
 import { pickHero } from './heroui';
-import { bar, btn, h, heroIcon, heroName, matIcon, money, plain, skuIcon } from './ui';
+import { BOUNDS, HUBPOS, LABEL_A, LAYOUT, OUTER, POS, R0, RING_EDGE, RING_R, STEP, UNIT, polar } from './treelayout';
+import { bar, btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
-type Branch = Skill['branch'];
-
-/** 枝の向き（度。0 = 右、90 = 下）と、根もとから外へ並べる段（段ごとに横へ広げる）。7 本は、ほかの枝のパネルとの間がいちばん広くなる向き（枝の幅がちがうので等間隔ではない） */
-const LAYOUT: Record<Branch, { angle: number; rows: string[][]; color: string; stage?: string }> = {
-  buy: { angle: 169, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['route_cloth', 'stock1', 'bulk'], ['route_paper', 'swift', 'eye'], ['scoutmap', 'route_gem', 'stock2', 'bulk2'], ['stock3', 'b_partner']] },
-  tech: { angle: -135, color: '#e6d36a', rows: [['t_wood', 't_paper'], ['t_metal', 't_clay'], ['t_glass', 't_textile'], ['t_jewel', 't_master']] },
-  craft: { angle: -90, color: '#f2b544', stage: t('② 製造', '② Craft'), rows: [['jig'], ['pot', 'jig2', 'chair']] },
-  logi: { angle: -29, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['loading'], ['hub', 'shortcut']] },
-  shop: { angle: 32, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['host', 'display'], ['shop2', 'b_sign'], ['shop3'], ['b_premium']] },
-  ops: { angle: 78, color: '#c49bff', rows: [['pace1'], ['pace2', 'b_ads']] },
-  people: { angle: 113, color: '#ff8fb0', rows: [['hire', 'lounge'], ['b_scout']] },
-};
+/** ランドセクタの絵（はじまりの国 Lime） */
+const TIER_IMG: Record<Tier, string> = { C: '04_Lime_1_Common', U: '04_Lime_2_Uncommon', R: '04_Lime_3_Rare', E: '04_Lime_4_Epic', L: '04_Lime_5_Legendary' };
+const tierImg = (tier: Tier) => assetUrl(`mch/Image/LandSectors/${TIER_IMG[tier]}.png`);
+const tierArea = (tier: Tier) => t(`${TIER_NAME[tier]} エリア`, `${TIER_NAME[tier]} area`);
 
 /** パネルの絵：建物（b）・エクステ（sku）・素材（mat）・ヒーロー（hero）・絵文字（仮。docs/ISLAND_ART_TODO.md） */
 const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; emoji?: string }> = {
   host: { b: 'hotel' },
   display: { b: 'greengrocer' },
+  vmd: { b: 'department' },
+  pop: { emoji: '🏷️' },
+  golden: { b: 'item' },
+  set: { emoji: '🎁' },
+  point: { emoji: '💳' },
+  hours: { b: 'izakaya' },
   shop2: { b: 'import' },
   shop3: { b: 'boutique' },
+  order: { b: 'board' },
+  fair: { b: 'food_stalls' },
+  concierge: { b: 'inn' },
+  d_shop: { b: 'general_store' },
   jig: { sku: 'Scissors:C' },
   jig2: { sku: 'Mallet:C' },
+  five_s: { emoji: '🧹' },
+  lot: { b: 'assembly' },
+  kaizen: { emoji: '💡' },
   chair: { b: 'rest_area' },
   pot: { sku: 'Sensu:U' },
+  night: { emoji: '🌙' },
+  mold: { sku: 'Lantern:U' },
+  line: { b: 'factory' },
+  d_craft: { b: 'workshop' },
   loading: { b: 'assembly' },
   shortcut: { b: 'survey' },
+  route_opt: { emoji: '🗺️' },
+  timetable: { b: 'station' },
   hub: { b: 'logistics' },
+  crossdock: { b: 'warehouse' },
+  joint: { emoji: '🤝' },
+  fleet: { emoji: '🚚' },
+  d_logi: { b: 'harbor' },
   route_cloth: { mat: 'cloth' },
   route_paper: { mat: 'paper' },
   route_gem: { mat: 'gem' },
@@ -50,10 +68,38 @@ const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; em
   stock3: { b: 'hq' },
   swift: { b: 'station' },
   eye: { b: 'jewelry' },
+  abc: { emoji: '📊' },
+  contract: { emoji: '📜' },
+  direct: { emoji: '🌾' },
+  d_buy: { b: 'trading' },
   hire: { b: 'school' },
   lounge: { b: 'cafe' },
+  manual: { b: 'library' },
+  shift: { emoji: '🗓️' },
+  slots: { b: 'city_hall' },
+  ojt: { b: 'training' },
+  incentive: { emoji: '💰' },
+  welfare: { b: 'hospital' },
+  training: { b: 'school' },
+  mgr: { b: 'government' },
+  headhunt: { emoji: '🎯' },
+  d_people: { b: 'arena' },
   pace1: { b: 'radio' },
   pace2: { b: 'power' },
+  budget: { emoji: '🧮' },
+  pdca: { emoji: '🔁' },
+  pr: { b: 'media' },
+  holding: { b: 'tower' },
+  d_ops: { b: 'concert_hall' },
+  pos: { emoji: '🧾' },
+  auto_order: { emoji: '📨' },
+  inventory: { emoji: '📦' },
+  erp: { b: 'lab' },
+  dyn: { emoji: '📈' },
+  flow: { emoji: '👣' },
+  forecast: { emoji: '🤖' },
+  ec: { emoji: '🛒' },
+  d_sys: { b: 'power' },
   b_sign: { b: 'media' },
   b_premium: { sku: 'Lantern:U' },
   b_partner: { b: 'harbor' },
@@ -68,38 +114,17 @@ const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; em
   t_textile: { sku: 'Ribbon:C' },
   t_jewel: { sku: 'MusicBox:C' },
   t_master: { sku: 'MusicBox:U' },
+  t_rare: { emoji: '💎' },
 };
-
-const UNIT = 96;
-const R0 = 3.4;
-const STEP = 1.4;
-/** 枝の根もと（ハブ）の距離 */
-const HUB = 1.45;
-
-/** 木の上の位置（単位：UNIT）。本社が (0, 0) */
-const POS = new Map<string, { x: number; y: number }>();
-const HUBPOS = new Map<Branch, { x: number; y: number }>();
-for (const [br, L] of Object.entries(LAYOUT) as [Branch, (typeof LAYOUT)[Branch]][]) {
-  const a = (L.angle * Math.PI) / 180;
-  HUBPOS.set(br, { x: Math.cos(a) * HUB, y: Math.sin(a) * HUB });
-  L.rows.forEach((row, k) => {
-    const r = R0 + STEP * k;
-    row.forEach((id, i) => {
-      const off = ((i - (row.length - 1) / 2) * 1.2) / r;
-      POS.set(id, { x: Math.cos(a + off) * r, y: Math.sin(a + off) * r });
-    });
-  });
-}
-// 並べ忘れたスキルは、その枝のいちばん外へ
-for (const k of SKILLS) if (!POS.has(k.id)) POS.set(k.id, { x: 0, y: 0 });
-
-const BOUNDS = [...POS.values()].reduce((b, p) => ({ x0: Math.min(b.x0, p.x), x1: Math.max(b.x1, p.x), y0: Math.min(b.y0, p.y), y1: Math.max(b.y1, p.y) }), { x0: 0, x1: 0, y0: 0, y1: 0 });
 
 /** 画面を描き直しても、見ている場所・選んだスキルは覚えておく */
 const view = { x: 0, y: 0, zoom: 0, sel: null as string | null };
 /** 本社を開放した時刻（放射状に広がる演出のあいだ） */
 let burst = 0;
 const BURST_MS = 2600;
+/** 外周が開く演出（ランク・始めた時刻・マインちゃんの一言まで進んだか） */
+let ringFx: { tier: Tier; t0: number; talk: boolean } | null = null;
+const RING_MS = 3400;
 /** 本社のパネル（view.sel） */
 const HQ = '@hq';
 /** ダブルタップ（ダブルクリック）：同じパネルを続けて押したら開放する */
@@ -117,6 +142,14 @@ let tutFocused = false;
 let justLearned: { id: string; t: number } | null = null;
 
 function iconOf(id: string, size: number): HTMLElement {
+  const k = SKILL[id];
+  if (k?.sealed) {
+    const im = h('img', 'isl-tree-b isl-tree-sealimg');
+    im.src = tierImg(skillTier(k));
+    im.alt = '';
+    im.draggable = false;
+    return im;
+  }
   const spec = ICON[id] ?? { emoji: '✦' };
   if (spec.b) {
     const im = h('img', 'isl-tree-b');
@@ -130,20 +163,44 @@ function iconOf(id: string, size: number): HTMLElement {
   if (spec.hero) return heroIcon(spec.hero, size);
   return h('span', 'isl-tree-emoji', spec.emoji ?? '✦');
 }
-
-type State = 'done' | 'training' | 'open' | 'poor' | 'locked';
-/** ブランド力が足りない（ブランド力が要るパネル） */
-const brandShort = (s: P1State, k: Skill) => !!k.brand && (s.brand ?? 0) < k.brand;
-function stateOf(s: P1State, k: Skill): State {
-  if (has(s, k.id)) return 'done';
-  if (trainingOf(s, k.id)) return 'training';
-  if (k.requires?.some((r) => !has(s, r)) || !anyOfMet(k, (r) => has(s, r)) || brandShort(s, k)) return 'locked';
-  return s.money >= k.cost ? 'open' : 'poor';
+/** 通貨の小さな絵（エンブレム・ゴールドダスト） */
+function curImg(kind: 'emblem' | 'dust', size = 18): HTMLImageElement {
+  const im = h('img', 'isl-tree-curimg');
+  im.src = assetUrl(kind === 'emblem' ? 'mch/Image/Icons/emblem.webp' : 'mch/Image/Icons/gold_dust.webp');
+  im.alt = '';
+  im.width = size;
+  im.height = size;
+  im.draggable = false;
+  return im;
 }
-/** ブランド力の札（★30 など） */
-function brandTag(s: P1State, k: Skill): HTMLElement | null {
-  if (!k.brand) return null;
-  return h('span', `isl-tree-brand ${brandShort(s, k) ? '' : 'is-ok'}`, `★${k.brand}`);
+
+/** パネルの見え方：取った・修行中・取れる・資金（ダスト）不足・条件が足りない・外周が閉じている・封印・準備中 */
+type State = 'done' | 'training' | 'open' | 'poor' | 'locked' | 'ring' | 'sealed' | 'soon';
+function stateOf(s: P1State, k: Skill): State {
+  const e = skillLock(s, k);
+  if (e === null) return 'open';
+  if (e === 'money' || e === 'dust') return 'poor';
+  if (e === 'requires' || e === 'brand' || e === 'emblem') return 'locked';
+  return e;
+}
+/** 条件の札（★30・🏅3） */
+function condTags(s: P1State, k: Skill): HTMLElement | null {
+  if (!k.brand && !k.emblem) return null;
+  const box = h('span', 'isl-tree-tags');
+  if (k.brand) box.append(h('span', `isl-tree-brand ${(s.brand ?? 0) >= k.brand ? 'is-ok' : ''}`, `★${k.brand}`));
+  if (k.emblem) {
+    const e = h('span', `isl-tree-emb ${(s.emblem ?? 0) >= k.emblem ? 'is-ok' : ''}`);
+    e.append(curImg('emblem', 14), h('b', '', String(k.emblem)));
+    box.append(e);
+  }
+  return box;
+}
+/** 値段の札（資金・ダスト） */
+function costTag(k: Skill): HTMLElement {
+  if (!k.dust) return h('span', 'isl-tree-cost', money(k.cost));
+  const c = h('span', 'isl-tree-cost is-dust');
+  c.append(curImg('dust', 14), h('b', '', `✨ ${k.dust}`));
+  return c;
 }
 /** 技の修行の説明（取ったあと、職人が修行して身につける） */
 const trainNote = (k: Skill) => t(`取ったあと、職人が修行して身につける（${k.train} 日。製造の適性が高いほど早い）。修行中の職人は作業台に立てない`, `After unlocking, a crafter trains to master it (${k.train} days, shorter with higher crafting aptitude). They can’t work a bench meanwhile`);
@@ -157,20 +214,52 @@ function trainBox(s: P1State, k: Skill): HTMLElement | null {
   box.append(row, bar(1 - tr.left / tr.total, 'var(--isl-gold)'));
   return box;
 }
-const brandNeed = (s: P1State, k: Skill) => t(`ブランド力 ${k.brand} が要る（いま ${s.brand ?? 0}）`, `Needs brand ${k.brand} (now ${s.brand ?? 0})`);
+/** ブランド力・エンブレムの条件（足りなければ 🔒、足りていれば ✓） */
+const brandNeed = (s: P1State, k: Skill) => ((s.brand ?? 0) < (k.brand ?? 0) ? t(`🔒 ブランド力 ${k.brand} が要る（いま ${s.brand ?? 0}）`, `🔒 Needs brand ${k.brand} (now ${s.brand ?? 0})`) : t(`✓ ブランド力 ${k.brand}（いま ${s.brand ?? 0}）`, `✓ Brand ${k.brand} (now ${s.brand ?? 0})`));
+const emblemNeed = (s: P1State, k: Skill) => ((s.emblem ?? 0) < (k.emblem ?? 0) ? t(`🔒 エンブレム ${k.emblem} が要る（いま ${s.emblem ?? 0}）`, `🔒 Needs ${k.emblem} emblem(s) (now ${s.emblem ?? 0})`) : t(`✓ エンブレム ${k.emblem}（いま ${s.emblem ?? 0}）`, `✓ ${k.emblem} emblem(s) (now ${s.emblem ?? 0})`));
+const dustNeed = (s: P1State, k: Skill) => t(`ゴールドダスト ✨${k.dust} で開放（いま ✨${s.dust ?? 0}）`, `Unlock with ✨${k.dust} gold dust (now ✨${s.dust ?? 0})`);
+const ringNeed = (k: Skill) => t(`${TIER_NAME[skillTier(k)]} のセクタに進出すると開く`, `Opens when you expand into a ${TIER_NAME[skillTier(k)]} sector`);
 /** 「技を 3 つ」のような条件（anyOf）の札 */
 const anyNeed = (s: P1State, k: Skill) => {
   const got = k.anyOf ? k.anyOf.ids.filter((r) => has(s, r)).length : 0;
   return t(`技を ${k.anyOf?.n} つ取ると開放できる（いま ${got}）`, `Unlocks after ${k.anyOf?.n} craft skills (now ${got})`);
 };
+/** 見えている名前（外周が閉じていれば「？」、封印は「???」） */
+const shownName = (s: P1State, k: Skill) => (k.sealed ? '???' : !ringOpen(s, skillTier(k)) ? '?' : k.name);
 
-const HQ_NOTE = t('会社のすべての事業の中心。開放すると、① 調達・② 製造・③ 物流・④ 販売・人材・経営・技の強化の枝が広がり、資金でスキルを習得できるようになります。', 'The heart of every business. Unlock it and upgrade branches spread out for Buying, Crafting, Hauling, Selling, People, Operations and Crafts.');
+const HQ_NOTE = t('会社のすべての事業の中心。開放すると、① 調達・② 製造・③ 物流・④ 販売・人材・経営・システム・技の強化の枝が広がり、資金でスキルを習得できるようになります。', 'The heart of every business. Unlock it and upgrade branches spread out for Buying, Crafting, Hauling, Selling, People, Operations, Systems and Crafts.');
 
 /** 広がる演出：本社からの向きと遅れ */
-function setBurst(el: HTMLElement, p: { x: number; y: number }) {
+function setBurst(el: HTMLElement, p: { x: number; y: number }, extra = 0) {
   el.style.setProperty('--dx', `${(-p.x * UNIT).toFixed(0)}px`);
   el.style.setProperty('--dy', `${(-p.y * UNIT).toFixed(0)}px`);
-  el.style.setProperty('--d', `${(0.15 + Math.hypot(p.x, p.y) * 0.11).toFixed(2)}s`);
+  el.style.setProperty('--d', `${(0.15 + extra + Math.hypot(p.x, p.y) * 0.11).toFixed(2)}s`);
+}
+
+/** パネルの説明の行（ホバーのカードと、下の説明の帯で同じもの） */
+function infoLines(s: P1State, k: Skill, st: State): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const L = LAYOUT[k.branch];
+  const tier = skillTier(k);
+  if (st === 'ring' || st === 'sealed') {
+    out.push(h('small', 'isl-warn', ringNeed(k)));
+    return out;
+  }
+  if (tier !== 'C') out.push(h('span', 'isl-tag is-tier', tierArea(tier)));
+  if (L.stage && !k.dust) out.push(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
+  if (k.dust) out.push(h('small', (s.dust ?? 0) >= k.dust ? 'isl-good' : 'isl-warn', dustNeed(s, k)));
+  if (st === 'soon') out.push(h('small', 'isl-warn', t('準備中（まだ取れない）', 'Coming soon (not available yet)')));
+  if (k.requires?.length) {
+    const need = k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join(t('　', '  '));
+    out.push(h('small', st === 'locked' && k.requires.some((r) => !has(s, r)) ? 'isl-warn' : 'isl-dim', t(`先に要る：${need}`, `Needs: ${need}`)));
+  }
+  if (k.brand) out.push(h('small', (s.brand ?? 0) < k.brand ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
+  if (k.emblem) out.push(h('small', (s.emblem ?? 0) < k.emblem ? 'isl-warn' : 'isl-good', emblemNeed(s, k)));
+  if (k.anyOf) out.push(h('small', anyOfMet(k, (r) => has(s, r)) ? 'isl-good' : 'isl-warn', anyNeed(s, k)));
+  if (k.train && st !== 'done' && st !== 'training') out.push(h('small', 'isl-dim', trainNote(k)));
+  const tb = trainBox(s, k);
+  if (tb) out.push(tb);
+  return out;
 }
 
 /** マウスを乗せたときの説明（PC） */
@@ -178,26 +267,51 @@ function skillCard(s: P1State, k: Skill): HTMLElement {
   const st = stateOf(s, k);
   const L = LAYOUT[k.branch];
   const c = h('div', 'isl-tree-hcard');
-  c.style.setProperty('--br', L.color);
+  c.style.setProperty('--br', k.dust ? 'var(--isl-gold)' : L.color);
   const top = h('div', 'isl-row');
-  top.append(iconOf(k.id, 36), h('b', '', k.name));
-  c.append(top, h('p', '', k.note));
-  if (L.stage) c.append(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
-  if (k.brand) c.append(h('small', brandShort(s, k) ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
-  if (k.anyOf) c.append(h('small', anyOfMet(k, (r) => has(s, r)) ? 'isl-good' : 'isl-warn', anyNeed(s, k)));
-  if (k.train && st !== 'done' && st !== 'training') c.append(h('small', 'isl-dim', trainNote(k)));
-  const tb = trainBox(s, k);
-  if (tb) c.append(tb);
-  if (k.requires?.length) c.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join('　')}`, `Needs: ${k.requires.map((r) => SKILL[r]?.name ?? r).join(', ')}`)));
-  c.append(h('small', st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim', st === 'done' ? t('開放済み', 'Unlocked') : st === 'training' ? t('修行中', 'Training') : st === 'locked' ? t(`${money(k.cost)}（まだ取れない）`, `${money(k.cost)} (locked)`) : st === 'poor' ? t(`${money(k.cost)}（あと ${money(k.cost - s.money)}）`, `${money(k.cost)} (${money(k.cost - s.money)} short)`) : t(`${money(k.cost)}・ダブルクリックで開放`, `${money(k.cost)} · double-click to unlock`)));
+  top.append(iconOf(k.id, 36), h('b', '', shownName(s, k)));
+  c.append(top);
+  if (st !== 'ring' && !k.sealed) c.append(h('p', '', k.note));
+  c.append(...infoLines(s, k, st));
+  if (st === 'ring' || st === 'sealed' || st === 'soon') return c;
+  const price = k.dust ? `✨ ${k.dust}` : money(k.cost);
+  c.append(
+    h(
+      'small',
+      st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim',
+      st === 'done' ? t('開放済み', 'Unlocked') : st === 'training' ? t('修行中', 'Training') : st === 'locked' ? t(`${price}（まだ取れない）`, `${price} (locked)`) : st === 'poor' ? (k.dust ? t(`${price}（ダストが足りない）`, `${price} (not enough dust)`) : t(`${price}（あと ${money(k.cost - s.money)}）`, `${price} (${money(k.cost - s.money)} short)`)) : t(`${price}・ダブルクリックで開放`, `${price} · double-click to unlock`),
+    ),
+  );
   return c;
 }
 function hqCard(s: P1State, sealed: boolean): HTMLElement {
   const c = h('div', 'isl-tree-hcard');
   c.style.setProperty('--br', 'var(--isl-gold)');
   c.append(h('b', '', t('本社', 'HQ')), h('p', '', HQ_NOTE));
-  c.append(h('small', sealed ? 'isl-good' : 'isl-dim', sealed ? t('ダブルクリックで開放（無料）', 'Double-click to unlock (free)') : t(`開放したスキル ${s.skills.length} / ${SKILLS.length}`, `Unlocked ${s.skills.length} / ${SKILLS.length}`)));
+  c.append(h('small', sealed ? 'isl-good' : 'isl-dim', sealed ? t('ダブルクリックで開放（無料）', 'Double-click to unlock (free)') : t(`開放したスキル ${s.skills.length} / ${LEARNABLE().length}`, `Unlocked ${s.skills.length} / ${LEARNABLE().length}`)));
   return c;
+}
+
+/** ツリーの上の通貨の帯：資金・★ ブランド力・🏅 エンブレム・✨ ゴールドダスト */
+function currencyBar(s: P1State): HTMLElement {
+  const bar0 = h('div', 'isl-tree-cur');
+  const item = (cls: string, label: string, value: string, im?: HTMLElement) => {
+    const c = h('span', `isl-tree-curitem ${cls}`);
+    if (im) c.append(im);
+    c.append(h('small', '', label), h('b', '', value));
+    bar0.append(c);
+  };
+  item('is-money', t('資金', 'Funds'), money(s.money));
+  item('is-brand', '★', String(s.brand ?? 0));
+  item('is-emblem', t('エンブレム', 'Emblems'), String(s.emblem ?? 0), curImg('emblem'));
+  item('is-dust', t('ダスト', 'Dust'), String(s.dust ?? 0), curImg('dust'));
+  return bar0;
+}
+
+/** 枝の真ん中（内側の段の真ん中）。チップ・SCM ダッシュボードから飛ぶ先 */
+function branchCenter(br: Branch) {
+  const L = LAYOUT[br];
+  return polar((L.angle * Math.PI) / 180, R0 + (STEP * (L.rows.length - 1)) / 2);
 }
 
 /** スキルツリーを開く。focus：その枝を真ん中に（SCM ダッシュボード・チュートリアルから） */
@@ -209,11 +323,9 @@ export function openSkills(ctx: Ctx, focus?: string) {
     view.y = p.y;
     view.sel = focus;
   } else if (focus && LAYOUT[focus as Branch]) {
-    const L = LAYOUT[focus as Branch];
-    const a = (L.angle * Math.PI) / 180;
-    const r = R0 + (STEP * (L.rows.length - 1)) / 2;
-    view.x = Math.cos(a) * r;
-    view.y = Math.sin(a) * r;
+    const c = branchCenter(focus as Branch);
+    view.x = c.x;
+    view.y = c.y;
   }
   open(ctx, t('スキルツリー', 'Skill tree'), (body) => {
     const s = ctx.s();
@@ -224,33 +336,52 @@ export function openSkills(ctx: Ctx, focus?: string) {
     const target = only && !sealed && !has(s, only) ? only : null;
     if (!only) tutFocused = false;
     const bursting = !sealed && performance.now() - burst < BURST_MS;
+    // 外周の開放：そのランクのセクタに出店したあと、はじめて開いたとき（チュートリアル中・本社の開放前は待つ）
+    if (!ringFx && !sealed && !ctx.step?.()) {
+      const due = ringsDue(s);
+      if (due.length && openRing(s, due[0])) {
+        ringFx = { tier: due[0], t0: performance.now(), talk: false };
+        view.sel = null;
+        view.x = 0;
+        view.y = 0;
+        view.zoom = -1;
+        ctx.save();
+        ctx.sfx?.('clear');
+        setTimeout(() => ctx.sfx?.('win'), 900);
+      }
+    }
+    const fx = ringFx;
     if (sealed) {
       view.x = 0;
       view.y = 0;
     }
     body.classList.add('is-tree');
-    const wrap = h('div', `isl-tree ${sealed ? 'is-sealed' : ''}`);
+    const wrap = h('div', `isl-tree ${sealed ? 'is-sealed' : ''} ${fx ? 'is-ringfx' : ''}`);
     const tip = h('div', 'isl-tree-tip');
     mineTip(ctx, 'skills', tip);
-    // 枝へ飛ぶチップ
+    // 上：通貨の帯と、枝へ飛ぶチップ
+    const top = h('div', 'isl-tree-top');
+    const cur = currencyBar(s);
     const chips = h('div', 'isl-tree-chips');
+    const chipEls = new Map<Branch, HTMLElement>();
     for (const br of BRANCHES) {
       const L = LAYOUT[br.key];
       const c = h('button', 'isl-tree-chip');
       c.type = 'button';
       c.style.setProperty('--br', L.color);
-      const got = SKILLS.filter((k) => k.branch === br.key && has(s, k.id)).length;
-      const all = SKILLS.filter((k) => k.branch === br.key).length;
-      c.append(h('b', '', br.name), h('small', '', L.stage ? `${L.stage} ${got}/${all}` : `${got}/${all}`));
+      const mine = SKILLS.filter((k) => k.branch === br.key && !k.sealed && !k.soon);
+      const got = mine.filter((k) => has(s, k.id)).length;
+      c.append(h('b', '', br.name), h('small', '', L.stage ? `${L.stage} ${got}/${mine.length}` : `${got}/${mine.length}`));
       c.addEventListener('click', () => {
-        const a = (L.angle * Math.PI) / 180;
-        const r = R0 + (STEP * (L.rows.length - 1)) / 2;
-        view.x = Math.cos(a) * r;
-        view.y = Math.sin(a) * r;
+        const p = branchCenter(br.key);
+        view.x = p.x;
+        view.y = p.y;
         place();
       });
+      chipEls.set(br.key, c);
       chips.append(c);
     }
+    top.append(tip, cur, chips);
     // 木
     /** マインちゃんが止める（チュートリアル中に、ほかのパネルを開放しようとした） */
     const stop = h('div', 'isl-tree-stop');
@@ -269,27 +400,18 @@ export function openSkills(ctx: Ctx, focus?: string) {
       clearTimeout(stopT);
       stopT = window.setTimeout(() => (stop.hidden = true), 2600);
     };
+    const fail = (text: string) => {
+      ctx.sfx?.('error');
+      ctx.toast(text);
+    };
     /** 開放する（パネルのボタン・ダブルタップ） */
     const tryLearn = (k: Skill) => {
       if (only && k.id !== only) return halt();
       // 技：修行に出す職人を選んでから（修行は 1 つずつ）
-      if (k.train && !has(s, k.id)) {
+      if (k.train && !has(s, k.id) && skillLock(s, k) === null) {
         if (trainingOf(s, k.id)) return;
-        if (s.training) {
-          ctx.sfx?.('error');
-          ctx.toast(plain(t(`いまは${heroName(s.training.hero)}が「${SKILL[s.training.id]?.name ?? ''}」を修行中です（あと ${s.training.left} 日）。修行は 1 つずつ`, `${heroName(s.training.hero)} is training ${SKILL[s.training.id]?.name ?? ''} (${s.training.left} d left). One at a time`)));
-          return;
-        }
-        if (s.money < k.cost) {
-          ctx.sfx?.('error');
-          ctx.toast(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
-          return;
-        }
-        if (!trainees(s).length) {
-          ctx.sfx?.('error');
-          ctx.toast(t('修行に出せる職人がいません', 'No crafter is free to train'));
-          return;
-        }
+        if (s.training) return fail(plain(t(`いまは${heroName(s.training.hero)}が「${SKILL[s.training.id]?.name ?? ''}」を修行中です（あと ${s.training.left} 日）。修行は 1 つずつ`, `${heroName(s.training.hero)} is training ${SKILL[s.training.id]?.name ?? ''} (${s.training.left} d left). One at a time`)));
+        if (!trainees(s).length) return fail(t('修行に出せる職人がいません', 'No crafter is free to train'));
         pickHero(ctx.root, s, {
           title: t(`「${k.name}」の修行に出す職人`, `Who trains in ${k.name}?`),
           task: 'craft',
@@ -300,10 +422,8 @@ export function openSkills(ctx: Ctx, focus?: string) {
           onPick: (hero) => {
             if (hero == null) return;
             const e = learn(s, k.id, hero);
-            if (e) {
-              ctx.sfx?.('error');
-              ctx.toast(e === 'money' ? t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`) : t('いまは修行に出せません', 'Can’t start training now'));
-            } else {
+            if (e) fail(e === 'money' ? t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`) : t('いまは修行に出せません', 'Can’t start training now'));
+            else {
               ctx.sfx?.('done');
               ctx.toast(t(`${heroName(hero)}が「${k.name}」の修行を始めました（${s.training?.total ?? 0} 日）`, `${heroName(hero)} started training in ${k.name} (${s.training?.total ?? 0} days)`));
               justLearned = { id: k.id, t: performance.now() };
@@ -315,18 +435,16 @@ export function openSkills(ctx: Ctx, focus?: string) {
         return;
       }
       const e = learn(s, k.id);
-      if (e === 'money') {
-        ctx.sfx?.('error');
-        ctx.toast(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
-      } else if (e === 'brand') {
-        ctx.sfx?.('error');
-        ctx.toast(brandNeed(s, k));
-      } else if (e === 'requires') {
-        ctx.sfx?.('error');
-        ctx.toast(t('先に要るスキルがあります', 'Learn the required skills first'));
-      } else if (!e) {
+      if (e === 'money') fail(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
+      else if (e === 'brand') fail(plain(brandNeed(s, k)));
+      else if (e === 'emblem') fail(plain(emblemNeed(s, k)));
+      else if (e === 'dust') fail(t(`ゴールドダストが足りません（✨${k.dust ?? 0} が要る・いま ✨${s.dust ?? 0}）`, `Not enough gold dust (needs ✨${k.dust ?? 0}, have ✨${s.dust ?? 0})`));
+      else if (e === 'ring' || e === 'sealed') fail(ringNeed(k));
+      else if (e === 'soon') fail(t('準備中です', 'Coming soon'));
+      else if (e === 'requires') fail(t('先に要るスキルがあります', 'Learn the required skills first'));
+      else if (!e) {
         ctx.sfx?.('levelup');
-        ctx.toast(t(`「${k.name}」を開放しました`, `Unlocked: ${k.name}`));
+        ctx.toast(k.dust ? t(`ゴールドダスト ✨${k.dust} で「${k.name}」を開放しました`, `Unlocked ${k.name} with ✨${k.dust} gold dust`) : t(`「${k.name}」を開放しました`, `Unlocked: ${k.name}`));
         justLearned = { id: k.id, t: performance.now() };
         view.sel = k.id;
       }
@@ -361,11 +479,52 @@ export function openSkills(ctx: Ctx, focus?: string) {
     const px = (p: { x: number; y: number }) => ({ x: ox + p.x * UNIT, y: oy + p.y * UNIT });
     /** 本社からの距離 → 広がる演出の遅れ（秒） */
     const delay = (p: { x: number; y: number }) => `${(Math.hypot(p.x, p.y) * 0.11).toFixed(2)}s`;
-    const line = (a: { x: number; y: number }, b: { x: number; y: number }, color: string, on: boolean) => {
+    const NS = 'http://www.w3.org/2000/svg';
+    // ランクのエリアの境目（同心円）と札
+    if (!sealed)
+      for (const tier of OUTER) {
+        const on = ringOpen(s, tier);
+        const c0 = px({ x: 0, y: 0 });
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', `${c0.x}`);
+        c.setAttribute('cy', `${c0.y}`);
+        c.setAttribute('r', `${RING_EDGE[tier] * UNIT}`);
+        c.setAttribute('stroke', TIERS[tier].color);
+        c.setAttribute('class', `isl-tree-ringline ${on ? 'is-on' : ''} ${fx?.tier === tier ? 'is-glow' : ''}`);
+        svg.append(c);
+        const lp = px(polar(LABEL_A, RING_EDGE[tier]));
+        const lab = h('div', `isl-tree-ringlab ${on ? 'is-on' : ''} ${fx?.tier === tier ? 'is-glow' : ''}`);
+        lab.style.left = `${lp.x}px`;
+        lab.style.top = `${lp.y}px`;
+        lab.style.setProperty('--tc', TIERS[tier].color);
+        const im = h('img');
+        im.src = tierImg(tier);
+        im.alt = '';
+        im.draggable = false;
+        lab.append(im, h('b', '', tierArea(tier)));
+        if (!on) lab.append(h('small', '', t('🔒 進出すると開く', '🔒 Expand to open')));
+        world.append(lab);
+      }
+    // 外周が開く演出：本社から金色の輪が広がる
+    if (fx && !sealed) {
+      const c0 = px({ x: 0, y: 0 });
+      for (let k = 0; k < 3; k++) {
+        const wv = h('div', 'isl-tree-ringwave');
+        const d = 2 * RING_EDGE[fx.tier] * UNIT;
+        wv.style.left = `${c0.x}px`;
+        wv.style.top = `${c0.y}px`;
+        wv.style.width = `${d}px`;
+        wv.style.height = `${d}px`;
+        wv.style.margin = `${-d / 2}px 0 0 ${-d / 2}px`;
+        wv.style.animationDelay = `${0.2 + k * 0.4}s`;
+        world.append(wv);
+      }
+    }
+    const line = (a: { x: number; y: number }, b: { x: number; y: number }, color: string, cls: string) => {
       if (sealed) return;
       const A = px(a);
       const B = px(b);
-      const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const l = document.createElementNS(NS, 'line');
       const len = Math.hypot(B.x - A.x, B.y - A.y);
       l.setAttribute('style', `--len:${len.toFixed(0)};--d:${delay(a)}`);
       l.setAttribute('x1', `${A.x}`);
@@ -373,18 +532,27 @@ export function openSkills(ctx: Ctx, focus?: string) {
       l.setAttribute('x2', `${B.x}`);
       l.setAttribute('y2', `${B.y}`);
       l.setAttribute('stroke', color);
-      l.setAttribute('class', on ? 'is-on' : '');
+      l.setAttribute('class', cls);
       svg.append(l);
     };
     // 本社 → 枝の根もと → スキル
-    for (const [br, L] of Object.entries(LAYOUT) as [Branch, (typeof LAYOUT)[Branch]][]) {
-      const hub = HUBPOS.get(br)!;
-      line({ x: 0, y: 0 }, hub, L.color, true);
-      for (const id of L.rows.flat()) {
-        const k = SKILL[id];
-        if (!k) continue;
+    for (const br of BRANCHES) {
+      const L = LAYOUT[br.key];
+      const hub = HUBPOS.get(br.key)!;
+      line({ x: 0, y: 0 }, hub, L.color, 'is-on');
+      for (const k of SKILLS.filter((x) => x.branch === br.key)) {
+        const p = POS.get(k.id)!;
+        const tier = skillTier(k);
+        const closed = !ringOpen(s, tier) || !!k.sealed;
+        const cls = `${has(s, k.id) ? 'is-on' : ''} ${closed ? 'is-closed' : ''} ${k.dust ? 'is-dust' : ''}`;
+        if (k.sealed) {
+          // 封印：ひとつ内側の外周の最後のパネル（無ければ根もと）から
+          const inner = SKILLS.filter((x) => x.branch === br.key && !x.dust && OUTER.indexOf(skillTier(x)) === OUTER.indexOf(tier) - 1);
+          line(inner.length ? POS.get(inner[Math.floor(inner.length / 2)].id)! : hub, p, L.color, cls);
+          continue;
+        }
         const from = k.requires?.length ? k.requires.map((r) => POS.get(r)!) : [hub];
-        for (const f of from) line(f, POS.get(id)!, L.color, has(s, id));
+        for (const f of from) line(f, p, k.dust ? 'var(--isl-gold)' : L.color, cls);
       }
     }
     const root = h('button', `isl-tree-root ${sealed ? 'is-sealed' : ''} ${view.sel === HQ ? 'is-sel' : ''}`);
@@ -417,65 +585,81 @@ export function openSkills(ctx: Ctx, focus?: string) {
         world.append(wv);
       }
     }
-    if (!sealed) for (const br of BRANCHES) {
-      const L = LAYOUT[br.key];
-      const p = px(HUBPOS.get(br.key)!);
-      const hub = h('div', 'isl-tree-hub');
-      hub.style.left = `${p.x}px`;
-      hub.style.top = `${p.y}px`;
-      hub.style.setProperty('--br', L.color);
-      setBurst(hub, HUBPOS.get(br.key)!);
-      hub.append(h('b', '', br.name));
-      if (L.stage) hub.append(h('small', '', L.stage));
-      world.append(hub);
-    }
-    if (!sealed) for (const k of SKILLS) {
-      const L = LAYOUT[k.branch];
-      const p = px(POS.get(k.id)!);
-      const st = stateOf(s, k);
-      const n = h('button', `isl-tree-node is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''}`);
-      n.type = 'button';
-      n.style.left = `${p.x}px`;
-      n.style.top = `${p.y}px`;
-      n.style.setProperty('--br', L.color);
-      setBurst(n, POS.get(k.id)!);
-      hover(n, () => skillCard(s, k));
-      n.append(iconOf(k.id, 44), h('span', 'isl-tree-name', k.name));
-      const bt = brandTag(s, k);
-      if (bt) n.append(bt);
-      if (st === 'done') n.append(h('span', 'isl-tree-mark', '✓'));
-      else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
-      else if (st === 'training') n.append(h('span', 'isl-tree-mark', '⏳'));
-      else n.append(h('span', 'isl-tree-cost', money(k.cost)));
-      // 技：修行の日数の札と、修行中の進み具合
-      const tr = trainingOf(s, k.id);
-      if (tr) {
-        n.append(h('span', 'isl-tree-cost', t(`あと ${tr.left} 日`, `${tr.left} d left`)));
-        const pb = bar(1 - tr.left / tr.total, 'var(--isl-gold)');
-        pb.classList.add('isl-tree-prog');
-        n.append(pb);
-      } else if (k.train && st !== 'done') n.append(h('span', 'isl-tree-train', t(`修行 ${k.train} 日`, `${k.train}-day training`)));
-      if (target === k.id) n.classList.add('is-hot');
-      if (justLearned?.id === k.id && performance.now() - justLearned.t < 1500) n.classList.add('is-learned');
-      n.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (moved) return;
-        // 続けて 2 回押したら開放（取れないものは何もしない。チュートリアル中のほかのパネルはマインちゃんが止める）
-        if (isDouble(k.id) && st !== 'done') {
-          if (only && k.id !== only) return halt();
-          if (st === 'open' || st === 'poor') return tryLearn(k);
+    if (!sealed)
+      for (const br of BRANCHES) {
+        const L = LAYOUT[br.key];
+        const p = px(HUBPOS.get(br.key)!);
+        const hub = h('div', 'isl-tree-hub');
+        hub.style.left = `${p.x}px`;
+        hub.style.top = `${p.y}px`;
+        hub.style.setProperty('--br', L.color);
+        setBurst(hub, HUBPOS.get(br.key)!);
+        hub.append(h('b', '', br.name));
+        if (L.stage) hub.append(h('small', '', L.stage));
+        world.append(hub);
+      }
+    // 外周の演出：開くランクのパネルを、枝の順に本社から飛び出させる
+    const fxOrder = fx ? SKILLS.filter((k) => skillTier(k) === fx.tier) : [];
+    if (!sealed)
+      for (const k of SKILLS) {
+        const L = LAYOUT[k.branch];
+        const p = px(POS.get(k.id)!);
+        const st = stateOf(s, k);
+        const tier = skillTier(k);
+        const n = h('button', `isl-tree-node is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''} ${k.dust ? 'is-dust' : ''} ${tier !== 'C' ? `is-tier-${tier}` : ''}`);
+        n.type = 'button';
+        n.style.left = `${p.x}px`;
+        n.style.top = `${p.y}px`;
+        n.style.setProperty('--br', k.dust ? 'var(--isl-gold)' : L.color);
+        n.style.setProperty('--tc', TIERS[tier].color);
+        setBurst(n, POS.get(k.id)!);
+        if (fx && tier === fx.tier) {
+          n.classList.add('is-ringpop');
+          setBurst(n, POS.get(k.id)!, 0.6 + fxOrder.indexOf(k) * 0.07);
         }
-        view.sel = k.id;
-        after(ctx);
-      });
-      world.append(n);
-    }
+        hover(n, () => skillCard(s, k));
+        if (st === 'ring') {
+          // 外周が閉じている：薄い輪郭と「？」（目標として存在だけ見せる）
+          n.append(h('span', 'isl-tree-q', '?'));
+        } else {
+          n.append(iconOf(k.id, 44), h('span', 'isl-tree-name', shownName(s, k)));
+          const tags = condTags(s, k);
+          if (tags && st !== 'sealed') n.append(tags);
+          if (st === 'done') n.append(h('span', 'isl-tree-mark', '✓'));
+          else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
+          else if (st === 'training') n.append(h('span', 'isl-tree-mark', '⏳'));
+          else if (st === 'soon') n.append(h('span', 'isl-tree-cost', t('準備中', 'Soon')));
+          else if (st !== 'sealed') n.append(costTag(k));
+        }
+        // 技：修行の日数の札と、修行中の進み具合
+        const tr = trainingOf(s, k.id);
+        if (tr) {
+          n.append(h('span', 'isl-tree-cost', t(`あと ${tr.left} 日`, `${tr.left} d left`)));
+          const pb = bar(1 - tr.left / tr.total, 'var(--isl-gold)');
+          pb.classList.add('isl-tree-prog');
+          n.append(pb);
+        } else if (k.train && st !== 'done' && st !== 'ring' && st !== 'soon') n.append(h('span', 'isl-tree-train', t(`修行 ${k.train} 日`, `${k.train}-day training`)));
+        if (target === k.id) n.classList.add('is-hot');
+        if (justLearned?.id === k.id && performance.now() - justLearned.t < 1500) n.classList.add('is-learned');
+        n.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (moved) return;
+          // 続けて 2 回押したら開放（取れないものは何もしない。チュートリアル中のほかのパネルはマインちゃんが止める）
+          if (isDouble(k.id) && st !== 'done') {
+            if (only && k.id !== only) return halt();
+            if (st === 'open' || st === 'poor') return tryLearn(k);
+          }
+          view.sel = k.id;
+          after(ctx);
+        });
+        world.append(n);
+      }
     vp.append(world);
     // 選んだスキルの説明と「習得する」
     const detail = h('div', 'isl-tree-detail');
     const sel = view.sel ? SKILL[view.sel] : null;
     if (view.sel === HQ) {
-      const top = h('div', 'isl-tree-dtop');
+      const top2 = h('div', 'isl-tree-dtop');
       const ic = h('div', 'isl-tree-dicon');
       ic.style.setProperty('--br', 'var(--isl-gold)');
       const im = h('img', 'isl-tree-b');
@@ -484,56 +668,57 @@ export function openSkills(ctx: Ctx, focus?: string) {
       ic.append(im);
       const txt = h('div');
       txt.append(h('b', '', t('本社', 'HQ')), h('p', '', HQ_NOTE));
-      if (!sealed) txt.append(h('small', 'isl-dim', t(`開放したスキル ${s.skills.length} / ${SKILLS.length}`, `Unlocked ${s.skills.length} / ${SKILLS.length}`)));
-      top.append(ic, txt);
-      detail.append(top);
-      if (sealed)
-        detail.append(
-          btn(t('本社を開放する', 'Unlock HQ'), () => unlockHQ(), 'is-on'),
-        );
+      if (!sealed) txt.append(h('small', 'isl-dim', t(`開放したスキル ${s.skills.length} / ${LEARNABLE().length}`, `Unlocked ${s.skills.length} / ${LEARNABLE().length}`)));
+      top2.append(ic, txt);
+      detail.append(top2);
+      if (sealed) detail.append(btn(t('本社を開放する', 'Unlock HQ'), () => unlockHQ(), 'is-on'));
     } else if (sel) {
       const st = stateOf(s, sel);
       const L = LAYOUT[sel.branch];
-      const top = h('div', 'isl-tree-dtop');
-      const ic = h('div', 'isl-tree-dicon');
-      ic.style.setProperty('--br', L.color);
-      ic.append(iconOf(sel.id, 48));
+      const top2 = h('div', 'isl-tree-dtop');
+      const ic = h('div', `isl-tree-dicon ${sel.dust ? 'is-dust' : ''}`);
+      ic.style.setProperty('--br', sel.dust ? 'var(--isl-gold)' : L.color);
+      if (st === 'ring') ic.append(h('span', 'isl-tree-q', '?'));
+      else ic.append(iconOf(sel.id, 48));
       const txt = h('div');
-      const nm = h('b', '', sel.name);
-      txt.append(nm, h('p', '', sel.note));
-      if (L.stage) txt.append(h('span', 'isl-tag is-good', t(`${L.stage}を強くする`, `Strengthens ${L.stage}`)));
-      if (sel.requires?.length) {
-        const need = sel.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join(t('　', '  '));
-        txt.append(h('small', st === 'locked' ? 'isl-warn' : 'isl-dim', t(`先に要る：${need}`, `Needs: ${need}`)));
-      }
-      if (sel.brand) txt.append(h('small', brandShort(s, sel) ? 'isl-warn' : 'isl-good', brandNeed(s, sel)));
-      if (sel.anyOf) txt.append(h('small', anyOfMet(sel, (r) => has(s, r)) ? 'isl-good' : 'isl-warn', anyNeed(s, sel)));
-      if (sel.train && st !== 'done' && st !== 'training') txt.append(h('small', 'isl-dim', trainNote(sel)));
-      const tb = trainBox(s, sel);
-      if (tb) txt.append(tb);
-      top.append(ic, txt);
+      txt.append(h('b', '', shownName(s, sel)));
+      if (st !== 'ring' && !sel.sealed) txt.append(h('p', '', sel.note));
+      txt.append(...infoLines(s, sel, st));
+      top2.append(ic, txt);
       const tr = trainingOf(s, sel.id);
-      const b = btn(
-        st === 'done' ? t('開放済み', 'Unlocked') : tr ? t(`修行中（あと ${tr.left} 日）`, `Training (${tr.left} d left)`) : st === 'locked' ? t('まだ開放できない', 'Locked') : sel.train ? t(`修行に出す（${money(sel.cost)}）`, `Start training (${money(sel.cost)})`) : t(`開放する（${money(sel.cost)}）`, `Unlock (${money(sel.cost)})`),
-        () => tryLearn(sel),
-        st === 'open' ? 'is-on' : '',
-      );
+      const label =
+        st === 'done'
+          ? t('開放済み', 'Unlocked')
+          : tr
+            ? t(`修行中（あと ${tr.left} 日）`, `Training (${tr.left} d left)`)
+            : st === 'ring' || st === 'sealed'
+              ? t('まだ開いていない', 'Not open yet')
+              : st === 'soon'
+                ? t('準備中', 'Coming soon')
+                : st === 'locked'
+                  ? t('まだ開放できない', 'Locked')
+                  : sel.dust
+                    ? t(`✨${sel.dust} で開放する`, `Unlock for ✨${sel.dust}`)
+                    : sel.train
+                      ? t(`修行に出す（${money(sel.cost)}）`, `Start training (${money(sel.cost)})`)
+                      : t(`開放する（${money(sel.cost)}）`, `Unlock (${money(sel.cost)})`);
+      const b = btn(label, () => tryLearn(sel), st === 'open' ? `is-on ${sel.dust ? 'is-dust' : ''}` : '');
       // チュートリアル中のほかのパネルは、押せるがマインちゃんが止める
       b.disabled = st !== 'open' && !(only && sel.id !== only && st !== 'done');
-      if (st === 'poor') top.append(h('small', 'isl-warn', t(`あと ${money(sel.cost - s.money)} 足りない`, `${money(sel.cost - s.money)} short`)));
-      if (st === 'open') top.append(h('small', 'isl-dim', t('パネルをダブルタップしても開放できます', 'Double-tap a panel to unlock it too')));
-      detail.append(top, b);
+      if (st === 'poor') top2.append(h('small', 'isl-warn', sel.dust ? t(`ダストがあと ✨${sel.dust - (s.dust ?? 0)} 足りない`, `✨${sel.dust - (s.dust ?? 0)} dust short`) : t(`あと ${money(sel.cost - s.money)} 足りない`, `${money(sel.cost - s.money)} short`)));
+      if (st === 'open') top2.append(h('small', 'isl-dim', t('パネルをダブルタップしても開放できます', 'Double-tap a panel to unlock it too')));
+      detail.append(top2, b);
     } else if (sealed) detail.append(h('p', 'isl-dim', t('真ん中の本社を押して、開放しましょう。開放すると、事業ごとの強化の枝が広がります。', 'Tap HQ in the middle to unlock it. Upgrade branches for each business will spread out.')));
-    else detail.append(h('p', 'isl-dim', t('パネルを押すと、くわしい説明と「開放する」が出ます（ダブルタップでも開放）。真ん中の本社から、事業ごとに枝がのびています。', 'Tap a panel for details and Unlock (or double-tap it). Branches grow from HQ in the middle, one per business area.')));
+    else detail.append(h('p', 'isl-dim', t('パネルを押すと、くわしい説明と「開放する」が出ます（ダブルタップでも開放）。外側の円は Uncommon 以上のエリア。✨ はゴールドダストで取るパネルです。', 'Tap a panel for details and Unlock (or double-tap it). The outer circles are Uncommon+ areas. ✨ panels are bought with gold dust.')));
     // ズーム
     const zoom = h('div', 'isl-tree-zoom');
     zoom.append(
-      btn('+', () => ((view.zoom = Math.min(1.8, view.zoom * 1.2)), place())),
-      btn('−', () => ((view.zoom = Math.max(0.3, view.zoom / 1.2)), place())),
+      btn('+', () => ((view.zoom = Math.min(ZMAX, view.zoom * 1.2)), place())),
+      btn('−', () => ((view.zoom = Math.max(ZMIN, view.zoom / 1.2)), place())),
       btn(t('全体', 'All'), () => {
         view.zoom = fit();
-        view.x = (BOUNDS.x0 + BOUNDS.x1) / 2;
-        view.y = (BOUNDS.y0 + BOUNDS.y1) / 2;
+        view.x = 0;
+        view.y = 0;
         place();
       }),
     );
@@ -543,7 +728,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
     function hover(el: HTMLElement, fill: () => HTMLElement) {
       if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return;
       el.addEventListener('pointerenter', (e) => {
-        if (e.pointerType !== 'mouse' || drag) return;
+        if (e.pointerType !== 'mouse' || drag || ringFx) return;
         card.replaceChildren(fill());
         card.hidden = false;
         const r = el.getBoundingClientRect();
@@ -559,9 +744,37 @@ export function openSkills(ctx: Ctx, focus?: string) {
     }
     if (sealed) {
       chips.hidden = true;
+      cur.hidden = true;
       zoom.hidden = true;
     }
-    wrap.append(vp, tip, chips, zoom, detail, card, stop);
+    wrap.append(vp, top, zoom, detail, card, stop);
+    // 外周が開く演出：終わるまで操作を受けない。最後にマインちゃんの一言と「OK」
+    if (fx) {
+      const curtain = h('div', 'isl-tree-curtain');
+      const left = Math.max(0, RING_MS - (performance.now() - fx.t0));
+      const say = () => {
+        if (!curtain.isConnected) return;
+        fx.talk = true;
+        const box = h('div', 'isl-tree-ringtalk');
+        const mi = h('img');
+        mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+        mi.alt = '';
+        const p = h('p');
+        p.append(rich(t(`[[${tierArea(fx.tier)}]]が開いた！ 外周のパネルが取れるようになったよ。🏅 エンブレムが要るものもあるから、セクタを制覇して集めよう`, `The [[${tierArea(fx.tier)}]] is open! Outer panels are now available. Some need 🏅 emblems, so conquer sectors to collect them`)));
+        const ok = btn(t('OK', 'OK'), () => {
+          ringFx = null;
+          after(ctx);
+        }, 'is-on');
+        const col = h('div', 'isl-tree-ringtalk-body');
+        col.append(p, ok);
+        box.append(mi, col);
+        curtain.append(box);
+        curtain.classList.add('is-talk');
+      };
+      if (fx.talk || left <= 0) say();
+      else setTimeout(say, left);
+      wrap.append(curtain);
+    }
     body.append(wrap);
     // チュートリアル：開放できたら ✕ を光らせて、元の画面に戻ってもらう
     const closeBtn = wrap.closest('.isl-sheet')?.querySelector('.isl-sheet-head .isl-btn');
@@ -593,15 +806,45 @@ export function openSkills(ctx: Ctx, focus?: string) {
       }, wait);
     }
 
-    const fit = () => Math.max(0.3, Math.min(1, Math.min(vp.clientWidth / span.w, vp.clientHeight / span.h) * 1.15));
+    /** 全体が見える大きさ（内側だけのときは外周のぶんを入れない） */
+    // 開いているいちばん外のエリアまで（閉じた外周は、ひとつ外の境目の円がちょうど見えるくらい。開く演出のあいだはそのエリアまで）
+    const openTop = [...OUTER].reverse().find((x) => ringOpen(s, x));
+    const fitR = fx ? RING_R[fx.tier] + 0.9 : openTop ? Math.min(RING_R.L, RING_R[openTop] + 0.9) : RING_EDGE.U + 0.35;
+    const fit = () => Math.max(ZMIN, Math.min(1, Math.min(vp.clientWidth, vp.clientHeight) / (2 * fitR * UNIT)));
+    /** いま見ている枝のチップを光らせる（スマホでは横スクロールの帯の中で見える所へ） */
+    let curBr: Branch | null = null;
+    const markChip = () => {
+      const r = Math.hypot(view.x, view.y);
+      let best: Branch | null = null;
+      if (r > 1.2) {
+        const a = Math.atan2(view.y, view.x);
+        let bd = Infinity;
+        for (const br of BRANCHES) {
+          const d = Math.abs(Math.atan2(Math.sin(a - (LAYOUT[br.key].angle * Math.PI) / 180), Math.cos(a - (LAYOUT[br.key].angle * Math.PI) / 180)));
+          if (d < bd) {
+            bd = d;
+            best = br.key;
+          }
+        }
+      }
+      if (best === curBr) return;
+      curBr = best;
+      for (const [k, el] of chipEls) el.classList.toggle('is-cur', k === best);
+      const el = best ? chipEls.get(best) : null;
+      if (el && chips.scrollWidth > chips.clientWidth) {
+        const l = el.offsetLeft - chips.offsetLeft;
+        if (l < chips.scrollLeft || l + el.offsetWidth > chips.scrollLeft + chips.clientWidth) chips.scrollLeft = Math.max(0, l - (chips.clientWidth - el.offsetWidth) / 2);
+      }
+    };
     function place() {
       if (view.zoom < 0) view.zoom = fit();
       if (!view.zoom) view.zoom = innerWidth < 600 ? 0.62 : 0.8;
       const c = px({ x: view.x, y: view.y });
       world.style.transform = `translate(${vp.clientWidth / 2 - c.x * view.zoom}px, ${vp.clientHeight / 2 - c.y * view.zoom}px) scale(${view.zoom})`;
+      markChip();
     }
     // 引っぱって動かす・2 本指でつまんで拡大縮小（スマホ）・ホイールで拡大（PC）
-    const ZMIN = 0.3;
+    const ZMIN = 0.18;
     const ZMAX = 1.8;
     const pts = new Map<number, { x: number; y: number }>();
     let drag: { x: number; y: number; vx: number; vy: number } | null = null;

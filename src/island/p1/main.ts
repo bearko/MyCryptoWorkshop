@@ -59,6 +59,7 @@ import {
   gateToll,
   openGate,
   has,
+  hotCells,
   rivalMonthGuess,
   adBoost,
   market,
@@ -208,7 +209,8 @@ visualViewport?.addEventListener('resize', resize);
 // ---------------------------------------------------------------- お知らせ
 
 const toasts = h('div', 'isl-toasts');
-function toast(text: string) {
+/** お知らせ（icon：左に添える絵。エンブレム・ゴールドダストなど） */
+function toast(text: string, img?: string) {
   const prev = toasts.lastElementChild as HTMLElement | null;
   if (prev && prev.dataset.text === text) {
     const n = Number(prev.dataset.n ?? 1) + 1;
@@ -216,7 +218,13 @@ function toast(text: string) {
     prev.textContent = `${text} ×${n}`;
     return;
   }
-  const e = h('div', 'isl-toast', text);
+  const e = h('div', `isl-toast ${img ? 'has-icon' : ''}`, text);
+  if (img) {
+    const im = h('img', 'isl-toast-icon');
+    im.src = assetUrl(img);
+    im.alt = '';
+    e.prepend(im);
+  }
   e.dataset.text = text;
   toasts.append(e);
   setTimeout(() => e.remove(), 3300);
@@ -322,6 +330,21 @@ function brandNews() {
   if (fresh.some((e) => e.d > 0)) sfx.play('levelup');
 }
 
+/** エンブレム・ゴールドダストが増えたら知らせる（上の帯には出さない。スキルツリーの通貨の帯に出す） */
+let emblemSeen = s.emblem ?? 0;
+let dustSeen = s.dust ?? 0;
+function currencyNews() {
+  const e = s.emblem ?? 0;
+  const d = s.dust ?? 0;
+  if (e > emblemSeen) {
+    toast(t(`🏅 エンブレムを獲得！（いま ${e}）`, `🏅 Emblem earned! (now ${e})`), 'mch/Image/Icons/emblem.webp');
+    sfx.play('levelup');
+  }
+  if (d > dustSeen) toast(t(`✨ ゴールドダスト +${d - dustSeen}（いま ${d}）`, `✨ Gold dust +${d - dustSeen} (now ${d})`), 'mch/Image/Icons/gold_dust.webp');
+  emblemSeen = e;
+  dustSeen = d;
+}
+
 function renderHud() {
   statMoney.className = `isl-stat ${s.money < 0 ? 'is-bad' : ''} ${moneyAnim ? 'is-spending' : ''}`;
   if (!statMoney.firstChild) statMoney.append(h('small', '', t('資金', 'Funds')), moneyLabel);
@@ -345,6 +368,7 @@ function renderHud() {
     statSector.innerHTML = `<small>${tierLabel(d.tier)}</small><b>📍 ${d.name}</b>`;
   }
   brandNews();
+  currencyNews();
   const ls = t('今月の売上', 'Sales this month');
   statSales.innerHTML = `<small>${ls}</small><b>${money(monthRevenue(s) - tourUnpaid)}</b>`;
   const last = s.reports[s.reports.length - 1];
@@ -2688,6 +2712,8 @@ function advance(days: number) {
         toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
       }
       // 他社の反撃：1 位を取った月から、他社が宣伝を始める
+      // OJT：担当のある人の能力が上がった
+      if (r.report.ojt) toast(t(`OJT：${r.report.ojt} 人の能力が 1 上がりました`, `OJT: ${r.report.ojt} staff gained +1 in a stat`));
       const ra = r.report.rally;
       if (ra) toast(plain(t(`他社が反撃！ [[${ra.by}]]が宣伝を始めた（${ra.months} か月）`, `Rivals strike back! [[${ra.by}]] started advertising (${ra.months} months)`)));
       save();
@@ -2822,7 +2848,7 @@ function frame(now: number) {
     // チュートリアル：建ててもらう場所に「ここに建ててみて！」
     const sp = tutSpotNow();
     anim.mark = sp ? { i: sp[0], j: sp[1], label: t('ここに建ててみて！', 'Build here!') } : null;
-    const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr(), area: P1B[placing.id]?.kind === 'shop' } : null;
+    const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr(), area: P1B[placing.id]?.kind === 'shop', hot: has(s, 'flow') && !placing.move ? hotCells(s) : undefined } : null;
     lastDraw = now;
     drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim);
     placePop();
@@ -2858,4 +2884,6 @@ requestAnimationFrame(frame);
   sub: goSub,
   bgm: () => ({ key: sound.currentBgm(), playing: sound.bgmPlaying(), sfx: sfx.info() }),
   tick: () => renderAll(),
+  /** 建てる・置くモードを始める（撮影スクリプト用） */
+  place: (id: string) => startPlacing(id),
 };

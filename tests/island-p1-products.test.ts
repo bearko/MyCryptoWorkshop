@@ -17,7 +17,7 @@ describe('商品 17 と技の枝', () => {
     const tech = PRODUCTS.filter((p) => p.tech);
     expect(tech).toHaveLength(12);
     for (const p of tech) expect(SKILL[techSkill(p.tech!)]?.branch).toBe('tech');
-    expect(SKILLS.filter((k) => k.branch === 'tech').map((k) => k.id)).toEqual(['t_wood', 't_paper', 't_metal', 't_glass', 't_clay', 't_textile', 't_jewel', 't_master']);
+    expect(SKILLS.filter((k) => k.branch === 'tech' && !k.tier).map((k) => k.id)).toEqual(['t_wood', 't_paper', 't_metal', 't_glass', 't_clay', 't_textile', 't_jewel', 't_master']);
     // U のレシピは C に 1 つ足したもの
     for (const p of PRODUCTS.slice(5)) expect(Object.keys(p.recipe.U).length).toBe(Object.keys(p.recipe.C).length + 1);
   });

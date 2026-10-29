@@ -22,7 +22,7 @@ const STAGE_HINT: Record<Stage, string> = {
   buy: t('素材が足りていません。調達係を置くか、スキル「調達枠の拡大」「まとめ買い」で仕入れを太くしましょう。', 'Materials are short. Assign a buyer or widen buying with the Bigger quota / Bulk buying skills.'),
   craft: t('作る数が足りていません。作業台を増やす（工房の設備投資）・段取りの改善（スキル）か、製造の得意なヒーローを置きましょう。', 'Crafting is the limit. Add a bench (workshop investment), Better jigs (skill), or put a better crafter on the bench.'),
   haul: t('運ぶ数が足りていません。荷車を増やす・小型トラック（工房の設備投資）、遠いお店には物流拠点を。', 'Hauling is the limit. More carts or a Small truck (workshop investment); a hub for far shops.'),
-  sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす（お店の設備投資）・案内係の育成（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves (shop investment), Train hosts (skill) or ads strengthen your stores.'),
+  sell: t('売れる数が頭打ちです。お店を増やす・棚を増やす（お店の設備投資）・接客の研修や VMD（スキル）や宣伝で、売り場を強くしましょう。', 'Sales are capped. More shops, more shelves (shop investment), customer service training or VMD (skills) or ads strengthen your stores.'),
 };
 /** スマホ用の短い版（2 行以内） */
 const STAGE_HINT_SHORT: Record<Stage, string> = {
@@ -365,6 +365,12 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       if (sub.childElementCount) right.append(sub);
       grid.append(left, right);
       c1.append(grid);
+      // 月次 PDCA（スキル）：来月の見込み
+      if (r.forecast) {
+        const fc = h('p', 'isl-rp-fc');
+        fc.append(h('span', 'isl-tag is-good', t('月次 PDCA', 'Monthly PDCA')), h('span', '', t(`来月の見込み：売上 ${money(r.forecast.sales)}・利益 `, `Next month: sales ${money(r.forecast.sales)}, profit `)), h('b', r.forecast.profit >= 0 ? 'isl-good' : 'isl-bad', (r.forecast.profit >= 0 ? '+' : '−') + money(Math.abs(r.forecast.profit))));
+        c1.append(fc);
+      }
       // 内訳（折りたたみ）
       const detail = h('details', 'isl-rp-detail');
       detail.append(h('summary', '', t('売上の内訳（商品ごとの売上・費用）', 'Breakdown (sales by product, costs)')));

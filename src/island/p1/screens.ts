@@ -72,6 +72,8 @@ import {
   raise,
   raiseStep,
   runAd,
+  adCost,
+  setDustShop,
   unitCost,
   type PBuilding,
   batchOf,
@@ -245,7 +247,7 @@ export function mineSay(ctx: Ctx, text: string) {
 function craftPlan(ctx: Ctx, s: P1State, k: number): HTMLElement {
   const sl = s.slots[k];
   const x = sl.sku!;
-  const batch = batchOf(x);
+  const batch = batchOf(x, s);
   const max = lotsFromStock(s, x) * batch;
   const box = h('div', `isl-plan ${sl.repeat ? 'is-auto' : ''}`);
   const label = h('small', 'isl-dim', t('作る数', 'Make'));
@@ -448,7 +450,7 @@ export function openWorkshop(ctx: Ctx, toInvest = false) {
       if (sl.running && sl.sku) {
         const need = craftDays(s, sl.sku);
         const p = h('div', 'isl-field');
-        const left = Math.max(0, Math.ceil((need - sl.progress) / (st ? speed(st, 'craft') : 1)));
+        const left = Math.max(0, Math.ceil((need - sl.progress) / (st ? speed(st, 'craft', s) : 1)));
         p.append(h('span', '', t('進み', 'Progress')), bar(sl.progress / need, 'var(--isl-gold)'), h('span', 'isl-dim', st?.resting ? t('休憩中', 'Resting') : t(`あと約 ${left} 日`, `~${left} days left`)));
         card.append(p);
       }
@@ -801,6 +803,25 @@ export function openShop(ctx: Ctx, uid: number) {
     sat.append(h('span', '', t('お客さんの満足', 'Customer mood')), bar(sh.sat, sh.sat > 0.8 ? 'var(--isl-good)' : 'var(--isl-bad)'));
     info.append(sat, h('p', 'isl-dim', t('棚が空になる日が続くと満足が下がり、売れにくくなります。', 'Empty shelves lower the mood and slow sales.')));
     body.append(info);
+    // 名物店主（✨ スキル）：1 軒だけ選べる。替えられる
+    if (has(s, 'd_shop')) {
+      const fam = h('div', 'isl-card2 isl-famous');
+      const here = s.dustShop === uid;
+      const other = s.dustShop != null && s.dustShop !== uid && s.shops[s.dustShop] ? DEF[s.buildings.find((x) => x.uid === s.dustShop)?.id ?? '']?.name ?? '' : '';
+      fam.append(h('h3', '', t('✨ 名物店主', '✨ Famous shopkeeper')), h('p', 'isl-dim', t('選んだ 1 軒の売り場の強さ +40%。いつでも替えられます。', 'One chosen shop gets +40% pull. You can switch any time.')));
+      if (here) fam.append(h('p', 'isl-gold', t('このお店が名物店主のお店です', 'This is your famous shopkeeper’s shop')));
+      else
+        fam.append(
+          btn(other ? t(`このお店に替える（いまは${other}）`, `Switch here (now: ${other})`) : t('名物店主にする', 'Make this the famous shop'), () => {
+            if (setDustShop(s, uid)) {
+              ctx.sfx?.('levelup');
+              ctx.toast(t(`${name}を名物店主のお店にしました（売り場の強さ +40%）`, `${name} is now the famous shop (pull +40%)`));
+            }
+            after(ctx);
+          }, 'is-on'),
+        );
+      body.append(fam);
+    }
 
     // 棚：四角い枠にエクステの絵。押すとエクステを選ぶ
     const shelves = h('div', 'isl-card2');
@@ -1358,7 +1379,10 @@ export function openData(ctx: Ctx) {
     }
     const table = h('div', 'isl-data');
     const head = h('div', 'isl-data-row is-head');
-    for (const x of [t('商品', 'Item'), t('国民のニーズ（月）', 'Demand / mo'), t('売っている会社', 'Sellers'), t('値段', 'Price'), t('素材', 'Materials')]) head.append(h('span', '', x));
+    // POS レジ：商品ごとの「きのう売れた数」
+    const pos = has(s, 'pos');
+    if (pos) table.classList.add('is-pos');
+    for (const x of [t('商品', 'Item'), t('国民のニーズ（月）', 'Demand / mo'), t('売っている会社', 'Sellers'), ...(pos ? [t('きのう売れた', 'Sold yesterday')] : []), t('値段', 'Price'), t('素材', 'Materials')]) head.append(h('span', '', x));
     table.append(head);
     for (const r of rows) {
       const row = h('div', `isl-data-row ${r.p.key === rec ? 'is-rec' : ''} ${r.saturated ? 'is-sat' : ''}`);
@@ -1387,7 +1411,13 @@ export function openData(ctx: Ctx) {
         c.append(matIcon(m as Mat, 18), h('small', '', `×${q}`));
         mats.append(c);
       }
-      row.append(n, d, sellers, h('span', '', money(r.p.price)), mats);
+      const yd = h('span', 'isl-col');
+      if (pos) {
+        const v = s.yday?.[r.p.key] ?? 0;
+        yd.append(h('b', v > 0 ? 'isl-good' : 'isl-dim', t(`${v} 個`, `${v}`)));
+        if (r.mine) yd.append(h('small', 'isl-dim', t(`認知 ${Math.round(r.known * 100)}%`, `Known ${Math.round(r.known * 100)}%`)));
+      }
+      row.append(n, d, sellers, ...(pos ? [yd] : []), h('span', '', money(r.p.price)), mats);
       table.append(row);
     }
     const satNames = all.filter((r) => r.saturated).map((r) => r.p.name);
@@ -1558,7 +1588,7 @@ export function openBom(ctx: Ctx) {
           mats.append(c);
         }
         const uc = unitCost(s, x);
-        row.append(n, mats, h('span', '', t(`${batchOf(x)} 個・${craftDays(s, x).toFixed(1)} 日`, `${batchOf(x)} · ${craftDays(s, x).toFixed(1)} d`)), h('span', '', money(skuPrice(x))), h('span', '', money(uc)), h('span', '', `${money(skuPrice(x) - uc)} (${Math.round(((skuPrice(x) - uc) / skuPrice(x)) * 100)}%)`));
+        row.append(n, mats, h('span', '', t(`${batchOf(x, s)} 個・${craftDays(s, x).toFixed(1)} 日`, `${batchOf(x, s)} · ${craftDays(s, x).toFixed(1)} d`)), h('span', '', money(skuPrice(x))), h('span', '', money(uc)), h('span', '', `${money(skuPrice(x) - uc)} (${Math.round(((skuPrice(x) - uc) / skuPrice(x)) * 100)}%)`));
         table.append(row);
       }
     body.append(table);
@@ -1641,13 +1671,14 @@ export function openAds(ctx: Ctx) {
       card.append(h('h3', '', a.name), h('p', 'isl-dim', a.note));
       if (left > 0) card.append(bar(left / a.days, 'var(--isl-gold)'), h('p', '', t(`実施中：あと ${left} 日`, `Running: ${left} days left`)));
       else {
-        const b = btn(t(`実施する ${money(a.cost)}`, `Run ${money(a.cost)}`), () => {
+        const cost = adCost(s, a.id);
+        const b = btn(t(`実施する ${money(cost)}`, `Run ${money(cost)}`), () => {
           const e = runAd(s, a.id);
           if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
           else if (!e) ctx.toast(t(`「${a.name}」を始めました`, `Started: ${a.name}`));
           after(ctx);
         }, 'is-on');
-        b.disabled = s.money < a.cost;
+        b.disabled = s.money < cost;
         card.append(b);
       }
       body.append(card);

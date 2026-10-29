@@ -25,7 +25,7 @@ export function brandAdd(s: { brand?: number; brandLog?: BrandEv[]; day: number 
 }
 
 /** ブランド力による売り場の強さの倍率 */
-export const brandPull = (brand = 0) => 1 + Math.min(BRAND.pullCap, brand * BRAND.pullPer);
+export const brandPull = (brand = 0, x2 = false) => 1 + Math.min(BRAND.pullCap * (x2 ? 2 : 1), brand * BRAND.pullPer * (x2 ? 2 : 1));
 
 // ---------------------------------------------------------------- 帳簿
 
@@ -168,13 +168,16 @@ export const managerRate = (apt: number) => Math.max(MANAGER.min, Math.min(MANAG
  * セクタマネージャーのひと月：売上は離れたときの売上 × 適性の倍率 × ゆらぎ。費用は素材（売上に比例）と決まった費用。
  * 利益が出たら、invest の割合をそのセクタへ投資（以後の売上が伸びる）、残りを本社へ。赤字はそのまま本社が負う。
  */
-export function runSector(rec: SectorRec, st: Stats | null, m: number, rnd: () => number): { rev: number; profit: number; invest: number; toHQ: number } {
+export function runSector(rec: SectorRec, st: Stats | null, m: number, rnd: () => number, bonus: { rate?: number; profit?: number } = {}): { rev: number; profit: number; invest: number; toHQ: number } {
   const base = rec.base;
   if (!base) return { rev: 0, profit: 0, invest: 0, toHQ: 0 };
-  const rate = st ? managerRate(managerApt(st)) : MANAGER.none;
+  // スキル：マネージャー研修（倍率 +0.1）
+  const rate = (st ? managerRate(managerApt(st)) : MANAGER.none) + (bonus.rate ?? 0);
   const grow = 1 + (rec.capital * MANAGER.roi) / Math.max(1, base.rev);
   const rev = Math.round(base.rev * rate * grow * (1 + (rnd() * 2 - 1) * MANAGER.noise));
-  const profit = Math.round(rev - rev * base.matRate - base.fixed);
+  const raw = rev - rev * base.matRate - base.fixed;
+  // スキル：持株会社（利益 +10%。赤字には掛けない）
+  const profit = Math.round(raw > 0 ? raw * (bonus.profit ?? 1) : raw);
   const invest = profit > 0 ? Math.round(profit * rec.invest) : 0;
   const toHQ = profit - invest;
   rec.capital += invest;
