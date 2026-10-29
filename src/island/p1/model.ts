@@ -96,6 +96,8 @@ export interface Staff {
   explore: number;
   /** 昇給の段（作業が速くなる） */
   lv?: number;
+  /** 前の便・往復で余った日の端数（次に持ち越す。運搬係・調達係） */
+  lag?: number;
 }
 
 export interface Slot {
@@ -107,6 +109,8 @@ export interface Slot {
   repeat: boolean;
   /** 自動製造でないとき、あと何個作るか（1 ロット始めるごとに減る） */
   left?: number;
+  /** できあがった日に余った進み（次のロットに持ち越す。次の日に始められなければ消える） */
+  over?: number;
 }
 
 export interface ShopState {
@@ -128,6 +132,8 @@ export interface ShopState {
   last: { rev: number; cost: number } | null;
   /** 認知度（0.2〜1）。開店したてのお店は知られていないので売れにくい */
   aw?: number;
+  /** 品出しの端数（次の日に持ち越す） */
+  dcarry?: number;
 }
 
 export interface Trip {
@@ -633,6 +639,47 @@ export const aptBonus = (s: P1State | undefined, task: Task) => (!s ? 0 : (has(s
 export const aptOf = (s: P1State | undefined, st: Pick<Staff, 'stats'>, task: Task) => aptitude(st.stats, task) + aptBonus(s, task);
 /** 作業の速さ。s を渡すとスキルの適性（マニュアル整備・名工の作業台）も入る */
 export const speed = (st: Staff, task: Task, s?: P1State) => speedOf(aptOf(s, st, task)) * (1 + PAY.raiseSpeed * (st.lv ?? 0));
+/** 休むと 1 日に戻るスタミナ（休憩室・福利厚生で +50% ずつ） */
+export const restRateOf = (s: P1State) => STAMINA.rest * (1 + (has(s, 'lounge') ? 0.5 : 0) + (has(s, 'welfare') ? 0.5 : 0));
+/**
+ * 働くと 1 日に減るスタミナ。職人：職人の休憩所・職人の椅子・5S（減る）、夜間稼働（増える）。
+ * 店員：営業時間の延長（増える）。シフト制：みんな減る
+ */
+export function drainOf(s: P1State, st: Pick<Staff, 'task'>): number {
+  const easy =
+    (st.task === 'craft' ? (invLv(myWorkshop(s), 'breakroom') > 0 ? 0.7 : 1) * (has(s, 'chair') ? 0.7 : 1) * (has(s, 'five_s') ? 0.9 : 1) * (has(s, 'night') ? 1.2 : 1) : 1) *
+    (st.task === 'shop' && has(s, 'hours') ? 1.2 : 1) *
+    (has(s, 'shift') ? 0.8 : 1);
+  return STAMINA.work * easy;
+}
+/**
+ * 稼働率（0〜1）：これから 30 日のうち、働ける日の割合。いまのスタミナと休み中かどうかから、
+ * 「働く（drainOf ずつ減る）→ 疲れたら休む（restRateOf ずつ戻る）」を 30 日ぶんたどる（日を連続の量として数える）。
+ * SCM の数字（stageCaps）は、担当の人ごとにこれを掛ける。休憩室・シフト制・職人の椅子・賞与などが数字に出る。
+ * docs/ISLAND_PHASE1.md「稼働率」
+ */
+export function uptime(s: P1State, st: Staff): number {
+  const hp = st.stats.hp;
+  const lo = hp * STAMINA.tired;
+  const hi = hp * STAMINA.back;
+  const d = drainOf(s, st);
+  const r = restRateOf(s);
+  // いまの山（いまのスタミナで働ける日 → 疲れて休む日）はそのまま数え、そのあとは「働く・休む」をくり返したときの割合で
+  const steady = r / (r + d);
+  let left = DAYS;
+  let work = 0;
+  if (!st.resting) {
+    const w0 = Math.min(left, Math.max(0, (st.stamina - lo) / d));
+    work += w0;
+    left -= w0;
+  }
+  if (left > 0) {
+    const r0 = Math.min(left, Math.max(0, (hi - (st.resting ? st.stamina : lo)) / r));
+    left -= r0;
+  }
+  work += left * steady;
+  return work / DAYS;
+}
 /** ERP・基幹システム刷新（✨）：全段の「ひと月に流せる数」の倍率 */
 export const flowMul = (s: P1State) => 1 + (has(s, 'erp') ? 0.05 : 0) + (has(s, 'd_sys') ? 0.1 : 0);
 
@@ -1071,6 +1118,20 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   return null;
 }
 
+/**
+ * 調達係の 1 往復の日数（工房 ⇄ 卸問屋。早足の買い付けで −30%・自動発注（EDI）は往復なしで 1 日）。
+ * 道がつながっていなければ null
+ */
+export function buyDays(s: P1State, st: Staff): number | null {
+  const ws = myWorkshop(s);
+  const wh = wholesaler(s);
+  const path = ws && wh ? roadPath(s, doorOf(ws), doorOf(wh)) : null;
+  if (!path) return null;
+  if (has(s, 'auto_order')) return 1;
+  // 日の端数は持ち越す（Staff.lag）ので丸めない
+  return Math.max(2, ((path.length * 2) / TRANSPORT.walkPerDay / speed(st, 'buy', s)) * (has(s, 'swift') ? 0.7 : 1));
+}
+
 /** 1 ロットの素材の数 */
 export const LOT = 10;
 /** 卸問屋の人（注文を運んでくる） */
@@ -1118,8 +1179,11 @@ export function procMats(s: P1State): { m: Mat; from: 'item' | 'extra' }[] {
   return out.filter((o) => hasRoute(s, o.m));
 }
 
-/** 工房が 100% 動いたときの月の素材の消費（作業台の設定と職人の速さ。作業台に無い作りたいエクステは速さ 1 の作業台 1 つぶん） */
-export function fullUse(s: P1State): Partial<Record<Mat, number>> {
+/**
+ * 工房が 100% 動いたときの月の素材の消費（作業台の設定と職人の速さ。作業台に無い作りたいエクステは速さ 1 の作業台 1 つぶん）。
+ * withRest：職人が休む日も入れる（いつもの体制。稼働率 uptime）。調達係の月の量（自動）はこちら
+ */
+export function fullUse(s: P1State, withRest = false): Partial<Record<Mat, number>> {
   const out: Partial<Record<Mat, number>> = {};
   const add = (x: Sku, sp: number) => {
     const batches = (DAYS * sp) / craftDays(s, x);
@@ -1129,7 +1193,7 @@ export function fullUse(s: P1State): Partial<Record<Mat, number>> {
   for (const sl of s.slots) {
     if (!sl.sku) continue;
     const st = sl.worker != null ? staffOf(s, sl.worker) : null;
-    add(sl.sku, st ? speed(st, 'craft', s) : 1);
+    add(sl.sku, st ? speed(st, 'craft', s) * (withRest ? uptime(s, st) : 1) : 1);
     made.add(sl.sku);
   }
   for (const x of s.proc.items) if (!made.has(x)) add(x, 1);
@@ -1137,16 +1201,16 @@ export function fullUse(s: P1State): Partial<Record<Mat, number>> {
   return out;
 }
 
-/** 素材の月の量（指定が無ければ先月の消費、先月が無ければ 100% のときの消費） */
+/** 素材の月の量（指定が無ければ、先月の消費と、いつもの体制（職人の休みも入れる）での消費の多いほう） */
 export function procQty(s: P1State, m: Mat): number {
   const q = s.proc.qty[m];
   if (q && !q.auto) return q.n;
-  // 自動：先月の消費と、工房が 100% 動いたときの量の多いほう
+  // 自動：先月の消費と、工房がいつもの体制で動いたときの量の多いほう
   // （先月が素材不足で少なかったときに、買う量まで減って抜け出せなくなるのを防ぐ）
   const last = s.matUsedLast?.[m] ?? 0;
-  // ABC 分析：工房が 100% 動いたときの消費にぴったり（先月の消費が多くても買いすぎない）
-  if (has(s, 'abc')) return fullUse(s)[m] ?? 0;
-  return Math.max(last, fullUse(s)[m] ?? 0);
+  // ABC 分析：いつもの体制での消費にぴったり（先月の消費が多くても買いすぎない）
+  if (has(s, 'abc')) return fullUse(s, true)[m] ?? 0;
+  return Math.max(last, fullUse(s, true)[m] ?? 0);
 }
 export function setProcQty(s: P1State, m: Mat, n: number | null) {
   if (n == null) delete s.proc.qty[m];
@@ -1259,8 +1323,8 @@ export function learn(s: P1State, id: string, hero?: number): string | null {
   return null;
 }
 
-/** スキルが効き始める（取った・修行が終わった） */
-function gainSkill(s: P1State, id: string) {
+/** スキルが効き始める（取った・修行が終わった）。監査（scripts/island/audit.ts）も、条件を満たした状態としてこれで足す */
+export function gainSkill(s: P1State, id: string) {
   if (!s.skills.includes(id)) s.skills.push(id);
   if (id.startsWith('route_')) {
     const m = id.slice(6) as Mat;
@@ -1560,7 +1624,15 @@ export function raise(s: P1State, hero: number): string | null {
 export function setShelf(s: P1State, uid: number, idx: number, x: Sku | null): boolean {
   const sh = s.shops[uid];
   if (!sh || idx >= sh.shelves.length) return false;
+  const prev = sh.shelves[idx];
   sh.shelves[idx] = x;
+  // 棚から外した商品が、このお店のどの棚にも無くなったら、棚に残っていた分は裏へ戻す
+  // （残したままだと、並べていない商品として売れずに棚の場所だけふさぐ）
+  if (prev && prev !== x && !sh.shelves.includes(prev)) {
+    const n = sh.shelf[prev] ?? 0;
+    if (n > 0) sh.storage[prev] = (sh.storage[prev] ?? 0) + n;
+    delete sh.shelf[prev];
+  }
   return true;
 }
 
@@ -1571,10 +1643,15 @@ export function setPart(s: P1State, uid: number, n: number): boolean {
   return true;
 }
 
-/** お店の売り場での強さ（商品ごと）。plan：見込み（いつもの体制。店員の休憩は数えない） */
-function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku, plan = false): number {
+/**
+ * お店の売り場での強さ（商品ごと）。clerk：'now'＝いまの様子（店員が休憩中なら居ない）・
+ * 'in'＝店員がいるとき・'out'＝店員が休んでいるとき（アルバイトだけ）。見込み（SCM の数字）は 'in' と 'out' を稼働率で混ぜる
+ */
+type Clerk = 'now' | 'in' | 'out';
+function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku, clerk: Clerk = 'now'): number {
   const st = sh.staff != null ? staffOf(s, sh.staff) : null;
-  const staffed = st && (plan || !st.resting) ? 0.6 + 0.4 * speed(st, 'shop', s) : 0;
+  const present = !!st && (clerk === 'in' || (clerk === 'now' && !st.resting));
+  const staffed = st && present ? 0.6 + 0.4 * speed(st, 'shop', s) : 0;
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
   const [k, r] = skuParts(x);
@@ -1736,15 +1813,18 @@ export function rivalOffers(s: P1State, key: string): (Offer & { rid: string })[
   return out;
 }
 
-/** 自社の棚（stocked：棚に商品があるものだけ。false なら並んでいるとして見込む＝店員の休憩も数えない、いつもの体制） */
-function myOffers(s: P1State, key: string, stocked: boolean) {
+/**
+ * 自社の棚（stocked：棚に商品があるものだけ・いまの様子。false なら並んでいるとして見込む＝いつもの体制）。
+ * away：見込みのとき、店員が休んでいる日（アルバイトだけ）として数える
+ */
+function myOffers(s: P1State, key: string, stocked: boolean, away = false) {
   const out: (Offer & { b: PBuilding; sh: ShopState; x: Sku })[] = [];
   for (const b of myShops(s)) {
     const sh = s.shops[b.uid];
     for (const x of sh.shelves) {
       if (!x || skuParts(x)[0] !== key) continue;
       if (stocked && (sh.shelf[x] ?? 0) <= 0) continue;
-      const w = pull(s, b, sh, x, !stocked) * (sh.aw ?? 1);
+      const w = pull(s, b, sh, x, stocked ? 'now' : away ? 'out' : 'in') * (sh.aw ?? 1);
       if (w > 0) out.push({ i: b.i, j: b.j, w, g: 'me', b, sh, x });
     }
   }
@@ -1801,7 +1881,7 @@ export function shopArea(s: P1State, b: PBuilding) {
 
 /**
  * いますぐ 1 便出す（チュートリアルの流れの案内で、荷車が走るところを見せる）。
- * ふだんはお店の裏が半分以上埋まっていると出さないが、ここでは工房にある商品を積めるだけ積む。出せたら true
+ * ふだんはお店の裏が半分を超えて埋まっていると出さないが、ここでは工房にある商品を積めるだけ積む。出せたら true
  */
 export function forceHaul(s: P1State): boolean {
   const ws = myWorkshop(s);
@@ -1942,34 +2022,55 @@ export function step(s: P1State): DayResult {
     }
     s.orders = s.orders.filter((x) => x.left > 0);
   }
-  // 調達：調達係が工房から卸問屋まで歩いて行き、往復のあいだに要る量を買って帰る（月の上限・資金・置き場所の中で）
+  // 調達：調達係が工房から卸問屋まで歩いて行き、次の買い付けが届くまでもつ量を買って帰る（月の上限・資金・置き場所の中で）
   const ws0 = myWorkshop(s);
   const shopB = wholesaler(s);
   if (s.buyTrip) {
     const st = staffOf(s, s.buyTrip.hero);
-    if (st && !st.resting) {
-      working.add(st.hero);
+    // 買い付けの途中は休まずに帰ってくる（休むのは帰ってから。運搬の便と同じ）
+    if (st) {
+      if (!st.resting) working.add(st.hero);
       s.buyTrip.left -= 1;
     }
     if (s.buyTrip.left <= 0 || !st || st.task !== 'buy') {
       // 帰ってきた（途中で外されたときも、買った素材は届ける）
       for (const [m, n] of Object.entries(s.buyTrip.cargo)) s.mats[m as Mat] = (s.mats[m as Mat] ?? 0) + (n ?? 0);
       res.arrived = { ...s.buyTrip.cargo };
+      // 日の端数（早く帰れたぶん）は次の往復に持ち越す（速さ・早足の効き目が日単位で消えないように）
+      if (st && st.task === 'buy') st.lag = Math.min(0.99, Math.max(0, -s.buyTrip.left));
+      // 疲れて帰ってきたら、ここで休む
+      if (st && st.stamina <= st.stats.hp * STAMINA.tired) st.resting = true;
       s.buyTrip = null;
     }
-  } else if (ws0 && shopB) {
+  }
+  // 帰ってきたその日に、次の買い付けに出る（疲れていれば休んでから）
+  // 工房で出荷を待つ商品がたまっているあいだは、買い付けを控える（作りすぎて素材代をむだにしない。運ぶ・売るのが追いつけば、また買う）
+  const haulersN = s.staff.filter((x) => x.task === 'transport').length;
+  // （数えるのは、どこかのお店の棚に並べている商品だけ。並べなくなった商品の売れ残りでは止めない）
+  const onShelf = new Set(myShops(s).flatMap((b) => s.shops[b.uid]?.shelves ?? []));
+  const waiting = (Object.entries(s.stock) as [Sku, number][]).reduce((a, [x, n]) => a + (onShelf.has(x) ? n ?? 0 : 0), 0);
+  const backlog = waiting >= Math.max(20, 2 * cartCap(s) * cartsOf(s) * Math.max(1, haulersN));
+  if (!s.buyTrip && ws0 && shopB && !backlog) {
     const st = s.staff.find((x) => x.task === 'buy' && !x.resting);
-    const path = st ? roadPath(s, doorOf(ws0), doorOf(shopB)) : null;
-    if (st && path) {
+    const days = st ? buyDays(s, st) : null;
+    if (st && days) {
       const sp = speed(st, 'buy', s);
-      // 自動発注（EDI）：往復なしで毎日届く
-      const days = has(s, 'auto_order') ? 1 : Math.max(2, Math.round((((path.length * 2) / TRANSPORT.walkPerDay) / sp) * (has(s, 'swift') ? 0.7 : 1)));
-      // 往復の日数ぶん（＋端数の持ち越し）を、月の量から買う
+      // 月の量（1 日ぶん × 日数）で、次の次の帰りまで（往復 2 回ぶん）もつように、手元と注文中の素材に足りないぶんを買う。
+      // 帰ったら休むことになるときは、休むあいだのぶんも先に買っておく（工房の素材が切れないように）
       const cargo: Partial<Record<Mat, number>> = {};
       const lv = s.proc.lv;
       let free = poolFree(s);
-      for (const { m } of procMats(s)) {
-        const want = (procQty(s, m) / DAYS) * days + (s.proc.carry[m] ?? 0);
+      // （1 日ぶんは、自動なら職人が働いている日の速さ＝100% のときの消費で見る。作業台ごとに 1 ロットぶんの余裕も）
+      const rest = st.stamina - drainOf(s, st) * days <= st.stats.hp * STAMINA.tired ? (st.stats.hp * (STAMINA.back - STAMINA.tired)) / restRateOf(s) : 0;
+      const full = fullUse(s);
+      const wants = procMats(s).map(({ m }) => {
+        const onHand = (s.mats[m] ?? 0) + (s.orders ?? []).filter((o) => o.m === m).reduce((a, o) => a + o.qty, 0);
+        const manual = s.proc.qty[m] && !s.proc.qty[m]!.auto;
+        const daily = (manual ? procQty(s, m) : Math.max(procQty(s, m), full[m] ?? 0)) / DAYS;
+        const lots = s.slots.reduce((a, sl) => a + (sl.sku && sl.worker != null ? recipeOf(sl.sku)[m] ?? 0 : 0), 0);
+        return { m, want: Math.max(0, daily * (2 * days + rest) + lots - onHand) + (s.proc.carry[m] ?? 0) };
+      });
+      for (const { m, want } of wants) {
         let n = Math.floor(want);
         s.proc.carry[m] = want - n;
         n = Math.min(n, procLeft(s), free, Math.floor(s.money / Math.max(1, matPrice(s, m))));
@@ -1981,7 +2082,8 @@ export function step(s: P1State): DayResult {
         cargo[m] = n;
       }
       if (Object.keys(cargo).length) {
-        s.buyTrip = { hero: st.hero, left: days, total: days, cargo };
+        s.buyTrip = { hero: st.hero, left: Math.max(0.01, days - (st.lag ?? 0)), total: days, cargo };
+        st.lag = 0;
         working.add(st.hero);
         if (s.proc.lv > lv) res.procLv = s.proc.lv;
       }
@@ -1995,9 +2097,11 @@ export function step(s: P1State): DayResult {
     if (!sl.running && (sl.repeat || (sl.left ?? 0) > 0) && sl.sku && st && !st.resting && !craftCheck(s, sl.sku, sl.worker)) {
       consume(s, sl.sku);
       sl.running = true;
-      sl.progress = 0;
+      // 前のロットで余った進み（日の端数）を持ち越す（速さ・段取りの効き目が日単位で消えないように）
+      sl.progress = sl.over ?? 0;
       if (!sl.repeat) sl.left = Math.max(0, (sl.left ?? 0) - batchOf(sl.sku, s));
     }
+    sl.over = 0;
     if (!sl.running || !sl.sku || !st || st.resting) return;
     working.add(st.hero);
     s.util.work += 1;
@@ -2009,6 +2113,7 @@ export function step(s: P1State): DayResult {
       res.crafted.push(sl.sku);
       res.made.push({ slot: slotIdx, sku: sl.sku, n: batchOf(sl.sku, s) });
       sl.running = false;
+      sl.over = Math.min(sl.progress - craftDays(s, sl.sku), craftDays(s, sl.sku) * 0.99);
       sl.progress = 0;
     }
   });
@@ -2019,38 +2124,57 @@ export function step(s: P1State): DayResult {
       if (st.task !== 'transport' || st.resting) continue;
       const mine = s.trips.filter((t) => t.hauler === st.hero);
       if (mine.length) working.add(st.hero);
+      // 疲れていたら新しい便は出さない（出ている便が帰ってきたら休む）
+      if (st.stamina <= st.stats.hp * STAMINA.tired) continue;
       const carts = cartsOf(s);
       if (mine.length >= carts) continue;
       const cap = cartCap(s);
-      for (const shop of shops) {
-        if (s.trips.filter((t) => t.hauler === st.hero).length >= carts) break;
-        const sh = s.shops[shop.uid];
-        const capB = storageCap(shop, s);
-        if (s.trips.some((t) => t.to === shop.uid && t.hauler === st.hero)) continue;
-        const cargo: Partial<Record<Sku, number>> = {};
-        let load = 0;
-        const inbound = (x: Sku) => s.trips.filter((t) => t.to === shop.uid && !t.dropped).reduce((a, t) => a + (t.cargo[x] ?? 0), 0);
-        for (const x of sh.shelves) {
-          if (!x || load >= cap) continue;
-          const room = capB - (sh.storage[x] ?? 0) - inbound(x);
-          const want = Math.min(room, s.stock[x] ?? 0, cap - load);
-          // 定期便の時刻表：お店の裏が半分以上埋まっていても便を出す
-          if (want <= 0 || (!has(s, 'timetable') && (sh.storage[x] ?? 0) + inbound(x) > capB / 2)) continue;
-          cargo[x] = want;
-          s.stock[x] = (s.stock[x] ?? 0) - want;
-          load += want;
-        }
-        if (load > 0) {
-          // 往復の日数：道のりで決まる（遠いお店ほどかかる。物流拠点が近ければそこから）
-          const way = oneWay(s, shop, ws);
-          const days = Math.max(1, (way.days * 2) / speed(st, 'transport', s));
-          s.trips.push({ hauler: st.hero, from: way.from?.uid, to: shop.uid, cargo, left: days, total: days });
-          working.add(st.hero);
+      // 荷車が空いているかぎり便を出す（同じお店へ 2 便目も出せる。お店の裏の空きと「半分ルール」の中で）
+      const order = [...shops];
+      for (let pass = 0, sent = true; sent && pass < carts; pass++) {
+        sent = false;
+        for (const shop of order) {
+          if (s.trips.filter((t) => t.hauler === st.hero).length >= carts) break;
+          const sh = s.shops[shop.uid];
+          const capB = storageCap(shop, s);
+          const cargo: Partial<Record<Sku, number>> = {};
+          let load = 0;
+          const inbound = (x: Sku) => s.trips.filter((t) => t.to === shop.uid && !t.dropped).reduce((a, t) => a + (t.cargo[x] ?? 0), 0);
+          // 便を出すのは、お店の裏が半分以下のとき（定期便の時刻表があれば、半分を超えていても出し、着くまでに棚へ出るぶん＝品出しの数 × 片道の日数も見込んで積む）。
+          // 空きが半便に満たないときは待つ（小さな便で荷車をふさがない）
+          const tt = has(s, 'timetable');
+          const kinds = Math.max(1, sh.shelves.filter((y) => y).length);
+          const ahead = tt ? (displayPerDayOf(s, shop) * oneWay(s, shop, ws).days) / speed(st, 'transport', s) / kinds : 0;
+          const minLoad = Math.min(cap, capB) / 2;
+          for (const x of sh.shelves) {
+            if (!x || load >= cap) continue;
+            const room = Math.floor(capB + ahead) - (sh.storage[x] ?? 0) - inbound(x);
+            const want = Math.min(room, s.stock[x] ?? 0, cap - load);
+            if (want <= 0 || room < minLoad || (!tt && (sh.storage[x] ?? 0) > capB / 2)) continue;
+            cargo[x] = want;
+            s.stock[x] = (s.stock[x] ?? 0) - want;
+            load += want;
+          }
+          if (load > 0) {
+            // 往復の日数：道のりで決まる（遠いお店ほどかかる。物流拠点が近ければそこから）。前の便の日の端数を持ち越す
+            const way = oneWay(s, shop, ws);
+            const days = Math.max(1, (way.days * 2) / speed(st, 'transport', s));
+            s.trips.push({ hauler: st.hero, from: way.from?.uid, to: shop.uid, cargo, left: Math.max(0.01, days - (st.lag ?? 0)), total: days });
+            st.lag = 0;
+            working.add(st.hero);
+            sent = true;
+          }
         }
       }
     }
   }
   for (const t of s.trips) t.left -= 1;
+  // 帰ってきた便：日の端数（早く着いたぶん）を運搬係の次の便に持ち越す
+  for (const t of s.trips) {
+    if (t.left > 0) continue;
+    const h = staffOf(s, t.hauler);
+    if (h) h.lag = Math.min(0.99, (h.lag ?? 0) + Math.max(0, -t.left));
+  }
   // 行きが終わったら荷物を下ろす（帰りは空の荷車）
   for (const t of s.trips.filter((x) => !x.dropped && x.left <= x.total / 2)) {
     t.dropped = true;
@@ -2131,16 +2255,21 @@ export function step(s: P1State): DayResult {
     const sh = s.shops[b.uid];
     const st = sh.staff != null ? staffOf(s, sh.staff) : null;
     if (st && !st.resting) working.add(st.hero);
-    let cap = displayRate(s, b, sh, st && !st.resting ? st : null);
+    // 品出しの端数は次の日に持ち越す（速さ・陳列の什器の効き目が 1 個単位で消えないように。使わなかった日は消える）
+    const rate = displayRate(s, b, sh, st && !st.resting ? st : null);
+    let cap = rate > 0 ? rate + (sh.dcarry ?? 0) : 0;
+    let moved = 0;
     for (const x of sh.shelves) {
-      if (!x || cap <= 0) continue;
+      if (!x || cap < 1) continue;
       const move = Math.min(Math.floor(cap), sh.storage[x] ?? 0, SHOP.shelfCap - (sh.shelf[x] ?? 0));
       if (move > 0) {
         sh.storage[x] = (sh.storage[x] ?? 0) - move;
         sh.shelf[x] = (sh.shelf[x] ?? 0) + move;
         cap -= move;
+        moved += move;
       }
     }
+    sh.dcarry = moved > 0 ? Math.min(0.99, cap - Math.floor(cap)) : 0;
     const open = (st && !st.resting) || sh.part > 0;
     if (open) sh.aw = Math.min(1, (sh.aw ?? 1) + AWARE.perDay);
     const empty = sh.shelves.some((x) => x && (sh.shelf[x] ?? 0) <= 0);
@@ -2195,20 +2324,21 @@ export function step(s: P1State): DayResult {
   // POS レジ：きのう売れた数
   if (!s.holdSales) s.yday = today;
 
-  // スタミナ（休憩室・福利厚生で回復 +50% ずつ）
-  const restRate = STAMINA.rest * (1 + (has(s, 'lounge') ? 0.5 : 0) + (has(s, 'welfare') ? 0.5 : 0));
+  // スタミナ（休憩室・福利厚生で回復 +50% ずつ。減り方は drainOf。SCM の数字の稼働率 uptime と同じ式）
+  const restRate = restRateOf(s);
   for (const st of s.staff) {
     if (st.resting) {
       st.stamina = Math.min(st.stats.hp, st.stamina + restRate);
       if (st.stamina >= st.stats.hp * STAMINA.back) st.resting = false;
     } else if (working.has(st.hero)) {
-      // 職人：休憩所・職人の椅子・5S（減る）、夜間稼働（増える）。店員：営業時間の延長（増える）。シフト制：みんな減る
-      const easy =
-        (st.task === 'craft' ? (invLv(ws, 'breakroom') > 0 ? 0.7 : 1) * (has(s, 'chair') ? 0.7 : 1) * (has(s, 'five_s') ? 0.9 : 1) * (has(s, 'night') ? 1.2 : 1) : 1) *
-        (st.task === 'shop' && has(s, 'hours') ? 1.2 : 1) *
-        (has(s, 'shift') ? 0.8 : 1);
-      st.stamina = Math.max(0, st.stamina - STAMINA.work * easy);
-      if (st.stamina <= st.stats.hp * STAMINA.tired) st.resting = true;
+      st.stamina = Math.max(0, st.stamina - drainOf(s, st));
+      // 調達係・運搬係は、出ている途中では休まず、帰ってから休む（調達係は休むあいだのぶんを、出るときに先に買ってある）
+      const onTrip = (st.task === 'buy' && s.buyTrip?.hero === st.hero) || (st.task === 'transport' && s.trips.some((t) => t.hauler === st.hero));
+      if (st.stamina <= st.stats.hp * STAMINA.tired && !onTrip) st.resting = true;
+    } else if (st.stamina <= st.stats.hp * STAMINA.tired) {
+      // 疲れて帰ってきた（運搬係・調達係）：ここから休む
+      st.resting = true;
+      st.stamina = Math.min(st.stats.hp, st.stamina + restRate);
     } else st.stamina = Math.min(st.stats.hp, st.stamina + restRate / 2);
   }
 
@@ -2701,7 +2831,8 @@ function craftPlan(s: P1State) {
     if (!sl.sku || sl.worker == null) continue;
     const st = staffOf(s, sl.worker);
     if (!st) continue;
-    const lots = (DAYS * speed(st, 'craft', s)) / craftDays(s, sl.sku);
+    // 職人の稼働率（休む日は作業台が止まる）
+    const lots = (DAYS * speed(st, 'craft', s) * uptime(s, st)) / craftDays(s, sl.sku);
     units += lots * batchOf(sl.sku, s);
     for (const [m, q] of Object.entries(recipeOf(sl.sku))) need[m as Mat] = (need[m as Mat] ?? 0) + lots * (q ?? 0);
   }
@@ -2739,15 +2870,29 @@ function potentialOf(s: P1State, mul = 1) {
   const byKey: Record<string, number> = {};
   /** `${uid}:${sku}` → その棚の月の数 */
   const byShelf: Record<string, number> = {};
-  for (const p of PRODUCTS) {
-    const mine = myOffers(s, p.key, false).map((o) => ({ ...o, w: o.w * mul }));
-    if (!mine.length) continue;
-    const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
-    for (let n = 0; n < mine.length; n++) {
-      units += month[n];
-      yen += month[n] * priceAt(s, mine[n].x, mine[n].sh);
-      byKey[p.key] = (byKey[p.key] ?? 0) + month[n];
-      byShelf[`${mine[n].b.uid}:${mine[n].x}`] = (byShelf[`${mine[n].b.uid}:${mine[n].x}`] ?? 0) + month[n];
+  // 店員の稼働率：店員がいる日（in）と休んでいる日（out。アルバイトだけ・いなければ閉店）を、稼働率の平均で混ぜる
+  const clerks = myShops(s)
+    .map((b) => s.shops[b.uid])
+    .filter((sh) => sh?.staff != null && sh.shelves.some((x) => x))
+    .map((sh) => staffOf(s, sh.staff!))
+    .filter((x): x is Staff => !!x);
+  const u = clerks.length ? clerks.reduce((a, st) => a + uptime(s, st), 0) / clerks.length : 1;
+  for (const [away, k] of [
+    [false, u],
+    [true, 1 - u],
+  ] as [boolean, number][]) {
+    if (k <= 0) continue;
+    for (const p of PRODUCTS) {
+      const mine = myOffers(s, p.key, false, away).map((o) => ({ ...o, w: o.w * mul }));
+      if (!mine.length) continue;
+      const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
+      for (let n = 0; n < mine.length; n++) {
+        const v = month[n] * k;
+        units += v;
+        yen += v * priceAt(s, mine[n].x, mine[n].sh);
+        byKey[p.key] = (byKey[p.key] ?? 0) + v;
+        byShelf[`${mine[n].b.uid}:${mine[n].x}`] = (byShelf[`${mine[n].b.uid}:${mine[n].x}`] ?? 0) + v;
+      }
     }
   }
   return { units, yen, byKey, byShelf };
@@ -2761,16 +2906,18 @@ export function salesPotential(s: P1State): number {
  * お店 1 軒が 1 日に棚へ並べられる数（店員の品出し × 速さ ＋ アルバイト）×（陳列の什器 +30%／段）×（品出しの名人 ×1.5）＋ 営業時間の延長 +2。
  * clerk：品出しをする店員（休憩中なら null を渡す）。step の陳列と、販売の段の「お店の処理力」で同じ式
  */
-function displayRate(s: P1State, b: PBuilding, sh: ShopState, clerk: Staff | null): number {
-  const base = (clerk ? SHOP.displayPerDay * speed(clerk, 'shop', s) : 0) + sh.part * SHOP.partTimeDisplay;
-  const open = !!clerk || sh.part > 0;
-  return base * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1) + (has(s, 'hours') && open ? 2 : 0);
+function displayRate(s: P1State, b: PBuilding, sh: ShopState, clerk: Staff | null, u = 1): number {
+  const base = (clerk ? SHOP.displayPerDay * speed(clerk, 'shop', s) * u : 0) + sh.part * SHOP.partTimeDisplay;
+  // 開いている日の割合（アルバイトがいればいつも。店員だけなら稼働率）
+  const open = sh.part > 0 ? 1 : clerk ? u : 0;
+  return base * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1) + (has(s, 'hours') ? 2 * open : 0);
 }
-/** お店 1 軒の 1 日の品出しの数（いつもの体制：店員の休憩は数えない） */
+/** お店 1 軒の 1 日の品出しの数（いつもの体制：店員は稼働率ぶん。uptime） */
 export function displayPerDayOf(s: P1State, b: PBuilding): number {
   const sh = s.shops[b.uid];
   if (!sh) return 0;
-  return displayRate(s, b, sh, sh.staff != null ? staffOf(s, sh.staff) : null);
+  const clerk = sh.staff != null ? staffOf(s, sh.staff) : null;
+  return displayRate(s, b, sh, clerk, clerk ? uptime(s, clerk) : 1);
 }
 /** お店の処理力：商品を並べている自社のお店の「1 日に棚に並べられる数 × 30」の合計（ひと月に売れる数の上限） */
 export function displayCap(s: P1State): number {
@@ -2894,8 +3041,8 @@ export function sellInfo(s: P1State): SellInfo {
   return { potential: pot.units, capacity, perMonth, why, share, satShare, far, known, goods, shops };
 }
 
-/** 打ち手の種類：別の商品・次のお店・売り場の強さ +15%・認知 100%・アルバイト +1・陳列の什器 +1 */
-export type WhatIfKind = 'goods' | 'shop' | 'pull' | 'known' | 'part' | 'fixtures';
+/** 打ち手の種類：別の商品・棚 +1 と別の商品・次のお店・売り場の強さ +15%・認知 100%・アルバイト +1・陳列の什器 +1 */
+export type WhatIfKind = 'goods' | 'shelf' | 'shop' | 'pull' | 'known' | 'part' | 'fixtures';
 export interface WhatIf {
   kind: WhatIfKind;
   /** 販売の数字（需要から取れる数と処理力の小さいほう）の増え方（個／月）と、売上の増え方（G／月） */
@@ -2910,10 +3057,12 @@ export interface WhatIf {
   /** shop：建てるマス（人流解析の区画なら hot） */
   at?: [number, number];
   hot?: boolean;
+  /** shelf：設備投資の値段 */
+  cost?: number;
 }
 
 /** 販売の数字と売上（処理力で頭打ちなら、その割合で売上も縮める） */
-function sellNow(s: P1State, mul = 1): { units: number; yen: number } {
+export function sellNow(s: P1State, mul = 1): { units: number; yen: number } {
   const pot = potentialOf(s, mul);
   const cap = displayCap(s);
   const units = Math.min(pot.units, cap);
@@ -2955,6 +3104,11 @@ export function sellWhatIf(s: P1State): WhatIf[] {
     const replace = shelves[idx];
     shelves[idx] = x;
     add({ kind: 'goods', key: rec, uid: strong.uid, replace }, sellNow(withShops(s, { [strong.uid]: { ...sh, shelves } })));
+    // 空き棚が無ければ：棚を増やして（設備投資）並べる。入れ替えずに足すので、いまの商品の売上も残る
+    if (replace && investCost(strong, 'shelves') != null) {
+      const nb: PBuilding = { ...strong, inv: { ...strong.inv, shelves: invLv(strong, 'shelves') + 1 } };
+      add({ kind: 'shelf', key: rec, uid: strong.uid, cost: investCost(strong, 'shelves')! }, sellNow({ ...withShops(s, { [strong.uid]: { ...sh, shelves: [...sh.shelves, x] } }), buildings: s.buildings.map((b) => (b.uid === strong.uid ? nb : b)) }));
+    }
   }
 
   // 次のお店（よろず屋）：置ける区画のうち、いちばん伸びる所。並べるのは需要の大きい商品、売り場はいちばん強いお店と同じ体制（慣れたあと）
@@ -3005,32 +3159,85 @@ export function sellWhatIf(s: P1State): WhatIf[] {
   return out.sort((a, b) => b.units - a.units || b.yen - a.yen);
 }
 
-export function stageCaps(s: P1State): Record<Stage, StageCap> {
+/**
+ * 1 便あたりに運べる数と、運搬係 1 人が 1 往復のあいだに運べる数（荷車の数 × 1 便）、お店ごとの受け入れ（お店の裏に入る量）。
+ * 1 便はお店の裏（storageCap）より多く積めない（定期便の時刻表があれば、着くまでに棚へ出るぶんを見込んで積める）。
+ * docs/ISLAND_PHASE1.md「SCM ダッシュボード」の ③ 物流
+ */
+export function haulLoad(s: P1State): { perTrip: number; perCycle: number; shops: { b: PBuilding; q: number }[] } {
+  const L = cartCap(s);
+  const on = myShops(s).filter((b) => s.shops[b.uid]?.shelves.some((x) => x));
+  const list = on.length ? on : myShops(s);
+  if (!list.length) return { perTrip: L, perCycle: L * cartsOf(s), shops: [] };
+  const tt = has(s, 'timetable');
+  // お店の裏に入る量（運んでいる途中の荷物も含めて）。定期便のぶん（着くまでに棚へ出る量）は stageCaps で足す
+  const shops = list.map((b) => ({ b, q: storageCap(b, s) }));
+  // 定期便の時刻表があれば、着くまでに売れるぶんも見込んで積む（1 便はお店の裏より多くてもよい）
+  const perTrip = tt ? L : Math.min(L, Math.max(...list.map((b) => storageCap(b, s))));
+  return { perTrip, perCycle: cartsOf(s) * perTrip, shops };
+}
+
+/**
+ * 調達係 1 人がひと月に運べる素材の数（往復の回数 × 1 往復の量）。1 往復の量は工房の置き場所で頭打ち
+ * （出るとき、前の往復で届いた素材がまだ置き場所にあるので、(置き場所 − 使わない素材 − 出荷待ちの商品) の半分ほど）
+ */
+export function buyTripMonth(s: P1State, st: Staff): number {
+  const days = buyDays(s, st);
+  if (!days) return 0;
+  const cap = poolCap(s);
+  const used = new Set(procMats(s).map((o) => o.m));
+  const dead = (Object.entries(s.mats) as [Mat, number][]).reduce((a, [m, n]) => a + (used.has(m) ? 0 : n ?? 0), 0);
+  const perTrip = Math.max(0, (cap - dead - Math.min(cap / 2, cartCap(s))) / 2);
+  // 1 往復の量が置き場所で頭打ちのときは、休む前に休むあいだのぶんを先に買っておけないので、休みのぶん回数が減る（稼働率）
+  return (uptime(s, st) * DAYS * perTrip) / days;
+}
+
+/** exact：数字を丸めない（監査・見込みの比べ用）。noSell：④ 販売を計算しない（見込みの比べで、ほかの段だけ要るとき） */
+export function stageCaps(s: P1State, exact = false, noSell = false): Record<Stage, StageCap> {
+  const R = (v: number) => (exact ? v : Math.round(v));
   const plan = craftPlan(s);
-  // 調達：調達係の月の量で、作業台の要る素材をどれだけまかなえるか（調達係がいなければ手元の素材だけ）
-  const buyer = s.staff.some((x) => x.task === 'buy' && !x.resting);
+  // 調達：調達係の月の量で、作業台の要る素材をどれだけまかなえるか（調達係がいなければ手元の素材だけ）。
+  // 調達係が休む日は買い付けに出ない（稼働率）・月の調達の上限（procCap）・1 往復で運べる量（置き場所）で頭打ち
+  const buyer = s.staff.find((x) => x.task === 'buy') ?? null;
   let ratio = Infinity;
+  let f = 1;
+  if (buyer) {
+    const total = procMats(s).reduce((a, o) => a + procQty(s, o.m), 0);
+    // 休んだ日のぶんは次の買い付けで取り戻すので、稼働率は 1 往復で運べる量（buyTripMonth）の回数にだけ効く
+    if (total > 0) f = Math.min(1, procCap(s) / total, buyTripMonth(s, buyer) / total);
+  }
   for (const [m, q] of Object.entries(plan.need)) {
-    const have = buyer ? procQty(s, m as Mat) : s.mats[m as Mat] ?? 0;
+    const have = buyer ? (hasRoute(s, m as Mat) && procMats(s).some((o) => o.m === m) ? procQty(s, m as Mat) * f : 0) : s.mats[m as Mat] ?? 0;
     ratio = Math.min(ratio, (q ?? 0) > 0 ? have / (q ?? 1) : Infinity);
   }
   if (!Number.isFinite(ratio)) ratio = plan.units > 0 ? 1 : 0;
   // 調達係がいないときは手元の素材ぶんだけ（あと 3 日ぶんを切ったら止まっている扱い）
-  const buy = { perMonth: Math.round(plan.units * ratio), stopped: !buyer && ratio * DAYS < 3 };
-  const craft = { perMonth: Math.round(plan.units), stopped: !s.slots.some((sl) => sl.worker != null && sl.sku) };
+  const buy = { perMonth: R(plan.units * ratio), stopped: !buyer && ratio * DAYS < 3 };
+  const craft = { perMonth: R(plan.units), stopped: !s.slots.some((sl) => sl.worker != null && sl.sku) };
+  // 物流：運搬係ごとに（稼働率 × ひと月の往復の回数 × 1 往復で運べる数）
   const haulers = s.staff.filter((x) => x.task === 'transport');
-  const carts = cartsOf(s);
-  const cap = cartCap(s);
-  const haul = { perMonth: Math.round(haulers.reduce((a, st) => a + (haulDays(s, st) ? (DAYS / haulDays(s, st)) * carts * cap : 0), 0)), stopped: !haulers.length };
-  // 販売：需要から取れる数（salesPotential）と、お店の処理力（品出しの数 × 30 日。displayCap）の小さいほう
-  const demand = salesPotential(s);
-  const capacity = displayCap(s);
+  const load = haulLoad(s);
+  // 荷車：運搬係ごとに（稼働率 × ひと月の往復の回数 × 荷車の数 × 1 便）。運搬係は便が帰ってきてから休む
+  const carts = haulers.reduce((a, st) => {
+    const round = haulDays(s, st);
+    return round ? a + ((uptime(s, st) * DAYS) / round) * load.perCycle : a;
+  }, 0);
+  // お店の受け入れ：運んでいる途中の荷物は、下ろすまで（片道のあいだ）お店の裏の空きを取っておく。お店ごとに（取っておける量 ÷ 片道の日数）
+  const sp = haulers.length ? haulers.reduce((a, st) => a + speed(st, 'transport', s), 0) / haulers.length : 1;
+  const pipe = load.shops.reduce((a, x) => {
+    const ow = Math.max(0.5, oneWay(s, x.b).days / sp);
+    return a + ((x.q + (has(s, 'timetable') ? displayPerDayOf(s, x.b) * ow : 0)) * DAYS) / ow;
+  }, 0);
+  const haul = { perMonth: R(Math.min(carts, pipe)), stopped: !haulers.length };
+  // 販売：需要から取れる数（salesPotential）と、お店の処理力（品出しの数 × 30 日。displayCap）の小さいほう。どちらも店員の稼働率込み
+  const demand = noSell ? 0 : salesPotential(s);
+  const capacity = noSell ? 0 : displayCap(s);
   const sell: StageCap = {
-    perMonth: Math.round(Math.min(demand, capacity)),
+    perMonth: R(Math.min(demand, capacity)),
     stopped: !myShops(s).some((b) => s.shops[b.uid].shelves.some((x) => x) && (s.shops[b.uid].staff != null || s.shops[b.uid].part > 0)),
     why: capacity < demand ? 'capacity' : 'demand',
-    demand: Math.round(demand),
-    capacity: Math.round(capacity),
+    demand: R(demand),
+    capacity: R(capacity),
   };
   return { buy, craft, haul, sell };
 }
@@ -3052,6 +3259,145 @@ export function bottleneck(c: Record<Stage, StageCap>): Stage {
  * （手持ちの素材で足りて買わなかった月は「調達 0」になるが、詰まりではないため）
  */
 export const jamOf = (s: P1State): Stage => bottleneck(stageCaps(s));
+
+/**
+ * 次に細くなる段：いまの詰まりの段だけ「ひと月に流せる数」を +30% にして（止まっている段は動かしたとして）、もう一度詰まりを見る。
+ * same：30% 太くしても、まだ同じ段が詰まり。docs/ISLAND_PHASE1.md「次に細くなる段」
+ */
+export function nextJam(s: P1State, caps = stageCaps(s)): { bn: Stage; next: Stage; same: boolean; n: number } {
+  const bn = bottleneck(caps);
+  const c2 = { ...caps, [bn]: { ...caps[bn] } } as Record<Stage, StageCap>;
+  const others = (['buy', 'craft', 'haul', 'sell'] as Stage[]).filter((k) => k !== bn);
+  if (c2[bn].stopped) {
+    c2[bn].stopped = false;
+    c2[bn].perMonth = Infinity;
+  } else c2[bn].perMonth = caps[bn].perMonth * 1.3;
+  const next = bottleneck(c2);
+  void others;
+  return { bn, next, same: next === bn, n: Math.round(next === bn ? caps[bn].perMonth : caps[next].perMonth) };
+}
+
+/** 段ごとの打ち手（④ 販売は sellWhatIf。ほかの段は、設備投資の次の段・取れるスキル・人を置く） */
+export type StageMove =
+  | { kind: 'invest'; id: string; uid: number; cost: number }
+  | { kind: 'skill'; id: string; cost: number }
+  | { kind: 'person'; task: Task; hero: number; hire: boolean; replace: number | null; target: number | string | null; cost: number }
+  | { kind: 'build'; id: string; cost: number }
+  | { kind: 'sell'; w: WhatIf };
+export interface StageIf {
+  stage: Stage;
+  move: StageMove;
+  /** その段の数字（ひと月に流せる数）の増え方 */
+  units: number;
+  /** 効き目が +1 個以上 */
+  ok: boolean;
+}
+
+/** 打ち手の見込み用の写し（元の状態は書き換えない。帳簿・ランドの写しなど重いものは共有するが、触らない） */
+function scratch(s: P1State): P1State {
+  return {
+    ...s,
+    skills: [...s.skills],
+    routes: [...s.routes],
+    buildings: s.buildings.map((b) => ({ ...b, inv: b.inv ? { ...b.inv } : undefined })),
+    slots: s.slots.map((x) => ({ ...x })),
+    staff: s.staff.map((x) => ({ ...x, stats: { ...x.stats } })),
+    shops: Object.fromEntries(Object.entries(s.shops).map(([k, sh]) => [k, { ...sh, shelves: [...sh.shelves] }])),
+    hirePool: [...s.hirePool],
+    proc: { ...s.proc, qty: { ...s.proc.qty }, items: [...s.proc.items], extra: [...s.proc.extra], carry: { ...s.proc.carry } },
+    flags: { ...s.flags },
+  };
+}
+
+/** その仕事に置ける人：手の空いている人（いちばん適性の高い人）、いなければ雇える候補のいちばん適性の高い人 */
+function bestFor(s: P1State, task: Task, min = 0): { hero: number; hire: boolean; apt: number } | null {
+  const idle = s.staff.filter((x) => x.task == null).map((x) => ({ hero: x.hero, hire: false, apt: aptOf(s, x, task) }));
+  const pool = has(s, 'hire') ? s.hirePool.map((id) => ({ hero: id, hire: true, apt: aptitude(heroStats(id), task) + aptBonus(s, task) })) : [];
+  const all = [...idle, ...pool].filter((x) => x.apt > min).sort((a, b) => b.apt - a.apt || Number(a.hire) - Number(b.hire));
+  return all[0] ?? null;
+}
+function putPerson(c: P1State, p: { hero: number; hire: boolean }, task: Task, target: number | string | null, replace: number | null) {
+  if (p.hire) hire(c, p.hero);
+  if (replace != null) {
+    const old = staffOf(c, replace);
+    if (old) unassign(c, old);
+  }
+  assign(c, p.hero, task, target);
+  if (task === 'craft' && typeof target === 'number') {
+    const sl = c.slots[target];
+    sl.sku ??= c.slots.find((x) => x.sku)?.sku ?? null;
+    sl.repeat = true;
+  }
+}
+
+/**
+ * 段ごとの打ち手の見込み（効き目の大きい順）：設備投資の次の段・取れるスキル・人を置く を写しに当てて、stageCaps を計算し直す。
+ * ④ 販売は sellWhatIf（直前の販売の内訳と同じ）。純粋関数（s は書き換えない）。docs/ISLAND_PHASE1.md「見込みつきの打ち手」
+ */
+export function whatIf(s: P1State, stage: Stage): StageIf[] {
+  if (stage === 'sell') return sellWhatIf(s).map((w) => ({ stage, move: { kind: 'sell', w } as StageMove, units: w.units, ok: w.ok }));
+  const base = stageCaps(s, true, true)[stage];
+  const b0 = base.stopped ? 0 : base.perMonth;
+  const out: StageIf[] = [];
+  const tryMove = (move: StageMove, apply: (c: P1State) => void) => {
+    const c = scratch(s);
+    apply(c);
+    const a = stageCaps(c, true, true)[stage];
+    const units = (a.stopped ? 0 : a.perMonth) - b0;
+    if (units > 0.05) out.push({ stage, move, units, ok: units >= 1 });
+  };
+  // 設備投資：その段に効く建物ごとに、段がいちばん低いものの次の段（作業台は、増えた台に人を置く）
+  for (const x of Object.values(INVEST)) {
+    if (x.id === 'shelves') continue;
+    const bs = (x.kind === 'workshop' ? [myWorkshop(s)] : x.kind === 'shop' ? myShops(s) : myWarehouses(s)).filter((b): b is PBuilding => !!b && investCost(b, x.id) != null);
+    const b = bs.sort((p, q) => invLv(p, x.id) - invLv(q, x.id))[0];
+    if (!b) continue;
+    tryMove({ kind: 'invest', id: x.id, uid: b.uid, cost: investCost(b, x.id)! }, (c) => {
+      const cb = c.buildings.find((y) => y.uid === b.uid)!;
+      cb.inv = { ...cb.inv, [x.id]: invLv(cb, x.id) + 1 };
+      if (x.kind === 'workshop') syncSlots(c);
+      if (x.id === 'bench') {
+        const p = bestFor(c, 'craft');
+        if (p) putPerson(c, p, 'craft', c.slots.length - 1, null);
+      }
+    });
+  }
+  // 建物：倉庫（置き場所）。置く場所は問わない（工房の物置と同じに数える）
+  if (myWorkshop(s) && canBuild(s, 'warehouse') !== 'locked')
+    tryMove({ kind: 'build', id: 'warehouse', cost: P1B.warehouse.cost }, (c) => {
+      c.buildings.push({ uid: -1, id: 'warehouse', i: -1, j: -1, dir: 'rd', left: 0, owner: 'me' });
+    });
+  // スキル：いま取れるもの（資金だけが足りないものも。技・✨・外周の条件が足りないものは除く）
+  for (const k of SKILLS) {
+    if (k.train || k.dust) continue;
+    const e = skillLock(s, k);
+    if (e !== null && e !== 'money') continue;
+    tryMove({ kind: 'skill', id: k.id, cost: k.cost }, (c) => gainSkill(c, k.id));
+  }
+  // 人を置く：空いた作業台・運搬係をもう 1 人・調達係（いなければ置く、いれば能力の高い人に替える）
+  const TASK: Record<Exclude<Stage, 'sell'>, Task> = { buy: 'buy', craft: 'craft', haul: 'transport' };
+  const task = TASK[stage];
+  if (stage === 'craft') {
+    const free = s.slots.findIndex((sl) => sl.worker == null);
+    const p = bestFor(s, 'craft');
+    if (free >= 0 && p) tryMove({ kind: 'person', task, hero: p.hero, hire: p.hire, replace: null, target: free, cost: p.hire ? wageOf(p.hero) : 0 }, (c) => putPerson(c, p, 'craft', free, null));
+    // いちばん遅い職人を、もっと得意な人に替える
+    const weak = s.slots
+      .map((sl, k) => ({ k, st: sl.worker != null ? staffOf(s, sl.worker) : null }))
+      .filter((x) => x.st && x.st.task === 'craft')
+      .sort((a, b) => aptOf(s, a.st!, 'craft') - aptOf(s, b.st!, 'craft'))[0];
+    const better = weak ? bestFor(s, 'craft', aptOf(s, weak.st!, 'craft')) : null;
+    if (weak && better) tryMove({ kind: 'person', task, hero: better.hero, hire: better.hire, replace: weak.st!.hero, target: weak.k, cost: better.hire ? wageOf(better.hero) : 0 }, (c) => putPerson(c, better, 'craft', weak.k, weak.st!.hero));
+  } else if (stage === 'haul') {
+    const p = bestFor(s, 'transport');
+    if (p && myShops(s).length) tryMove({ kind: 'person', task, hero: p.hero, hire: p.hire, replace: null, target: null, cost: p.hire ? wageOf(p.hero) : 0 }, (c) => putPerson(c, p, 'transport', null, null));
+  } else {
+    const cur = s.staff.find((x) => x.task === 'buy') ?? null;
+    const p = bestFor(s, 'buy', cur ? aptOf(s, cur, 'buy') : 0);
+    if (p) tryMove({ kind: 'person', task, hero: p.hero, hire: p.hire, replace: cur?.hero ?? null, target: null, cost: p.hire ? wageOf(p.hero) : 0 }, (c) => putPerson(c, p, 'buy', null, cur?.hero ?? null));
+  }
+  return out.sort((a, b) => b.units - a.units);
+}
 
 /** 素材のルートが使えるか：会社で開いたルート、またはいまのセクタの特産で最初から開いているルート */
 export function hasRoute(s: Pick<P1State, 'routes' | 'sector'>, m: Mat): boolean {

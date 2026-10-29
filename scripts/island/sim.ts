@@ -54,6 +54,7 @@ import {
   siteInfo,
   stageCaps,
   bottleneck,
+  whatIf,
   startCraft,
   step,
   toggleProcItem,
@@ -432,7 +433,9 @@ export function policy(s: P1State, c: Ctx): Action[] {
     if (hero == null) {
       const free = people.filter((x) => !used.has(x.hero) && craftOk(s, x.hero, w)).sort((a, b) => aptitude(b.stats, w.apt) - aptitude(a.stats, w.apt));
       // ほかの担当からは引き抜かない（いま担当のない人だけ）。アンコモンの職人だけは引き抜く
-      const idle = free.filter((x) => x.task == null || (x.task === 'side' && !rescue) || (w.min && x.task !== 'craft'));
+      // （運搬係・調達係が 1 人しかいないときは引き抜かない。抜くと ③ 物流・① 調達が止まり、売上が 0 になって雇い直せなくなる）
+      const only = (task: Task) => crew(s).filter((y) => y.task === task).length <= 1;
+      const idle = free.filter((x) => x.task == null || (x.task === 'side' && !rescue) || (w.min && x.task !== 'craft' && !((x.task === 'transport' || x.task === 'buy') && only(x.task))));
       hero = idle[0]?.hero ?? null;
     }
     if (hero == null) {
@@ -660,9 +663,11 @@ export function policy(s: P1State, c: Ctx): Action[] {
       }
       let cap = budget * 0.6;
       let n = 0;
+      // v6（通常）：SCM ダッシュボードの「上げるには」と同じ見込み（whatIf）の大きい順に、詰まりの段の手を 2 つまで
+      if (c.policy === 'normal') n = byWhatIf(s, c, bn, cap, { take, spend, budget: () => budget, reserve, acts, hired: () => hired, setHired: () => (hired = true), buildShop: () => buildShop(shopKind()) });
       // 詰まっている段の枝から。取れるものが無ければ、次に細い段の枝から
       const caps = stageCaps(s);
-      const order = [bn, ...(['buy', 'craft', 'haul', 'sell'] as Stage[]).filter((k) => k !== bn).sort((a, b) => caps[a].perMonth - caps[b].perMonth)];
+      const order = n > 0 ? [] : [bn, ...(['buy', 'craft', 'haul', 'sell'] as Stage[]).filter((k) => k !== bn).sort((a, b) => caps[a].perMonth - caps[b].perMonth)];
       for (const st of order) {
         for (const id of BRANCH_ORDER[st]) {
           if (n >= 2) break;
@@ -726,6 +731,110 @@ export function policy(s: P1State, c: Ctx): Action[] {
   return acts;
 }
 
+/**
+ * v6（通常の方針）：詰まりの段の打ち手を、見込み（whatIf：+N 個／月）の大きい順に、月の予算（cap）の中で 2 つまで。
+ * 設備投資・スキル・人を置く・倉庫・④ 販売の打ち手（お店・アルバイト・什器・棚・宣伝・売り場の強さ）。取った数を返す
+ */
+interface WhatIfHooks {
+  take: (id: string, keep?: number) => boolean;
+  spend: (v: number) => number;
+  budget: () => number;
+  reserve: number;
+  acts: Action[];
+  hired: () => boolean;
+  setHired: () => void;
+  buildShop: () => boolean;
+}
+function byWhatIf(s: P1State, c: Ctx, bn: Stage, cap: number, k: WhatIfHooks): number {
+  let n = 0;
+  // 1 個あたりの粗利（先月の売上 ÷ 売れた数 − 素材代）。月々の費用（維持費・給料・アルバイト代）が、増える粗利より大きい手は取らない
+  const r = c.monthEnd;
+  const price = r && r.flow && r.flow.sold > 0 ? r.revenue / r.flow.sold : 1000;
+  const xs = s.slots.map((x) => x.sku).filter((x): x is Sku => !!x);
+  const margin = price - (xs.length ? xs.reduce((a, x) => a + unitCost(s, x), 0) / xs.length : 0);
+  const monthly = (w: (typeof list)[number]): number => {
+    const m = w.move;
+    if (m.kind === 'person') return m.hire ? m.cost : 0;
+    if (m.kind === 'build') return P1B[m.id]?.upkeep ?? 0;
+    if (m.kind === 'sell' && m.w.kind === 'shop') return (P1B.general_store.upkeep ?? 0) + 900 + 300;
+    if (m.kind === 'sell' && m.w.kind === 'part') return 900;
+    return 0;
+  };
+  const list = whatIf(s, bn);
+  for (const w of list) {
+    if (n >= 2) break;
+    if (!w.ok || w.units * margin <= monthly(w)) continue;
+    const m = w.move;
+    if (m.kind === 'invest') {
+      if (c.ban.has(`@${m.id}`) || m.cost > cap || k.budget() < m.cost + k.reserve / 2) continue;
+      k.spend(m.cost);
+      cap -= m.cost;
+      const uid = m.uid;
+      const id = m.id;
+      k.acts.push({ kind: 'invest', run: () => invest(s, uid, id) });
+      n++;
+    } else if (m.kind === 'skill') {
+      if (SKILL[m.id].cost > cap || !k.take(m.id, 0)) continue;
+      cap -= SKILL[m.id].cost;
+      n++;
+    } else if (m.kind === 'person') {
+      if (m.hire && (k.hired() || k.budget() < 3000 + k.reserve / 2)) continue;
+      const hero = m.hero;
+      const task = m.task;
+      const target = m.target;
+      if (m.hire) {
+        k.setHired();
+        k.acts.push({ kind: 'hire', run: () => hire(s, hero) });
+      }
+      if (m.replace != null) {
+        const old = m.replace;
+        k.acts.push({ kind: 'assign', run: () => assign(s, old, null) });
+      }
+      k.acts.push({ kind: 'assign', run: () => assign(s, hero, task, target) });
+      n++;
+    } else if (m.kind === 'build') {
+      if (m.cost > cap || k.budget() < m.cost + k.reserve) continue;
+      const lot = pickLot(s, m.id, false);
+      if (!lot) continue;
+      k.spend(m.cost);
+      cap -= m.cost;
+      const id = m.id;
+      k.acts.push({ kind: 'build', run: () => build(s, id, ...lot) });
+      n++;
+    } else {
+      const x = m.w;
+      const b = x.uid != null ? s.buildings.find((y) => y.uid === x.uid) : undefined;
+      if (x.kind === 'shop') {
+        if (c.shopsThisMonth === 0 && k.buildShop()) n++;
+      } else if (x.kind === 'part' && b) {
+        const uid = b.uid;
+        k.acts.push({ kind: 'part', run: () => setPart(s, uid, s.shops[uid].part + 1) });
+        n++;
+      } else if ((x.kind === 'fixtures' || x.kind === 'shelf') && b) {
+        const id = x.kind === 'shelf' ? 'shelves' : 'fixtures';
+        const cost = investCost(b, id);
+        if (cost == null || c.ban.has(`@${id}`) || cost > cap || k.budget() < cost + k.reserve / 2) continue;
+        k.spend(cost);
+        cap -= cost;
+        const uid = b.uid;
+        k.acts.push({ kind: 'invest', run: () => invest(s, uid, id) });
+        c.lineupDirty = true;
+        n++;
+      } else if (x.kind === 'pull') {
+        if (['host', 'b_sign', 'concierge', 'pos', 'flow'].some((id) => SKILL[id].cost <= cap && k.take(id, 0))) n++;
+      } else if (x.kind === 'known') {
+        const ad = ADS.find((a) => a.id === 'poster')!;
+        if ((s.ads.poster ?? 0) > 0 || k.budget() < ad.cost + k.reserve) continue;
+        k.spend(ad.cost);
+        k.acts.push({ kind: 'ad', run: () => runAd(s, 'poster') });
+        n++;
+      }
+      // goods（別の商品）は、作るものの決め直し（chooseLineup）にまかせる
+    }
+  }
+  return n;
+}
+
 function hireU(s: P1State, acts: Action[], done: () => void) {
   const pick = [...s.hirePool].filter((id) => aptitude(heroStatsOf(id), 'craft') >= UNCOMMON.minCraft).sort((a, b) => aptitude(heroStatsOf(b), 'craft') - aptitude(heroStatsOf(a), 'craft'))[0];
   if (pick == null) return;
@@ -786,6 +895,8 @@ export interface RunOpts {
   ban?: string[];
   /** 最初のセクタで 制覇したら止める */
   onlyFirst?: boolean;
+  /** 月の締めごとに呼ぶ（調べもの用） */
+  onMonth?: (s: P1State, sector: string, month: number) => void;
 }
 
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
@@ -840,9 +951,14 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
     if (p === 'rta' && myShops(s).length) c.lastBn = readBn(s);
     if (d.report) {
       const r = d.report;
+      if (process.env.SIM_DEBUG) {
+        const cc = stageCaps(s);
+        console.log(`m${r.month} rank${r.rank} rev${Math.round(r.revenue / 1000)}k flow ${JSON.stringify(r.flow)} caps ${cc.buy.perMonth}/${cc.craft.perMonth}/${cc.haul.perMonth}/${cc.sell.perMonth} shops ${myShops(s).length} slots ${s.slots.map((x) => x.sku + '@' + x.worker).join(',')} staff ${s.staff.map((x) => x.task).join(',')} money ${Math.round(s.money)} skills ${s.skills.length}`);
+      }
       cur.pause++;
       if (cur.topDay == null) cur.pauseTop++;
       cur.log.push({ m: r.month, rank: r.rank, rev: r.revenue, top: Math.max(...r.area.filter((x) => !x.me).map((x) => x.sales)), money: Math.round(s.money), bn: r.bottleneck, read: readBn(s) });
+      o.onMonth?.(s, cur.id, r.month);
       c.monthEnd = r;
       if (p !== 'rta') c.lastBn = readBn(s);
       c.shopsThisMonth = 0;
