@@ -1824,6 +1824,18 @@ button.isl-ext-card {
   font-weight: 700;
   line-height: 1.35;
 }
+.isl-scm-next {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--isl-gold);
+  border-radius: 6px;
+  background: rgba(15, 22, 38, 0.45);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.isl-scm-next.is-same {
+  border-left-color: var(--isl-bad);
+}
 .isl-scm-ups {
   display: grid;
   gap: 4px;
@@ -2142,6 +2154,10 @@ button.isl-ext-card {
   }
   .isl-scm-how p {
     font-size: 12px;
+  }
+  .isl-scm-next {
+    padding: 4px 8px;
+    font-size: 11px;
   }
 }
 

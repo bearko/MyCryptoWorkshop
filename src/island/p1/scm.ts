@@ -6,12 +6,12 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
-import { INVEST, MAT_KEYS, MATS, MARKET, P1B, PRODUCT, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
-import { invest, investCost, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, sellInfo, sellWhatIf, speed, stageCaps, staffOf, storageCap, assign, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type WhatIf } from './model';
+import { INVEST, MAT_KEYS, MATS, MARKET, PRODUCT, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
+import { has, invest, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, learn, matDays, monthRevenue, myShops, myWorkshop, nextJam, poolCap, poolFree, poolUsed, sellInfo, speed, stageCaps, staffOf, storageCap, assign, whatIf, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type StageIf, type WhatIf } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
-import { after, mineTip, open, openAds, openBuy, openData, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
+import { after, mineSay, mineTip, open, openAds, openBuy, openData, openHire, openShop, openStaff, openWorkshop, SHELF_TIP, type Ctx } from './screens';
 import { openSkills } from './tree';
-import { bar, btn, h, heroIcon, matIcon, money, rich, skuIcon, skuName } from './ui';
+import { bar, btn, h, heroIcon, heroName, matIcon, money, rich, skuIcon, skuName } from './ui';
 
 type Lamp = 'ok' | 'warn' | 'stop';
 const LAMP_NAME: Record<Lamp, string> = { ok: t('順調', 'Running'), warn: t('注意', 'Watch'), stop: t('停止', 'Stopped') };
@@ -32,19 +32,6 @@ const canNow = (s: P1State, id: string) => {
 /** まだ取れるスキル（先に要るものを取ってあるもの）を、その段の系統から 2 つ */
 function nextSkills(s: P1State, branch: string) {
   return SKILLS.filter((k) => k.branch === branch && canNow(s, k.id)).slice(0, 2);
-}
-
-/** その段を太くする設備投資（建物ごと）：段 → 設備の id（上から順に、まだ付けられるものを 2 つ） */
-const STAGE_INVEST: Record<Stage, string[]> = { buy: ['stockroom'], craft: ['bench', 'tools'], haul: ['carts', 'truck'], sell: ['shelves', 'staffroom'] };
-function nextInvests(s: P1State, k: Stage): { b: PBuilding; id: string; cost: number }[] {
-  const out: { b: PBuilding; id: string; cost: number }[] = [];
-  for (const id of STAGE_INVEST[k]) {
-    // 付けられる建物のうち、段がいちばん低いもの（お店は棚の少ないお店から）
-    const bs = s.buildings.filter((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === INVEST[id].kind && investCost(b, id) != null);
-    const b = bs.sort((x, y) => (x.inv?.[id] ?? 0) - (y.inv?.[id] ?? 0))[0];
-    if (b) out.push({ b, id, cost: investCost(b, id)! });
-  }
-  return out.slice(0, 2);
 }
 
 const ORDER: Stage[] = ['buy', 'craft', 'haul', 'sell'];
@@ -85,52 +72,74 @@ interface Up {
   short?: boolean;
 }
 
-/** その段の数字を上げる手（2 つまで）。設備投資はその場で導入（チュートリアル中は出さない）、ほかは該当の画面へ。
- * ④ 販売は決め打ちをやめ、打ち手ごとの見込み（sellWhatIf）の上位 2 つ（sell） */
-function upsOf(ctx: Ctx, s: P1State, k: Stage, sell: Up[] = []): Up[] {
-  const out: Up[] = [];
-  // 取れるものだけ（先に要るもの・外周・エンブレムが足りないものは出さない）。label が無ければパネルの名前
-  const skill = (id: string, label?: string): Up | null => (canNow(s, id) ? { label: label ?? SKILL[id].name, sub: t('スキル', 'Skill'), go: () => openSkills(ctx, id) } : null);
-  const staff = (label: string): Up => ({ label, sub: t('配置', 'Staff'), go: () => openStaff(ctx) });
-  const iv = !ctx.step?.() ? nextInvests(s, k)[0] : undefined;
-  const ivUp: Up | null = iv
-    ? {
-        label: INVEST[iv.id].name,
-        sub: s.money < iv.cost ? t(`あと ${money(iv.cost - s.money)}`, `${money(iv.cost - s.money)} short`) : t(`設備投資 ${money(iv.cost)}`, `Invest ${money(iv.cost)}`),
+/** 段ごとの「人を置く」の名前 */
+const PERSON_LABEL: Record<Exclude<Stage, 'sell'>, string> = {
+  buy: t('調達係を置く', 'Assign a buyer'),
+  craft: t('空いた作業台に職人を置く', 'Staff the free bench'),
+  haul: t('運搬係をもう 1 人', 'One more hauler'),
+};
+/**
+ * 段ごとの打ち手（whatIf）1 つを、ボタンに。見込み（+N 個／月）を先に出す。
+ * 設備投資はその場で導入（チュートリアル中は出さない）、スキル・人はその画面へ。④ 販売は販売の内訳の打ち手と同じ
+ */
+export function moveUp(ctx: Ctx, s: P1State, w: StageIf): Up {
+  const gain = t(`+${Math.round(w.units)} 個／月`, `+${Math.round(w.units)} / mo`);
+  const m = w.move;
+  switch (m.kind) {
+    case 'invest': {
+      const b = s.buildings.find((x) => x.uid === m.uid);
+      const short = s.money < m.cost;
+      return {
+        label: m.id === 'bench' ? t(`${INVEST[m.id].name}（職人つき）`, `${INVEST[m.id].name} (staffed)`) : INVEST[m.id].name,
+        sub: short ? t(`${gain}・あと ${money(m.cost - s.money)}`, `${gain} · ${money(m.cost - s.money)} short`) : t(`${gain}・設備投資 ${money(m.cost)}`, `${gain} · invest ${money(m.cost)}`),
         buy: true,
-        short: s.money < iv.cost,
+        short,
         go: () => {
-          const e = invest(s, iv.b.uid, iv.id);
+          const e = invest(s, m.uid, m.id);
           if (e === 'money') {
             ctx.sfx?.('error');
             ctx.toast(t('資金が足りません', 'Not enough funds'));
           } else if (!e) {
             ctx.sfx?.('spend');
-            ctx.toast(t(`「${INVEST[iv.id].name}」を導入しました（${DEF[iv.b.id].name}）`, `Installed: ${INVEST[iv.id].name} (${DEF[iv.b.id].name})`));
+            ctx.toast(t(`「${INVEST[m.id].name}」を導入しました（${b ? DEF[b.id].name : ''}）`, `Installed: ${INVEST[m.id].name} (${b ? DEF[b.id].name : ''})`));
           }
           after(ctx);
+          // 作業台を増やしたら、人を置く画面へ
+          if (!e && m.id === 'bench') openWorkshop(ctx);
         },
-      }
-    : null;
-  const push = (...xs: (Up | null)[]) => {
-    for (const x of xs) if (x && out.length < 2) out.push(x);
-  };
-  if (k === 'buy') {
-    const buyer = s.staff.some((x) => x.task === 'buy');
-    push(
-      buyer ? { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) } : staff(t('調達係を置く', 'Assign a buyer')),
-      skill('stock1', t('調達枠のスキル', 'Quota skill')) ?? skill('stock2', t('調達枠のスキル', 'Quota skill')) ?? skill('stock3', t('調達枠のスキル', 'Quota skill')) ?? skill('auto_order') ?? skill('abc'),
-      buyer ? null : { label: t('月の量を増やす', 'Buy more per month'), sub: t('調達', 'Buying'), go: () => openBuy(ctx) },
-    );
-  } else if (k === 'craft') push(ivUp, staff(t('製造の得意な人を置く', 'A better crafter')), skill('jig') ?? skill('five_s') ?? skill('jig2') ?? skill('kaizen') ?? skill('lot'));
-  else if (k === 'haul') {
-    const far = myShops(s).some((b) => oneWay(s, b).days > 2.5);
-    const hub: Up | null = far ? (has(s, 'hub') ? { label: t('物流拠点を建てる', 'Build a hub'), sub: t('建築', 'Build'), go: () => ctx.build?.('logistics') } : skill('hub') ?? skill('timetable')) : null;
-    push(ivUp, hub, staff(t('運搬係を増やす', 'More haulers')), skill('loading') ?? skill('shortcut') ?? skill('timetable') ?? skill('route_opt'));
-  } else {
-    push(...sell);
+      };
+    }
+    case 'skill':
+      return { label: SKILL[m.id].name, sub: t(`${gain}・スキル ${money(m.cost)}`, `${gain} · skill ${money(m.cost)}`), go: () => openSkills(ctx, m.id) };
+    case 'person': {
+      const who = m.hire ? t(`雇う：${heroName(m.hero)}（月給 ${money(m.cost)}）`, `Hire ${heroName(m.hero)} (${money(m.cost)}/mo)`) : heroName(m.hero);
+      const label = m.replace != null ? t(`${TASK_NAME[m.task]}の得意な人に替える`, `A better ${TASK_NAME[m.task]} hand`) : PERSON_LABEL[w.stage as Exclude<Stage, 'sell'>];
+      return { label, sub: t(`${gain}・${who}`, `${gain} · ${who}`), go: () => (m.hire ? openHire(ctx) : openStaff(ctx)) };
+    }
+    case 'build': {
+      const short = s.money < m.cost;
+      return {
+        label: t(`${DEF[m.id].name}を建てる`, `Build a ${DEF[m.id].name}`),
+        sub: short ? t(`${gain}・あと ${money(m.cost - s.money)}`, `${gain} · ${money(m.cost - s.money)} short`) : t(`${gain}・建築 ${money(m.cost)}`, `${gain} · build ${money(m.cost)}`),
+        short,
+        go: () => ctx.build?.(m.id),
+      };
+    }
+    case 'sell': {
+      const u = whatIfUp(ctx, s, m.w);
+      return { label: u.label, sub: gain, go: u.go };
+    }
   }
-  return out;
+}
+
+/** その段の数字を上げる手：見込み（whatIf）の大きい順に（スマホ 2 つ・PC 3 つ）。チュートリアル中は設備投資を出さない */
+function upsOf(ctx: Ctx, s: P1State, list: StageIf[]): Up[] {
+  const n = innerWidth < 600 ? 2 : 3;
+  const tut = !!ctx.step?.();
+  return list
+    .filter((w) => w.ok && !(tut && w.move.kind === 'invest'))
+    .slice(0, n)
+    .map((w) => moveUp(ctx, s, w));
 }
 
 // ---------------------------------------------------------------- ④ 販売の内訳（docs/ISLAND_PHASE1.md「販売の内訳」）
@@ -159,6 +168,29 @@ function whatIfUp(ctx: Ctx, s: P1State, w: WhatIf): { label: string; sub: string
         label: t(`別の商品「${name}」を並べる`, `Stock another item: ${name}`),
         sub: w.replace ? t(`${at}の「${skuName(w.replace)}」と入れ替え（市場データ）`, `Swap ${skuName(w.replace)} at ${at} (market data)`) : t(`${at}の空き棚に（市場データ）`, `On a free shelf at ${at} (market data)`),
         go: () => openData(ctx),
+      };
+    }
+    case 'shelf': {
+      const name = PRODUCT[w.key ?? '']?.name ?? w.key ?? '';
+      return {
+        label: t('棚 +1（別の商品を並べると売上が増える）', 'Shelf +1 (a new item adds sales)'),
+        sub: t(`${at}の設備投資 ${money(w.cost ?? 0)}・「${name}」を並べる`, `Invest ${money(w.cost ?? 0)} at ${at}, stock ${name}`),
+        go: () => {
+          if (w.uid == null) return;
+          const e = invest(s, w.uid, 'shelves');
+          if (e === 'money') {
+            ctx.sfx?.('error');
+            ctx.toast(t('資金が足りません', 'Not enough funds'));
+            return;
+          }
+          if (!e) {
+            ctx.sfx?.('spend');
+            ctx.toast(t(`「${INVEST.shelves.name}」を導入しました（${at}）`, `Installed: ${INVEST.shelves.name} (${at})`));
+          }
+          after(ctx);
+          openShop(ctx, w.uid);
+          if (!e) mineSay(ctx, SHELF_TIP());
+        },
       };
     }
     case 'shop':
@@ -270,7 +302,7 @@ function sellBreakdown(ctx: Ctx, s: P1State, info: SellInfo, ws: WhatIf[], openN
   };
   lim.append(limRow(t('需要から取れる数', 'From demand'), info.potential, info.why !== 'capacity'), h('span', 'isl-sellx-min', t('と', 'vs')), limRow(t('お店の処理力（品出し）', 'Shelving capacity'), info.capacity, info.why === 'capacity'), h('small', 'isl-dim', t('小さいほうが販売の数字', 'The smaller one is the Sell number')));
   // その理由の打ち手の見込み（見込みを先に出す。効かないときはそう言う）
-  const KIND: Record<SellWhy, WhatIf['kind'][]> = { capacity: ['part', 'fixtures'], demand: ['goods'], far: ['shop'], known: ['known'], rival: ['pull'] };
+  const KIND: Record<SellWhy, WhatIf['kind'][]> = { capacity: ['part', 'fixtures'], demand: ['goods', 'shelf'], far: ['shop'], known: ['known'], rival: ['pull'] };
   const mineW = ws.filter((w) => KIND[info.why].includes(w.kind)).sort((a, b) => b.units - a.units)[0];
   const act = h('div', 'isl-sellx-act');
   act.append(btn(why.act[0], why.act[1], 'is-on'));
@@ -409,7 +441,7 @@ export function openSupply(ctx: Ctx) {
       worse('buy', caps.buy.stopped ? 'stop' : 'warn', t('調達係がいないので、素材は手で買っています。ヒーローを雇って調達係にすると自動になります。', 'No buyer: you buy by hand. Hire a hero as buyer to automate it.'));
       issues.buy.acts.push([t('人材登用', 'Recruit'), () => openHire(ctx)]);
     } else if (buyer.resting) worse('buy', 'warn', t('調達係が休憩中です。', 'The buyer is resting.'));
-    const tripLeft = s.buyTrip ? s.buyTrip.left : null;
+    const tripLeft = s.buyTrip ? Math.max(1, Math.ceil(s.buyTrip.left)) : null;
     if (days != null && days < 4) {
       if (tripLeft != null) worse('buy', 'warn', t(`素材が残り少なめ。調達係があと ${tripLeft} 日で買い付けから戻ります。`, `Materials are low; the buyer returns in ${tripLeft} d.`));
       else worse('buy', days < 1 ? 'stop' : 'warn', t(`素材があと約 ${Math.max(0, Math.floor(days))} 日ぶんしかありません。`, `Only ~${Math.max(0, Math.floor(days))} days of materials left.`));
@@ -520,19 +552,17 @@ export function openSupply(ctx: Ctx) {
     const sum = h('div', 'isl-scm-sum');
     const max = Math.max(1, ...ORDER.map((k) => caps[k].perMonth));
     const gain = jamGain(s, caps, bn);
-    // ④ 販売の内訳と打ち手の見込み（お店があるときだけ）
+    // ④ 販売の内訳と打ち手の見込み（お店があるときだけ）。ほかの段も、打ち手ごとの見込み（whatIf）
     const sInfo = shops.length ? sellInfo(s) : null;
-    const ifs = sInfo ? sellWhatIf(s) : [];
+    const moves: Record<Stage, StageIf[]> = { buy: whatIf(s, 'buy'), craft: whatIf(s, 'craft'), haul: whatIf(s, 'haul'), sell: sInfo ? whatIf(s, 'sell') : [] };
+    const ifs: WhatIf[] = moves.sell.map((w) => (w.move.kind === 'sell' ? w.move.w : null)).filter((w): w is WhatIf => !!w);
     let sellBox: HTMLDetailsElement | null = null;
-    const sellUps: Up[] = ifs
-      .filter((w) => w.ok)
-      .slice(0, 2)
-      .map((w) => {
-        const u = whatIfUp(ctx, s, w);
-        return { label: u.label, sub: t(`+${Math.round(w.units)} 個／月`, `+${Math.round(w.units)} / mo`), go: u.go };
-      });
-    if (sInfo && !sellUps.length)
-      sellUps.push({
+    // 見込みのある手が無いときの行き先（④ 販売は内訳、ほかはその段の画面）
+    const fallback: Record<Stage, Up> = {
+      buy: { label: t('調達を開く', 'Open buying'), sub: t('いま効く手が見つからない', 'No move helps right now'), go: () => openBuy(ctx) },
+      craft: { label: t('工房を開く', 'Open workshop'), sub: t('いま効く手が見つからない', 'No move helps right now'), go: () => openWorkshop(ctx) },
+      haul: { label: t('スキルツリーで見る', 'Open skill tree'), sub: t('いま効く手が見つからない', 'No move helps right now'), go: () => openSkills(ctx, 'logi') },
+      sell: {
         label: t('販売の内訳を見る', 'Sales breakdown'),
         sub: t('なぜ頭打ちか', 'Why it’s capped'),
         go: () => {
@@ -540,7 +570,8 @@ export function openSupply(ctx: Ctx) {
           sellBox.open = true;
           sellBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
-      });
+      },
+    };
     ORDER.forEach((k, i) => {
       if (i) sum.append(h('span', 'isl-scm-sum-arrow', '▶'));
       const c = h('div', `isl-scm-sumcard ${k === bn ? 'is-bn' : ''}`);
@@ -559,7 +590,8 @@ export function openSupply(ctx: Ctx) {
         );
         c.append(g);
       }
-      const ups = upsOf(ctx, s, k, sellUps);
+      const ups = upsOf(ctx, s, moves[k]);
+      if (!ups.length && (k !== 'sell' || sInfo)) ups.push(fallback[k]);
       if (ups.length) {
         const box = h('div', 'isl-scm-ups');
         const cap = h('small', 'isl-dim');
@@ -582,6 +614,19 @@ export function openSupply(ctx: Ctx) {
       sum.append(c);
     });
     body.append(sum);
+    // 次に細くなる段：いまの詰まりを 30% 太くしたら、次はどこが詰まるか
+    const nx = nextJam(s, caps);
+    const nextEl = h('p', `isl-scm-next ${nx.same ? 'is-same' : ''}`);
+    nextEl.append(
+      rich(
+        caps[bn].stopped
+          ? t(`[[${STAGE[bn].n} ${STAGE[bn].name}]]を動かすと、次は[[${STAGE[nx.next].n} ${STAGE[nx.next].name}]]（${nx.n} 個／月）が詰まります。`, `Get [[${STAGE[bn].n} ${STAGE[bn].name}]] moving and [[${STAGE[nx.next].n} ${STAGE[nx.next].name}]] (${nx.n} / mo) jams next.`)
+          : nx.same
+            ? t(`[[${STAGE[bn].n} ${STAGE[bn].name}]]は、30% 太くしてもまだ詰まりです。思い切って太くしよう。`, `Even 30% wider, [[${STAGE[bn].n} ${STAGE[bn].name}]] is still the jam. Widen it boldly.`)
+            : t(`ここ（${STAGE[bn].n}）を太くすると、次は[[${STAGE[nx.next].n} ${STAGE[nx.next].name}]]（${nx.n} 個／月）が詰まります。`, `Widen this (${STAGE[bn].n}) and [[${STAGE[nx.next].n} ${STAGE[nx.next].name}]] (${nx.n} / mo) jams next.`),
+      ),
+    );
+    body.append(nextEl);
     if (sInfo) {
       sellBox = sellBreakdown(ctx, s, sInfo, ifs, bn === 'sell');
       body.append(sellBox);
@@ -682,7 +727,7 @@ export function openSupply(ctx: Ctx) {
       track.append(who);
     }
     const cargo = tr ? Object.entries(tr.cargo).map(([m, n]) => `${MATS[m as Mat].name}×${n}`).join(t('・', ', ')) : '';
-    trip.append(track, h('small', 'isl-dim', tr ? t(`買い付け中：あと ${tr.left} 日で ${cargo} が届く`, `On a trip: ${cargo} arrives in ${tr.left} d`) : buyer ? t('工房で次の買い付けを待っています', 'Waiting at the workshop') : t('調達係がいません', 'No buyer')));
+    trip.append(track, h('small', 'isl-dim', tr ? t(`買い付け中：あと ${Math.max(1, Math.ceil(tr.left))} 日で ${cargo} が届く`, `On a trip: ${cargo} arrives in ${Math.max(1, Math.ceil(tr.left))} d`) : buyer ? t('工房で次の買い付けを待っています', 'Waiting at the workshop') : t('調達係がいません', 'No buyer')));
     flow.append(card('buy', [assignSlot(t('調達係', 'Buyer'), 'buy', buyer?.hero ?? null, null)], [mats, storage, trip]));
     flow.append(pipe(STAGE.buy.what, s.proc.bought));
 

@@ -356,15 +356,16 @@ describe('フェーズ 1：調達', () => {
     expect(fullUse(s).wood).toBeGreaterThanOrEqual(45);
   });
 
-  it('調達係は卸問屋まで往復し、帰ると素材が届く。量は先月の消費と 100% の量の多いほうが初期値', () => {
+  it('調達係は卸問屋まで往復し、帰ると素材が届く。量は先月の消費と、いつもの体制（職人の休みも入れる）の量の多いほうが初期値', () => {
     const s = newP1(5);
     setup(s);
     roomy(s, 1);
     s.mats.wood = 0;
     s.staff.push({ ...s.staff[0], hero: 99998, task: null, target: null });
     assign(s, 99998, 'buy');
-    // 先月が無いときは 100% のときの消費
-    expect(procQty(s, 'wood')).toBe(fullUse(s).wood);
+    // 先月が無いときは、いつもの体制（職人の休み＝稼働率も入れる）での消費。100% のときより少ない
+    expect(procQty(s, 'wood')).toBe(fullUse(s, true).wood);
+    expect(fullUse(s, true).wood ?? 0).toBeLessThanOrEqual(fullUse(s).wood ?? 0);
     setProcQty(s, 'wood', 60);
     step(s);
     expect(s.buyTrip).not.toBeNull();
@@ -376,9 +377,9 @@ describe('フェーズ 1：調達', () => {
     expect(arrived).toBe(cargo);
     setProcQty(s, 'wood', null);
     for (let k = 0; k < 40; k++) step(s);
-    // 締めのあとは先月の消費と 100% の量の多いほう（素材不足の月があっても減りすぎない）
+    // 締めのあとは先月の消費と、いつもの体制での量の多いほう（素材不足の月があっても減りすぎない）
     expect(s.matUsedLast?.wood).toBeGreaterThan(0);
-    expect(procQty(s, 'wood')).toBe(Math.max(s.matUsedLast!.wood ?? 0, fullUse(s).wood ?? 0));
+    expect(procQty(s, 'wood')).toBe(Math.max(s.matUsedLast!.wood ?? 0, fullUse(s, true).wood ?? 0));
     expect(s.utilLast!.cap).toBeGreaterThan(0);
   });
 

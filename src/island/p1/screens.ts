@@ -977,7 +977,7 @@ export function openBuy(ctx: Ctx) {
       h(
         'p',
         buyer ? (buyer.resting ? 'isl-warn' : 'isl-dim') : 'isl-warn',
-        !buyer ? t('調達係がいないので、自動では買いません。下の量は、調達係を決めると毎日少しずつ買い付けます。', 'No buyer: nothing is bought automatically. Assign one to buy the amounts below a little every day.') : buyer.resting ? t('調達係が休憩中なので、いまは買い付けが止まっています。', 'The buyer is resting; buying is paused.') : t('調達係が工房から卸問屋まで歩いて行き、往復の日数ぶんの「月の量」を買って帰ります（月の上限・資金・置き場所の中で）。適性が高いほど速く歩き、ランクも早く上がります。', 'The buyer walks from the workshop to the wholesaler and brings back what the trip’s days need from the monthly amounts (within the limit, funds and storage). Higher aptitude walks faster and raises the rank faster.'),
+        !buyer ? t('調達係がいないので、自動では買いません。下の量は、調達係を決めると毎日少しずつ買い付けます。', 'No buyer: nothing is bought automatically. Assign one to buy the amounts below a little every day.') : buyer.resting ? t('調達係が休憩中なので、いまは買い付けが止まっています。', 'The buyer is resting; buying is paused.') : t('調達係が工房から卸問屋まで歩いて行き、「月の量」をもとに、次の買い付けが届くまでもつぶんを買って帰ります（休む前には休むあいだのぶんも。月の上限・資金・置き場所の中で）。適性が高いほど速く歩き、ランクも早く上がります。', 'The buyer walks from the workshop to the wholesaler and, based on the monthly amounts, brings back enough to last until the next delivery (plus the rest days before resting; within the limit, funds and storage). Higher aptitude walks faster and raises the rank faster.'),
       ),
     );
     const u = utilRate(s.utilLast);
@@ -1057,7 +1057,7 @@ export function openBuy(ctx: Ctx) {
         );
         if (full[m]) steps.append(btn(t('100% に合わせる', 'Match 100%'), () => (setProcQty(s, m, full[m] ?? 0), after(ctx))));
         if (q && !q.auto) steps.append(btn(t('自動に戻す', 'Back to auto'), () => (setProcQty(s, m, null), after(ctx))));
-        f.append(meter, steps, h('small', 'isl-dim', q && !q.auto ? t('手で決めた量', 'Set by you') : (s.matUsedLast?.[m] ?? 0) > 0 ? t('先月と同じ（自動）', 'Same as last month (auto)') : t('100% 動いたときの見込み（自動）', 'Estimate at 100% (auto)')));
+        f.append(meter, steps, h('small', 'isl-dim', q && !q.auto ? t('手で決めた量', 'Set by you') : (s.matUsedLast?.[m] ?? 0) > 0 ? t('先月と同じ（自動）', 'Same as last month (auto)') : t('いつもの体制（職人の休みも入れる）の見込み（自動）', 'Estimate at your usual pace, rest included (auto)')));
         card.append(f);
         const last = s.matUsedLast ? (s.matUsedLast[m] ?? 0) : null;
         const ref = [last == null ? t('先月の消費：記録なし', 'Last month: no record') : t(`先月の消費 ${last} 個`, `Used last month: ${last}`)];
@@ -1744,6 +1744,9 @@ export function openMissions(ctx: Ctx) {
 
 // ---------------------------------------------------------------- システム（設備投資）
 
+/** 棚を増やした直後のマインちゃんの一言（次の手：空いた棚に別の商品を並べる） */
+export const SHELF_TIP = () => t('棚が 1 つ空いたよ！ 空いた棚に[[市場データ]]の商品を並べよう。別の商品を並べると、そのぶん売上が増えるよ。', 'A shelf is free! Stock it with an item from the [[market data]]. A different item adds its own sales.');
+
 /** 工房・お店の画面のいちばん下の「設備投資」の欄 */
 export function investCard(ctx: Ctx, b: PBuilding, note: string): HTMLElement {
   const card = h('div', 'isl-card2 isl-invest-card');
@@ -1771,6 +1774,8 @@ export function investList(ctx: Ctx, b: PBuilding, onDone: () => void): HTMLElem
       ctx.save();
       ctx.refresh();
       onDone();
+      // 棚を増やしたら、次の手（空いた棚に別の商品）をマインちゃんが促す
+      if (!e && x.id === 'shelves') mineSay(ctx, SHELF_TIP());
     }, cost == null ? '' : 'is-on');
     go.disabled = cost == null || s.money < cost || b.left > 0;
     row.append(name, go);

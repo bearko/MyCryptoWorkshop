@@ -11,7 +11,8 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
-import { jamOf, type P1State, type Report, type Stage } from './model';
+import { jamOf, myShops, whatIf, type P1State, type Report, type Stage } from './model';
+import { moveUp } from './scm';
 import { open, type Ctx } from './screens';
 import { btn, h, money, rich, select, skuIcon } from './ui';
 
@@ -477,9 +478,18 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       c4.append(flowRow(s, r), note);
       const hint = h('p', 'isl-rp-hint');
       const long = h('span', 'is-long');
-      long.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。${STAGE_HINT[bn]}`, `[[${STAGE_NAME[bn]}]] is the jam. ${STAGE_HINT[bn]}`)));
       const short = h('span', 'is-short');
-      short.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。${STAGE_HINT_SHORT[bn]}`, `[[${STAGE_NAME[bn]}]] jam. ${STAGE_HINT_SHORT[bn]}`)));
+      // 詰まりの段の打ち手のうち、見込み（+N 個／月）のいちばん大きいもの（SCM ダッシュボードの「上げるには」と同じ）
+      const top = bn !== 'sell' || myShops(s).length ? whatIf(s, bn).find((w) => w.ok) : undefined;
+      const best = top ? moveUp(ctx, s, top) : null;
+      if (best && top) {
+        const n = Math.round(top.units);
+        long.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。いちばん効く手は[[${best.label}]]（${best.sub}）。`, `[[${STAGE_NAME[bn]}]] is the jam. Best move: [[${best.label}]] (${best.sub}).`)));
+        short.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。効く手：[[${best.label}]]（+${n} 個／月）`, `[[${STAGE_NAME[bn]}]] jam. Best: [[${best.label}]] (+${n} / mo)`)));
+      } else {
+        long.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まっています。${STAGE_HINT[bn]}`, `[[${STAGE_NAME[bn]}]] is the jam. ${STAGE_HINT[bn]}`)));
+        short.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。${STAGE_HINT_SHORT[bn]}`, `[[${STAGE_NAME[bn]}]] jam. ${STAGE_HINT_SHORT[bn]}`)));
+      }
       hint.append(long, short);
       c4.append(hint);
       cards.push(c4);

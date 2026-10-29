@@ -932,7 +932,7 @@ export interface Invest {
  * 建物はセクタごとなので、新しいセクタでは入れ直す（タオックスで育てた設備をそのまま持ち込めない）。値段は以前のスキルと同じ
  */
 export const INVESTS: Invest[] = [
-  { id: 'shelves', kind: 'shop', name: t('棚を増やす', 'More shelves'), note: t('このお店の棚 +1（1 段ごと。並べられる商品の種類が増える）', 'This shop’s shelves +1 per level (more kinds on sale)'), cost: [3000, 9000] },
+  { id: 'shelves', kind: 'shop', name: t('棚を増やす', 'More shelves'), note: t('このお店の棚 +1（1 段ごと。別の商品を並べると売上が増える）', 'This shop’s shelves +1 per level (a different item adds sales)'), cost: [3000, 9000] },
   { id: 'sign', kind: 'shop', name: t('看板を出す', 'Signboard'), note: t('このお店の売り場の強さ +10%（1 段ごと）', 'This shop’s pull +10% per level'), cost: [2000, 4000, 8000] },
   { id: 'staffroom', kind: 'shop', name: t('アルバイトの控室', 'Part-timer room'), note: t('このお店のアルバイトの上限 +2', 'This shop can take 2 more part-timers'), cost: [2500] },
   { id: 'fixtures', kind: 'shop', name: t('陳列の什器', 'Display fixtures'), note: t('棚に並べる速さ +30%（1 段ごと）', 'Shelving speed +30% per level'), cost: [2500, 5000] },
