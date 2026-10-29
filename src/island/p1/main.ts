@@ -94,6 +94,7 @@ import {
   open as openSheet,
 } from './screens';
 import { openSupply } from './scm';
+import { openSales } from './sales';
 import { pickHooks } from './heroui';
 import { openMonthReport } from './report';
 import { openSkills } from './tree';
@@ -416,6 +417,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
     { key: 'flow', name: t('サプライチェーン', 'Supply chain'), note: t('流れと詰まり', 'Flow and bottlenecks'), go: () => openSupply(ctx) },
     { key: 'bom', name: 'BOM', note: t('素材 → 商品', 'Materials → products'), go: () => openBom(ctx) },
     { key: 'buy', name: t('調達', 'Buy'), note: t('素材を買う・開拓', 'Buy and scout'), go: () => openBuy(ctx) },
+    { key: 'sales', name: t('販売管理', 'Sales'), note: t('お店の一覧・一括で変える', 'Shops at a glance, bulk changes'), go: () => openSales(ctx) },
   ],
   mkt: [
     { key: 'ads', name: t('宣伝広報', 'Advertising'), note: t('売り場を強くする', 'Boost your shops'), go: () => openAds(ctx), needs: 'workshop' },

@@ -85,6 +85,7 @@ import {
   craftDays,
   has,
   myWarehouses,
+  myWorkshop,
   poolCap,
   poolFree,
   poolUsed,
@@ -355,7 +356,7 @@ const craftErr = (x: Sku, e: string, s?: P1State) => (e === 'tech' ? techNeed(sk
  * 作れる商品（Common と、開発したアンコモン）。技がまだの商品は、うしろに（カードに「技：○○が要る」）。
  * 最初のチュートリアルのあいだは、技が要る商品を出さない（基礎の 5 つだけ）。このセクタのランクで出ない商品も出さない
  */
-function craftable(s: P1State, tut = false): Sku[] {
+export function craftable(s: P1State, tut = false): Sku[] {
   const ready = (key: string) => !PRODUCT[key].tech || has(s, techSkill(PRODUCT[key].tech!));
   // このセクタのランクで出ない商品（Common のオルゴールなど）は出さない
   const list = PRODUCTS.filter((p) => (!tut || !p.tech) && tierOk(p, s.tier ?? 'C'));
@@ -369,8 +370,49 @@ function craftable(s: P1State, tut = false): Sku[] {
 
 // ---------------------------------------------------------------- 工房
 
-/** 工房の画面。toInvest：いちばん下の「設備投資」の欄までスクロールして光らせる（マインちゃんの助言から） */
-export function openWorkshop(ctx: Ctx, toInvest = false) {
+/** 作業台 k で x を作る（作るものを選んだとき・市場データの「工房で作る」）。トーストを出し、描き直す */
+function chooseMake(ctx: Ctx, s: P1State, k: number, x: Sku) {
+  const sl = s.slots[k];
+  if (!sl) return;
+  if (sl.sku !== x) {
+    sl.sku = x;
+    sl.running = false;
+    sl.progress = 0;
+  }
+  sl.repeat = true;
+  const e = sl.worker == null ? 'worker' : startCraft(s, k, x, true);
+  if (e && e !== 'busy') ctx.toast(craftErr(x, e, s));
+  else ctx.toast(t(`${skuName(x)}を作り始めました`, `Started making ${skuName(x)}`));
+  after(ctx);
+}
+
+/** 画面の中の要素までスクロールして、しばらく金色に光らせる */
+function flashTo(el: HTMLElement | null) {
+  if (!el) return;
+  el.classList.add('is-flash');
+  requestAnimationFrame(() => el.scrollIntoView({ block: 'center' }));
+  setTimeout(() => el.classList.remove('is-flash'), 2400);
+}
+
+/**
+ * 工房の画面。
+ * invest：いちばん下の「設備投資」の欄までスクロールして光らせる（マインちゃんの助言から）。
+ * make：その商品を作るものとして選んだ状態で開く（市場データの「工房で作る」）。空いている作業台があればそこに入れ、
+ * 無ければ 1 台目の作るものの選択をその商品を先頭にして開く。作る数のところへスクロールして光らせる
+ */
+export function openWorkshop(ctx: Ctx, opt: boolean | { invest?: boolean; make?: Sku } = false) {
+  const o = typeof opt === 'boolean' ? { invest: opt } : opt;
+  const toInvest = !!o.invest;
+  const s0 = ctx.s();
+  /** 作るものを入れた作業台（スクロール先） */
+  let made = -1;
+  if (o.make) {
+    const free = s0.slots.findIndex((sl) => !sl.sku);
+    if (free >= 0) {
+      made = free;
+      chooseMake(ctx, s0, free, o.make);
+    }
+  }
   open(ctx, t('工房', 'Workshop'), (body) => {
     const s = ctx.s();
     mineTip(ctx, 'workshop', body);
@@ -428,19 +470,7 @@ export function openWorkshop(ctx: Ctx, toInvest = false) {
               current: sl.sku,
               worker: sl.worker,
               badge: ctx.step?.() === 'craft' ? { x: sku(recommend(s), 'C'), text: t('マインちゃんのおすすめ', 'Mine-chan’s pick') } : null,
-              onPick: (x) => {
-                if (!x) return;
-                if (sl.sku !== x) {
-                  sl.sku = x;
-                  sl.running = false;
-                  sl.progress = 0;
-                }
-                sl.repeat = true;
-                const e = sl.worker == null ? 'worker' : startCraft(s, k, x, true);
-                if (e && e !== 'busy') ctx.toast(craftErr(x, e, s));
-                else ctx.toast(t(`${skuName(x)}を作り始めました`, `Started making ${skuName(x)}`));
-                after(ctx);
-              },
+              onPick: (x) => x && chooseMake(ctx, s, k, x),
             }),
         }),
       );
@@ -473,17 +503,7 @@ export function openWorkshop(ctx: Ctx, toInvest = false) {
           worker: s.slots[0]?.worker ?? null,
           best: x === okList[0],
           on: s.slots.some((sl) => sl.sku === x),
-          onTap: () => {
-            const sl = s.slots[0];
-            if (!sl) return;
-            sl.sku = x;
-            sl.running = false;
-            sl.progress = 0;
-            sl.repeat = true;
-            const e = sl.worker == null ? 'worker' : startCraft(s, 0, x, true);
-            if (e && e !== 'busy') ctx.toast(craftErr(x, e, s));
-            after(ctx);
-          },
+          onTap: () => chooseMake(ctx, s, 0, x),
         }),
       );
     cmp.append(grid);
@@ -504,12 +524,25 @@ export function openWorkshop(ctx: Ctx, toInvest = false) {
     const wsB = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
     if (wsB && !ctx.step?.()) body.append(investCard(ctx, wsB, t('作業台・荷車・トラック・物置など。建物ごと（セクタごと）の設備なので、新しいセクタでは入れ直します。', 'Workbenches, carts, truck, stockroom and more. Equipment belongs to each building, so new sectors start fresh.')));
   });
-  if (toInvest) {
-    const card = document.querySelector<HTMLElement>('.isl-sheet .isl-invest-card');
-    if (card) {
-      card.classList.add('is-flash');
-      requestAnimationFrame(() => card.scrollIntoView({ block: 'center' }));
-      setTimeout(() => card.classList.remove('is-flash'), 2400);
+  if (toInvest) flashTo(document.querySelector<HTMLElement>('.isl-sheet .isl-invest-card'));
+  if (o.make) {
+    if (made >= 0) flashTo(document.querySelectorAll<HTMLElement>('.isl-sheet .isl-bench')[made]?.querySelector<HTMLElement>('.isl-plan-wrap') ?? null);
+    else if (s0.slots[0]) {
+      // 空いている作業台が無い：1 台目の作るものの選択を、その商品を先頭にして開く
+      const x = o.make;
+      pickExt(ctx.root, s0, {
+        title: t('作業台 1 で作るもの', 'What bench 1 makes'),
+        items: craftable(s0, !!ctx.step?.()),
+        current: s0.slots[0].sku,
+        worker: s0.slots[0].worker,
+        badge: { x, text: t('市場データで選んだ', 'Picked from market data') },
+        note: t('作業台は全部ふさがっています。作業台 1 の作るものを替えるなら、ここで選びましょう。', 'Every bench is busy. Choose here to switch what bench 1 makes.'),
+        onPick: (v) => {
+          if (!v) return;
+          chooseMake(ctx, s0, 0, v);
+          flashTo(document.querySelector<HTMLElement>('.isl-sheet .isl-bench .isl-plan-wrap'));
+        },
+      });
     }
   }
 }
@@ -535,8 +568,24 @@ export function pickClerk(ctx: Ctx, uid: number, done: () => void) {
   });
 }
 
-/** 棚に並べるものを選ぶ（k：棚の番号。0 が主力商品） */
-export function pickShelf(ctx: Ctx, uid: number, k: number, done: () => void) {
+/**
+ * 棚の商品を替える（setShelf）。外した商品がこのお店のどの棚にも無くなり、棚に残っていた分が裏へ戻るときは
+ * moved(prev, n) を呼ぶ（「棚の ○○ は裏に戻ります」のトースト）。setShelf の挙動（裏の在庫はそのまま）に合わせる
+ */
+export function changeShelf(s: P1State, uid: number, k: number, x: Sku | null, moved?: (prev: Sku, n: number) => void) {
+  const sh = s.shops[uid];
+  if (!sh) return;
+  const prev = sh.shelves[k] ?? null;
+  const n = prev ? sh.shelf[prev] ?? 0 : 0;
+  if (!setShelf(s, uid, k, x)) return;
+  if (prev && prev !== x && n > 0 && !sh.shelves.includes(prev)) moved?.(prev, n);
+}
+
+/** 「棚の ○○ N 個は裏に戻ります」のトースト（pickShelf の moved） */
+export const shelfMoved = (ctx: Ctx) => (prev: Sku, n: number) => ctx.toast(t(`棚の${skuName(prev)} ${n} 個は裏に戻ります`, `${n} ${skuName(prev)} on the shelf go to the back room`));
+
+/** 棚に並べるものを選ぶ（k：棚の番号。0 が主力商品）。moved：外した商品の棚の残りが裏へ戻ったとき */
+export function pickShelf(ctx: Ctx, uid: number, k: number, done: () => void, moved?: (prev: Sku, n: number) => void) {
   const s = ctx.s();
   const sh = s.shops[uid];
   if (!sh) return;
@@ -552,7 +601,7 @@ export function pickShelf(ctx: Ctx, uid: number, k: number, done: () => void) {
     })(),
     note: t('工房で作っているエクステを並べましょう。他社が少なく需要の大きいものほど売れます。', 'Shelve what your workshop makes. Items with high demand and few rivals sell best.'),
     onPick: (v) => {
-      setShelf(s, uid, k, v);
+      changeShelf(s, uid, k, v, moved);
       done();
     },
   });
@@ -569,32 +618,40 @@ export function shopView(ctx: Ctx, uid: number, done: () => void): HTMLElement {
   wrap.append(shopScene(s, uid));
   if (!sh) return wrap;
   const tut = ctx.step?.() === 'sell';
-  if (!sh.shelves[0]) {
-    const b = h('button', `isl-shop-spot is-shelf ${tut ? 'is-hot' : ''}`);
-    b.type = 'button';
-    b.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('主力商品', 'Main product')));
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pickShelf(ctx, uid, 0, done);
-    });
-    wrap.append(b);
+  const main = sh.shelves[0];
+  // 棚：未設定なら「＋ 主力商品」（チュートリアルの段では光る）。決まったあとも押すと差し替えられる（「替える」の札）
+  const shelfBtn = h('button', `isl-shop-spot is-shelf ${main ? 'is-set' : ''} ${tut && !main ? 'is-hot' : ''}`);
+  shelfBtn.type = 'button';
+  if (!main) shelfBtn.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('主力商品', 'Main product')));
+  else {
+    shelfBtn.setAttribute('aria-label', t('主力商品を替える', 'Change the main product'));
+    shelfBtn.append(h('span', 'isl-shop-swap', t('替える', 'Change')));
   }
-  else if ((sh.shelf[sh.shelves[0]] ?? 0) <= 0) {
+  shelfBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pickShelf(ctx, uid, 0, done, shelfMoved(ctx));
+  });
+  wrap.append(shelfBtn);
+  if (main && (sh.shelf[main] ?? 0) <= 0) {
     // 主力商品は決まっているが、まだ棚に無い：入荷待ち
     const tag = h('div', 'isl-shop-tag');
-    tag.append(skuIcon(sh.shelves[0], 22), h('small', '', t(`${skuName(sh.shelves[0])}・入荷待ち`, `${skuName(sh.shelves[0])} · awaiting stock`)));
+    tag.append(skuIcon(main, 22), h('small', '', t(`${skuName(main)}・入荷待ち`, `${skuName(main)} · awaiting stock`)));
     wrap.append(tag);
   }
-  if (sh.staff == null && sh.part === 0) {
-    const b = h('button', `isl-shop-spot is-clerk ${tut && !!sh.shelves[0] ? 'is-hot' : ''}`);
-    b.type = 'button';
-    b.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('店員', 'Clerk')));
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pickClerk(ctx, uid, done);
-    });
-    wrap.append(b);
+  // 店員：いなければ「＋ 店員」、いるときも押すと替えられる
+  const staffed = sh.staff != null || sh.part > 0;
+  const clerkBtn = h('button', `isl-shop-spot is-clerk ${staffed ? 'is-set' : ''} ${tut && !!main && !staffed ? 'is-hot' : ''}`);
+  clerkBtn.type = 'button';
+  if (!staffed) clerkBtn.append(h('span', 'isl-slot-plus', '+'), h('small', '', t('店員', 'Clerk')));
+  else {
+    clerkBtn.setAttribute('aria-label', t('店員を替える', 'Change the clerk'));
+    clerkBtn.append(h('span', 'isl-shop-swap', t('替える', 'Change')));
   }
+  clerkBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pickClerk(ctx, uid, done);
+  });
+  wrap.append(clerkBtn);
   return wrap;
 }
 
@@ -835,23 +892,7 @@ export function openShop(ctx: Ctx, uid: number) {
           hot: ctx.step?.() === 'sell' && k === 0 && !x,
           sub: x ? t(`棚 ${sh.shelf[x] ?? 0}・裏 ${sh.storage[x] ?? 0}`, `shelf ${sh.shelf[x] ?? 0}, back ${sh.storage[x] ?? 0}`) : undefined,
           warn: !!x && (sh.shelf[x] ?? 0) <= 0 && (sh.storage[x] ?? 0) <= 0,
-          onTap: () =>
-            pickExt(ctx.root, s, {
-              title: k === 0 ? t('主力商品を選ぶ', 'Choose the main product') : t(`棚 ${k + 1} に並べるもの`, `What shelf ${k + 1} sells`),
-              items: craftable(s),
-              current: x,
-              allowNone: true,
-              making: s.slots.map((y) => y.sku).filter((y): y is Sku => !!y),
-              badge: (() => {
-                const m = s.slots.find((y) => y.sku)?.sku;
-                return m ? { x: m, text: t('工房で作っている', 'Being crafted') } : null;
-              })(),
-              note: t('工房で作っているエクステを並べましょう。他社が少なく需要の大きいものほど売れます。', 'Shelve what your workshop makes. Items with high demand and few rivals sell best.'),
-              onPick: (v) => {
-                setShelf(s, uid, k, v);
-                after(ctx);
-              },
-            }),
+          onTap: () => pickShelf(ctx, uid, k, () => after(ctx), shelfMoved(ctx)),
         }),
       );
     });
@@ -1373,10 +1414,20 @@ export function openData(ctx: Ctx) {
     body.append(tip);
     const rb = rallyBadge(s);
     if (rb) body.append(rb);
+    /** 市場データから工房へ：その商品を作るものとして選んだ状態で工房を開く（工房が無ければトースト） */
+    const makeIt = (key: string) => {
+      if (!myWorkshop(s)) {
+        ctx.sfx?.('error');
+        ctx.toast(t('先に工房を建てよう', 'Build the workshop first'));
+        return;
+      }
+      ctx.sfx?.('tap');
+      openWorkshop(ctx, { make: sku(key, 'C') });
+    };
     if (need && need.kind !== 'dev' && ctx.skills) {
       const go = need.skill;
       body.append(btn(t('スキルツリーで見る', 'Open skill tree'), () => ctx.skills?.(go), 'is-on'));
-    }
+    } else if (recRow && !need) body.append(btn(t(`「${PRODUCT[rec].name}」を工房で作る`, `Make ${PRODUCT[rec].name} in the workshop`), () => makeIt(rec), 'is-on isl-data-make'));
     const table = h('div', 'isl-data');
     const head = h('div', 'isl-data-row is-head');
     // POS レジ：商品ごとの「きのう売れた数」
@@ -1391,8 +1442,13 @@ export function openData(ctx: Ctx) {
       nm.append(skuIcon(sku(r.p.key, 'C'), 32), h('b', '', r.p.name));
       n.append(nm);
       if (r.p.key === rec) n.append(h('span', 'isl-tag is-good', t('マインちゃんのおすすめ', 'Mine-chan’s pick')));
-      // 自社で作れるか：足りないものを 1 行で
+      // 自社で作れるか：足りないものを 1 行で。作れる商品は「工房で作る」で、その商品を選んだ状態の工房へ
       n.append(h('small', r.need ? 'isl-warn' : 'isl-good', r.need ? needText(r.need, s) : t('✓ 作れる', '✓ You can make it')));
+      if (!r.need) {
+        const mk = btn(t('工房で作る', 'Make it'), () => makeIt(r.p.key), 'isl-data-make');
+        if (s.slots.some((sl) => sl.sku && skuParts(sl.sku)[0] === r.p.key)) mk.classList.add('is-making');
+        n.append(mk);
+      }
       // 新商品の認知（このセクタのお客さんが知っている割合。最初の町では出さない）
       if (r.known < 1) n.append(knownBar(r.known));
       const d = h('span', 'isl-col');

@@ -2924,6 +2924,24 @@ export function displayCap(s: P1State): number {
   return myShops(s).reduce((a, b) => a + (s.shops[b.uid]?.shelves.some((x) => x) ? displayPerDayOf(s, b) * DAYS : 0), 0);
 }
 
+/**
+ * お店ごとの「売れる見込み／月」（uid → 個）：そのお店の棚ごとの需要から取れる数の合計と、そのお店の処理力（品出し × 30 日）の小さいほう。
+ * 販売管理の一覧用。純粋関数
+ */
+export function shopEstimates(s: P1State): Record<number, number> {
+  const pot = potentialOf(s);
+  const out: Record<number, number> = {};
+  for (const b of myShops(s)) {
+    const sh = s.shops[b.uid];
+    if (!sh) continue;
+    let n = 0;
+    for (const x of new Set(sh.shelves.filter((x): x is Sku => !!x))) n += pot.byShelf[`${b.uid}:${x}`] ?? 0;
+    const cap = sh.shelves.some((x) => x) ? displayPerDayOf(s, b) * DAYS : 0;
+    out[b.uid] = Math.round(Math.min(n, cap));
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- ④ 販売の内訳（SCM ダッシュボード）
 
 /** 家から見て、自社のお店の届き方がこれより小さいと「遠くて届かない」（およそ 4 マス以上） */

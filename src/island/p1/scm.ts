@@ -412,7 +412,9 @@ function lampEl(l: Lamp): HTMLElement {
 
 const sumOf = (o: Partial<Record<string, number>>) => Object.values(o).reduce<number>((a, n) => a + (n ?? 0), 0);
 
-export function openSupply(ctx: Ctx) {
+/** SCM ダッシュボード。breakdown：④ 販売の内訳を開いた状態にして、そこまで送る（販売管理の「販売の内訳」から） */
+export function openSupply(ctx: Ctx, opt: { breakdown?: boolean } = {}) {
+  let toBreakdown = !!opt.breakdown;
   open(ctx, t('SCM ダッシュボード', 'SCM dashboard'), (body) => {
     const s = ctx.s();
     mineTip(ctx, 'scm', body);
@@ -628,8 +630,13 @@ export function openSupply(ctx: Ctx) {
     );
     body.append(nextEl);
     if (sInfo) {
-      sellBox = sellBreakdown(ctx, s, sInfo, ifs, bn === 'sell');
+      sellBox = sellBreakdown(ctx, s, sInfo, ifs, bn === 'sell' || toBreakdown);
       body.append(sellBox);
+      if (toBreakdown) {
+        toBreakdown = false;
+        const box = sellBox;
+        requestAnimationFrame(() => box.scrollIntoView({ block: 'start' }));
+      }
     }
 
     // ---------------------------------------------------------------- 流れ：4 つの段
