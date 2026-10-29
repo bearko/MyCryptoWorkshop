@@ -6,10 +6,10 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
-import { INVEST, MAT_KEYS, MATS, P1B, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
-import { invest, investCost, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, speed, stageCaps, staffOf, storageCap, assign, type P1State, type Stage } from './model';
+import { INVEST, MAT_KEYS, MATS, MARKET, P1B, PRODUCT, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
+import { invest, investCost, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, has, learn, matDays, monthRevenue, myShops, myWorkshop, poolCap, poolFree, poolUsed, sellInfo, sellWhatIf, speed, stageCaps, staffOf, storageCap, assign, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type WhatIf } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
-import { after, mineTip, open, openAds, openBuy, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
+import { after, mineTip, open, openAds, openBuy, openData, openHire, openShop, openStaff, openWorkshop, type Ctx } from './screens';
 import { openSkills } from './tree';
 import { bar, btn, h, heroIcon, matIcon, money, rich, skuIcon, skuName } from './ui';
 
@@ -85,8 +85,9 @@ interface Up {
   short?: boolean;
 }
 
-/** その段の数字を上げる手（2 つまで）。設備投資はその場で導入（チュートリアル中は出さない）、ほかは該当の画面へ */
-function upsOf(ctx: Ctx, s: P1State, k: Stage): Up[] {
+/** その段の数字を上げる手（2 つまで）。設備投資はその場で導入（チュートリアル中は出さない）、ほかは該当の画面へ。
+ * ④ 販売は決め打ちをやめ、打ち手ごとの見込み（sellWhatIf）の上位 2 つ（sell） */
+function upsOf(ctx: Ctx, s: P1State, k: Stage, sell: Up[] = []): Up[] {
   const out: Up[] = [];
   // 取れるものだけ（先に要るもの・外周・エンブレムが足りないものは出さない）。label が無ければパネルの名前
   const skill = (id: string, label?: string): Up | null => (canNow(s, id) ? { label: label ?? SKILL[id].name, sub: t('スキル', 'Skill'), go: () => openSkills(ctx, id) } : null);
@@ -127,9 +128,250 @@ function upsOf(ctx: Ctx, s: P1State, k: Stage): Up[] {
     const hub: Up | null = far ? (has(s, 'hub') ? { label: t('物流拠点を建てる', 'Build a hub'), sub: t('建築', 'Build'), go: () => ctx.build?.('logistics') } : skill('hub') ?? skill('timetable')) : null;
     push(ivUp, hub, staff(t('運搬係を増やす', 'More haulers')), skill('loading') ?? skill('shortcut') ?? skill('timetable') ?? skill('route_opt'));
   } else {
-    push(ivUp, { label: t('お店を増やす', 'Build a shop'), sub: t('建築', 'Build'), go: () => ctx.build?.('general_store') }, skill('host') ?? skill('vmd') ?? skill('golden') ?? skill('display'), { label: t('宣伝', 'Advertise'), sub: t('マーケ', 'Marketing'), go: () => openAds(ctx) });
+    push(...sell);
   }
   return out;
+}
+
+// ---------------------------------------------------------------- ④ 販売の内訳（docs/ISLAND_PHASE1.md「販売の内訳」）
+
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const shopLabel = (s: P1State, b: PBuilding) => {
+  const all = myShops(s).filter((x) => x.id === b.id);
+  return all.length > 1 ? `${DEF[b.id].name} ${all.indexOf(b) + 1}` : DEF[b.id].name;
+};
+/** 打ち手の効き目：+N 個／月（≒ +M G） */
+const gainText = (w: WhatIf) => {
+  const n = Math.round(w.units);
+  // 効かない手は小数 1 桁（+1.6 を「+2」と丸めて「効かない」と並べない）
+  const d = Math.round(w.units * 10) / 10;
+  if (!w.ok) return d < 0 ? t(`${d} 個／月（減る）`, `${d} / mo (fewer)`) : t(`+${Math.max(0, d)} 個／月（いまは効かない）`, `+${Math.max(0, d)} / mo (no effect now)`);
+  return t(`+${n} 個／月（≒ +${money(w.yen)}）`, `+${n} / mo (≈ +${money(w.yen)})`);
+};
+/** 打ち手 1 つの名前・説明・行き先 */
+function whatIfUp(ctx: Ctx, s: P1State, w: WhatIf): { label: string; sub: string; go: () => void } {
+  const shop = w.uid != null ? s.buildings.find((b) => b.uid === w.uid) : undefined;
+  const at = shop ? shopLabel(s, shop) : '';
+  switch (w.kind) {
+    case 'goods': {
+      const name = PRODUCT[w.key ?? '']?.name ?? w.key ?? '';
+      return {
+        label: t(`別の商品「${name}」を並べる`, `Stock another item: ${name}`),
+        sub: w.replace ? t(`${at}の「${skuName(w.replace)}」と入れ替え（市場データ）`, `Swap ${skuName(w.replace)} at ${at} (market data)`) : t(`${at}の空き棚に（市場データ）`, `On a free shelf at ${at} (market data)`),
+        go: () => openData(ctx),
+      };
+    }
+    case 'shop':
+      return {
+        label: myShops(s).length >= 2 ? t('次のお店を建てる', 'Build another shop') : t('2 軒目のお店を建てる', 'Build a 2nd shop'),
+        sub: w.hot ? t('お客さんの多い区画に・売り場の人つき（建築）', 'In a busy block, staffed (build)') : t('まだ届いていない家の近くに・売り場の人つき（建築）', 'Near homes you don’t reach yet, staffed (build)'),
+        go: () => ctx.build?.('general_store', w.at),
+      };
+    case 'pull':
+      return { label: t('売り場の強さ +15%', 'Shop pull +15%'), sub: t('接客の研修・看板・ブランド力', 'Service training, signboards, brand'), go: () => openSkills(ctx, canNow(s, 'host') ? 'host' : 'shop') };
+    case 'known':
+      return { label: t('認知を 100% に', 'Make items fully known'), sub: t('宣伝（マーケ）', 'Advertising (marketing)'), go: () => openAds(ctx) };
+    case 'part':
+      return { label: t('アルバイト +1', 'One more part-timer'), sub: t(`${at}（お店の画面）`, `${at} (shop screen)`), go: () => w.uid != null && openShop(ctx, w.uid) };
+    case 'fixtures':
+      return { label: t('陳列の什器 +1', 'Display fixtures +1'), sub: t(`${at}（お店の設備投資）`, `${at} (shop investment)`), go: () => w.uid != null && openShop(ctx, w.uid) };
+  }
+}
+
+const WHY_NAME: Record<SellWhy, string> = {
+  capacity: t('お店の処理力（品出し）が足りない', 'Shops can’t shelve fast enough'),
+  demand: t('並べている商品の需要が小さい／他社と取り合っている', 'Your items have little demand or are shared with rivals'),
+  far: t('遠くて届かないお客さんが多い', 'Many customers live too far away'),
+  known: t('新しい商品がまだ知られていない', 'Your new items aren’t known yet'),
+  rival: t('他社の売り場が強い', 'Rival shops pull harder'),
+};
+const GOODS_WHY: Record<GoodsWhy, string> = {
+  saturated: t('飽和', 'Saturated'),
+  known: t('認知が低い', 'Little known'),
+  far: t('遠い', 'Far'),
+  rival: t('他社が強い', 'Rivals strong'),
+  ok: t('取れている', 'Doing well'),
+};
+
+/** 頭打ちの理由の説明（数字つき）と、すぐの打ち手 */
+function whyLine(ctx: Ctx, s: P1State, info: SellInfo, best: WhatIf | undefined): { text: string; act: [string, () => void] } {
+  const demand = Math.round(info.goods.reduce((a, g) => a + g.demand, 0));
+  switch (info.why) {
+    case 'capacity': {
+      const shop = myShops(s)[0];
+      return {
+        text: t(`需要からは月 ${Math.round(info.potential)} 個売れるのに、お店が棚に並べられるのは月 ${Math.round(info.capacity)} 個。品出しを速くすると、そのぶん売れます。`, `Demand allows ${Math.round(info.potential)} / mo, but your shops shelve only ${Math.round(info.capacity)} / mo. Faster shelving sells the difference.`),
+        act: [t('お店を開く（アルバイト・陳列の什器）', 'Open the shop (part-timers, fixtures)'), () => shop && openShop(ctx, shop.uid)],
+      };
+    }
+    case 'demand':
+      return {
+        text:
+          info.satShare >= 0.5
+            ? t(`並べている商品の需要の ${pct(info.satShare)} は、他社 2 社以上が扱う飽和した商品です（売り場の強さ ×${MARKET.saturated}）。棚やお店を増やしても伸びません。`, `${pct(info.satShare)} of your items’ demand is saturated by 2+ rivals (pull ×${MARKET.saturated}). More shelves or shops won’t help.`)
+            : t(`並べている商品の需要 月 ${demand} 個のうち、もう ${pct(info.share)} を取れています。これより先は別の商品で。`, `You already take ${pct(info.share)} of your items’ ${demand} / mo demand. Grow with another item.`),
+        act: [t('市場データで別の商品を探す', 'Find another item (market data)'), () => openData(ctx)],
+      };
+    case 'far':
+      return {
+        text: t(`お客さんの ${pct(info.far)} は、どのお店からも遠い（4 マス以上）家に住んでいます。同じ場所にお店を足しても、自社どうしで取り合うだけです。`, `${pct(info.far)} of customers live 4+ tiles from every shop. A shop next to yours only splits your own customers.`),
+        act: [t('離れた区画に 2 軒目', 'A 2nd shop far away'), () => ctx.build?.('general_store', best?.kind === 'shop' ? best.at : undefined)],
+      };
+    case 'known':
+      return {
+        text: t(`並べている商品の認知は平均 ${pct(info.known)}。知られていないぶん、売り場の強さが下がっています。`, `Your items are ${pct(info.known)} known on average, which cuts your pull.`),
+        act: [t('宣伝する', 'Advertise'), () => openAds(ctx)],
+      };
+    default:
+      return {
+        text: t(`自社の取り分は ${pct(info.share)}。同じ商品を売る他社の売り場のほうが強く、お客さんが流れています。`, `Your share is ${pct(info.share)}; rivals selling the same items pull harder.`),
+        act: [t('売り場を強くする（スキル）', 'Stronger shops (skills)'), () => openSkills(ctx, canNow(s, 'host') ? 'host' : 'shop')],
+      };
+  }
+}
+
+/** 商品の「なぜ取れていないか」の 1 行 */
+function goodsReason(s: P1State, g: SellInfo['goods'][number]): string {
+  const rivals = s.rivals.filter((r) => (r.sells[g.key] ?? 0) > 0).length;
+  switch (g.why) {
+    case 'saturated':
+      return t(`他社 ${rivals} 社が扱っていて飽和（売り場の強さ ×${MARKET.saturated}）。棚を増やしても伸びません。別の商品と入れ替えを。`, `${rivals} rivals sell it: saturated (pull ×${MARKET.saturated}). Swap it for another item.`);
+    case 'known':
+      return t(`まだ知られていません（認知 ${pct(g.known)}）。並べている日と宣伝で育ちます。`, `Not well known yet (${pct(g.known)}). It grows on shelves and with ads.`);
+    case 'far':
+      return t(`お客さんの ${pct(g.far)} が、この商品を並べているどのお店からも遠い。離れた家の近くのお店にも並べましょう。`, `${pct(g.far)} of customers are far from every shop stocking it. Stock it at a shop near them.`);
+    case 'rival':
+      return t(`他社 ${rivals} 社と取り合っています（取り分 ${pct(g.share)}）。看板・接客・ブランド力で売り場を強く。`, `Shared with ${rivals} rival(s) (share ${pct(g.share)}). Strengthen with signs, service and brand.`);
+    default:
+      return t(`よく取れています（取り分 ${pct(g.share)}）。伸ばすなら別の商品か、遠い家の近くに 2 軒目。`, `Doing well (${pct(g.share)}). To grow: another item, or a 2nd shop near far homes.`);
+  }
+}
+
+/** ④ 販売の内訳（まとめ・打ち手の見込み・商品ごと・お店ごと）。販売が詰まりのときは開いた状態 */
+function sellBreakdown(ctx: Ctx, s: P1State, info: SellInfo, ws: WhatIf[], openNow: boolean): HTMLDetailsElement {
+  const box = h('details', 'isl-sellx');
+  box.open = openNow;
+  const sm = h('summary');
+  sm.append(h('b', '', t('④ 販売の内訳', '④ Sales breakdown')), h('small', 'isl-dim', t('売れる数が頭打ちの理由と、効く打ち手', 'Why sales are capped, and what helps')));
+  box.append(sm);
+
+  // まとめの 1 行
+  const okW = ws.filter((w) => w.ok);
+  const why = whyLine(ctx, s, info, okW.find((w) => w.kind === 'shop') ?? ws.find((w) => w.kind === 'shop'));
+  const head = h('div', `isl-sellx-why is-${info.why}`);
+  const lead = h('p');
+  lead.append(rich(t(`売れる数が頭打ちの理由：[[${WHY_NAME[info.why]}]]`, `Why sales are capped: [[${WHY_NAME[info.why]}]]`)));
+  head.append(lead, h('small', '', why.text));
+  const lim = h('div', 'isl-sellx-lim');
+  const limRow = (label: string, n: number, on: boolean) => {
+    const r = h('span', on ? 'is-on' : '');
+    r.append(h('small', '', label), h('b', '', t(`${Math.round(n)} 個／月`, `${Math.round(n)} / mo`)));
+    return r;
+  };
+  lim.append(limRow(t('需要から取れる数', 'From demand'), info.potential, info.why !== 'capacity'), h('span', 'isl-sellx-min', t('と', 'vs')), limRow(t('お店の処理力（品出し）', 'Shelving capacity'), info.capacity, info.why === 'capacity'), h('small', 'isl-dim', t('小さいほうが販売の数字', 'The smaller one is the Sell number')));
+  // その理由の打ち手の見込み（見込みを先に出す。効かないときはそう言う）
+  const KIND: Record<SellWhy, WhatIf['kind'][]> = { capacity: ['part', 'fixtures'], demand: ['goods'], far: ['shop'], known: ['known'], rival: ['pull'] };
+  const mineW = ws.filter((w) => KIND[info.why].includes(w.kind)).sort((a, b) => b.units - a.units)[0];
+  const act = h('div', 'isl-sellx-act');
+  act.append(btn(why.act[0], why.act[1], 'is-on'));
+  if (mineW) {
+    const best = okW[0];
+    const note = mineW.ok
+      ? t(`見込み ${gainText(mineW)}`, `Expected ${gainText(mineW)}`)
+      : best
+        ? t(`見込みは ${gainText(mineW)}。いまいちばん効くのは「${whatIfUp(ctx, s, best).label}」（+${Math.round(best.units)} 個／月）`, `Expected ${gainText(mineW)}. Best now: ${whatIfUp(ctx, s, best).label} (+${Math.round(best.units)} / mo)`)
+        : t(`見込みは ${gainText(mineW)}`, `Expected ${gainText(mineW)}`);
+    act.append(h('small', mineW.ok ? 'isl-good' : 'isl-dim', note));
+  }
+  head.append(lim, act);
+  box.append(head);
+
+  // 打ち手ごとの見込み（効き目の大きい順に 3 つ）
+  box.append(h('h4', '', t('打ち手ごとの見込み', 'What each move would add')));
+  const list = h('div', 'isl-sellx-ifs');
+  const row = (w: WhatIf, k: number | null) => {
+    const u = whatIfUp(ctx, s, w);
+    const b = h('button', `isl-sellx-if ${w.ok ? '' : 'is-off'}`);
+    b.type = 'button';
+    const left = h('span');
+    left.append(h('b', '', u.label), h('small', '', u.sub));
+    b.append(h('span', 'isl-sellx-rank', k != null ? `${k + 1}` : '–'), left, h('span', w.ok ? 'isl-sellx-gain' : 'isl-sellx-gain is-off', gainText(w)));
+    b.addEventListener('click', () => u.go());
+    return b;
+  };
+  okW.slice(0, 3).forEach((w, k) => list.append(row(w, k)));
+  if (!okW.length) list.append(h('p', 'isl-dim', t('いまの候補では、どれも +2 個／月に届きません。まずは月が進むのを待つか、下の表で商品とお店を見直しましょう。', 'No move adds 2+ / mo right now. Check the items and shops below.')));
+  box.append(list);
+  const off = [...okW.slice(3), ...ws.filter((w) => !w.ok)];
+  if (off.length) {
+    const more = h('details', 'isl-sellx-more');
+    more.append(h('summary', '', t(`ほかの手（いまはあまり効かない ${off.length}）`, `Other moves (little effect now: ${off.length})`)));
+    for (const w of off) more.append(row(w, null));
+    box.append(more);
+  }
+
+  // 商品ごとの表
+  box.append(h('h4', '', t('商品ごと（並べている商品）', 'By item (on your shelves)')));
+  const gt = h('div', 'isl-sellx-scroll');
+  const table = h('table', 'isl-sellx-table');
+  const thead = h('tr');
+  for (const x of [t('商品', 'Item'), t('エリアの需要／月', 'Area demand / mo'), t('自社の取り分', 'Your share'), t('他社', 'Rivals'), t('認知', 'Known'), t('いま売れる見込み／月', 'Expected now / mo')]) thead.append(h('th', '', x));
+  table.append(thead);
+  for (const g of info.goods) {
+    const tr = h('tr', 'is-tap');
+    const units = h('td');
+    units.append(h('b', '', t(`${Math.round(g.units)} 個`, `${Math.round(g.units)}`)));
+    const name = h('td');
+    const nm = h('span', 'isl-row');
+    nm.append(skuIcon(g.x, 24), h('b', '', PRODUCT[g.key]?.name ?? g.key));
+    name.append(nm, h('small', g.why === 'ok' ? 'isl-good' : 'isl-warn', `▸ ${GOODS_WHY[g.why]}`));
+    const share = h('td', g.share < 0.3 ? 'isl-bad' : 'isl-good', pct(g.share));
+    const riv = h('td', g.saturated ? 'isl-bad' : '', g.sellers ? (g.saturated ? t(`${g.sellers} 社（飽和）`, `${g.sellers} (saturated)`) : t(`${g.sellers} 社`, `${g.sellers}`)) : t('なし', 'None'));
+    tr.append(name, h('td', '', t(`${Math.round(g.demand)} 個`, `${Math.round(g.demand)}`)), share, riv, h('td', g.known < 0.7 ? 'isl-warn' : '', pct(g.known)), units);
+    const why2 = h('tr', 'isl-sellx-reason');
+    why2.hidden = true;
+    const td = h('td');
+    td.append(h('div', 'isl-sellx-reason-in', goodsReason(s, g)));
+    td.colSpan = 6;
+    why2.append(td);
+    tr.addEventListener('click', () => {
+      why2.hidden = !why2.hidden;
+      tr.classList.toggle('is-open', !why2.hidden);
+    });
+    table.append(tr, why2);
+  }
+  gt.append(table);
+  box.append(gt, h('small', 'isl-dim isl-sellx-note', t('行を押すと、その商品が取れていない理由。取り分 30% 未満は赤。', 'Tap a row for why. Shares under 30% are red.')));
+
+  // お店ごとの表
+  box.append(h('h4', '', t('お店ごと', 'By shop')));
+  const st = h('div', 'isl-sellx-scroll');
+  const t2 = h('table', 'isl-sellx-table');
+  const h2 = h('tr');
+  for (const x of [t('お店', 'Shop'), t('商圏の家（届く需要の割合）', 'Homes in reach (share of demand)'), t('自社の重なり', 'Overlap with own shops'), t('他社の近さ', 'Nearest rival'), t('並べている商品', 'Items')]) h2.append(h('th', '', x));
+  t2.append(h2);
+  for (const r of info.shops) {
+    const tr = h('tr', 'is-tap');
+    const ov = h('td', r.overlap >= 0.5 ? 'isl-bad' : '');
+    ov.append(h('b', '', pct(r.overlap)));
+    if (r.overlap >= 0.5) ov.append(h('small', 'isl-bad', t('2 軒目の意味が薄い', 'Little gain from this shop')));
+    const goods = h('td');
+    const gs = h('span', 'isl-row');
+    for (const x of r.goods) gs.append(skuIcon(x, 22));
+    goods.append(gs);
+    tr.append(
+      h('td', '', shopLabel(s, r.b)),
+      h('td', '', t(`${r.homes} 軒（${pct(r.reach)}）`, `${r.homes} (${pct(r.reach)})`)),
+      ov,
+      h('td', r.rivals ? 'isl-warn' : '', r.rivalDist == null ? t('なし', 'None') : r.rivals ? t(`近くに ${r.rivals} 社（${r.rivalDist} マス）`, `${r.rivals} nearby (${r.rivalDist} tiles)`) : t(`${r.rivalDist} マス先`, `${r.rivalDist} tiles away`)),
+      goods,
+    );
+    tr.addEventListener('click', () => openShop(ctx, r.b.uid));
+    t2.append(tr);
+  }
+  st.append(t2);
+  box.append(st, h('small', 'isl-dim isl-sellx-note', t('家ごとに、自社は「いちばん来やすいお店 1 軒」ぶんしか売れません。重なりが大きいお店どうしは、同じお客さんを取り合っています。', 'Each home buys from only your single most convenient shop. Shops with big overlap split the same customers.')));
+  return box;
 }
 
 function lampEl(l: Lamp): HTMLElement {
@@ -262,13 +504,43 @@ export function openSupply(ctx: Ctx) {
         ),
       ),
     );
-    how.append(h('summary', '', t('数字の見方', 'How to read the numbers')), howP);
+    const howSell = h('p');
+    howSell.append(
+      rich(
+        t(
+          '④ 販売は「並べている商品の需要のうち自社が取れる数」（とお店の品出しの速さの小さいほう）。棚やお店を増やしただけでは増えず、[[別の商品・遠い家の近くの 2 軒目・売り場の強さ・認知]]で増えます。',
+          '④ Sell is how much of your items’ demand you can take (or how fast shops shelve, whichever is smaller). More shelves or shops alone won’t raise it; [[another item, a 2nd shop near far homes, stronger shops, or awareness]] will.',
+        ),
+      ),
+    );
+    how.append(h('summary', '', t('数字の見方', 'How to read the numbers')), howP, howSell);
     body.append(how);
 
     // ---------------------------------------------------------------- 4 つの段：ひと月に流せる数・数字を上げるには
     const sum = h('div', 'isl-scm-sum');
     const max = Math.max(1, ...ORDER.map((k) => caps[k].perMonth));
     const gain = jamGain(s, caps, bn);
+    // ④ 販売の内訳と打ち手の見込み（お店があるときだけ）
+    const sInfo = shops.length ? sellInfo(s) : null;
+    const ifs = sInfo ? sellWhatIf(s) : [];
+    let sellBox: HTMLDetailsElement | null = null;
+    const sellUps: Up[] = ifs
+      .filter((w) => w.ok)
+      .slice(0, 2)
+      .map((w) => {
+        const u = whatIfUp(ctx, s, w);
+        return { label: u.label, sub: t(`+${Math.round(w.units)} 個／月`, `+${Math.round(w.units)} / mo`), go: u.go };
+      });
+    if (sInfo && !sellUps.length)
+      sellUps.push({
+        label: t('販売の内訳を見る', 'Sales breakdown'),
+        sub: t('なぜ頭打ちか', 'Why it’s capped'),
+        go: () => {
+          if (!sellBox) return;
+          sellBox.open = true;
+          sellBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+      });
     ORDER.forEach((k, i) => {
       if (i) sum.append(h('span', 'isl-scm-sum-arrow', '▶'));
       const c = h('div', `isl-scm-sumcard ${k === bn ? 'is-bn' : ''}`);
@@ -287,7 +559,7 @@ export function openSupply(ctx: Ctx) {
         );
         c.append(g);
       }
-      const ups = upsOf(ctx, s, k);
+      const ups = upsOf(ctx, s, k, sellUps);
       if (ups.length) {
         const box = h('div', 'isl-scm-ups');
         const cap = h('small', 'isl-dim');
@@ -310,6 +582,10 @@ export function openSupply(ctx: Ctx) {
       sum.append(c);
     });
     body.append(sum);
+    if (sInfo) {
+      sellBox = sellBreakdown(ctx, s, sInfo, ifs, bn === 'sell');
+      body.append(sellBox);
+    }
 
     // ---------------------------------------------------------------- 流れ：4 つの段
     const flow = h('div', 'isl-scm');
