@@ -3,6 +3,7 @@
  * 素材 → クラフト → 運搬 → 陳列 → 販売。商品は MCH の Common エクステ 5 シリーズ。
  */
 import { t } from '../../i18n';
+import { OUTER_SKILLS } from './skillsx';
 
 export type Mat = 'iron' | 'wood' | 'clay' | 'glass' | 'cloth' | 'paper' | 'gem';
 export const MAT_KEYS: Mat[] = ['iron', 'wood', 'clay', 'glass', 'cloth', 'paper', 'gem'];
@@ -744,21 +745,121 @@ export interface Skill {
   sealed?: boolean;
   /** 準備中（まだ取れない） */
   soon?: boolean;
+  /**
+   * 最大レベル（2〜5）。無ければ数字の効果のパネルは 5、✨ は 3。解放型（建物・商品・ルート・人材の募集・進行速度など）は 2〜3 を書く。
+   * docs/ISLAND_PHASE1.md「スキルツリー」「パネルのレベル」
+   */
+  max?: number;
+  /** 数字の効果（レベル 1 の値）。汎用の効き目（model.ts の fxSum）で効く。レベル n で ×(1 + 0.25(n − 1)) */
+  fx?: Fx[];
+  /** 解放型のパネルの Lv2 からの効果（Lv2 の値。Lv n で ×(n − 1)）。汎用の効き目で効く */
+  up?: Fx[];
+  /** 効き目の表示（既存のパネル。効き目そのものは model.ts に個別に書いてある）。fx のパネルは fx から作る */
+  show?: Shown[];
+  /** 解放型のパネルの Lv2 からの個別の効き目の表示（効き目は model.ts。Lv n で ×(n − 1)） */
+  upShow?: Shown[];
+}
+
+/**
+ * 汎用の効き目の種類（docs/ISLAND_PHASE1.md「汎用の効き目」）。新しいパネルは fx を書くだけで効く。
+ * v は割合（0.1 = 10%）。apt・brand・lot は数。
+ */
+export type FxKind =
+  | 'pull'
+  | 'price'
+  | 'demand'
+  | 'known'
+  | 'craftDays'
+  | 'lot'
+  | 'haulDays'
+  | 'cartCap'
+  | 'matPrice'
+  | 'procCap'
+  | 'buyDays'
+  | 'display'
+  | 'stamina'
+  | 'rest'
+  | 'apt'
+  | 'wage'
+  | 'upkeep'
+  | 'ads'
+  | 'brand'
+  | 'rally'
+  | 'manager'
+  | 'flow';
+export interface Fx {
+  kind: FxKind;
+  v: number;
+}
+/** 効き目の表示の 1 行（label の後ろに「+15%」のように値が付く） */
+export interface Shown {
+  label: string;
+  v: number;
+  /** % なら割合（0.15 → 15%）。'' なら数（+2） */
+  unit: '%' | '';
+  /** 下げる効果（−） */
+  down?: boolean;
+  /** レベルで 1 ずつ足す（ロット +1 個 → Lv2 で +2 個）。無ければ ×(1 + 0.25(n − 1)) */
+  lin?: boolean;
+}
+/** 数で足す効き目（ロット・ブランド力）：レベルで 1 ずつ（v × lv）。このパネルは最大 3 */
+export const FX_LIN: FxKind[] = ['lot', 'brand'];
+/** 下げる効き目（表示で −） */
+export const FX_DOWN: FxKind[] = ['craftDays', 'haulDays', 'matPrice', 'buyDays', 'stamina', 'wage', 'upkeep', 'rally'];
+/** fx の種類の表示名 */
+export const FX_LABEL: Record<FxKind, string> = {
+  pull: t('すべてのお店の売り場の強さ', 'All shops’ pull'),
+  price: t('すべての商品の値段', 'All prices'),
+  demand: t('エリアの需要', 'Area demand'),
+  known: t('新商品の認知の育ち', 'New items get known'),
+  craftDays: t('クラフトの日数', 'Crafting days'),
+  lot: t('基礎の商品のロット', 'Basic goods per lot'),
+  haulDays: t('運ぶ日数', 'Hauling days'),
+  cartCap: t('荷車に積める数', 'Cart load'),
+  matPrice: t('素材の値段', 'Material prices'),
+  procCap: t('月の調達の上限', 'Monthly buying limit'),
+  buyDays: t('調達係の往復の日数', 'Buyer round trips'),
+  display: t('品出しの速さ', 'Shelving speed'),
+  stamina: t('働くときのスタミナの減り', 'Stamina drain at work'),
+  rest: t('休むと戻るスタミナ', 'Stamina recovered by rest'),
+  apt: t('全員の適性', 'Everyone’s aptitude'),
+  wage: t('給料', 'Wages'),
+  upkeep: t('建物の維持費', 'Building upkeep'),
+  ads: t('宣伝の効き目', 'Ad strength'),
+  brand: t('ブランド力（月に）', 'Brand (a month)'),
+  rally: t('他社の反撃の効き目', 'Rival counterattacks'),
+  manager: t('マネージャーのセクタの売上', 'Managed sectors’ sales'),
+  flow: t('全段の「ひと月に流せる数」', 'Every stage’s monthly flow'),
+};
+/** fx を表示の行に */
+export const fxShown = (f: Fx): Shown => ({ label: FX_LABEL[f.kind], v: f.v, unit: f.kind === 'apt' || f.kind === 'brand' || f.kind === 'lot' ? '' : '%', down: FX_DOWN.includes(f.kind), lin: FX_LIN.includes(f.kind) });
+
+/** レベルのコストの倍率（Lv1〜5。合計 20）。docs/ISLAND_PHASE1.md「パネルのレベル」 */
+export const LV_COST = [1, 2, 3.5, 5.5, 8];
+/** レベル n の効果の倍率：1 + 0.25(n − 1)（Lv5 で 2 倍）。未取得 0 */
+export const lvMulOf = (lv: number) => (lv <= 0 ? 0 : 1 + 0.25 * (lv - 1));
+/** 最大レベル（封印・準備中は 1） */
+export const maxLv = (k: Skill) => (k.sealed || k.soon ? 1 : (k.max ?? (k.dust ? 3 : 5)));
+/** そのレベル（lv）にするコスト（GUM）：round(cost × 倍率 / 100) × 100 */
+export const levelCost = (k: Skill, lv: number) => Math.round((k.cost * LV_COST[Math.max(0, Math.min(LV_COST.length, lv) - 1)]) / 100) * 100;
+/** ✨ のパネルのそのレベルのダスト（✨3 → ✨4 → ✨5） */
+export const levelDust = (k: Skill, lv: number) => (k.dust ? k.dust + lv - 1 : 0);
+/** 効き目の表示の行：レベル lv のときの値（up は Lv2 から） */
+export const shownAt = (x: Shown, lv: number, up = false) => (up ? x.v * Math.max(0, lv - 1) : x.lin ? x.v * lv : x.v * lvMulOf(lv));
+/** パネルの効き目の行（fx・show と、Lv2 からの up・upShow） */
+/** 効き目の値の表示（+15%・−20%・+2） */
+export function fmtShown(x: Shown, v: number): string {
+  const n = x.unit === '%' ? v * 100 : v;
+  const r = Math.round(n * 10) / 10;
+  return `${x.down ? '−' : '+'}${r}${x.unit}`;
+}
+export function shownOf(k: Skill): { base: Shown[]; up: Shown[] } {
+  return { base: [...(k.show ?? []), ...(k.fx ?? []).map(fxShown)], up: [...(k.upShow ?? []), ...(k.up ?? []).map(fxShown)] };
 }
 /** 修行の日数の縮み方：適性 apt で ×(1 − min(cut, apt / per))（適性 100 で −40%） */
 export const TRAIN = { cut: 0.4, per: 250 };
 /** ゴールドダストのパネルの値段（どの枝も同じ） */
 export const DUST_COST = 3;
-
-const sealed = (branch: Branch, tier: 'E' | 'L'): Skill => ({
-  id: `seal_${branch}_${tier.toLowerCase()}`,
-  branch,
-  name: '???',
-  note: tier === 'E' ? t('Epic のセクタに進出すると開く', 'Opens when you expand into an Epic sector') : t('Legendary のセクタに進出すると開く', 'Opens when you expand into a Legendary sector'),
-  cost: 0,
-  tier,
-  sealed: true,
-});
 
 /**
  * スキルツリー v2（docs/ISLAND_PHASE1.md「スキルツリー」）。実際の店舗運営で使われている工夫をパネルにし、効き目は数字で書く。
@@ -783,8 +884,6 @@ export const SKILLS: Skill[] = [
   { id: 'b_premium', branch: 'shop', name: t('プレミアム価格', 'Premium pricing'), note: t('すべての商品の値段 +15%', 'All prices +15%'), cost: 30000, requires: ['shop3', 'b_sign'], brand: 80, tier: 'R' },
   { id: 'concierge', branch: 'shop', name: t('接客の匠', 'Master hosts'), note: t('すべてのお店の売り場の強さ +20%', 'All shops’ pull +20%'), cost: 40000, requires: ['b_sign'], tier: 'R', emblem: 3 },
   { id: 'd_shop', branch: 'shop', name: t('名物店主', 'Famous shopkeeper'), note: t('選んだ 1 軒の売り場の強さ +40%（お店の画面で選ぶ。替えられる）', 'One chosen shop’s pull +40% (pick it in the shop screen; you can switch)'), cost: 0, dust: DUST_COST },
-  sealed('shop', 'E'),
-  sealed('shop', 'L'),
   // ---------------------------------------------------------------- ② 製造
   { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better setups'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
   { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 31 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 31+)'), cost: 10000 },
@@ -797,8 +896,6 @@ export const SKILLS: Skill[] = [
   { id: 'mold', branch: 'craft', name: t('共通の型', 'Shared molds'), note: t('アンコモンの 1 ロット +1 個', 'Uncommons +1 per lot'), cost: 15000, requires: ['pot'], tier: 'U' },
   { id: 'line', branch: 'craft', name: t('自動化ライン', 'Automated line'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 40000, requires: ['night'], tier: 'R', emblem: 3 },
   { id: 'd_craft', branch: 'craft', name: t('名工の作業台', 'Master’s workbench'), note: t('全員の製造の適性 +15', 'Everyone’s crafting aptitude +15'), cost: 0, dust: DUST_COST },
-  sealed('craft', 'E'),
-  sealed('craft', 'L'),
   // ---------------------------------------------------------------- ③ 物流
   { id: 'loading', branch: 'logi', name: t('積み込みの工夫', 'Smart loading'), note: t('荷車に積める数 +30%', 'Cart load +30%'), cost: 2500 },
   { id: 'shortcut', branch: 'logi', name: t('近道の地図', 'Shortcut map'), note: t('運ぶ日数 −15%', 'Hauling −15% days'), cost: 3500, requires: ['loading'] },
@@ -809,8 +906,6 @@ export const SKILLS: Skill[] = [
   { id: 'joint', branch: 'logi', name: t('共同配送', 'Shared deliveries'), note: t('運搬係 1 人が同時に出せる便 +1', 'Each hauler runs one more trip at once'), cost: 15000, requires: ['route_opt'], tier: 'U' },
   { id: 'fleet', branch: 'logi', name: t('自社トラック網', 'Own truck fleet'), note: t('運ぶ速さ ×1.3', 'Hauling speed ×1.3'), cost: 40000, requires: ['crossdock'], tier: 'R', emblem: 3 },
   { id: 'd_logi', branch: 'logi', name: t('配送センター', 'Distribution center'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 0, dust: DUST_COST },
-  sealed('logi', 'E'),
-  sealed('logi', 'L'),
   // ---------------------------------------------------------------- ① 調達
   { id: 'route_cloth', branch: 'buy', name: t('布のルート', 'Cloth route'), note: t('布を買えるようになる', 'Lets you buy cloth'), cost: 2000 },
   { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000, requires: ['route_cloth'] },
@@ -828,8 +923,6 @@ export const SKILLS: Skill[] = [
   { id: 'b_partner', branch: 'buy', name: t('指名の取引先', 'Preferred supplier'), note: t('素材の値段 −15%・月の調達の上限 +50%', 'Materials −15%, monthly buying limit +50%'), cost: 15000, requires: ['bulk2'], brand: 50, tier: 'U' },
   { id: 'direct', branch: 'buy', name: t('産地との直接取引', 'Direct sourcing'), note: t('素材の値段 −10%・月の調達の上限 +50%', 'Materials −10%, monthly buying limit +50%'), cost: 35000, requires: ['contract'], tier: 'R', emblem: 3 },
   { id: 'd_buy', branch: 'buy', name: t('商社との提携', 'Trading-house alliance'), note: t('すべての素材のルートが開く・素材の値段 −10%', 'Opens every material route; materials −10%'), cost: 0, dust: DUST_COST },
-  sealed('buy', 'E'),
-  sealed('buy', 'L'),
   // ---------------------------------------------------------------- 人材
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる（候補 3 人・毎月入れ替わる）', 'Hire heroes (3 candidates, refreshed monthly)'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
@@ -844,8 +937,6 @@ export const SKILLS: Skill[] = [
   { id: 'mgr', branch: 'people', name: t('マネージャー研修', 'Manager training'), note: t('セクタマネージャーの売上の倍率 +0.1', 'Sector managers’ sales rate +0.1'), cost: 15000, requires: ['incentive'], tier: 'U' },
   { id: 'headhunt', branch: 'people', name: t('ヘッドハンティング', 'Headhunting'), note: t('雇える候補にレアのヒーローが 1 人来る', 'One Rare hero joins the hiring candidates'), cost: 40000, requires: ['b_scout'], tier: 'R', emblem: 3 },
   { id: 'd_people', branch: 'people', name: t('カリスマ採用', 'Star recruiter'), note: t('雇うときの能力 +20%（PHY・INT・AGI。上限 100）', 'New hires’ stats +20% (PHY/INT/AGI, max 100)'), cost: 0, dust: DUST_COST },
-  sealed('people', 'E'),
-  sealed('people', 'L'),
   // ---------------------------------------------------------------- 経営
   { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
   { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
@@ -855,8 +946,6 @@ export const SKILLS: Skill[] = [
   { id: 'pr', branch: 'ops', name: t('広報室', 'PR office'), note: t('ブランド力が月に +1', 'Brand +1 a month'), cost: 12000, requires: ['pdca'], tier: 'U', emblem: 1 },
   { id: 'holding', branch: 'ops', name: t('持株会社', 'Holding company'), note: t('マネージャーのセクタの利益 +10%', 'Managed sectors’ profit +10%'), cost: 40000, requires: ['pr'], tier: 'R', emblem: 3 },
   { id: 'd_ops', branch: 'ops', name: t('ブランド戦略室', 'Brand strategy office'), note: t('ブランド力の効き目 ×2（売り場の強さ 最大 +30% → +60%）', 'Brand effect ×2 (pull bonus cap +30% → +60%)'), cost: 0, dust: DUST_COST },
-  sealed('ops', 'E'),
-  sealed('ops', 'L'),
   // ---------------------------------------------------------------- システム
   { id: 'pos', branch: 'sys', name: t('POS レジ', 'POS registers'), note: t('市場データに商品ごとの「きのう売れた数」が出る・売り場の強さ +3%', 'Market data shows yesterday’s sales per item; pull +3%'), cost: 5000 },
   { id: 'auto_order', branch: 'sys', name: t('自動発注（EDI）', 'Auto-ordering (EDI)'), note: t('調達係の買い付けが毎日届く（往復なし）・注文の納期 −50%', 'Buyer purchases arrive daily (no round trip); order lead time −50%'), cost: 8000, requires: ['pos'] },
@@ -867,8 +956,6 @@ export const SKILLS: Skill[] = [
   { id: 'forecast', branch: 'sys', name: t('需要予測 AI', 'Demand-forecast AI'), note: t('新商品の認知が 30% → 50% から始まる', 'New items start 50% known instead of 30%'), cost: 40000, requires: ['erp'], tier: 'R', emblem: 3 },
   { id: 'ec', branch: 'sys', name: t('EC サイト', 'Online store'), note: t('遠いお客さんも買う（自社のお店の届き方が最低 25%）', 'Far customers buy too (your shops reach at least 25%)'), cost: 45000, requires: ['dyn'], tier: 'R' },
   { id: 'd_sys', branch: 'sys', name: t('基幹システム刷新', 'Core system overhaul'), note: t('全段の「ひと月に流せる数」+10%（調達・製造・物流・販売）', 'Every stage’s monthly flow +10% (buy, craft, haul, sell)'), cost: 0, dust: DUST_COST },
-  sealed('sys', 'E'),
-  sealed('sys', 'L'),
   // ---------------------------------------------------------------- 技（作れる商品を増やす。docs/ISLAND_PHASE1.md「商品と技」）
   { id: 't_wood', branch: 'tech', name: t('木工の技', 'Woodworking'), note: t('椅子を作れる', 'Lets you make Chairs'), cost: 4000, train: 8 },
   { id: 't_paper', branch: 'tech', name: t('紙工の技', 'Papercraft'), note: t('傘・ペンを作れる', 'Lets you make Parasols and Quills'), cost: 5000, train: 10 },
@@ -879,9 +966,121 @@ export const SKILLS: Skill[] = [
   { id: 't_jewel', branch: 'tech', name: t('宝飾の技', 'Jewelcraft'), note: t('オルゴールを作れる', 'Lets you make Music Boxes'), cost: 12000, train: 20, requires: ['t_metal'] },
   { id: 't_master', branch: 'tech', name: t('匠の技', 'Master craft'), note: t('技が要る商品の売り場の強さ +15%（技を 3 つ取ると開放できる）', 'Pull +15% for goods that need a craft skill (unlock after any 3 craft skills)'), cost: 15000, anyOf: { ids: ['t_wood', 't_paper', 't_metal', 't_glass', 't_clay', 't_textile', 't_jewel'], n: 3 } },
   { id: 't_rare', branch: 'tech', name: t('レアの技', 'Rare craft'), note: t('レアの商品を作れる（準備中）', 'Lets you make Rare goods (coming soon)'), cost: 50000, requires: ['t_master'], tier: 'U', emblem: 1, soon: true },
-  sealed('tech', 'E'),
-  sealed('tech', 'L'),
 ];
+
+/** 効き目の表示の行（既存のパネル用） */
+const up_ = (label: string, v: number, lin = false): Shown => ({ label, v, unit: '%', lin });
+const dn_ = (label: string, v: number): Shown => ({ label, v, unit: '%', down: true });
+const nm_ = (label: string, v: number, lin = false): Shown => ({ label, v, unit: '', lin });
+const PULL_ = FX_LABEL.pull;
+const CRAFT_ = FX_LABEL.craftDays;
+const HAUL_ = FX_LABEL.haulDays;
+const MAT_ = FX_LABEL.matPrice;
+const PROC_ = FX_LABEL.procCap;
+const STAM_ = FX_LABEL.stamina;
+/**
+ * 既存のパネルのレベル（docs/ISLAND_PHASE1.md「パネルのレベル」）。効き目そのものは model.ts（lvMul で比例）。
+ * 数字の効果は最大 5（表示の行 show）、解放型は 2〜3（Lv2 からの効果 up／upShow）。デメリット（スタミナ +20%・給料 +10% など）はレベルで増えない。
+ */
+const LEVELS: Record<string, Partial<Skill>> = {
+  host: { show: [up_(PULL_, 0.15)] },
+  display: { show: [up_(t('棚に並べる速さ', 'Shelving speed'), 0.5)] },
+  vmd: { show: [up_(t('棚 2 つ以上のお店の売り場の強さ', 'Pull at shops with 2+ shelves'), 0.1)] },
+  pop: { show: [up_(FX_LABEL.known, 0.5)] },
+  golden: { show: [up_(t('1 番目の棚の売り場の強さ', 'Pull of each first shelf'), 0.12)] },
+  set: { show: [up_(t('2 種類以上並べたお店の値段', 'Prices at shops with 2+ kinds'), 0.05)] },
+  point: { show: [dn_(FX_LABEL.rally, 0.5)] },
+  hours: { show: [nm_(t('棚に並べる数（1 日・お店ごと）', 'Shelved a day per shop'), 2)] },
+  shop2: { max: 3, upShow: [up_(t('輸入品店の売り場の強さ', 'Import stores’ pull'), 0.1)] },
+  shop3: { max: 3, upShow: [up_(t('ブティックの売り場の強さ', 'Boutiques’ pull'), 0.1)] },
+  b_sign: { show: [up_(PULL_, 0.25)] },
+  order: { show: [up_(FX_LABEL.demand, 0.1)] },
+  fair: { show: [dn_(t('宣伝の費用', 'Ad costs'), 0.3), up_(FX_LABEL.ads, 0.1)] },
+  b_premium: { show: [up_(FX_LABEL.price, 0.15)] },
+  concierge: { show: [up_(PULL_, 0.2)] },
+  d_shop: { show: [up_(t('選んだ 1 軒の売り場の強さ', 'Chosen shop’s pull'), 0.4)] },
+  jig: { show: [dn_(CRAFT_, 0.2)] },
+  pot: { max: 3, upShow: [dn_(t('商品開発の日数', 'Development days'), 0.2)] },
+  five_s: { show: [dn_(CRAFT_, 0.05), dn_(t('職人のスタミナの減り', 'Crafter stamina drain'), 0.1)] },
+  jig2: { show: [dn_(CRAFT_, 0.15)] },
+  lot: { max: 3, show: [nm_(FX_LABEL.lot, 1, true)] },
+  chair: { show: [dn_(t('職人のスタミナの減り', 'Crafter stamina drain'), 0.3)] },
+  kaizen: { show: [dn_(CRAFT_, 0.1)] },
+  night: { show: [dn_(CRAFT_, 0.15)] },
+  mold: { max: 3, show: [nm_(t('アンコモンのロット', 'Uncommons per lot'), 1, true)] },
+  line: { show: [dn_(CRAFT_, 0.2)] },
+  d_craft: { show: [nm_(t('全員の製造の適性', 'Everyone’s crafting aptitude'), 15)] },
+  loading: { show: [up_(FX_LABEL.cartCap, 0.3)] },
+  shortcut: { show: [dn_(HAUL_, 0.15)] },
+  timetable: { max: 2, up: [{ kind: 'haulDays', v: 0.05 }] },
+  route_opt: { show: [dn_(HAUL_, 0.1)] },
+  hub: { max: 3, upShow: [dn_(t('拠点からお店まで運ぶ日数', 'Hub → shop days'), 0.1)] },
+  crossdock: { show: [dn_(t('工房 → 拠点の日数（×0.3 から）', 'Workshop → hub days (from ×0.3)'), 0.33)] },
+  joint: { max: 3, show: [nm_(t('運搬係 1 人が同時に出せる便', 'Trips per hauler at once'), 1, true)] },
+  fleet: { show: [up_(t('運ぶ速さ', 'Hauling speed'), 0.3)] },
+  d_logi: { show: [dn_(HAUL_, 0.3)] },
+  route_cloth: { max: 3, upShow: [dn_(t('布の値段', 'Cloth price'), 0.08)] },
+  route_paper: { max: 3, upShow: [dn_(t('紙の値段', 'Paper price'), 0.08)] },
+  route_gem: { max: 3, upShow: [dn_(t('宝石の値段', 'Gem price'), 0.08)] },
+  bulk: { show: [dn_(MAT_, 0.15)] },
+  stock1: { show: [up_(PROC_, 0.3)] },
+  stock2: { show: [up_(PROC_, 0.6)] },
+  bulk2: { show: [dn_(MAT_, 0.1)] },
+  stock3: { show: [up_(PROC_, 1)] },
+  swift: { show: [dn_(FX_LABEL.buyDays, 0.3)] },
+  eye: { show: [up_(t('調達ランクの経験', 'Buying rank exp'), 0.5)] },
+  scoutmap: { show: [dn_(t('ルートの開拓の日数', 'Scouting days'), 0.4)] },
+  abc: { show: [dn_(MAT_, 0.05)] },
+  contract: { show: [dn_(MAT_, 0.05)] },
+  b_partner: { show: [dn_(MAT_, 0.15), up_(PROC_, 0.5)] },
+  direct: { show: [dn_(MAT_, 0.1), up_(PROC_, 0.5)] },
+  d_buy: { show: [dn_(MAT_, 0.1)] },
+  hire: { max: 3, up: [{ kind: 'wage', v: 0.05 }] },
+  lounge: { show: [up_(t('スタミナの回復', 'Stamina recovery'), 0.5)] },
+  manual: { show: [nm_(FX_LABEL.apt, 3)] },
+  shift: { show: [dn_(STAM_, 0.2)] },
+  slots: { max: 2, up: [{ kind: 'wage', v: 0.05 }] },
+  ojt: { max: 3, show: [nm_(t('担当に効く能力（月に）', 'Job stat (a month)'), 1, true)] },
+  incentive: { show: [up_(PULL_, 0.05)] },
+  welfare: { show: [up_(FX_LABEL.rest, 0.5)] },
+  b_scout: { max: 2, up: [{ kind: 'apt', v: 2 }] },
+  training: { show: [dn_(t('技の修行の日数', 'Training days'), 0.3)] },
+  mgr: { show: [up_(t('マネージャーの売上の倍率', 'Managers’ sales rate'), 0.1)] },
+  headhunt: { max: 2, up: [{ kind: 'apt', v: 2 }] },
+  d_people: { show: [up_(t('雇うときの能力', 'New hires’ stats'), 0.2)] },
+  pace1: { max: 2, up: [{ kind: 'upkeep', v: 0.05 }] },
+  pace2: { max: 2, up: [{ kind: 'upkeep', v: 0.05 }] },
+  budget: { show: [dn_(FX_LABEL.upkeep, 0.1)] },
+  pdca: { max: 2, up: [{ kind: 'flow', v: 0.02 }] },
+  b_ads: { show: [up_(FX_LABEL.ads, 0.5), nm_(FX_LABEL.brand, 2)] },
+  pr: { max: 3, show: [nm_(FX_LABEL.brand, 1, true)] },
+  holding: { show: [up_(t('マネージャーのセクタの利益', 'Managed sectors’ profit'), 0.1)] },
+  d_ops: { show: [up_(t('ブランド力の効き目', 'Brand effect'), 1)] },
+  pos: { show: [up_(PULL_, 0.03)] },
+  auto_order: { max: 2, up: [{ kind: 'procCap', v: 0.1 }] },
+  inventory: { show: [nm_(t('お店の裏', 'Backroom'), 10), nm_(t('工房の物置', 'Stockroom'), 20)] },
+  erp: { show: [up_(FX_LABEL.flow, 0.05)] },
+  dyn: { show: [up_(t('競合の少ない商品の値段', 'Prices with little competition'), 0.08)] },
+  flow: { show: [up_(PULL_, 0.05)] },
+  forecast: { show: [up_(t('新商品の認知のはじめ（30% に足す）', 'Starting awareness (added to 30%)'), 0.2)] },
+  ec: { show: [up_(t('遠いお客さんへの届き方（最低）', 'Minimum reach to far customers'), 0.25)] },
+  d_sys: { show: [up_(FX_LABEL.flow, 0.1)] },
+  t_master: { show: [up_(t('技の商品の売り場の強さ', 'Pull for craft-skill goods'), 0.15)] },
+  t_rare: { max: 1 },
+};
+// 技：Lv2 から、その技の商品のロット +1（最大 3）
+for (const k of SKILLS) if (k.branch === 'tech' && k.train) LEVELS[k.id] = { max: 3, upShow: [nm_(t(`${k.name}の商品のロット`, `${k.name} goods per lot`), 1)] };
+for (const k of SKILLS) Object.assign(k, LEVELS[k.id] ?? {});
+// 外周（U・R・E・L）のパネル：汎用の効き目（fx）で書いた追加のパネル
+SKILLS.push(...OUTER_SKILLS);
+// 解放型のパネルの説明に「Lv2〜：…」を足す
+for (const k of SKILLS) {
+  // 外周のパネルの説明は fx から（「すべてのお店の売り場の強さ +13%・…」）
+  if (!k.note && k.fx) k.note = k.fx.map((f) => `${FX_LABEL[f.kind]} ${fmtShown(fxShown(f), f.v)}`).join(t('・', ', '));
+  const ups = shownOf(k).up;
+  const list = ups.map((x) => `${x.label} ${fmtShown(x, x.v)}`).join(t('・', ', '));
+  if (ups.length) k.note += t(`（Lv2〜：${list}）`, ` (Lv2+: ${list})`);
+}
 export const SKILL: Record<string, Skill> = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 /** 枝（8 本）。docs/ISLAND_PHASE1.md「スキルツリー」：物流が主軸・人材で勝負・システムでハイテク企業 */
 export const BRANCHES: { key: Branch; name: string }[] = [

@@ -9,7 +9,7 @@
  * docs/ISLAND_PHASE1.md「投資の効き目の監査」
  */
 import { writeFileSync } from 'node:fs';
-import { ADS, HIRE_POOL, INVEST, INVESTS, P1B, PRODUCT, aptitude, sku, skuParts, type Mat, type Sku, type Task } from '../../src/island/p1/data';
+import { ADS, HIRE_POOL, INVEST, INVESTS, P1B, PRODUCT, SKILL, aptitude, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
 import {
   LEARNABLE,
   allowedDirs,
@@ -40,6 +40,9 @@ import {
   sellNow,
   sellWhatIf,
   setDustShop,
+  setLevel,
+  scoutMul,
+  skillTier,
   setPart,
   setShelf,
   stageCaps,
@@ -465,7 +468,7 @@ export const SKILL_SPEC: Record<string, SkillSpec> = {
   stock3: { expect: ['buy'] },
   swift: { expect: ['buy'], base: 'j_trip', note: '往復で運べる量が詰まりのとき' },
   eye: { expect: ['buy'], days: 120, note: '調達ランクが早く上がる（上限が伸びる）。120 日で測る' },
-  scoutmap: { expect: [], check: 'probe', probe: { name: 'ルートの開拓の日数（布）', f: (s) => (s.skills.includes('scoutmap') ? 0.6 : 1) * 10, better: 'down' }, note: '開拓の日数' },
+  scoutmap: { expect: [], check: 'probe', probe: { name: 'ルートの開拓の日数（布）', f: (s) => scoutMul(s) * 10, better: 'down' }, note: '開拓の日数' },
   abc: { expect: [], check: 'profit', note: '素材の値段 −5%・買いすぎなし → 利益' },
   contract: { expect: [], check: 'profit', note: '素材の値段 → 利益' },
   b_partner: { expect: ['buy'], note: '素材の値段も' },
@@ -514,6 +517,52 @@ export const SKILL_SPEC: Record<string, SkillSpec> = {
   t_jewel: { expect: [], out: '解放（オルゴールを作れる）。商品の行で確かめる' },
   t_master: { expect: ['sell'], setup: (s) => (gainSkill(s, 't_metal'), second('Knife:C')(s)), note: '技の商品（ナイフ）を並べているとき' },
 };
+
+/**
+ * 汎用の効き目（fx）のパネル：fx の種類から、効くはずの段と基準を自動で決める（docs/ISLAND_PHASE1.md「汎用の効き目」）。
+ * お金（給料・維持費・素材の値段）は「90 日の利益が増える」、ブランド力は「★ が増える」、マネージャーは対象外（ほかのセクタ）。
+ */
+const FX_SPEC: Record<FxKind, SkillSpec> = {
+  pull: { expect: ['sell'] },
+  price: { expect: ['sell'], check: 'yen', note: '値段' },
+  demand: { expect: ['sell'] },
+  known: { expect: ['sell'], base: 'j_new', setup: fresh, note: '初めて並べる商品（認知の育ち）' },
+  display: { expect: ['sell'], base: 'j_cap', note: '処理力（品出し）が詰まりのとき' },
+  rally: { expect: ['sell'], setup: (s) => ((s.rivals[0].sells.Sensu = 1.2), (s.rally = 3)), note: '他社の反撃中' },
+  ads: { expect: ['sell'], setup: ad('poster'), note: '宣伝（駅のポスター）が効いているとき' },
+  craftDays: { expect: ['craft'] },
+  lot: { expect: ['craft'] },
+  haulDays: { expect: ['haul'] },
+  cartCap: { expect: ['haul'] },
+  procCap: { expect: ['buy'] },
+  buyDays: { expect: ['buy'], base: 'j_trip', note: '往復で運べる量が詰まりのとき' },
+  matPrice: { expect: [], check: 'profit', note: '素材の値段 → 利益' },
+  stamina: { expect: STAFF3, base: ALL4_BASE, note: 'スタミナ → 稼働率' },
+  rest: { expect: STAFF3, base: ALL4_BASE, note: 'スタミナ → 稼働率' },
+  apt: { expect: STAFF3, base: ALL4_BASE, note: '全員の適性' },
+  flow: { expect: ALL4, base: { buy: 'j_buy', haul: 'j_haul3' } },
+  wage: { expect: [], check: 'profit', note: '給料 → 利益' },
+  upkeep: { expect: [], check: 'profit', note: '維持費 → 利益' },
+  brand: { expect: [], check: 'probe', probe: { name: 'ブランド力（★）', f: (s) => s.brand ?? 0, better: 'up' }, days: 30 },
+  manager: { expect: [], out: 'ほかのセクタ（セクタマネージャー）の売上。このセクタの段には効かない' },
+};
+/** 外周を開いた状態に（U・R のパネルは、その外周を開いた基準で測る） */
+const rings = (s: P1State) => void (s.flags.rings = ['U', 'R']);
+/** そのパネルの監査の表の行：手で書いた SKILL_SPEC、無ければ fx の最初の種類から。Epic・Legendary は対象外（まだ遊べない） */
+export function specOf(k: Skill): SkillSpec | undefined {
+  const tier = skillTier(k);
+  if (tier === 'E' || tier === 'L') return { expect: [], out: `まだ遊べない（${tier === 'E' ? 'Epic' : 'Legendary'} のセクタが無い）` };
+  const hand = SKILL_SPEC[k.id];
+  if (hand) return hand;
+  const f = k.fx?.[0];
+  if (!f) return undefined;
+  const base = FX_SPEC[f.kind];
+  return { ...base, setup: (s) => (rings(s), base.setup?.(s)), note: [`汎用の効き目（${f.kind}）`, base.note].filter(Boolean).join('：') };
+}
+/**
+ * レベル上げの監査：枝ごとに 2 枚＋✨ の Lv1 → Lv2（全部は重いので代表）。基準は Lv1 の行と同じ（前も後も Lv1 を取ってある）
+ */
+export const LEVEL_AUDIT = ['host', 'golden', 'd_shop', 'jig', 'chair', 'd_craft', 'shortcut', 'loading', 'd_logi', 'stock1', 'bulk', 'd_buy', 'manual', 'lounge', 'd_people', 'budget', 'b_ads', 'd_ops', 'pos', 'erp', 'd_sys', 't_master', 'u_tech_1', 'u_tech_d'];
 
 /** 設備投資の表：効くはずの段と前提（INVESTS の全部が入っていること） */
 export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base']; setup?: Setup; after?: Setup; note?: string }> = {
@@ -579,7 +628,7 @@ export function items(): Item[] {
   }
   // スキル：取れるもの全部（封印・準備中を除く）
   for (const k of LEARNABLE()) {
-    const spec = SKILL_SPEC[k.id];
+    const spec = specOf(k);
     out.push({
       id: k.id,
       group: 'スキル',
@@ -597,6 +646,33 @@ export function items(): Item[] {
       days: spec?.days,
       out: spec ? spec.out : '表に無い（scripts/island/audit.ts の SKILL_SPEC に足す）',
       note: spec?.note,
+    });
+  }
+  // レベル上げ：代表のパネルの Lv1 → Lv2（前も後も Lv1 を取ってある。after は前と後の両方に）
+  for (const id of LEVEL_AUDIT) {
+    const k = SKILL[id];
+    const spec = specOf(k);
+    if (!spec || spec.out) continue;
+    out.push({
+      id: `${id}@lv2`,
+      group: 'スキル',
+      name: `${k.name}（Lv1 → Lv2）`,
+      expect: spec.expect,
+      base: spec.base,
+      setup: (s) => {
+        rings(s);
+        spec.setup?.(s);
+        gainSkill(s, id);
+      },
+      apply: (s) => setLevel(s, id, 2),
+      post: (s) => {
+        spec.after?.(s);
+        spec.post?.(s);
+      },
+      check: spec.check,
+      probe: spec.probe,
+      days: spec.days,
+      note: ['レベル上げ', spec.note].filter(Boolean).join('：'),
     });
   }
   // 人材：雇って配置（能力の高い人と入れ替え／2 人目）・賞与・昇給

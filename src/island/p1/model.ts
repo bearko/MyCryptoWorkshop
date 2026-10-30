@@ -9,6 +9,12 @@ import { cells, type Dir } from '../sim';
 import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, runSector, sectorProfile, type BrandEv, type Books, type Land, type LedgerKey } from './company';
 import {
   ADS,
+  levelCost,
+  levelDust,
+  lvMulOf,
+  maxLv,
+  FX_LIN,
+  type FxKind,
   AWARE,
   AWARE_GOODS,
   TRAIN,
@@ -252,6 +258,8 @@ export interface P1State {
   shops: Record<number, ShopState>;
   trips: Trip[];
   skills: string[];
+  /** 取ったパネルのレベル（skills に入っているものは最低 1。無ければ 1。docs/ISLAND_PHASE1.md「パネルのレベル」） */
+  skillLv: Record<string, number>;
   rivals: RivalState[];
   demand: Partial<Record<string, number>>;
   /** 今月の売上（シリーズごと）・ライバルの売上・費用 */
@@ -468,6 +476,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     shops: {},
     trips: [],
     skills: [],
+    skillLv: {},
     rivals: rivalDefs.map((r) => ({ id: r.id, sells: Object.fromEntries(Object.entries(r.sells).map(([k, v]) => [k, (v ?? 0) * T.rival])), base: r.base * T.rival * (prof?.rivalMul ?? 1) })),
     demand: Object.fromEntries(PRODUCTS.map((p) => [p.key, baseDemand(p, tier, prof)])),
     monthSales: {},
@@ -637,27 +646,58 @@ function pickHires(s: P1State): number[] {
   return out;
 }
 
-export const has = (s: P1State, skill: string) => s.skills.includes(skill);
+export const has = (s: Pick<P1State, 'skills'>, skill: string) => s.skills.includes(skill);
+/** パネルのレベル（未取得 0。取ったものは最低 1） */
+export const lvOf = (s: Pick<P1State, 'skills' | 'skillLv'>, id: string) => (s.skills.includes(id) ? Math.max(1, s.skillLv?.[id] ?? 1) : 0);
+/** レベルの効果の倍率：未取得 0、取得済み 1 + 0.25(lv − 1)（Lv5 で 2） */
+export const lvMul = (s: Pick<P1State, 'skills' | 'skillLv'>, id: string) => lvMulOf(lvOf(s, id));
+/** 掛け算型の下げ（日数 −20% など）：1 − v × 倍率（下げは −80% まで） */
+const cut = (s: Pick<P1State, 'skills' | 'skillLv'>, id: string, v: number) => Math.max(0.2, 1 - v * lvMul(s, id));
+/** 汎用の効き目の合計のキャッシュ（skills・skillLv が入れ替わったら作り直す） */
+const fxCache = new WeakMap<object, { len: number; lv: object | undefined; sums: Partial<Record<FxKind, number>> }>();
+/**
+ * 汎用の効き目（Skill.fx）の合計：取ったパネルの fx の v × 倍率（lot・brand は v × レベル）と、
+ * 解放型の Lv2 からの効果（Skill.up）の v ×（レベル − 1）。docs/ISLAND_PHASE1.md「汎用の効き目」
+ */
+export function fxSum(s: Pick<P1State, 'skills' | 'skillLv'>, kind: FxKind): number {
+  const hit = fxCache.get(s.skills);
+  if (hit && hit.len === s.skills.length && hit.lv === s.skillLv) return hit.sums[kind] ?? 0;
+  const sums: Partial<Record<FxKind, number>> = {};
+  for (const id of s.skills) {
+    const k = SKILL[id];
+    if (!k || (!k.fx && !k.up)) continue;
+    const lv = lvOf(s, id);
+    for (const f of k.fx ?? []) sums[f.kind] = (sums[f.kind] ?? 0) + f.v * (FX_LIN.includes(f.kind) ? lv : lvMulOf(lv));
+    for (const f of k.up ?? []) sums[f.kind] = (sums[f.kind] ?? 0) + f.v * (lv - 1);
+  }
+  fxCache.set(s.skills, { len: s.skills.length, lv: s.skillLv, sums });
+  return sums[kind] ?? 0;
+}
+/** 汎用の下げ（日数・値段など）：1 − 合計（−80% まで） */
+export const fxCut = (s: Pick<P1State, 'skills' | 'skillLv'>, kind: FxKind) => Math.max(0.2, 1 - fxSum(s, kind));
+/** 解放型のパネルの Lv2 からの個別の効き目：v ×（レベル − 1） */
+export const upOf = (s: Pick<P1State, 'skills' | 'skillLv'>, id: string, v: number) => v * Math.max(0, lvOf(s, id) - 1);
 export const staffOf = (s: P1State, hero: number) => s.staff.find((x) => x.hero === hero) ?? null;
 /** 他店でのバイトの日給 */
 export const sidePay = (st: Staff) => Math.round(SIDE.pay * speed(st, 'side'));
 /** スキルで足す適性：マニュアル整備 +3（すべての仕事）・名工の作業台（✨）+15（製造・修行） */
-export const aptBonus = (s: P1State | undefined, task: Task) => (!s ? 0 : (has(s, 'manual') ? 3 : 0) + (has(s, 'd_craft') && (task === 'craft' || task === 'train') ? 15 : 0));
+export const aptBonus = (s: P1State | undefined, task: Task) => (!s ? 0 : 3 * lvMul(s, 'manual') + (task === 'craft' || task === 'train' ? 15 * lvMul(s, 'd_craft') : 0) + fxSum(s, 'apt'));
 /** 適性（能力値 ＋ スキルで足すぶん） */
 export const aptOf = (s: P1State | undefined, st: Pick<Staff, 'stats'>, task: Task) => aptitude(st.stats, task) + aptBonus(s, task);
 /** 作業の速さ。s を渡すとスキルの適性（マニュアル整備・名工の作業台）も入る */
 export const speed = (st: Staff, task: Task, s?: P1State) => speedOf(aptOf(s, st, task)) * (1 + PAY.raiseSpeed * (st.lv ?? 0));
 /** 休むと 1 日に戻るスタミナ（休憩室・福利厚生で +50% ずつ） */
-export const restRateOf = (s: P1State) => STAMINA.rest * (1 + (has(s, 'lounge') ? 0.5 : 0) + (has(s, 'welfare') ? 0.5 : 0));
+export const restRateOf = (s: P1State) => STAMINA.rest * (1 + 0.5 * lvMul(s, 'lounge') + 0.5 * lvMul(s, 'welfare') + fxSum(s, 'rest'));
 /**
  * 働くと 1 日に減るスタミナ。職人：職人の休憩所・職人の椅子・5S（減る）、夜間稼働（増える）。
  * 店員：営業時間の延長（増える）。シフト制：みんな減る
  */
 export function drainOf(s: P1State, st: Pick<Staff, 'task'>): number {
   const easy =
-    (st.task === 'craft' ? (invLv(myWorkshop(s), 'breakroom') > 0 ? 0.7 : 1) * (has(s, 'chair') ? 0.7 : 1) * (has(s, 'five_s') ? 0.9 : 1) * (has(s, 'night') ? 1.2 : 1) : 1) *
+    (st.task === 'craft' ? (invLv(myWorkshop(s), 'breakroom') > 0 ? 0.7 : 1) * cut(s, 'chair', 0.3) * cut(s, 'five_s', 0.1) * (has(s, 'night') ? 1.2 : 1) : 1) *
     (st.task === 'shop' && has(s, 'hours') ? 1.2 : 1) *
-    (has(s, 'shift') ? 0.8 : 1);
+    cut(s, 'shift', 0.2) *
+    fxCut(s, 'stamina');
   return STAMINA.work * easy;
 }
 /**
@@ -689,7 +729,7 @@ export function uptime(s: P1State, st: Staff): number {
   return work / DAYS;
 }
 /** ERP・基幹システム刷新（✨）：全段の「ひと月に流せる数」の倍率 */
-export const flowMul = (s: P1State) => 1 + (has(s, 'erp') ? 0.05 : 0) + (has(s, 'd_sys') ? 0.1 : 0);
+export const flowMul = (s: P1State) => 1 + 0.05 * lvMul(s, 'erp') + 0.1 * lvMul(s, 'd_sys') + fxSum(s, 'flow');
 
 /** 仕事を割り当てる。前の仕事からは外れる */
 export function assign(s: P1State, hero: number, task: Task | null, target: number | string | null = null): string | null {
@@ -742,7 +782,10 @@ export function hire(s: P1State, hero: number): string | null {
   if (!s.hirePool.includes(hero)) return 'gone';
   const st = newStaff(hero, wageOf(hero));
   // カリスマ採用（✨）：雇うときの能力 +20%（上限 100）
-  if (has(s, 'd_people')) st.stats = { ...st.stats, phy: Math.min(100, Math.round(st.stats.phy * 1.2)), int: Math.min(100, Math.round(st.stats.int * 1.2)), agi: Math.min(100, Math.round(st.stats.agi * 1.2)) };
+  if (has(s, 'd_people')) {
+    const m = 1 + 0.2 * lvMul(s, 'd_people');
+    st.stats = { ...st.stats, phy: Math.min(100, Math.round(st.stats.phy * m)), int: Math.min(100, Math.round(st.stats.int * m)), agi: Math.min(100, Math.round(st.stats.agi * m)) };
+  }
   s.staff.push(st);
   s.hirePool = s.hirePool.filter((x) => x !== hero);
   return null;
@@ -949,13 +992,13 @@ export function invest(s: P1State, uid: number, id: string): string | null {
 }
 
 /** お店の裏に置ける数（そのお店の設備投資「裏の倉庫を広げる」） */
-export const storageCap = (b: PBuilding, s?: P1State) => SHOP.storageCap + 20 * invLv(b, 'backroom') + (s && has(s, 'inventory') ? 10 : 0);
+export const storageCap = (b: PBuilding, s?: P1State) => SHOP.storageCap + 20 * invLv(b, 'backroom') + (s ? Math.round(10 * lvMul(s, 'inventory')) : 0);
 
 // ---------------------------------------------------------------- 保管（工房の物置と倉庫）
 
 export const myWarehouses = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && b.id === 'warehouse' && b.left <= 0);
 /** 素材と、お店へ運ぶ前の商品を置ける数の合計 */
-export const poolCap = (s: P1State) => STORE.base + 40 * invLv(wsAny(s), 'stockroom') + (has(s, 'inventory') ? 20 : 0) + myWarehouses(s).reduce((a, w) => a + STORE.warehouse + 100 * invLv(w, 'rack'), 0);
+export const poolCap = (s: P1State) => STORE.base + 40 * invLv(wsAny(s), 'stockroom') + Math.round(20 * lvMul(s, 'inventory')) + myWarehouses(s).reduce((a, w) => a + STORE.warehouse + 100 * invLv(w, 'rack'), 0);
 const sum = (o: Partial<Record<string, number>>) => Object.values(o).reduce<number>((a, n) => a + (n ?? 0), 0);
 /** いま置いている数（買い付けて運んでいる素材も含む） */
 export const poolUsed = (s: P1State) => sum(s.mats) + sum(s.stock) + (s.buyTrip ? sum(s.buyTrip.cargo) : 0) + (s.orders ?? []).reduce((a, o) => a + o.qty, 0);
@@ -1044,8 +1087,8 @@ export const wsAny = (s: P1State) => s.buildings.find((b) => b.owner === 'me' &&
  * 設備（設備投資の段。建物ごと＝セクタごと）：運搬係 1 人が同時に出せる便・1 便に積める数（積み込みの工夫はスキル）・
  * 作業台の数（工房）・棚の数とアルバイトの上限（お店ごと）
  */
-export const cartsOf = (s: P1State) => 1 + invLv(wsAny(s), 'carts') + (has(s, 'joint') ? 1 : 0);
-export const cartCap = (s: P1State) => Math.round(TRANSPORT.cap * (invLv(wsAny(s), 'truck') > 0 ? 2.5 : 1) * (has(s, 'loading') ? 1.3 : 1));
+export const cartsOf = (s: P1State) => 1 + invLv(wsAny(s), 'carts') + lvOf(s, 'joint');
+export const cartCap = (s: P1State) => Math.round(TRANSPORT.cap * (invLv(wsAny(s), 'truck') > 0 ? 2.5 : 1) * (1 + 0.3 * lvMul(s, 'loading') + fxSum(s, 'cartCap')));
 export const benchCount = (s: P1State) => 1 + invLv(wsAny(s), 'bench');
 export const shelfCount = (_s: P1State, b: PBuilding) => (P1B[b.id]?.shelves ?? 1) + invLv(b, 'shelves');
 export const partMax = (s: P1State, uid: number) => SHOP.partTimeMax + 2 * invLv(s.buildings.find((x) => x.uid === uid), 'staffroom');
@@ -1091,10 +1134,20 @@ export function fitEquipment(s: P1State) {
 /** このセクタの特産（20% 安い素材） */
 export const isCheap = (s: P1State, m: Mat) => !!sectorProfile(s).cheap?.includes(m);
 export const matPrice = (s: P1State, m: Mat) =>
-  Math.round(MATS[m].price * (has(s, 'bulk') ? 0.85 : 1) * (has(s, 'bulk2') ? 0.9 : 1) * (has(s, 'b_partner') ? 0.85 : 1) * (has(s, 'abc') ? 0.95 : 1) * (has(s, 'contract') ? 0.95 : 1) * (has(s, 'direct') ? 0.9 : 1) * (has(s, 'd_buy') ? 0.9 : 1) * (isCheap(s, m) ? CHEAP_RATE : 1));
+  Math.round(
+    MATS[m].price *
+      Math.max(
+        0.2,
+        cut(s, 'bulk', 0.15) * cut(s, 'bulk2', 0.1) * cut(s, 'b_partner', 0.15) * cut(s, 'abc', 0.05) * cut(s, 'contract', 0.05) * cut(s, 'direct', 0.1) * cut(s, 'd_buy', 0.1) * Math.max(0.2, 1 - upOf(s, `route_${m}`, 0.08)) * fxCut(s, 'matPrice'),
+      ) *
+      (isCheap(s, m) ? CHEAP_RATE : 1),
+  );
 
 /** 月に買える素材の数の上限（ランクとスキル） */
-export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + (has(s, 'stock1') ? 0.3 : 0) + (has(s, 'stock2') ? 0.6 : 0) + (has(s, 'stock3') ? 1 : 0) + (has(s, 'b_partner') ? 0.5 : 0) + (has(s, 'direct') ? 0.5 : 0)) * flowMul(s));
+export const procCap = (s: P1State) => Math.round((PROC.base + PROC.perLv * (s.proc.lv - 1)) * (1 + procBonus(s)) * flowMul(s));
+/** スキルで足す月の調達の上限（割合）：調達枠の拡大・大口契約・年間契約・指名の取引先・産地との直接取引（レベルで伸びる）・汎用 */
+export const procBonus = (s: P1State) =>
+  0.3 * lvMul(s, 'stock1') + 0.6 * lvMul(s, 'stock2') + 1 * lvMul(s, 'stock3') + 0.5 * lvMul(s, 'b_partner') + 0.5 * lvMul(s, 'direct') + fxSum(s, 'procCap') + upOf(s, 'auto_order', 0.1);
 export const procLeft = (s: P1State) => Math.max(0, procCap(s) - s.proc.bought);
 
 /** 経験値を足して、ランクを上げる。上がったら新しいランクを返す */
@@ -1122,7 +1175,7 @@ export function buy(s: P1State, m: Mat, qty: number, gain = 1): string | null {
   spend(s, 'materials', cost);
   s.mats[m] = (s.mats[m] ?? 0) + qty;
   s.proc.bought += qty;
-  procExp(s, (qty * gain + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
+  procExp(s, (qty * gain + PROC.perBuy) * (1 + 0.5 * lvMul(s, 'eye')));
   return null;
 }
 
@@ -1137,7 +1190,7 @@ export function buyDays(s: P1State, st: Staff): number | null {
   if (!path) return null;
   if (has(s, 'auto_order')) return 1;
   // 日の端数は持ち越す（Staff.lag）ので丸めない
-  return Math.max(2, ((path.length * 2) / TRANSPORT.walkPerDay / speed(st, 'buy', s)) * (has(s, 'swift') ? 0.7 : 1));
+  return Math.max(2, ((path.length * 2) / TRANSPORT.walkPerDay / speed(st, 'buy', s)) * Math.max(0.2, cut(s, 'swift', 0.3) * fxCut(s, 'buyDays')));
 }
 
 /** 1 ロットの素材の数 */
@@ -1169,7 +1222,7 @@ export function order(s: P1State, m: Mat, lots: number): string | null {
   s.money -= cost;
   spend(s, 'materials', cost);
   s.proc.bought += qty;
-  procExp(s, (qty + PROC.perBuy) * (has(s, 'eye') ? 1.5 : 1));
+  procExp(s, (qty + PROC.perBuy) * (1 + 0.5 * lvMul(s, 'eye')));
   const days = leadDays(s);
   const id = (s.orders ?? []).reduce((a, o) => Math.max(a, o.id), 0) + 1;
   (s.orders ??= []).push({ id, m, qty, left: days, total: days, courier: COURIERS[(id - 1) % COURIERS.length] });
@@ -1331,6 +1384,43 @@ export function learn(s: P1State, id: string, hero?: number): string | null {
   return null;
 }
 
+/** レベルが上げられない理由（null なら上げられる）。未取得は 'none' */
+export type LevelLock = 'none' | 'max' | 'ring' | 'money' | 'dust';
+export function levelLock(s: P1State, k: Skill): LevelLock | null {
+  const lv = lvOf(s, k.id);
+  if (lv <= 0) return 'none';
+  if (lv >= maxLv(k)) return 'max';
+  if (!ringOpen(s, skillTier(k))) return 'ring';
+  if (k.dust) return (s.dust ?? 0) < levelDust(k, lv + 1) ? 'dust' : null;
+  if (s.money < levelCost(k, lv + 1)) return 'money';
+  return null;
+}
+/** 次のレベルの値段（資金。✨ は 0） */
+export const nextLevelCost = (s: P1State, k: Skill) => (k.dust ? 0 : levelCost(k, lvOf(s, k.id) + 1));
+/** パネルのレベルを 1 つ上げる（資金。✨ はゴールドダスト）。docs/ISLAND_PHASE1.md「パネルのレベル」 */
+export function levelUp(s: P1State, id: string): LevelLock | null {
+  const k = SKILL[id];
+  if (!k) return 'none';
+  const e = levelLock(s, k);
+  if (e) return e;
+  const lv = lvOf(s, id) + 1;
+  if (k.dust) s.dust -= levelDust(k, lv);
+  else {
+    const c = levelCost(k, lv);
+    s.money -= c;
+    spend(s, 'build', c);
+  }
+  setLevel(s, id, lv);
+  return null;
+}
+/** レベルを決める（skillLv は入れ替える：汎用の効き目のキャッシュが作り直される）。監査・テストからも使う */
+export function setLevel(s: P1State, id: string, lv: number) {
+  if (!s.skills.includes(id)) s.skills.push(id);
+  s.skillLv = { ...(s.skillLv ?? {}), [id]: lv };
+  syncSlots(s);
+  for (const b of myShops(s)) syncShop(s, b);
+}
+
 /** スキルが効き始める（取った・修行が終わった）。監査（scripts/island/audit.ts）も、条件を満たした状態としてこれで足す */
 export function gainSkill(s: P1State, id: string) {
   if (!s.skills.includes(id)) s.skills.push(id);
@@ -1353,7 +1443,7 @@ export function trainDays(s: P1State, id: string, hero: number | Staff | null): 
   const st = typeof hero === 'number' ? staffOf(s, hero) : hero;
   const apt = st ? aptOf(s, st, 'craft') : 0;
   // 社内研修：修行の日数 −30%
-  return Math.max(1, Math.round(k.train * (1 - Math.min(TRAIN.cut, apt / TRAIN.per)) * (has(s, 'training') ? 0.7 : 1)));
+  return Math.max(1, Math.round(k.train * (1 - Math.min(TRAIN.cut, apt / TRAIN.per)) * cut(s, 'training', 0.3)));
 }
 /** 修行中のスキル（無ければ null）と残りの日数 */
 export const trainingOf = (s: P1State, id: string) => (s.training?.id === id ? s.training : null);
@@ -1461,17 +1551,14 @@ export const batchOf = (x: Sku, s?: P1State) => {
   const [k, r] = skuParts(x);
   const base = r === 'U' ? Math.ceil(PRODUCT[k].batch / 2) : PRODUCT[k].batch;
   if (!s) return base;
-  return base + (r === 'C' && !PRODUCT[k].tech && has(s, 'lot') ? 1 : 0) + (r === 'U' && has(s, 'mold') ? 1 : 0);
+  const tech = PRODUCT[k].tech;
+  // ロットの改善・汎用のロット（基礎の商品）・共通の型（アンコモン）・技の Lv2 から（その技の商品）
+  return base + (r === 'C' && !tech ? lvOf(s, 'lot') + Math.round(fxSum(s, 'lot')) : 0) + (r === 'U' ? lvOf(s, 'mold') : 0) + (tech ? upOf(s, techSkill(tech), 1) : 0);
 };
 
 export const craftDays = (s: P1State, x: Sku) =>
   (PRODUCT[skuParts(x)[0]].days *
-    (has(s, 'jig') ? 0.8 : 1) *
-    (has(s, 'jig2') ? 0.85 : 1) *
-    (has(s, 'five_s') ? 0.95 : 1) *
-    (has(s, 'kaizen') ? 0.9 : 1) *
-    (has(s, 'night') ? 0.85 : 1) *
-    (has(s, 'line') ? 0.8 : 1) *
+    Math.max(0.2, cut(s, 'jig', 0.2) * cut(s, 'jig2', 0.15) * cut(s, 'five_s', 0.05) * cut(s, 'kaizen', 0.1) * cut(s, 'night', 0.15) * cut(s, 'line', 0.2) * fxCut(s, 'craftDays')) *
     (invLv(wsAny(s), 'bench') >= 2 ? 0.8 : 1) *
     (1 - 0.1 * invLv(myWorkshop(s), 'tools'))) /
   flowMul(s);
@@ -1482,6 +1569,8 @@ export const unitCost = (s: P1State, x: Sku) => Object.entries(recipeOf(x)).redu
 // ---------------------------------------------------------------- 商品開発
 
 export const devCost = (key: string) => Math.round(PRODUCT[key].price * DEV.rate);
+/** 商品開発の日数（魔法の釜の Lv2 から −20% ずつ） */
+export const devDays = (s: P1State) => Math.max(1, Math.round(DEV.days * Math.max(0.2, 1 - upOf(s, 'pot', 0.2))));
 export function develop(s: P1State, key: string): string | null {
   if (!PRODUCT[key]) return 'locked';
   if (!has(s, 'pot')) return 'pot';
@@ -1491,15 +1580,15 @@ export function develop(s: P1State, key: string): string | null {
   if (s.money < cost) return 'money';
   s.money -= cost;
   spend(s, 'build', cost);
-  s.lab = { key, left: DEV.days };
+  s.lab = { key, left: devDays(s) };
   return null;
 }
 
 // ---------------------------------------------------------------- 宣伝・調査・依頼・給与
 
-export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0) * (has(s, 'b_ads') ? 1.5 : 1) * (has(s, 'fair') ? 1.1 : 1) * (sectorProfile(s).ads ?? 1);
+export const adBoost = (s: P1State) => ADS.reduce((a, x) => a + ((s.ads[x.id] ?? 0) > 0 ? x.boost : 0), 0) * (1 + 0.5 * lvMul(s, 'b_ads')) * (1 + 0.1 * lvMul(s, 'fair') + fxSum(s, 'ads')) * (sectorProfile(s).ads ?? 1);
 /** 宣伝の費用（季節の催事で −30%） */
-export const adCost = (s: P1State, id: string) => Math.round((ADS.find((a) => a.id === id)?.cost ?? 0) * (has(s, 'fair') ? 0.7 : 1));
+export const adCost = (s: P1State, id: string) => Math.round((ADS.find((a) => a.id === id)?.cost ?? 0) * cut(s, 'fair', 0.3));
 export function runAd(s: P1State, id: string): string | null {
   const x = ADS.find((a) => a.id === id);
   if (!x) return 'locked';
@@ -1663,20 +1752,22 @@ function pull(s: P1State, b: PBuilding, sh: ShopState, x: Sku, clerk: Clerk = 'n
   const service = staffed + sh.part * 0.15;
   if (service <= 0) return 0;
   const [k, r] = skuParts(x);
-  return (P1B[b.id].pull ?? 1) * skillPull(s) * shopPull(s, b, sh, x) * brandPull(s.brand, has(s, 'd_ops')) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : r === 'C' ? TIERS[s.tier ?? 'C'].commonPull : 1) * goodsMul(s, k, r) * knownOf(s, k);
+  return (P1B[b.id].pull ?? 1) * skillPull(s) * shopPull(s, b, sh, x) * brandPull(s.brand, lvMul(s, 'd_ops')) * (1 + 0.1 * invLv(b, 'sign')) * (1 + adBoost(s)) * service * sh.sat * (r === 'U' ? UNCOMMON.pull : r === 'C' ? TIERS[s.tier ?? 'C'].commonPull : 1) * goodsMul(s, k, r) * knownOf(s, k);
 }
 /**
  * スキルの売り場の強さ（すべてのお店）：接客の研修 ×1.15・ブランドの看板 ×1.25・接客の匠 ×1.2・インセンティブ ×1.05・
  * POS レジ ×1.03・人流解析 ×1.05・ERP／基幹システム刷新（全段 +5%／+10%）
  */
 export const skillPull = (s: P1State) =>
-  (has(s, 'host') ? 1.15 : 1) * (has(s, 'b_sign') ? 1.25 : 1) * (has(s, 'concierge') ? 1.2 : 1) * (has(s, 'incentive') ? 1.05 : 1) * (has(s, 'pos') ? 1.03 : 1) * (has(s, 'flow') ? 1.05 : 1) * flowMul(s);
+  (1 + 0.15 * lvMul(s, 'host')) * (1 + 0.25 * lvMul(s, 'b_sign')) * (1 + 0.2 * lvMul(s, 'concierge')) * (1 + 0.05 * lvMul(s, 'incentive')) * (1 + 0.03 * lvMul(s, 'pos')) * (1 + 0.05 * lvMul(s, 'flow')) * (1 + fxSum(s, 'pull')) * flowMul(s);
 /** お店ごと・棚ごとのスキル：VMD（棚 2 つ以上）×1.1・ゴールデンゾーン（1 番目の棚）×1.12・名物店主（✨）×1.4 */
 export function shopPull(s: P1State, b: PBuilding, sh: ShopState | null, x?: Sku): number {
-  const vmd = has(s, 'vmd') && shelfCount(s, b) >= 2 ? 1.1 : 1;
-  const golden = has(s, 'golden') && !!x && sh?.shelves[0] === x ? 1.12 : 1;
-  const famous = has(s, 'd_shop') && s.dustShop === b.uid ? 1.4 : 1;
-  return vmd * golden * famous;
+  const vmd = shelfCount(s, b) >= 2 ? 1 + 0.1 * lvMul(s, 'vmd') : 1;
+  const golden = !!x && sh?.shelves[0] === x ? 1 + 0.12 * lvMul(s, 'golden') : 1;
+  const famous = s.dustShop === b.uid ? 1 + 0.4 * lvMul(s, 'd_shop') : 1;
+  // 輸入品店・ブティックの Lv2 から：その建物の売り場の強さ +10% ずつ
+  const kind = b.id === 'import' ? 1 + upOf(s, 'shop2', 0.1) : b.id === 'boutique' ? 1 + upOf(s, 'shop3', 0.1) : 1;
+  return vmd * golden * famous * kind;
 }
 /** 名物店主（✨）にするお店を選ぶ（1 軒だけ。替えられる） */
 export function setDustShop(s: P1State, uid: number): boolean {
@@ -1689,12 +1780,12 @@ export function setDustShop(s: P1State, uid: number): boolean {
  * 新商品の認知（0〜1）：そのセクタのお客さんがその商品をどれだけ知っているか。売り場の強さに掛ける。
  * 最初の町（noSaturation）は全部 1。ほかのセクタは、初めて並べる商品は AWARE_GOODS.start から
  */
-export function knownOf(s: Pick<P1State, 'known' | 'sector' | 'skills'>, key: string): number {
+export function knownOf(s: Pick<P1State, 'known' | 'sector' | 'skills' | 'skillLv'>, key: string): number {
   if (sectorProfile(s)?.noSaturation) return 1;
   return Math.max(0, Math.min(1, s.known?.[key] ?? knownStart(s)));
 }
 /** 新商品の認知のはじめ（需要予測 AI で 0.3 → 0.5） */
-export const knownStart = (s: Pick<P1State, 'skills'>) => (s.skills.includes('forecast') ? 0.5 : AWARE_GOODS.start);
+export const knownStart = (s: Pick<P1State, 'skills' | 'skillLv'>) => Math.min(0.9, AWARE_GOODS.start + 0.2 * lvMul(s, 'forecast'));
 
 /** 他社でその商品を扱っている会社の数 */
 export const sellersOf = (s: P1State, key: string) => s.rivals.filter((r) => (r.sells[key] ?? 0) > 0).length;
@@ -1713,7 +1804,7 @@ export function saturated(s: P1State, key: string): boolean {
 /** 商品ごとの売り場の強さの倍率：飽和（Common 0.45・Uncommon 0.7）と「匠の技」（技が要る商品 +15%） */
 export function goodsMul(s: P1State, key: string, r: Rar): number {
   const sat = saturated(s, key) ? (r === 'U' ? MARKET.satU : MARKET.saturated) : 1;
-  const master = PRODUCT[key]?.tech && has(s, 't_master') ? 1.15 : 1;
+  const master = PRODUCT[key]?.tech ? 1 + 0.15 * lvMul(s, 't_master') : 1;
   return sat * master;
 }
 
@@ -1776,8 +1867,9 @@ export function capture(s: P1State, key: string, offers: Offer[]): number[] {
   const { list, total } = sources(s);
   const demand = (s.demand[key] ?? 0) * MARKET.pot;
   const ec = has(s, 'ec');
-  // 客注・取り寄せ：自社のお店に来るお客さん +10%
-  const meMul = has(s, 'order') ? 1.1 : 1;
+  const ecFloor = Math.min(1, MARKET_EC.floor * lvMul(s, 'ec'));
+  // 客注・取り寄せ：自社のお店に来るお客さん +10%（＋汎用のエリアの需要）
+  const meMul = 1 + 0.1 * lvMul(s, 'order') + fxSum(s, 'demand');
   const w = offers.map(() => 0);
   const groups = [...new Set(offers.map((o) => o.g))];
   for (const k of list) {
@@ -1785,7 +1877,7 @@ export function capture(s: P1State, key: string, offers: Offer[]): number[] {
     offers.forEach((o, n) => {
       const r0 = reach(Math.abs(o.i - k.i) + Math.abs(o.j - k.j));
       // EC サイト：自社のお店は遠いお客さんにも届く（届き方が最低 ecFloor）
-      w[n] = o.w * (o.g === 'me' && ec ? Math.max(MARKET_EC.floor, r0) : r0);
+      w[n] = o.w * (o.g === 'me' && ec ? Math.max(ecFloor, r0) : r0);
     });
     let sum = MARKET.outside;
     const gmax: Record<string, number> = {};
@@ -1811,7 +1903,8 @@ export function rivalOffers(s: P1State, key: string): (Offer & { rid: string })[
   const out: (Offer & { rid: string })[] = [];
   // 他社の反撃中（自社が 1 位を取った月から）：売り場の強さ ×MARKET.rally
   // ポイントカード：反撃の効き目が半分（×1.25 → ×1.12）
-  const rally = (s.rally ?? 0) > 0 ? (has(s, 'point') ? 1 + (MARKET.rally - 1) / 2 : MARKET.rally) : 1;
+  // ポイントカード：反撃の効き目 −50%（レベルで伸びる）・汎用の rally
+  const rally = (s.rally ?? 0) > 0 ? 1 + (MARKET.rally - 1) * Math.max(0, 1 - 0.5 * lvMul(s, 'point') - fxSum(s, 'rally')) : 1;
   for (const r of s.rivals) {
     const w = (r.sells[key] ?? 0) * MARKET.rivalPull * rally;
     if (w <= 0) continue;
@@ -1855,21 +1948,22 @@ export function pathLen(s: P1State, a: PBuilding, b: PBuilding): number {
 }
 /** 荷車で、片道に何日（速さ 1 の運搬係） */
 export const legDays = (s: P1State, n: number) =>
-  ((n / (TRANSPORT.cellsPerDay * (invLv(wsAny(s), 'truck') > 0 ? 1.5 : 1) * (has(s, 'fleet') ? 1.3 : 1))) *
-    (has(s, 'shortcut') ? 0.85 : 1) *
-    (has(s, 'route_opt') ? 0.9 : 1) *
-    (has(s, 'd_logi') ? 0.7 : 1) *
+  ((n / (TRANSPORT.cellsPerDay * (invLv(wsAny(s), 'truck') > 0 ? 1.5 : 1) * (1 + 0.3 * lvMul(s, 'fleet')))) *
+    Math.max(0.2, cut(s, 'shortcut', 0.15) * cut(s, 'route_opt', 0.1) * cut(s, 'd_logi', 0.3) * fxCut(s, 'haulDays') * (1 - upOf(s, 'timetable', 0.05))) *
     (sectorProfile(s).haul ?? 1)) /
   flowMul(s);
 /** 工房 → 物流拠点のトラックの定期便の日数の倍率（クロスドッキングで 0.3 → 0.2） */
-export const depotLink = (s: P1State) => (has(s, 'crossdock') ? 0.2 : DEPOT.link);
+export const depotLink = (s: P1State) => (has(s, 'crossdock') ? Math.max(0.05, Math.round((DEPOT.link - 0.1 * lvMul(s, 'crossdock')) * 1000) / 1000) : DEPOT.link);
+/** ルートの開拓の日数の倍率（開拓の手引き：−40%。レベルで伸びる） */
+export const scoutMul = (s: P1State) => cut(s, 'scoutmap', 0.4);
 export const myDepots = (s: P1State) => s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'depot' && b.left <= 0);
 /** お店まで片道の日数と、どこから出すか（工房か、近い物流拠点。拠点までは定期便で速い） */
 export function oneWay(s: P1State, shop: PBuilding, ws = myWorkshop(s), depots = myDepots(s)): { days: number; from: PBuilding | null } {
   if (!ws) return { days: 0, from: null };
   let best = { days: legDays(s, pathLen(s, ws, shop)), from: ws as PBuilding | null };
   for (const d of depots) {
-    const days = legDays(s, pathLen(s, ws, d)) * depotLink(s) + legDays(s, pathLen(s, d, shop));
+    // 物流拠点の Lv2 から：拠点 → お店 −10% ずつ
+    const days = legDays(s, pathLen(s, ws, d)) * depotLink(s) + legDays(s, pathLen(s, d, shop)) * Math.max(0.2, 1 - upOf(s, 'hub', 0.1));
     if (days < best.days) best = { days, from: d };
   }
   return best;
@@ -2204,7 +2298,7 @@ export function step(s: P1State): DayResult {
     working.add(st.hero);
     st.explore += speed(st, 'explore', s);
     const m = st.target as Mat;
-    if (st.explore >= MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1)) {
+    if (st.explore >= MATS[m].exploreDays * scoutMul(s)) {
       if (!s.routes.includes(m)) s.routes.push(m);
       res.routes.push(m);
       st.task = null;
@@ -2319,7 +2413,7 @@ export function step(s: P1State): DayResult {
     if (!s.holdSales && !sectorProfile(s)?.noSaturation && mine.length) {
       const cur = s.known[p.key] ?? knownStart(s);
       // 手書き POP：認知の育ち +50%
-      if (cur < 1) s.known[p.key] = Math.min(1, cur + (AWARE_GOODS.perDay + (adBoost(s) > 0 ? AWARE_GOODS.ad : 0)) * (has(s, 'pop') ? 1.5 : 1));
+      if (cur < 1) s.known[p.key] = Math.min(1, cur + (AWARE_GOODS.perDay + (adBoost(s) > 0 ? AWARE_GOODS.ad : 0)) * (1 + 0.5 * lvMul(s, 'pop') + fxSum(s, 'known')));
     }
     rv.forEach((o, n) => {
       const yen = (month[mine.length + n] / DAYS) * p.price;
@@ -2498,8 +2592,11 @@ export function endMonth(s: P1State): Report {
   else if (top && s.topStreak >= TOP_STREAK) brandAdd(s, BRAND.sectorTop, t('ランドセクタを制覇（2 か月続けて 1 位）', 'Conquered the land sector (#1 two months running)'));
   else if (prev !== null && rank < prev) brandAdd(s, BRAND.rankUp * (prev - rank), t(`順位が ${prev} 位 → ${rank} 位に`, `Rank up: #${prev} → #${rank}`));
   if (prev !== null && rank - prev >= 2) brandAdd(s, -BRAND.rankDown * (rank - prev), t(`順位が ${prev} 位 → ${rank} 位に大きく下がった`, `Rank fell: #${prev} → #${rank}`));
-  if (has(s, 'b_ads')) brandAdd(s, BRAND.adsSkill, t('ブランド広告', 'Brand advertising'));
-  if (has(s, 'pr')) brandAdd(s, 1, t('広報室', 'PR office'));
+  if (has(s, 'b_ads')) brandAdd(s, Math.round(BRAND.adsSkill * lvMul(s, 'b_ads')), t('ブランド広告', 'Brand advertising'));
+  if (has(s, 'pr')) brandAdd(s, lvOf(s, 'pr'), t('広報室', 'PR office'));
+  // 汎用の効き目：ブランド力が月に +N（IR・ESG 経営など）
+  const fxb = Math.round(fxSum(s, 'brand'));
+  if (fxb > 0) brandAdd(s, fxb, t('ブランドの取り組み（スキル）', 'Brand initiatives (skills)'));
   // 制覇：はじめて制覇した月にエンブレムを 1 つ
   if (s.topStreak >= TOP_STREAK && !s.cleared) {
     s.emblem = (s.emblem ?? 0) + 1;
@@ -2531,9 +2628,9 @@ export function endMonth(s: P1State): Report {
 }
 
 /** 建物の月の維持費（予算管理で −10%） */
-export const upkeepOf = (s: P1State, b: PBuilding) => Math.round((P1B[b.id]?.upkeep ?? 0) * (has(s, 'budget') ? 0.9 : 1));
+export const upkeepOf = (s: P1State, b: PBuilding) => Math.round((P1B[b.id]?.upkeep ?? 0) * Math.max(0.2, cut(s, 'budget', 0.1) * fxCut(s, 'upkeep')));
 /** 給料の倍率（インセンティブ +10%・福利厚生 +5%） */
-export const wageMul = (s: P1State) => 1 + (has(s, 'incentive') ? 0.1 : 0) + (has(s, 'welfare') ? 0.05 : 0);
+export const wageMul = (s: P1State) => Math.max(0.2, 1 + (has(s, 'incentive') ? 0.1 : 0) + (has(s, 'welfare') ? 0.05 : 0) - fxSum(s, 'wage'));
 
 /** OJT で上がる能力：仕事の適性の重みがいちばん大きい能力（製造・修行・マネージャーは 3 つのうち低いもの） */
 export function ojtStat(st: Staff): keyof Stats | null {
@@ -2563,7 +2660,8 @@ export function ojtMonth(s: P1State): number {
   for (const st of s.staff) {
     const k = ojtStat(st);
     if (!k || st.stats[k] >= 100) continue;
-    st.stats = { ...st.stats, [k]: st.stats[k] + 1 };
+    // OJT のレベルぶん（Lv3 で +3）
+    st.stats = { ...st.stats, [k]: Math.min(100, st.stats[k] + Math.max(1, lvOf(s, 'ojt'))) };
     n++;
   }
   return n;
@@ -2605,7 +2703,7 @@ export function closeCompanyMonth(s: P1State): CompanyMonth {
       const st0 = rec.manager != null ? staffOf(s, rec.manager) : null;
       const st = st0 && st0.task === 'manager' && st0.target === id ? st0 : null;
       // マネージャー研修：売上の倍率 +0.1・持株会社：利益 +10%
-      const r = runSector(rec, st?.stats ?? null, m, rng(s.seed + s.day * 31 + id.length * 7 + id.charCodeAt(1)), { rate: has(s, 'mgr') ? 0.1 : 0, profit: has(s, 'holding') ? 1.1 : 1 });
+      const r = runSector(rec, st?.stats ?? null, m, rng(s.seed + s.day * 31 + id.length * 7 + id.charCodeAt(1)), { rate: 0.1 * lvMul(s, 'mgr') + fxSum(s, 'manager'), profit: 1 + 0.1 * lvMul(s, 'holding') });
       s.money += r.toHQ;
       book(s, 'managed', r.toHQ);
       managed.push({ id, ...r, hero: rec.manager ?? null });
@@ -2719,11 +2817,11 @@ export function recommend(s: P1State): string {
 
 export const skuOf = (key: string, r: Rar = 'C') => sku(key, r);
 /** 売るときの値段（スキル「プレミアム価格」で +15%） */
-export const priceOf = (s: P1State, x: Sku) => Math.round(skuPrice(x) * (has(s, 'b_premium') ? 1.15 : 1) * (has(s, 'dyn') && sellersOf(s, skuParts(x)[0]) <= 1 ? 1.08 : 1));
+export const priceOf = (s: P1State, x: Sku) => Math.round(skuPrice(x) * (1 + 0.15 * lvMul(s, 'b_premium')) * (has(s, 'dyn') && sellersOf(s, skuParts(x)[0]) <= 1 ? 1 + 0.08 * lvMul(s, 'dyn') : 1) * (1 + fxSum(s, 'price')));
 /** そのお店で売るときの値段（セット販売：2 種類以上並べているお店で +5%） */
 export function priceAt(s: P1State, x: Sku, sh: ShopState | null): number {
   const kinds = sh ? new Set(sh.shelves.filter((y) => !!y)).size : 0;
-  return Math.round(priceOf(s, x) * (has(s, 'set') && kinds >= 2 ? 1.05 : 1));
+  return Math.round(priceOf(s, x) * (kinds >= 2 ? 1 + 0.05 * lvMul(s, 'set') : 1));
 }
 
 // ---------------------------------------------------------------- セーブ
@@ -2751,6 +2849,8 @@ export function deserializeP1(json: string): P1State | null {
     // 以前のセーブ：エンブレム・ゴールドダストは 0 から
     s.emblem ??= 0;
     s.dust ??= 0;
+    // 以前のセーブ：パネルのレベルは全部 1
+    s.skillLv ??= {};
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -2894,7 +2994,7 @@ export function sellEstimate(s: P1State, key: string, r: Rar = 'C'): number {
   const rv = rivalOffers(s, key);
   const shops = myShops(s);
   const g = goodsMul(s, key, r) * knownOf(s, key);
-  const mine = shops.length ? shops.map((b) => ({ i: b.i, j: b.j, w: (P1B[b.id].pull ?? 1) * brandPull(s.brand, has(s, 'd_ops')) * g, g: 'me' })) : [{ i: Math.floor(s.n / 2), j: Math.floor(s.n / 2), w: g, g: 'me' }];
+  const mine = shops.length ? shops.map((b) => ({ i: b.i, j: b.j, w: (P1B[b.id].pull ?? 1) * brandPull(s.brand, lvMul(s, 'd_ops')) * g, g: 'me' })) : [{ i: Math.floor(s.n / 2), j: Math.floor(s.n / 2), w: g, g: 'me' }];
   const out = capture(s, key, [...mine, ...rv]);
   return mine.reduce((a, _, n) => a + out[n], 0);
 }
@@ -2950,7 +3050,7 @@ function displayRate(s: P1State, b: PBuilding, sh: ShopState, clerk: Staff | nul
   const base = (clerk ? SHOP.displayPerDay * speed(clerk, 'shop', s) * u : 0) + sh.part * SHOP.partTimeDisplay;
   // 開いている日の割合（アルバイトがいればいつも。店員だけなら稼働率）
   const open = sh.part > 0 ? 1 : clerk ? u : 0;
-  return base * (1 + 0.3 * invLv(b, 'fixtures')) * (has(s, 'display') ? 1.5 : 1) + (has(s, 'hours') ? 2 * open : 0);
+  return base * (1 + 0.3 * invLv(b, 'fixtures')) * (1 + 0.5 * lvMul(s, 'display') + fxSum(s, 'display')) + 2 * lvMul(s, 'hours') * open;
 }
 /** お店 1 軒の 1 日の品出しの数（いつもの体制：店員は稼働率ぶん。uptime） */
 export function displayPerDayOf(s: P1State, b: PBuilding): number {
@@ -3339,6 +3439,7 @@ export function nextJam(s: P1State, caps = stageCaps(s)): { bn: Stage; next: Sta
 export type StageMove =
   | { kind: 'invest'; id: string; uid: number; cost: number }
   | { kind: 'skill'; id: string; cost: number }
+  | { kind: 'level'; id: string; lv: number; cost: number }
   | { kind: 'person'; task: Task; hero: number; hire: boolean; replace: number | null; target: number | string | null; cost: number }
   | { kind: 'build'; id: string; cost: number }
   | { kind: 'sell'; w: WhatIf };
@@ -3356,6 +3457,7 @@ function scratch(s: P1State): P1State {
   return {
     ...s,
     skills: [...s.skills],
+    skillLv: { ...(s.skillLv ?? {}) },
     routes: [...s.routes],
     buildings: s.buildings.map((b) => ({ ...b, inv: b.inv ? { ...b.inv } : undefined })),
     slots: s.slots.map((x) => ({ ...x })),
@@ -3432,6 +3534,14 @@ export function whatIf(s: P1State, stage: Stage): StageIf[] {
     if (e !== null && e !== 'money') continue;
     tryMove({ kind: 'skill', id: k.id, cost: k.cost }, (c) => gainSkill(c, k.id));
   }
+  // レベル上げ：いま上げられるもの（資金だけが足りないものも。✨ は除く）
+  for (const k of SKILLS) {
+    if (k.dust) continue;
+    const e = levelLock(s, k);
+    if (e !== null && e !== 'money') continue;
+    const lv = lvOf(s, k.id) + 1;
+    tryMove({ kind: 'level', id: k.id, lv, cost: levelCost(k, lv) }, (c) => setLevel(c, k.id, lv));
+  }
   // 人を置く：空いた作業台・運搬係をもう 1 人・調達係（いなければ置く、いれば能力の高い人に替える）
   const TASK: Record<Exclude<Stage, 'sell'>, Task> = { buy: 'buy', craft: 'craft', haul: 'transport' };
   const task = TASK[stage];
@@ -3455,6 +3565,47 @@ export function whatIf(s: P1State, stage: Stage): StageIf[] {
     if (p) tryMove({ kind: 'person', task, hero: p.hero, hire: p.hire, replace: cur?.hero ?? null, target: null, cost: p.hire ? wageOf(p.hero) : 0 }, (c) => putPerson(c, p, 'buy', null, cur?.hero ?? null));
   }
   return out.sort((a, b) => b.units - a.units);
+}
+
+/** いまの資金（✨ はダスト）で取れる開放とレベル上げ（技の修行・チュートリアルの外の判断はしない） */
+export function affordableSkills(s: P1State): { id: string; kind: 'skill' | 'level' }[] {
+  const out: { id: string; kind: 'skill' | 'level' }[] = [];
+  for (const k of SKILLS) {
+    if (skillLock(s, k) === null) out.push({ id: k.id, kind: 'skill' });
+    else if (levelLock(s, k) === null) out.push({ id: k.id, kind: 'level' });
+  }
+  return out;
+}
+/**
+ * いま取れる開放・レベル上げのうち、見込み（SCM の whatIf と同じ：段の数字の増え方、④ 販売は sellNow）がいちばん大きいもの。
+ * 詰まりの段の増え方を先に、同じなら 4 段の合計で比べる。どれも数字に出なければ、いちばん安いもの
+ */
+export function bestSkillMove(s: P1State): { id: string; kind: 'skill' | 'level'; units: number } | null {
+  // ✨（ゴールドダスト）は大事に使うので、資金で取れるものがあればそちらから
+  const all = affordableSkills(s).filter((x) => !SKILL[x.id].train);
+  const gum = all.filter((x) => !SKILL[x.id].dust);
+  const list = gum.length ? gum : all;
+  if (!list.length) return null;
+  const jam = myShops(s).length ? jamOf(s) : null;
+  const caps0 = stageCaps(s, true, true);
+  const v0 = (c: typeof caps0, k: Stage) => (c[k].stopped ? 0 : c[k].perMonth);
+  let best: { id: string; kind: 'skill' | 'level'; units: number; score: number } | null = null;
+  for (const x of list) {
+    const c = scratch(s);
+    if (x.kind === 'skill') gainSkill(c, x.id);
+    else setLevel(c, x.id, lvOf(c, x.id) + 1);
+    const caps = stageCaps(c, true, true);
+    const gain = (['buy', 'craft', 'haul', 'sell'] as Stage[]).map((k) => Math.max(0, v0(caps, k) - v0(caps0, k)));
+    const units = jam ? gain[['buy', 'craft', 'haul', 'sell'].indexOf(jam)] : Math.max(...gain);
+    const score = units * 1000 + gain.reduce((a, b) => a + b, 0);
+    if (!best || score > best.score) best = { ...x, units, score };
+  }
+  if (best && best.score <= 0.05) {
+    const cost = (x: { id: string; kind: 'skill' | 'level' }) => (x.kind === 'skill' ? SKILL[x.id].cost : nextLevelCost(s, SKILL[x.id]));
+    const cheap = [...list].sort((a, b) => cost(a) - cost(b))[0];
+    return { ...cheap, units: 0 };
+  }
+  return best ? { id: best.id, kind: best.kind, units: best.units } : null;
 }
 
 /** 素材のルートが使えるか：会社で開いたルート、またはいまのセクタの特産で最初から開いているルート */

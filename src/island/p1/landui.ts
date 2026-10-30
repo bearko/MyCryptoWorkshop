@@ -7,7 +7,7 @@ import { assetUrl } from '../../render/images';
 import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
 import { CAPITAL, TIER_NAME, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
 import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
-import { balance, date, staffOf, type P1State } from './model';
+import { balance, date, lvMul, staffOf, type P1State } from './model';
 import { pickHero, rankEl } from './heroui';
 import { after, open, type Ctx } from './screens';
 import { btn, h, heroIcon, heroName, money } from './ui';
@@ -435,7 +435,7 @@ export function openBrand(ctx: Ctx) {
     const s = ctx.s();
     const v = s.brand ?? 0;
     const top = h('div', 'isl-card2 isl-brand-top');
-    top.append(h('small', 'isl-dim', t('いまのブランド力', 'Brand power')), h('b', 'isl-brand-big', `★ ${v}`), h('small', 'isl-good', t(`売り場の強さ +${Math.round((brandPull(v, s.skills.includes('d_ops')) - 1) * 100)}%（最大 +${Math.round(BRAND.pullCap * (s.skills.includes('d_ops') ? 2 : 1) * 100)}%）`, `Shop pull +${Math.round((brandPull(v, s.skills.includes('d_ops')) - 1) * 100)}% (max +${Math.round(BRAND.pullCap * (s.skills.includes('d_ops') ? 2 : 1) * 100)}%)`)));
+    top.append(h('small', 'isl-dim', t('いまのブランド力', 'Brand power')), h('b', 'isl-brand-big', `★ ${v}`), h('small', 'isl-good', t(`売り場の強さ +${Math.round((brandPull(v, lvMul(s, 'd_ops')) - 1) * 100)}%（最大 +${Math.round(BRAND.pullCap * (1 + lvMul(s, 'd_ops')) * 100)}%）`, `Shop pull +${Math.round((brandPull(v, lvMul(s, 'd_ops')) - 1) * 100)}% (max +${Math.round(BRAND.pullCap * (1 + lvMul(s, 'd_ops')) * 100)}%)`)));
     body.append(top);
     // ブランド力が要るスキル
     const sk = h('div', 'isl-card2');

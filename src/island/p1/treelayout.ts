@@ -5,6 +5,7 @@
  */
 import { t } from '../../i18n';
 import { SKILLS, type Branch, type Tier } from './data';
+import { ROW_CAP } from './skillsx';
 
 /** スキルのランク（外周）。無ければ C */
 const tierOf = (k: { tier?: Tier }): Tier => k.tier ?? 'C';
@@ -32,10 +33,33 @@ export const HUB = 1.45;
 /** ✨ のパネル：根もとの近く（枝の向きから少し横へ） */
 export const DUST_R = 2.5;
 export const DUST_A = 0.42;
-/** 外周（ランクのエリア）のパネルの半径と、エリアの境目の円 */
-export const RING_R: Record<Tier, number> = { C: 0, U: 9.0, R: 10.35, E: 11.6, L: 12.8 };
-export const RING_EDGE: Record<Tier, number> = { C: 0, U: 8.15, R: 9.68, E: 10.98, L: 12.2 };
+/**
+ * 外周（ランクのエリア）：枝ごとに、そのランクのパネルを内側の段から外へ ROW_CAP 枚ずつ並べる（Common の内側と同じ流儀）。
+ * 段の半径は、ROW_CAP 枚が隣の枝と重ならない大きさから。ランクのあいだに境目の円（RING_EDGE）。
+ */
 export const OUTER: Tier[] = ['U', 'R', 'E', 'L'];
+/** ランクごとの段の半径（内側から） */
+export const RING_ROWS = {} as Record<Tier, number[]>;
+/** ランクのいちばん内側の段（RING_R）と、いちばん外の段（RING_OUT）・境目の円（RING_EDGE） */
+export const RING_R = { C: 0 } as Record<Tier, number>;
+export const RING_OUT = { C: R0 + STEP * 3 } as Record<Tier, number>;
+export const RING_EDGE = { C: 0 } as Record<Tier, number>;
+/** 外周のパネルの並び（枝・ランクごと。既存のパネル → 追加のパネル → ✨） */
+const outerList = (br: Branch, tier: Tier) => [...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && !k.dust), ...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && k.dust)].map((k) => k.id);
+{
+  let r = 9.0;
+  const SPAN = Math.PI / 4;
+  for (const tier of OUTER) {
+    const cap = ROW_CAP[tier as Exclude<Tier, 'C'>];
+    r = Math.max(r, (GAP * (cap - 1) + 1.15) / SPAN);
+    const rows = Math.max(1, ...(Object.keys(LAYOUT) as Branch[]).map((br) => Math.ceil(outerList(br, tier).length / cap)));
+    RING_EDGE[tier] = r - 0.85;
+    RING_R[tier] = r;
+    RING_ROWS[tier] = Array.from({ length: rows }, (_, k) => r + STEP * k);
+    RING_OUT[tier] = RING_ROWS[tier][rows - 1];
+    r = RING_OUT[tier] + 1.6;
+  }
+}
 /** エリアの札を置く向き（枝と枝のあいだ：製造と物流のあいだ） */
 export const LABEL_A = (-67.5 * Math.PI) / 180;
 /** 木の上の位置（単位：UNIT）。本社が (0, 0) */
@@ -47,8 +71,12 @@ for (const [br, L] of Object.entries(LAYOUT) as [Branch, (typeof LAYOUT)[Branch]
   HUBPOS.set(br, polar(a, HUB));
   const row = (ids: string[], r: number) => ids.forEach((id, i) => POS.set(id, polar(a + ((i - (ids.length - 1) / 2) * GAP) / r, r)));
   L.rows.forEach((ids, k) => row(ids, R0 + STEP * k));
-  for (const tier of OUTER) row(SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && !k.dust).map((k) => k.id), RING_R[tier]);
-  for (const k of SKILLS) if (k.branch === br && k.dust) POS.set(k.id, polar(a + DUST_A, DUST_R));
+  for (const tier of OUTER) {
+    const cap = ROW_CAP[tier as Exclude<Tier, 'C'>];
+    const ids = outerList(br, tier);
+    RING_ROWS[tier].forEach((r, k) => row(ids.slice(k * cap, (k + 1) * cap), r));
+  }
+  for (const k of SKILLS) if (k.branch === br && k.dust && tierOf(k) === 'C') POS.set(k.id, polar(a + DUST_A, DUST_R));
 }
 // 並べ忘れたスキルは、その枝の根もとの外へ（テストで 0 件を確かめる）
 export const UNPLACED = SKILLS.filter((k) => !POS.has(k.id)).map((k) => k.id);

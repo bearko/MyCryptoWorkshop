@@ -25,7 +25,11 @@ export function brandAdd(s: { brand?: number; brandLog?: BrandEv[]; day: number 
 }
 
 /** ブランド力による売り場の強さの倍率 */
-export const brandPull = (brand = 0, x2 = false) => 1 + Math.min(BRAND.pullCap * (x2 ? 2 : 1), brand * BRAND.pullPer * (x2 ? 2 : 1));
+/** ブランド力の売り場の強さ。x2：ブランド戦略室（✨）の倍率の足し分（true＝Lv1 の +1、数ならそのまま。Lv3 で +1.5） */
+export const brandPull = (brand = 0, x2: boolean | number = false) => {
+  const m = 1 + (typeof x2 === 'number' ? x2 : x2 ? 1 : 0);
+  return 1 + Math.min(BRAND.pullCap * m, brand * BRAND.pullPer * m);
+};
 
 // ---------------------------------------------------------------- 帳簿
 
