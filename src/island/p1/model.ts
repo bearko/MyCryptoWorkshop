@@ -15,6 +15,8 @@ import {
   STORE,
   DEV,
   ENTRY_AFTER,
+  MARKET_GROWTH,
+  RIVAL,
   BUILD_CATS,
   BRAND,
   TIERS,
@@ -152,6 +154,12 @@ export interface RivalState {
   id: string;
   sells: Partial<Record<string, number>>;
   base: number;
+  /** 商品ごとの、扱い始めたときの売り場の強さ（伸びの頭打ち RIVAL.pullCap の基準）。以前のセーブには無い */
+  pull0?: Partial<Record<string, number>>;
+  /** 追随で入った商品：売れない月が続いた数（RIVAL.weakMonths で撤退）。もとから扱っている商品は入らない */
+  follow?: Partial<Record<string, number>>;
+  /** 撤退した商品（もう追随しない） */
+  quit?: string[];
 }
 
 export interface Rank {
@@ -2427,20 +2435,52 @@ export function endMonth(s: P1State): Report {
     const room = noSat ? n === 0 : n < MARKET.satAt;
     s.alone[p.key] = sold && room ? (s.alone[p.key] ?? 0) + 1 : 0;
     if ((s.alone[p.key] ?? 0) >= ENTRY_AFTER) {
-      const next = s.rivals.filter((r) => !((r.sells[p.key] ?? 0) > 0)).sort((a, b) => rivals[a.id] - rivals[b.id])[0];
+      const next = s.rivals.filter((r) => !((r.sells[p.key] ?? 0) > 0) && !r.quit?.includes(p.key)).sort((a, b) => rivals[a.id] - rivals[b.id])[0];
       s.alone[p.key] = 0;
       if (next) {
         next.sells[p.key] = 0.8;
+        (next.pull0 ??= {})[p.key] = 0.8;
+        (next.follow ??= {})[p.key] = 0;
         news.push(`${rivalDef(next.id)?.name ?? ''}|${p.name}`);
       }
     }
   }
-  // 他社は少しずつ強くなり、需要も伸びる
+  // 他社の撤退：追随で入った商品が売れない（その商品の市場の RIVAL.weakShare 未満）月が続いたら、扱うのをやめる
   for (const r of s.rivals) {
-    r.base *= 1 + RIVAL_GROWTH;
-    for (const k of Object.keys(r.sells)) r.sells[k] = (r.sells[k] ?? 0) * (1 + RIVAL_GROWTH);
+    if (!r.follow) continue;
+    for (const key of Object.keys(r.follow)) {
+      if (!((r.sells[key] ?? 0) > 0)) {
+        delete r.follow[key];
+        continue;
+      }
+      // その月の他社の商品ごとの売上が記録されていない（日を回していない）ときは判定しない
+      const by = s.rivalLast[r.id]?.by;
+      if (!by || !Object.keys(by).length) continue;
+      const theirs = by[key] ?? 0;
+      const market = (s.monthSales[key] ?? 0) + s.rivals.reduce((a, x) => a + (s.rivalLast[x.id]?.by[key] ?? 0), 0);
+      const weak = market > 0 && theirs < market * RIVAL.weakShare;
+      r.follow[key] = weak ? (r.follow[key] ?? 0) + 1 : 0;
+      if ((r.follow[key] ?? 0) >= RIVAL.weakMonths) {
+        delete r.sells[key];
+        delete r.follow[key];
+        if (r.pull0) delete r.pull0[key];
+        (r.quit ??= []).push(key);
+        news.push(`${rivalDef(r.id)?.name ?? ''}|${PRODUCT[key]?.name ?? key}|out`);
+      }
+    }
   }
-  for (const k of Object.keys(s.demand)) s.demand[k] = (s.demand[k] ?? 0) * 1.015;
+  // 他社と需要の伸び：他社の「エクステ以外の売上」は市場（需要）と同じだけ伸びる。
+  // 売り場の強さは少しずつ伸びるが、扱い始めたときの RIVAL.pullCap 倍で頭打ち（市場より速く強くなり続けない）
+  for (const r of s.rivals) {
+    r.base *= 1 + MARKET_GROWTH;
+    const p0 = (r.pull0 ??= {});
+    for (const k of Object.keys(r.sells)) {
+      const v = r.sells[k] ?? 0;
+      if (p0[k] == null) p0[k] = v;
+      r.sells[k] = Math.min(v * (1 + RIVAL_GROWTH), (p0[k] ?? v) * RIVAL.pullCap);
+    }
+  }
+  for (const k of Object.keys(s.demand)) s.demand[k] = (s.demand[k] ?? 0) * (1 + MARKET_GROWTH);
 
   // 制覇：TOP_STREAK か月続けて 1 位（docs/ISLAND_PHASE1.md「制覇」）。他社の反撃：1 位を取った月から MARKET.rallyMonths か月
   const prev = s.reports.length ? s.reports[s.reports.length - 1].rank : null;
