@@ -9,31 +9,27 @@ import { CAPITAL, TIER_NAME, brandPull, emptyLedger, managerRate, pl, quarters, 
 import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
 import { balance, date, lvMul, staffOf, type P1State } from './model';
 import { pickHero, rankEl } from './heroui';
+import { adjacent } from './world';
 import { after, open, type Ctx } from './screens';
 import { btn, h, heroIcon, heroName, money } from './ui';
 
 // ---------------------------------------------------------------- ランドマップ
 
 /**
- * 地図の上の道（セクタどうしのつながり）。同じ段のとなりどうしと、となりのランクの段どうしを結ぶ。
- * 段：Common 下（c1〜c4）・Common 上（c5〜c8）・Uncommon（u1〜u5）・Rare（r1〜r4）・Epic（e1〜e3）・Legendary（l1）
+ * 地図の上の道（セクタどうしのつながり）。同じランクの中は、つながった地図の隣どうし（grid が上下左右に 1 違い）。
+ * ランクの間は、上のランクへ進む道（つながった地図ではつながらない。ランクが違えば別の階層）。
  */
-const ROWS = [['c1', 'c2', 'c3', 'c4'], ['c5', 'c6', 'c7', 'c8'], ['u1', 'u2', 'u3', 'u4', 'u5'], ['r1', 'r2', 'r3', 'r4'], ['e1', 'e2', 'e3'], ['l1']];
 const ROADS: [string, string][] = [
-  ...ROWS.flatMap((r) => r.slice(1).map((id, k): [string, string] => [r[k], id])),
-  ['c1', 'c5'],
-  ['c4', 'c8'],
-  ['c5', 'u1'],
+  ...SECTORS.flatMap((a) => SECTORS.filter((b) => a.id < b.id && adjacent(a.id, b.id)).map((b): [string, string] => [a.id, b.id])),
+  ['c3', 'u1'],
   ['c6', 'u2'],
-  ['c7', 'u4'],
-  ['c8', 'u5'],
-  ['u1', 'r1'],
-  ['u3', 'r2'],
-  ['u3', 'r3'],
-  ['u5', 'r4'],
-  ['r1', 'e1'],
-  ['r3', 'e2'],
+  ['c8', 'u3'],
+  ['u4', 'r1'],
+  ['u5', 'r2'],
+  ['r3', 'e1'],
   ['r4', 'e3'],
+  ['r3', 'l1'],
+  ['r4', 'l1'],
   ['e2', 'l1'],
 ];
 
@@ -90,8 +86,8 @@ const ERR: Record<MoveErr, string> = {
   busy: t('そのヒーローは、ほかのセクタのマネージャーです', 'That hero manages another sector'),
 };
 
-/** 移る：いまのセクタに建物があれば、まずマネージャーを選ぶ */
-function startMove(ctx: Ctx, target: string) {
+/** 移る：いまのセクタに建物があれば、まずマネージャーを選ぶ（ランドマップの「出店する」・地図の「このセクタに進出」） */
+export function startMove(ctx: Ctx, target: string) {
   const s = ctx.s();
   const cur = sectorDef(s.land!.cur);
   const go = (hero: number | null) => {

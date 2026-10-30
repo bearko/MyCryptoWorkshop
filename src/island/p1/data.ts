@@ -320,6 +320,11 @@ export interface SectorDef {
   fee: number;
   /** ランドマップの上の位置（0〜100） */
   at: [number, number];
+  /**
+   * つながった地図の上の位置（同じランクの階層の中。gx はマスの i の向き、gy は j の向き）。
+   * 上下左右に 1 違いのセクタが隣どうし（斜めは隣ではない）。ランクが違えば別の階層で、つながらない。
+   */
+  grid: [number, number];
   /** 雲に覆われていて、まだ行けない */
   cloud?: boolean;
   /** 開放の条件：そのランクのセクタに n 個以上出店 */
@@ -351,7 +356,8 @@ const goal = (name: string) =>
 /**
  * ランド「はじまりの国 Lime」の 21 セクタ（docs/ISLAND_PHASE1.md「ランドマップとセクタ」）。
  * id はセーブと繋がるので変えない（c1〜c3・u1〜u2・r1・e1・l1 は前からある id）。
- * at：ランドマップの位置（0〜100）。下から Common 2 段（4＋4）・Uncommon 5（スマホで名前が重ならないよう、互い違いに少し上下）・Rare 4・Epic 3・Legendary 1。
+ * at：ランドマップの位置（0〜100）。つながった地図の grid に合わせて、下から Common 2 段（4＋4。列＝gx・段＝gy）・Uncommon 3＋2・Rare 2＋2・Epic 3。
+ * Legendary は Rare の 2 段目のあいだ（ランドの真ん中の都）。札が重ならないよう、同じ段は横に 19% 以上、段は縦に 13% 以上あける。
  */
 export const SECTORS: SectorDef[] = [
   // ---------------------------------------------------------------- Common（下の段：c1〜c4）
@@ -362,6 +368,7 @@ export const SECTORS: SectorDef[] = [
     name: t('タオックス', 'Taox'),
     fee: 0,
     at: [13, 89],
+    grid: [0, 0],
     profile: { tag: t('はじまりの町。センスとランタンがよく売れる', 'Where it all begins. Sensu and Lanterns sell well'), intro: [], gap: ['Sensu', 'Scissors'], noSaturation: true },
   },
   {
@@ -370,6 +377,7 @@ export const SECTORS: SectorDef[] = [
     name: t('ユーホタウン', 'Yuho Town'),
     fee: 5000,
     at: [37, 89],
+    grid: [1, 0],
     profile: {
       rivals: [
         rv('kohan', t('湖畔ガラス', 'Lakeshore Glass'), { Lantern: 1.7, Scissors: 1 }, 9500, 'import', 0.18),
@@ -389,7 +397,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'C',
     name: t('リデル・ヒルズ', 'Riddle Hills'),
     fee: 6000,
-    at: [63, 89],
+    at: [13, 75],
+    grid: [0, 1],
     profile: {
       rivals: [
         rv('fusha', t('風車堂', 'Windmill House'), { Mallet: 1.5, Scissors: 1.2 }, 7500, 'import', 0.16),
@@ -410,7 +419,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'C',
     name: t('キッチョムシティ', 'Kitchom City'),
     fee: 8000,
-    at: [87, 89],
+    at: [37, 75],
+    grid: [1, 1],
     profile: {
       rivals: [
         rv('kitcho', t('キッチョム雑貨', 'Kitchom Goods'), { Sensu: 1.3, Scissors: 1.1 }, 8500, 'import', 0.15),
@@ -431,7 +441,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'C',
     name: t('オマツリタウン', 'Omatsuri Town'),
     fee: 8000,
-    at: [13, 75],
+    at: [63, 89],
+    grid: [2, 0],
     profile: {
       rivals: [
         rv('yatai', t('屋台通り商会', 'Stall Street Trading'), { Lantern: 1.4, Sensu: 1.2 }, 8000, 'import', 0.16),
@@ -451,7 +462,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'C',
     name: t('ジラ・カントリー', 'Zira Country'),
     fee: 7000,
-    at: [37, 75],
+    at: [63, 75],
+    grid: [2, 1],
     profile: {
       rivals: [
         rv('kikori', t('きこり商店', 'Woodcutter Store'), { Mallet: 1.3, Sensu: 1 }, 6500, 'import', 0.14),
@@ -473,7 +485,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'C',
     name: t('サクラコシティ', 'Sakurako City'),
     fee: 10000,
-    at: [63, 75],
+    at: [87, 89],
+    grid: [3, 0],
     profile: {
       rivals: [
         rv('hanami', t('花見堂', 'Hanami-do'), { Sensu: 1.5, Lantern: 1 }, 8500, 'import', 0.17),
@@ -494,6 +507,7 @@ export const SECTORS: SectorDef[] = [
     name: t('ペストタウン', 'Pest Town'),
     fee: 12000,
     at: [87, 75],
+    grid: [3, 1],
     profile: {
       rivals: [
         rv('gekiyasu', t('ゲキヤス本舗', 'Gekiyasu Honpo'), { Sensu: 1.2, Scissors: 1.2, Lantern: 1.2 }, 10000, 'import', 0.08),
@@ -516,7 +530,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'U',
     name: t('ウメコタウン', 'Umeko Town'),
     fee: 150000,
-    at: [10, 56],
+    at: [20, 62],
+    grid: [0, 0],
     profile: {
       rivals: [
         rv('ship', t('シップ商会', 'Ship Trading'), { Lantern: 1.4, Scissors: 1.4, Mallet: 1 }, 12000, 'import', 0.2),
@@ -536,7 +551,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'U',
     name: t('ヤツカノタウン', 'Yatsukano Town'),
     fee: 180000,
-    at: [30, 62],
+    at: [50, 62],
+    grid: [1, 0],
     profile: {
       rivals: [
         rv('kajiya', t('鍛冶屋ヤツカ', 'Yatsuka Smithy'), { Mallet: 1.5, Scissors: 1.3 }, 12000, 'import', 0.18),
@@ -556,7 +572,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'U',
     name: t('エムケーシティ', 'MK City'),
     fee: 220000,
-    at: [50, 56],
+    at: [80, 62],
+    grid: [2, 0],
     profile: {
       rivals: [
         rv('sakaue', t('坂上百貨', 'Slopetop Department'), { Sensu: 1.2, Mallet: 1.2, 'Node-Doll': 1.2, Lantern: 1.2, Scissors: 1.2, Ribbon: 1 }, 15000, 'import', 0.22),
@@ -577,7 +594,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'U',
     name: t('ゴリ・ラグズ', 'Gori Rugs'),
     fee: 260000,
-    at: [70, 62],
+    at: [35, 49],
+    grid: [0, 1],
     profile: {
       rivals: [
         rv('orimono', t('織物のゴリ', 'Gori Weaves'), { 'Node-Doll': 1.5, Sensu: 1, Hat: 1 }, 12000, 'import', 0.19),
@@ -597,7 +615,8 @@ export const SECTORS: SectorDef[] = [
     tier: 'U',
     name: t('ザックシティ', 'Zack City'),
     fee: 300000,
-    at: [90, 56],
+    at: [65, 49],
+    grid: [1, 1],
     profile: {
       rivals: [
         rv('zack', t('ザック百貨', 'Zack Department'), { Sensu: 1.2, Mallet: 1.2, 'Node-Doll': 1.2, Lantern: 1.2, Scissors: 1.2, Knife: 1 }, 16000, 'import', 0.2),
@@ -616,18 +635,20 @@ export const SECTORS: SectorDef[] = [
   // ---------------------------------------------------------------- Rare（r1〜r4。準備中）
   ...(
     [
-      ['r1', t('グリーン・マウス', 'Green Mouse'), 600000, 16, t('緑に囲まれた栄えた町。商売敵もお客さんも桁違い', 'A thriving town in the green. Rivals and customers on another scale')],
-      ['r2', t('カスミシティ', 'Kasumi City'), 700000, 39, t('霞のかかる大きな市場。他社の店が立ち並ぶ', 'A great market in the haze, lined with rival stores')],
-      ['r3', t('デグノブタウン', 'Degnob Town'), 800000, 61, t('職人と商人が集まる町。他店から客を奪う勝負', 'A town of crafters and traders. Win customers from rival shops')],
-      ['r4', t('ネコツ・バメ', 'Nekotsu Bame'), 900000, 84, t('港と市場が隣り合う、にぎやかな町', 'A lively town where the port meets the market')],
+      ['r1', t('グリーン・マウス', 'Green Mouse'), 600000, 0, t('緑に囲まれた栄えた町。商売敵もお客さんも桁違い', 'A thriving town in the green. Rivals and customers on another scale')],
+      ['r2', t('カスミシティ', 'Kasumi City'), 700000, 1, t('霞のかかる大きな市場。他社の店が立ち並ぶ', 'A great market in the haze, lined with rival stores')],
+      ['r3', t('デグノブタウン', 'Degnob Town'), 800000, 2, t('職人と商人が集まる町。他店から客を奪う勝負', 'A town of crafters and traders. Win customers from rival shops')],
+      ['r4', t('ネコツ・バメ', 'Nekotsu Bame'), 900000, 3, t('港と市場が隣り合う、にぎやかな町', 'A lively town where the port meets the market')],
     ] as [string, string, number, number, string][]
   ).map(
-    ([id, name, fee, x, tag]): SectorDef => ({
+    ([id, name, fee, k, tag]): SectorDef => ({
       id,
       tier: 'R',
       name,
       fee,
-      at: [x, 42],
+      // 2×2（r1 r2 / r3 r4）。ランドマップも 2 段に
+      at: [k % 2 ? 75 : 25, k < 2 ? 36 : 23],
+      grid: [k % 2, Math.floor(k / 2)],
       need: { tier: 'U', n: 2 },
       soon: true,
       profile: { tag, intro: [] },
@@ -635,10 +656,10 @@ export const SECTORS: SectorDef[] = [
     }),
   ),
   // ---------------------------------------------------------------- Epic・Legendary（雲の向こう）
-  { id: 'e1', tier: 'E', name: t('ヒトシタウン', 'Hitoshi Town'), fee: 0, at: [22, 26], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
-  { id: 'e2', tier: 'E', name: t('ヌコカントリー', 'Nuko Country'), fee: 0, at: [50, 26], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
-  { id: 'e3', tier: 'E', name: t('クリプト・サン・シティ', 'Crypto Sun City'), fee: 0, at: [78, 26], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
-  { id: 'l1', tier: 'L', name: t('ヤマピーキングダム', 'Yamapi Kingdom'), fee: 0, at: [50, 10], cloud: true, profile: { tag: t('ブランド力で売る、ランドいちばんの都', 'The capital of the land, won by brand power'), intro: [] } },
+  { id: 'e1', tier: 'E', name: t('ヒトシタウン', 'Hitoshi Town'), fee: 0, at: [25, 10], grid: [0, 0], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
+  { id: 'e2', tier: 'E', name: t('ヌコカントリー', 'Nuko Country'), fee: 0, at: [50, 10], grid: [1, 0], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
+  { id: 'e3', tier: 'E', name: t('クリプト・サン・シティ', 'Crypto Sun City'), fee: 0, at: [75, 10], grid: [2, 0], cloud: true, profile: { tag: t('他社を買収できる町', 'A town where you can acquire rivals'), intro: [] } },
+  { id: 'l1', tier: 'L', name: t('ヤマピーキングダム', 'Yamapi Kingdom'), fee: 0, at: [50, 23], grid: [0, 0], cloud: true, profile: { tag: t('ブランド力で売る、ランドいちばんの都', 'The capital of the land, won by brand power'), intro: [] } },
 ];
 
 /** すべてのセクタの同業他社（id はセクタをまたいで重ならない） */

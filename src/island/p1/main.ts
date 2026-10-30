@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
+import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, TIERS, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -101,8 +101,10 @@ import { openSkills } from './tree';
 import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { openBooks, openBrand, openLand } from './landui';
-import { book, brandAdd, sectorDef, tierLabel } from './company';
+import { openBooks, openBrand, openLand, startMove } from './landui';
+import { book, brandAdd, sectorDef, sectorState, tierLabel } from './company';
+import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
+import { STRIP, corners, overviewScale, worldOf } from './worldrender';
 import { landCleared, playable } from './land';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
@@ -191,6 +193,8 @@ let placing: { id: string; dir: Dir; i: number; j: number; move?: number } | nul
 let selected: number | null = null;
 /** 吹き出しを出しているマス */
 let pop: [number, number] | null = null;
+/** 隣のセクタのマスを押したときの吹き出し（そのセクタの id。つながった地図） */
+let popSector: string | null = null;
 const fx: Effect[] = [];
 
 function resize() {
@@ -287,6 +291,40 @@ statBrand.addEventListener('click', () => openBrand(ctx));
 const statSector = h('button', 'isl-stat isl-stat-btn isl-stat-sector');
 statSector.type = 'button';
 statSector.addEventListener('click', () => openLand(ctx));
+const sectorTier = h('small');
+const sectorNames = h('span', 'isl-sector-names');
+statSector.append(sectorTier, sectorNames);
+/** 札に出しているセクタ（変わったら、古い名前が上へ抜けて新しい名前が下から入る） */
+let shownSector: string | null = null;
+const sectorPill = h('div', 'isl-sector-pill');
+sectorPill.hidden = true;
+let pillTimer = 0;
+function showSectorName(id: string, animate: boolean) {
+  const d = sectorDef(id);
+  statSector.style.setProperty('--tc', TIERS[d.tier].color);
+  sectorTier.textContent = tierLabel(d.tier);
+  const nb = h('b', animate ? 'is-in' : '', `📍 ${d.name}`);
+  if (animate) {
+    for (const old of [...sectorNames.children]) {
+      old.classList.remove('is-in');
+      old.classList.add('is-out');
+      setTimeout(() => old.remove(), 420);
+    }
+    statSector.classList.remove('is-flash');
+    void statSector.offsetWidth;
+    statSector.classList.add('is-flash');
+    // 中央の上に小さく「📍 セクタ名」（1.2 秒）
+    sectorPill.textContent = `📍 ${d.name}`;
+    sectorPill.style.setProperty('--tc', TIERS[d.tier].color);
+    sectorPill.hidden = false;
+    sectorPill.classList.remove('is-on');
+    void sectorPill.offsetWidth;
+    sectorPill.classList.add('is-on');
+    clearTimeout(pillTimer);
+    pillTimer = window.setTimeout(() => (sectorPill.hidden = true), 1250);
+  } else sectorNames.replaceChildren();
+  sectorNames.append(nb);
+}
 const SPEEDS = [0, 1, 4];
 const speedBtns = SPEEDS.map((v) =>
   btn(v === 0 ? '⏸' : v === 1 ? '▶' : '⏩', () => {
@@ -364,9 +402,9 @@ function renderHud() {
   const lb = t('ブランド力', 'Brand');
   statBrand.innerHTML = `<small>${lb}</small><b>★ ${s.brand ?? 0}</b>`;
   statSector.hidden = !s.land;
-  if (s.land) {
-    const d = sectorDef(s.land.cur);
-    statSector.innerHTML = `<small>${tierLabel(d.tier)}</small><b>📍 ${d.name}</b>`;
+  if (s.land && shownSector !== s.land.cur) {
+    showSectorName(s.land.cur, shownSector != null);
+    shownSector = s.land.cur;
   }
   brandNews();
   currencyNews();
@@ -1000,6 +1038,7 @@ popEl.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 function openPop(i: number, j: number) {
   pop = [i, j];
+  popSector = null;
   menu = null;
   sub = null;
   placing = null;
@@ -1013,6 +1052,7 @@ function openPop(i: number, j: number) {
 function closePop() {
   if (!pop) return;
   pop = null;
+  popSector = null;
   selected = null;
   popEl.hidden = true;
   dirty = true;
@@ -1022,7 +1062,7 @@ function renderPop() {
   // 撤去・移転で建物がなくなったら、いまのマスで作り直す
   if (selected != null && !s.buildings.some((b) => b.uid === selected)) selected = null;
   const y = popBody.scrollTop;
-  const { title, body } = tileContent(ctx, pop[0], pop[1], {
+  const { title, body } = popSector ? sectorPop(popSector) : tileContent(ctx, pop[0], pop[1], {
     move: (uid) => {
       const b = s.buildings.find((x) => x.uid === uid);
       if (!b) return;
@@ -2349,6 +2389,286 @@ function openTest() {
 /** 広い画面（PC）では、事業別メニューを画面の右に縦に並べる。スマホは下の帯のまま */
 const RAIL = matchMedia('(min-width: 1000px) and (min-height: 560px) and (orientation: landscape)');
 RAIL.addEventListener('change', () => renderAll());
+// ---------------------------------------------------------------- つながった地図（隣のセクタ・シームレスな移動・進出・縮小の札）
+// docs/ISLAND_PHASE1.md「つながった地図」。関所を開けるまで（s.land が無いあいだ）は何も出さない
+
+/** いちばん縮小したとき：同じ階層の全セクタが画面に入る（いまの最小の 1/3 くらいまで） */
+function minZoom(): number {
+  if (!s.land) return 0.2;
+  const cur = sectorDef(s.land.cur);
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const d of layerOf(cur.tier)) {
+    const g = gridDelta(cur.id, d.id) ?? [0, 0];
+    for (const p of corners(g[0] * s.n, g[1] * s.n, s.n)) {
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y);
+      y1 = Math.max(y1, p.y);
+    }
+  }
+  const fit = Math.min((W - 24) / (x1 - x0), (H - 180) / (y1 - y0 + 300));
+  return Math.max(0.02, Math.min(0.2 / 3, fit));
+}
+/** 同じ階層の全セクタのまんなか（ワールド座標）。縮小して全体を見るときにカメラを寄せる */
+function layerCenter(): { x: number; y: number } | null {
+  if (!s.land) return null;
+  const cur = sectorDef(s.land.cur);
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (const d of layerOf(cur.tier)) {
+    const g = gridDelta(cur.id, d.id) ?? [0, 0];
+    for (const p of corners(g[0] * s.n, g[1] * s.n, s.n)) {
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y);
+      y1 = Math.max(y1, p.y);
+    }
+  }
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+}
+/** 縮小して全体に入ったら、階層のまんなかへカメラを寄せる（端のセクタの札が切れないように） */
+function centerOverview(wasOv: boolean) {
+  if (wasOv || !overviewOn()) return;
+  const c = layerCenter();
+  if (c) tween = { x0: cam.x, y0: cam.y, x1: c.x, y1: c.y, t0: performance.now() };
+}
+/** ホイール・「＋／−」で 1 段ずつ */
+function zoomStep(dir: 1 | -1) {
+  const wasOv = overviewOn();
+  const zs = zoomSteps();
+  cam.zoom = dir > 0 ? (zs.find((z) => z > cam.zoom + 1e-6) ?? zs[zs.length - 1]) : ([...zs].reverse().find((z) => z < cam.zoom - 1e-6) ?? zs[0]);
+  dirty = true;
+  if (placing) setGhost(...centerCell());
+  centerOverview(wasOv);
+}
+const zoomBox = h('div', 'isl-zoom');
+zoomBox.append(btn('+', () => zoomStep(1)), btn('−', () => zoomStep(-1)));
+zoomBox.hidden = true;
+
+/** 縮小して全体を見ている（1 セクタが画面の幅の 60% 未満） */
+const overviewOn = () => !!s.land && s.n * 200 * cam.zoom < W * 0.6;
+
+/** ワールド座標 → 画面 */
+const toScreen = (i: number, j: number) => ({ x: ((i - j) * 100 - cam.x) * cam.zoom + W / 2, y: ((i + j) * 55 - cam.y) * cam.zoom + H / 2 });
+
+/** 動かせないとき（ほかの画面・案内・置いている途中） */
+const worldBusy = () => !!placing || !!tour || sheetOpen() || !!root.querySelector('.isl-modal, .isl-talk, .isl-picker') || tutOf(s) < TUT_DONE;
+
+/** 移れなかったセクタ（中心が出るまで、もう一度は試さない。トーストが続かないように） */
+let blockedTo: string | null = null;
+
+/**
+ * 出店済みの隣のセクタへ、地図をつないだまま移る。引き出しは出さない。
+ * カメラは見た目が変わらないように付け直す（移った瞬間に画面が飛ばない）。
+ */
+function seamless(to: string): boolean {
+  const land = s.land;
+  if (!land) return false;
+  const fromName = sectorDef(land.cur).name;
+  const r = switchSector(s, to);
+  if (r.err) {
+    blockedTo = to;
+    sfx.play('error');
+    toast(r.err === 'manager' ? t('マネージャーにできるヒーローがいません', 'No hero is free to be the manager') : r.err === 'busy' ? t('そのヒーローは、ほかのセクタのマネージャーです', 'That hero manages another sector') : t('このセクタへは移れません', 'You cannot move to this sector'));
+    return false;
+  }
+  blockedTo = null;
+  const d = camShift(r.delta[0], r.delta[1], s.n);
+  cam.x -= d.x;
+  cam.y -= d.y;
+  if (drag) {
+    drag.cx -= d.x;
+    drag.cy -= d.y;
+  }
+  if (tween) {
+    tween.x0 -= d.x;
+    tween.x1 -= d.x;
+    tween.y0 -= d.y;
+    tween.y1 -= d.y;
+  }
+  // 前のセクタの動き（人・荷車・売上の数字）は捨てる
+  anim.walkers = [];
+  anim.crowd = [];
+  anim.coins.clear();
+  anim.plus = [];
+  anim.buyer = null;
+  closePop();
+  selected = null;
+  if (r.manager != null)
+    toast(
+      r.handed
+        ? t(`${heroName(r.manager)}が${fromName}のマネージャーに交代しました`, `${heroName(r.manager)} now manages ${fromName}`)
+        : t(`${fromName}のマネージャーに${heroName(r.manager)}を指名しました（適性がいちばん高い待機中のヒーロー）`, `${heroName(r.manager)} now manages ${fromName} (best available hero)`),
+    );
+  else if (r.back != null) toast(t(`${heroName(r.back)}が本社の仕事に戻りました`, `${heroName(r.back)} is back at HQ`));
+  sfx.play('move');
+  save();
+  renderAll();
+  return true;
+}
+
+/** 札・吹き出しから：そのセクタへ移り、カメラをそのセクタの真ん中へ */
+function goSector(id: string) {
+  const ov = overviewOn();
+  if (!seamless(id)) return;
+  closeSheet();
+  const c = (s.n - 1) / 2;
+  tween = { x0: cam.x, y0: cam.y, x1: 0, y1: c * 2 * 55, t0: performance.now(), dur: ov ? 500 : 700 };
+}
+
+/** 地図を動かして、画面の中心が隣の出店済みセクタに入ったら移る（境界から 1.5 マス以上入ったら） */
+function checkSeamless() {
+  if (!s.land || worldBusy()) return;
+  const to = enteredSector(s, cam.x, cam.y);
+  if (!to) {
+    blockedTo = null;
+    return;
+  }
+  if (to !== blockedTo) seamless(to);
+}
+
+/** 隣のセクタのマスを押したときの吹き出し */
+function openSectorPop(id: string, i: number, j: number) {
+  pop = [i, j];
+  popSector = id;
+  menu = null;
+  sub = null;
+  placing = null;
+  selected = null;
+  renderPop();
+  centerOn(i, j);
+}
+function sectorPop(id: string): { title: string; body: HTMLElement } {
+  const d = sectorDef(id);
+  const st = s.land ? sectorState(s.land, id) : 'cloud';
+  const body = h('div', 'isl-pop-body');
+  body.append(h('small', 'isl-dim', tierLabel(d.tier)));
+  if (d.profile.tag && st !== 'cloud') body.append(h('p', '', d.profile.tag));
+  const row = h('div', 'isl-row');
+  if (st === 'mine') {
+    const b = sectorBadges(s).find((x) => x.id === id);
+    if (b?.manager != null) body.append(h('p', 'isl-dim', t(`マネージャー：${heroName(b.manager)}`, `Manager: ${heroName(b.manager)}`)));
+    row.append(btn(t(`${d.name}へ移動`, `Go to ${d.name}`), () => goSector(id), 'is-on'));
+  } else if (st === 'open') row.append(advanceBtn(id));
+  else body.append(h('p', 'isl-warn', `🔒 ${needLine(s, d) ?? ''}`));
+  if (row.childElementCount) body.append(row);
+  return { title: st === 'cloud' ? '???' : d.name, body };
+}
+
+/** 「このセクタに進出（入国料 N G）」。資金が足りなければ灰色で「あと N G」 */
+function advanceBtn(id: string): HTMLButtonElement {
+  const d = sectorDef(id);
+  const short = d.fee - s.money;
+  const b = btn(short > 0 ? t(`あと ${money(short)}`, `${money(short)} short`) : t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => {
+    closePop();
+    startMove(ctx, id);
+  }, short > 0 ? '' : 'is-on');
+  b.disabled = short > 0;
+  return b;
+}
+
+/** 地図の上に浮く札（境界の近くの「このセクタに進出」・縮小したときの状況の札） */
+const worldUi = h('div', 'isl-world');
+let worldKey = '';
+let worldEls: { el: HTMLElement; i: number; j: number }[] = [];
+
+function badgeEl(b: SectorBadge, mini: boolean): HTMLElement {
+  const el = h('button', `isl-wbadge is-${b.state} ${mini ? 'is-mini' : ''}`);
+  (el as HTMLButtonElement).type = 'button';
+  el.style.setProperty('--tc', TIERS[b.tier].color);
+  const gray = b.state === 'cloud' || b.state === 'locked' || b.state === 'soon';
+  el.append(h('b', 'isl-wbadge-name', b.state === 'cloud' ? '???' : b.name));
+  const row = h('span', 'isl-wbadge-row');
+  const sz = mini ? 16 : 26;
+  if (b.state === 'here' || b.state === 'mine') {
+    row.append(h('span', `isl-wbadge-rank ${b.crown ? 'is-crown' : ''}`, b.crown ? '👑' : b.rank ? t(`${b.rank} 位`, `#${b.rank}`) : '—'));
+    for (const x of b.items.slice(0, mini ? 1 : 3)) row.append(skuIcon(x, sz));
+    if (b.state === 'here') row.append(h('span', 'isl-wbadge-here', mini ? '📍' : t('📍 いまここ', '📍 Here')));
+    else if (b.manager != null) row.append(heroIcon(b.manager, sz));
+  } else if (b.state === 'open') row.append(h('span', 'isl-wbadge-note', mini ? t('未進出', 'New') : t(`未進出・入国料 ${money(b.fee)}`, `Not yet · permit ${money(b.fee)}`)));
+  else row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : `🔒 ${needLine(s, sectorDef(b.id)) ?? ''}`));
+  el.append(row);
+  if (!mini && b.lastRev != null && !gray) el.append(h('small', 'isl-wbadge-rev', t(`先月 ${money(b.lastRev)}`, `Last month ${money(b.lastRev)}`)));
+  el.addEventListener('click', () => {
+    if (b.state === 'mine') goSector(b.id);
+    else if (b.state === 'open') startMove(ctx, b.id);
+    else if (b.state === 'here') {
+      const c = (s.n - 1) / 2;
+      tween = { x0: cam.x, y0: cam.y, x1: 0, y1: c * 110, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 0.3 : 0.5, dur: 600 };
+    } else toast(needLine(s, sectorDef(b.id)) ?? '');
+  });
+  return el;
+}
+
+/** 隣のセクタの境界の近くの札（未進出：ランド名＋進出のボタン／出店済み：移動／まだ行けない：🔒 と条件） */
+function edgeEl(id: string): HTMLElement {
+  const d = sectorDef(id);
+  const st = s.land ? sectorState(s.land, id) : 'cloud';
+  const el = h('div', `isl-wedge is-${st}`);
+  el.style.setProperty('--tc', TIERS[d.tier].color);
+  const head = h('div', 'isl-wedge-head');
+  head.append(h('span', 'isl-wedge-tier', d.tier), h('b', '', st === 'cloud' ? '???' : d.name));
+  el.append(head);
+  if (st === 'open') el.append(advanceBtn(id));
+  else if (st === 'mine') el.append(btn(t(`${d.name}へ移動 ▶`, `Go to ${d.name} ▶`), () => goSector(id)));
+  else el.append(h('small', 'isl-wedge-need', `🔒 ${needLine(s, d) ?? ''}`));
+  return el;
+}
+
+/** 浮く札を作り直し（中身が変わったときだけ）、カメラに合わせて動かす */
+function placeWorldUi() {
+  const land = s.land;
+  zoomBox.hidden = !land || !!placing;
+  if (!land || worldBusy()) {
+    worldUi.hidden = true;
+    return;
+  }
+  const ov = overviewOn();
+  const n = s.n;
+  const c = (n - 1) / 2;
+  const sw = n * 200 * cam.zoom;
+  const mini = sw < 240;
+  let key: string;
+  let items: { id: string; i: number; j: number; make: () => HTMLElement }[];
+  if (ov) {
+    const bs = sectorBadges(s);
+    key = `ov|${mini}|${JSON.stringify(bs)}|${Math.round(s.money)}`;
+    items = bs.map((b) => ({ id: b.id, i: b.delta[0] * n + c, j: b.delta[1] * n + c, make: () => badgeEl(b, mini) }));
+  } else {
+    const w = worldOf(s);
+    const adj = (w?.regions ?? []).filter((r) => r.adj);
+    key = `edge|${land.cur}|${land.mine.join()}|${adj.map((r) => r.id).join()}|${Math.round(s.money)}`;
+    // 隣のセクタ側の外周 3 マスの真ん中
+    const mid = (STRIP - 1) / 2;
+    items = adj.map((r) => {
+      const [li, lj] = r.dx === 1 ? [mid, c] : r.dx === -1 ? [n - 1 - mid, c] : r.dy === 1 ? [c, mid] : [c, n - 1 - mid];
+      return { id: r.id, i: li + r.oi, j: lj + r.oj, make: () => edgeEl(r.id) };
+    });
+  }
+  if (key !== worldKey) {
+    worldKey = key;
+    worldEls = items.map((x) => ({ el: x.make(), i: x.i, j: x.j }));
+    worldUi.replaceChildren(...worldEls.map((x) => x.el));
+  }
+  worldUi.hidden = false;
+  for (const x of worldEls) {
+    const p = toScreen(x.i, x.j);
+    const off = p.x < -40 || p.x > W + 40 || p.y < 40 || p.y > H - 40;
+    x.el.hidden = off;
+    if (off) continue;
+    // 境界の札は、画面の左右の端で切れないように少し内側へ（縮小の札はセクタの真ん中のまま）
+    const hw = ov ? 0 : x.el.offsetWidth / 2;
+    const right = W - (root.classList.contains('is-rail') ? foot.getBoundingClientRect().width : 0);
+    const px = ov ? p.x : Math.max(hw + 6, Math.min(right - hw - 6, p.x));
+    x.el.style.transform = `translate(${Math.round(px)}px, ${Math.round(p.y)}px) translate(-50%, -50%)`;
+  }
+}
+
 function layout() {
   const rail = RAIL.matches;
   root.classList.toggle('is-rail', rail);
@@ -2380,7 +2700,7 @@ function renderAll() {
   layout();
   sectorChecks();
 }
-root.append(hud, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
+root.append(worldUi, hud, sectorPill, zoomBox, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
 resize();
 renderAll();
 // 始めたばかりなら、建築の一覧を開いておく
@@ -2391,8 +2711,12 @@ if (!s.buildings.some((b) => b.owner === 'me')) openBuildTab();
 const pts = new Map<number, { x: number; y: number }>();
 let drag: { x: number; y: number; cx: number; cy: number; moved: boolean } | null = null;
 let pinch: { d: number; zoom: number } | null = null;
-const ZOOMS = [0.25, 0.5, 1, 2];
-const clampZoom = (z: number) => Math.max(0.2, Math.min(2, z));
+/** ホイールと「＋／−」の段。関所を開けたあとは、同じ階層の全セクタが入るところまで縮小できる */
+const zoomSteps = () => {
+  const lo = minZoom();
+  return [...new Set([lo, ...(s.land && lo < 0.12 ? [0.12] : []), 0.25, 0.5, 1, 2])].sort((a, b) => a - b);
+};
+const clampZoom = (z: number) => Math.max(minZoom(), Math.min(2, z));
 const local = (e: PointerEvent) => {
   const r = canvas.getBoundingClientRect();
   return pick(cam, W, H, e.clientX - r.left, e.clientY - r.top);
@@ -2434,7 +2758,12 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   pts.delete(e.pointerId);
   if (pinch) {
-    if (pts.size < 2) pinch = null;
+    if (pts.size < 2) {
+      // ピンチで全体まで縮小したら、階層のまんなかへ寄せる（はじめから全体だったときは寄せない）
+      const wasOv = !!s.land && s.n * 200 * pinch.zoom < W * 0.6;
+      pinch = null;
+      centerOverview(wasOv);
+    }
     return;
   }
   const d = drag;
@@ -2454,6 +2783,13 @@ canvas.addEventListener('pointerup', (e) => {
     menu = null;
     sub = null;
   }
+  // つながった地図：隣のセクタのマスは、いまのセクタの操作の対象にしない（そのセクタの小さな吹き出し）
+  const reg = worldOf(s)?.at(i, j);
+  if (reg) {
+    openSectorPop(reg.id, i, j);
+    renderAll();
+    return;
+  }
   // 道路は押しても何も出さない（地図を動かそうとして押してしまうことが多いので）。開いている吹き出しは閉じる
   if (ground(s, i, j) === 'road') {
     closePop();
@@ -2472,9 +2808,7 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    const k = ZOOMS.findIndex((z) => z >= cam.zoom - 1e-6);
-    cam.zoom = e.deltaY < 0 ? ZOOMS[Math.min(ZOOMS.length - 1, k + 1)] : ZOOMS[Math.max(0, k - (ZOOMS[k] === cam.zoom ? 1 : 0))];
-    dirty = true;
+    zoomStep(e.deltaY < 0 ? 1 : -1);
     if (placing) setGhost(...centerCell());
   },
   { passive: false },
@@ -2839,6 +3173,7 @@ function frame(now: number) {
     dirty = true;
   }
   updatePoint();
+  checkSeamless();
   if (tour) tourFrame(now);
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
   const wf = waterFrame(now);
@@ -2853,8 +3188,10 @@ function frame(now: number) {
     anim.mark = sp ? { i: sp[0], j: sp[1], label: t('ここに建ててみて！', 'Build here!') } : null;
     const ghost: P1Ghost | null = placing ? { id: placing.id, i: placing.i, j: placing.j, dir: placing.dir, ok: !placeErr(), area: P1B[placing.id]?.kind === 'shop', hot: has(s, 'flow') && !placing.move ? hotCells(s) : undefined } : null;
     lastDraw = now;
-    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim);
+    const ov = overviewOn() ? overviewScale(cam.zoom, DPR) : null;
+    drawP1(ctx2, s, cam, W, H, DPR, now, fx, ghost, placing?.move ?? selected, pop && selected == null ? pop : null, placeable(), anim, worldOf(s), ov);
     placePop();
+    placeWorldUi();
     placeGhostUi();
   }
   requestAnimationFrame(frame);
@@ -2889,4 +3226,8 @@ requestAnimationFrame(frame);
   tick: () => renderAll(),
   /** 建てる・置くモードを始める（撮影スクリプト用） */
   place: (id: string) => startPlacing(id),
+  /** つながった地図（撮影スクリプト用）：描いている隣のセクタ・縮小の札・いちばん縮小 */
+  world: () => worldOf(s)?.regions.map((r) => ({ id: r.id, tier: r.tier, kind: r.kind, dx: r.dx, dy: r.dy })) ?? [],
+  badges: () => sectorBadges(s),
+  minZoom: () => minZoom(),
 };
