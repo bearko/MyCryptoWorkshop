@@ -63,6 +63,21 @@ export function recOf(s: P1State, id: string): SectorRec {
   return (land.recs[id] ??= { id, invest: MANAGER.invest, capital: 0, log: [] });
 }
 
+/**
+ * まだ出店していないセクタの町の種。ランドの元の種（最初のセクタの seed）から決めるので、
+ * どのセクタから進出しても、つながった地図で先に見えていた町と同じ町になる。
+ */
+export function townSeed(s: P1State, id: string): number {
+  const land = s.land;
+  let base = land?.seed;
+  if (base == null) {
+    const first = land && land.cur !== 'c1' ? (land.recs.c1?.snap?.seed as number | undefined) : undefined;
+    base = first ?? s.seed;
+    if (land) land.seed = base;
+  }
+  return Math.floor(base * 7 + id.charCodeAt(0) * 131 + id.charCodeAt(1) * 17);
+}
+
 /** 出店許可申請（入国料） */
 export const feeOf = (id: string) => sectorDef(id).fee;
 
@@ -150,7 +165,7 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
     back.capital = 0;
   } else {
     const def = sectorDef(target);
-    const next = newP1(Math.floor(s.seed * 7 + target.charCodeAt(0) * 131 + target.charCodeAt(1) * 17), def.tier, target);
+    const next = newP1(townSeed(s, target), def.tier, target);
     for (const k of SECTOR_KEYS) (s as unknown as Record<string, unknown>)[k] = (next as unknown as Record<string, unknown>)[k];
     // 関所はもう開いている（ランドは会社ぜんたいで開く）
     s.gateOpen = true;

@@ -11,6 +11,7 @@ import { cells, frontCell, type Dir } from '../sim';
 import { PRODUCT, skuParts, type Sku } from './data';
 import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
 import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, type P1State, type Stop } from './model';
+import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
 
 export interface P1Ghost {
   id: string;
@@ -24,8 +25,10 @@ export interface P1Ghost {
   hot?: Set<number>;
 }
 
-function roadMask(s: P1State, i: number, j: number) {
-  return (isRoad(s, i, j - 1) ? 1 : 0) | (isRoad(s, i + 1, j) ? 2 : 0) | (isRoad(s, i, j + 1) ? 4 : 0) | (isRoad(s, i - 1, j) ? 8 : 0);
+function roadMask(s: P1State, i: number, j: number, w: World | null = null) {
+  // つながった地図：隣のセクタの道路にもつなぐ
+  const r = w ? (x: number, y: number) => roadAt(s, w, x, y) : (x: number, y: number) => isRoad(s, x, y);
+  return (r(i, j - 1) ? 1 : 0) | (r(i + 1, j) ? 2 : 0) | (r(i, j + 1) ? 4 : 0) | (r(i - 1, j) ? 8 : 0);
 }
 
 function outline(ctx: CanvasRenderingContext2D, i: number, j: number, color: string) {
@@ -71,7 +74,11 @@ function edge(ctx: CanvasRenderingContext2D, i: number, j: number, color: string
   ctx.stroke();
 }
 
-export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null, placeable: Set<number> | null = null, anim: Anim | null = null) {
+/**
+ * world：つながった地図（関所を開けたあと。隣のセクタを描く）。
+ * overview：縮小して全体を見ているとき（隣のセクタは覚えておいた絵の細かさ。人・荷車・吹き出しは描かない）
+ */
+export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: number, h: number, dpr: number, now: number, fx: Effect[], ghost: P1Ghost | null, selected: number | null, cell: [number, number] | null = null, placeable: Set<number> | null = null, anim: Anim | null = null, world: World | null = null, overview: number | null = null) {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#2f6fae';
@@ -92,12 +99,20 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   const water = image(`tiles/water${Math.floor(now / 700) % 2}.png`);
   const grass = image('tiles/grass.png');
   const sand = image('tiles/sand.png');
+  // つながった地図：いまのセクタより奥のセクタを先に
+  const regionVis = (r: { oi: number; oj: number; n: number }) => {
+    const b = bounds(r);
+    return b.x0 < right && b.x0 + b.w > left && b.y0 < bottom && b.y0 + b.h > top0;
+  };
+  if (world) drawWorld(ctx, s, world, 'back', visible, regionVis, now, overview, cacheScale(cam.zoom, dpr));
   for (let d = -4; d < s.n * 2 + 4; d++) {
     for (let i = -2; i <= d + 2; i++) {
       const j = d - i;
       if (i < -2 || j < -2 || i >= s.n + 2 || j >= s.n + 2 || !visible(i, j)) continue;
       const g = ground(s, i, j);
-      if (g === 'road') drawCell(ctx, image(`tiles/road${roadMask(s, i, j)}.png`), i, j);
+      // まわりの砂浜・水は、隣のセクタがあれば描かない（地図がつながって見える）
+      if (!g && covered(world, i, j)) continue;
+      if (g === 'road') drawCell(ctx, image(`tiles/road${roadMask(s, i, j, world)}.png`), i, j);
       else if (g === 'grass') drawCell(ctx, grass, i, j);
       else if (i === -1 || j === -1 || i === s.n || j === s.n) drawCell(ctx, sand, i, j);
       else drawCell(ctx, water, i, j);
@@ -168,7 +183,7 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     });
   }
   // 運搬中の荷車：工房（か物流拠点）からお店へ、道路をたどって行き来する
-  const ws = myWorkshop(s);
+  const ws = overview ? null : myWorkshop(s);
   if (ws) {
     for (const t of s.trips) {
       const to = s.buildings.find((b) => b.uid === t.to);
@@ -201,7 +216,7 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     }
   }
   // 歩いているヒーロー（お客さん・調達係）
-  if (anim) {
+  if (anim && !overview) {
     for (const wk of [...anim.crowd, ...anim.walkers]) {
       const f = (anim.clock - wk.t0) / wk.dur;
       if (f < 0 || f > 1) continue;
@@ -231,6 +246,11 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
+  // つながった地図：手前のセクタと、セクタのあいだの境界線
+  if (world) {
+    drawWorld(ctx, s, world, 'front', visible, regionVis, now, overview, cacheScale(cam.zoom, dpr));
+    drawBorders(ctx, s, world, cam.zoom);
+  }
   if (anim?.mark) {
     const c = center(anim.mark.i, anim.mark.j);
     const y = c.y - 150 - Math.abs(Math.sin(now / 300)) * 10;
@@ -273,7 +293,7 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     ctx.setLineDash([]);
   }
   ctx.restore();
-  drawBubbles(ctx, s, cam, w, h, dpr, anim);
+  if (!overview) drawBubbles(ctx, s, cam, w, h, dpr, anim);
 }
 
 // ---------------------------------------------------------------- 自社の施設の上の吹き出し

@@ -403,6 +403,8 @@
 }
 .isl-stat-btn {
   border: 0;
+  /* ボタンの既定の黒い文字にしない（暗い帯の上で読めるように） */
+  color: var(--isl-text);
   font-family: inherit;
   cursor: pointer;
 }
@@ -3623,14 +3625,264 @@ button.isl-mis {
     box-shadow: 0 0 18px rgba(240, 112, 112, 0.8);
   }
 }
+/* いまいるセクタの札：背景はランクの色の濃い版、文字は白（ボタンの既定の黒い文字にしない） */
+.isl-stat-sector {
+  --tc: #b8c0d4;
+  align-items: center;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--tc) 55%, var(--isl-line));
+  background: color-mix(in srgb, var(--tc) 30%, #121a2b);
+  color: #fff;
+}
+.isl-stat-sector small {
+  color: var(--tc);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
 .isl-stat-sector b {
   font-size: 14px;
+  color: #fff;
+}
+.isl-sector-names {
+  position: relative;
+  display: inline-grid;
+  overflow: hidden;
+}
+.isl-sector-names b {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.isl-sector-names b.is-in {
+  animation: isl-sector-in 0.4s ease-out both;
+}
+.isl-sector-names b.is-out {
+  animation: isl-sector-out 0.4s ease-in both;
+}
+@keyframes isl-sector-in {
+  from {
+    transform: translateY(110%);
+    opacity: 0;
+  }
+}
+@keyframes isl-sector-out {
+  to {
+    transform: translateY(-110%);
+    opacity: 0;
+  }
+}
+.isl-stat-sector.is-flash {
+  animation: isl-sector-flash 0.9s ease-out;
+}
+@keyframes isl-sector-flash {
+  25% {
+    box-shadow: 0 0 0 3px var(--tc), 0 0 22px var(--tc);
+  }
 }
 @media (max-width: 599px) {
   .isl-stat-brand small,
   .isl-stat-sector small {
     display: none;
   }
+}
+/* 移ったとき：中央の上に小さく「📍 セクタ名」 */
+.isl-sector-pill {
+  --tc: #b8c0d4;
+  position: absolute;
+  /* トースト（上の帯の下）と重ならないよう、画面の上から 4 分の 1 ほど */
+  top: max(calc(var(--hud-h, 64px) + 120px), 24%);
+  left: 50%;
+  z-index: 3;
+  padding: 6px 16px;
+  border: 2px solid var(--tc);
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.88);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none !important;
+  transform: translateX(-50%);
+}
+.isl-sector-pill.is-on {
+  animation: isl-pill 1.2s ease-out forwards;
+}
+@keyframes isl-pill {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  15%,
+  70% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ================================================================ つながった地図（隣のセクタの札・縮小の札・＋／−） */
+.isl-world {
+  position: absolute;
+  inset: 0;
+  right: var(--rail-w, 0px);
+  overflow: hidden;
+  pointer-events: none !important;
+}
+.isl-world > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+}
+/* 境界の近くの札（隣のセクタ側の外周 3 マスの真ん中） */
+.isl-wedge {
+  --tc: #b8c0d4;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  max-width: 230px;
+  padding: 8px 10px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: rgba(15, 22, 38, 0.86);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.isl-wedge-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.isl-wedge-tier {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tc);
+  color: var(--isl-line);
+  font-size: 12px;
+  font-weight: 900;
+}
+.isl-wedge .isl-btn {
+  min-height: 34px;
+  max-width: 100%;
+  padding: 4px 12px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+.isl-wedge-need {
+  color: #d9dee8;
+  font-size: 12px;
+  text-align: center;
+}
+.isl-wedge.is-mine {
+  padding: 6px 8px;
+  background: rgba(15, 22, 38, 0.7);
+}
+/* 縮小したときの状況の札（各セクタの真ん中） */
+.isl-wbadge {
+  --tc: #b8c0d4;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  min-width: 120px;
+  max-width: 200px;
+  padding: 6px 10px;
+  border: 2px solid var(--tc);
+  border-radius: 12px;
+  background: rgba(15, 22, 38, 0.88);
+  color: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.isl-wbadge-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--tc);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.isl-wbadge-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.isl-wbadge-rank {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--isl-line);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.isl-wbadge-rank.is-crown {
+  background: var(--isl-gold);
+}
+.isl-wbadge-here,
+.isl-wbadge-note {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.isl-wbadge-rev {
+  color: #d9dee8;
+  font-size: 12px;
+}
+.isl-wbadge.is-here {
+  border-width: 3px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.isl-wbadge.is-open {
+  background: rgba(60, 72, 96, 0.9);
+}
+.isl-wbadge.is-locked,
+.isl-wbadge.is-soon,
+.isl-wbadge.is-cloud {
+  border-color: #8a93a6;
+  background: rgba(70, 74, 86, 0.9);
+}
+/* 小さいとき（スマホでいちばん縮小）：名前と 1 行だけ */
+.isl-wbadge.is-mini {
+  gap: 1px;
+  min-width: 0;
+  max-width: 112px;
+  padding: 2px 6px;
+  border-width: 1.5px;
+  border-radius: 8px;
+}
+.isl-wbadge.is-mini .isl-wbadge-name {
+  font-size: 10px;
+}
+.isl-wbadge.is-mini .isl-wbadge-rank {
+  padding: 0 4px;
+  font-size: 10px;
+}
+.isl-wbadge.is-mini .isl-wbadge-here,
+.isl-wbadge.is-mini .isl-wbadge-note {
+  font-size: 10px;
+}
+/* ＋／−（関所を開けたあと） */
+/* 右の真ん中（左上はトースト、右上は依頼の札） */
+.isl-zoom {
+  position: absolute;
+  right: calc(var(--rail-w, 0px) + 8px);
+  top: 46%;
+  display: grid;
+  gap: 4px;
+}
+.isl-zoom .isl-btn {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 900;
 }
 
 /* ================================================================ ランドマップ */
@@ -6805,5 +7057,17 @@ button.isl-mis {
   }
   .isl-tree-lvrow b {
     white-space: nowrap;
+  }
+}
+.isl-world[hidden],
+.isl-world > [hidden],
+.isl-zoom[hidden] {
+  display: none !important;
+}
+/* スマホ：境界の札（画面の真ん中あたり）と重ならないよう、マインちゃんの吹き出しの上へ */
+@media (max-width: 599px) {
+  .isl-zoom {
+    top: auto;
+    bottom: calc(var(--foot-h, 60px) + 196px);
   }
 }

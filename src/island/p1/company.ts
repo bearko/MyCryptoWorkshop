@@ -144,6 +144,8 @@ export interface Land {
   /** 出店したセクタ（入ったことがある） */
   mine: string[];
   recs: Record<string, SectorRec>;
+  /** 新しいセクタの町を作るときの元の種（最初のセクタの seed。どこから進出しても同じ町になる） */
+  seed?: number;
 }
 
 export const newLand = (cur = SECTORS[0].id): Land => ({ cur, mine: [cur], recs: {} });
