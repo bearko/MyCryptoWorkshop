@@ -111,6 +111,8 @@ export function moveUp(ctx: Ctx, s: P1State, w: StageIf): Up {
     }
     case 'skill':
       return { label: SKILL[m.id].name, sub: t(`${gain}・スキル ${money(m.cost)}`, `${gain} · skill ${money(m.cost)}`), go: () => openSkills(ctx, m.id) };
+    case 'level':
+      return { label: t(`${SKILL[m.id].name}を Lv${m.lv} に`, `${SKILL[m.id].name} to Lv${m.lv}`), sub: t(`${gain}・レベル上げ ${money(m.cost)}`, `${gain} · level up ${money(m.cost)}`), short: s.money < m.cost, go: () => openSkills(ctx, m.id) };
     case 'person': {
       const who = m.hire ? t(`雇う：${heroName(m.hero)}（月給 ${money(m.cost)}）`, `Hire ${heroName(m.hero)} (${money(m.cost)}/mo)`) : heroName(m.hero);
       const label = m.replace != null ? t(`${TASK_NAME[m.task]}の得意な人に替える`, `A better ${TASK_NAME[m.task]} hand`) : PERSON_LABEL[w.stage as Exclude<Stage, 'sell'>];

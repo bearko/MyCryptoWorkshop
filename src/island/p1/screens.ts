@@ -110,6 +110,8 @@ import {
   heroStats,
   type P1State,
   type Report,
+  procBonus,
+  scoutMul,
 } from './model';
 import { sectorDef, sectorProfile } from './company';
 import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
@@ -997,7 +999,7 @@ export function openBuy(ctx: Ctx) {
     // ランクと上限
     const rank = h('div', 'isl-card2');
     const need = procNeed(s.proc.lv);
-    const bonus = (has(s, 'stock1') ? 30 : 0) + (has(s, 'stock2') ? 60 : 0);
+    const bonus = Math.round(procBonus(s) * 100);
     rank.append(
       h('h3', '', t(`調達ランク Lv.${s.proc.lv}`, `Buying rank Lv.${s.proc.lv}`)),
       bar(s.proc.lv >= PROC.maxLv ? 1 : s.proc.exp / need, 'var(--isl-gold)'),
@@ -1125,10 +1127,10 @@ export function openBuy(ctx: Ctx) {
         card.append(spot);
       } else {
         const scout = s.staff.find((x) => x.task === 'explore' && x.target === m);
-        if (scout) card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / (MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))));
+        if (scout) card.append(h('p', '', t(`${heroName(scout.hero)}が開拓中`, `${heroName(scout.hero)} is scouting`)), bar(scout.explore / (MATS[m].exploreDays * scoutMul(s))));
         else {
           const r = h('div', 'isl-row');
-          r.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${Math.round(MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))} 日〜）`, `No route (scouting from ${Math.round(MATS[m].exploreDays * (has(s, 'scoutmap') ? 0.6 : 1))} days)`)));
+          r.append(h('span', 'isl-dim', t(`ルートが無い（開拓 ${Math.round(MATS[m].exploreDays * scoutMul(s))} 日〜）`, `No route (scouting from ${Math.round(MATS[m].exploreDays * scoutMul(s))} days)`)));
           r.append(
             btn(t('ヒーローを開拓に出す', 'Send a scout'), () =>
               pickHero(ctx.root, s, {

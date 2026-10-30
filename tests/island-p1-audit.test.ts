@@ -7,13 +7,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { INVESTS } from '../src/island/p1/data';
 import { LEARNABLE } from '../src/island/p1/model';
-import { INVEST_SPEC, SKILL_SPEC, audit, baseTable, table, writeAudit } from '../scripts/island/audit';
+import { INVEST_SPEC, audit, baseTable, specOf, table, writeAudit } from '../scripts/island/audit';
 
 const FULL = process.env.npm_lifecycle_event === 'island:audit' || !!process.env.ISLAND_AUDIT;
 
 describe('投資の効き目の監査', () => {
   it('表に抜けが無い：取れるスキル・設備投資の全部に、効くはずの段（または対象外の理由）がある', () => {
-    expect(LEARNABLE().filter((k) => !SKILL_SPEC[k.id]).map((k) => k.id)).toEqual([]);
+    expect(LEARNABLE().filter((k) => !specOf(k)).map((k) => k.id)).toEqual([]);
     expect(INVESTS.filter((x) => !INVEST_SPEC[x.id]).map((x) => x.id)).toEqual([]);
   });
 

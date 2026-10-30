@@ -5,7 +5,7 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, DUST_COST, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, DUST_COST, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, levelDust, maxLv, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
 import {
@@ -33,6 +33,10 @@ import {
   investCost,
   invLv,
   learn,
+  levelUp,
+  levelLock,
+  lvOf,
+  nextLevelCost,
   myShops,
   myWorkshop,
   newP1,
@@ -133,7 +137,7 @@ export interface RunResult {
   stop?: string;
   skillsAt: { id: string; day: number; sector: string }[];
   /** 100% のゴールの中身 */
-  goal?: { crowns: number; skills: number; missions: number; missing?: string[] };
+  goal?: { crowns: number; skills: number; maxed?: number; levels?: number; missions: number; missing?: string[] };
 }
 
 // ---------------------------------------------------------------- 方針
@@ -366,8 +370,26 @@ export function policy(s: P1State, c: Ctx): Action[] {
     for (const b of bs) acts.push({ kind: 'invest', run: () => invest(s, b.uid, iv.id) });
     return true;
   };
+  /** レベル上げ「lv:id」（v7）：次のレベル。✨ はダスト */
+  const lvTok = (id: string) => (id.startsWith('lv:') ? SKILL[id.slice(3)] : null);
+  const lvCan = (k: Skill) => {
+    if (pending.has(`lv:${k.id}`) || c.ban.has(k.id)) return false;
+    const e = levelLock(s, k);
+    if (k.dust) return (e === null || e === 'dust') && (s.dust ?? 0) - dustUsed >= levelDust(k, lvOf(s, k.id) + 1);
+    return e === null || e === 'money';
+  };
   const take = (id: string, keep = reserve) => {
     if (invOf(id)) return takeInv(id, keep);
+    const lk = lvTok(id);
+    if (lk) {
+      const cost = nextLevelCost(s, lk);
+      if (!lvCan(lk) || budget < cost + keep) return false;
+      spend(cost);
+      dustUsed += lk.dust ? levelDust(lk, lvOf(s, lk.id) + 1) : 0;
+      pending.add(id);
+      acts.push({ kind: 'skill', run: () => levelUp(s, lk.id) });
+      return true;
+    }
     if (!learnable(id) || budget < SKILL[id].cost + keep) return false;
     spend(SKILL[id].cost);
     dustUsed += SKILL[id].dust ?? 0;
@@ -376,8 +398,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
     return true;
   };
   /** 取れる（スキル：条件を満たしている／設備投資：その段に届いていない建物がある） */
-  const can = (id: string) => (invOf(id) ? invNeed(id).length > 0 : learnable(id));
-  const costOf = (id: string) => (invOf(id) ? invCost(id) : SKILL[id].cost);
+  const can = (id: string) => (invOf(id) ? invNeed(id).length > 0 : lvTok(id) ? lvCan(lvTok(id)!) : learnable(id));
+  const costOf = (id: string) => (invOf(id) ? invCost(id) : lvTok(id) ? nextLevelCost(s, lvTok(id)!) : SKILL[id].cost);
   if (!has(s, 'hire')) take('hire', 0);
 
   // ---- お店（最初の 1 軒）
@@ -664,7 +686,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
       let cap = budget * 0.6;
       let n = 0;
       // v6（通常）：SCM ダッシュボードの「上げるには」と同じ見込み（whatIf）の大きい順に、詰まりの段の手を 2 つまで
-      if (c.policy === 'normal') n = byWhatIf(s, c, bn, cap, { take, spend, budget: () => budget, reserve, acts, hired: () => hired, setHired: () => (hired = true), buildShop: () => buildShop(shopKind()) });
+      // v7：100% も同じ（開放とレベル上げを見込みの大きい順に混ぜる）
+      n = byWhatIf(s, c, bn, cap, { take, spend, budget: () => budget, reserve, acts, hired: () => hired, setHired: () => (hired = true), buildShop: () => buildShop(shopKind()) });
       // 詰まっている段の枝から。取れるものが無ければ、次に細い段の枝から
       const caps = stageCaps(s);
       const order = n > 0 ? [] : [bn, ...(['buy', 'craft', 'haul', 'sell'] as Stage[]).filter((k) => k !== bn).sort((a, b) => caps[a].perMonth - caps[b].perMonth)];
@@ -707,7 +730,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
       // 100%：残りのスキルと設備投資も、資金の 4 割までで安い順に
       if (c.policy === 'full') {
         let rest = budget * 0.4;
-        const all = [...SKILLS.map((k) => k.id), ...Object.values(INVEST).flatMap((x) => x.cost.map((_, k) => `@${x.id}:${k + 1}`))].filter(can).sort((a, b) => costOf(a) - costOf(b));
+        // v7：レベル上げ（lv:id）も。ゴールは C・U の取れるパネルをすべて Lv 最大
+        const all = [...SKILLS.map((k) => k.id), ...SKILLS.filter((k) => ['C', 'U'].includes(skillTier(k))).map((k) => `lv:${k.id}`), ...Object.values(INVEST).flatMap((x) => x.cost.map((_, k) => `@${x.id}:${k + 1}`))].filter(can).sort((a, b) => costOf(a) - costOf(b));
         for (const id of all) {
           const cost = costOf(id);
           if (!can(id) || cost > rest) continue;
@@ -776,6 +800,14 @@ function byWhatIf(s: P1State, c: Ctx, bn: Stage, cap: number, k: WhatIfHooks): n
     } else if (m.kind === 'skill') {
       if (SKILL[m.id].cost > cap || !k.take(m.id, 0)) continue;
       cap -= SKILL[m.id].cost;
+      n++;
+    } else if (m.kind === 'level') {
+      // レベル上げ（v7）：見込みの大きい順に、開放と混ぜて
+      if (m.cost > cap || k.budget() < m.cost + k.reserve / 2) continue;
+      k.spend(m.cost);
+      cap -= m.cost;
+      const id = m.id;
+      k.acts.push({ kind: 'skill', run: () => levelUp(s, id) });
       n++;
     } else if (m.kind === 'person') {
       if (m.hire && (k.hired() || k.budget() < 3000 + k.reserve / 2)) continue;
@@ -994,9 +1026,10 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         // 100%：全スキル・全依頼まで続ける
         const claimed = MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length;
         // ✨ はダストが続くかぎり（全部の依頼のダストを使い切ったら終わり）
-        const got = fullSkills().filter((k) => has(s, k.id)).length;
-        const dustLeft = fullSkills().some((k) => k.dust && !has(s, k.id)) && (s.dust ?? 0) >= DUST_COST;
-        if (got >= allSkills - fullSkills().filter((k) => k.dust && !has(s, k.id)).length && !dustLeft && claimed >= fullMissions) {
+        // v7：C・U の取れるパネルをすべて Lv 最大（✨ はダストが続くかぎり）
+        const got = fullSkills().filter((k) => lvOf(s, k.id) >= maxLv(k)).length;
+        const dustLeft = fullSkills().some((k) => k.dust && lvOf(s, k.id) < maxLv(k) && (s.dust ?? 0) >= (has(s, k.id) ? levelDust(k, lvOf(s, k.id) + 1) : k.dust));
+        if (got >= allSkills - fullSkills().filter((k) => k.dust && lvOf(s, k.id) < maxLv(k)).length && !dustLeft && claimed >= fullMissions) {
           res.done = true;
           break;
         }
@@ -1046,7 +1079,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.days = s.day;
   if (p === 'full') {
     const crowns = SECTORS.filter((x) => (x.tier === 'C' || x.tier === 'U') && !x.cloud && !x.soon).filter((x) => crowned(s, x.id)).length;
-    res.goal = { crowns, skills: fullSkills().filter((k) => has(s, k.id)).length, missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
+    res.goal = { crowns, skills: fullSkills().filter((k) => has(s, k.id)).length, maxed: fullSkills().filter((k) => lvOf(s, k.id) >= maxLv(k)).length, levels: fullSkills().reduce((a, k) => a + lvOf(s, k.id), 0), missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
   }
   return res;
 }
@@ -1218,7 +1251,7 @@ export function observations(rep: Report2): string {
   out.push('');
   const fulls = rep.runs.filter((x) => x.policy === 'full');
   if (fulls.length) {
-    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${fullSkills().length}（C・U の取れるパネル。✨ ${fullSkills().filter((k) => k.dust).length} 枚を含む）・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
+    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${fullSkills().length}（C・U の取れるパネル。✨ ${fullSkills().filter((k) => k.dust).length} 枚を含む）・Lv 最大 ${r.goal?.maxed}/${fullSkills().length}（レベルの合計 ${r.goal?.levels}/${fullSkills().reduce((a, k) => a + maxLv(k), 0)}）・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
     out.push('');
   }
   const stops = rep.runs.filter((r) => r.stop && r.policy !== 'full');

@@ -51,12 +51,12 @@ describe('スキルツリー v2：データと配置', () => {
     for (const [, p] of HUBPOS) for (const [id, q] of ps) expect(Math.hypot(p.x - q.x, p.y - q.y), id).toBeGreaterThan(0.9);
   });
 
-  it('先に要るスキルは全部ある。✨ は資金 0・ダスト 3、封印は E・L に枝ごとに 1 つずつ', () => {
+  it('先に要るスキルは全部ある。内側の ✨ は資金 0・ダスト 3。E・L は封印でなく名前のあるパネル（v3）', () => {
     for (const k of SKILLS) for (const r of k.requires ?? []) expect(SKILL[r], `${k.id} → ${r}`).toBeTruthy();
-    const dust = SKILLS.filter((k) => k.dust);
+    const dust = SKILLS.filter((k) => k.dust && !k.tier);
     expect(dust.map((k) => k.branch).sort()).toEqual(['buy', 'craft', 'logi', 'ops', 'people', 'shop', 'sys']);
     for (const k of dust) expect([k.cost, k.dust, k.tier ?? 'C']).toEqual([0, 3, 'C']);
-    for (const b of BRANCHES) for (const tier of ['E', 'L'] as const) expect(SKILLS.filter((k) => k.branch === b.key && k.tier === tier && k.sealed)).toHaveLength(1);
+    for (const b of BRANCHES) for (const tier of ['E', 'L'] as const) expect(SKILLS.filter((k) => k.branch === b.key && k.tier === tier && k.sealed)).toHaveLength(0);
   });
 
   it('既存のパネルの値段は上げていない', () => {
@@ -155,10 +155,13 @@ describe('外周（ランクのエリア）', () => {
     expect(learn(s, 'line')).toBeNull();
   });
 
-  it('封印（Epic・Legendary）と準備中（レアの技）は取れない', () => {
+  it('Epic・Legendary は外周が開くまで取れない・準備中（レアの技）は取れない', () => {
     const s = rich();
+    s.flags.rings = ['U', 'R'];
+    s.emblem = 9;
+    s.skills.push('concierge');
+    expect(learn(s, 'e_shop_1')).toBe('ring');
     s.flags.rings = ['U', 'R', 'E', 'L'];
-    expect(learn(s, 'seal_shop_e')).toBe('sealed');
     s.emblem = 9;
     for (const id of ['t_wood', 't_paper', 't_metal']) s.skills.push(id);
     s.skills.push('t_master');
