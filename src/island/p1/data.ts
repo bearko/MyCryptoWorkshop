@@ -114,6 +114,14 @@ export const RIVALS: RivalDef[] = [
 /** ライバルが月ごとに強くなる割合と、自社が独り占めしている商品に新しく参入するまでの月数 */
 export const RIVAL_GROWTH = 0.012;
 export const ENTRY_AFTER = 4;
+/** エリアの需要の伸び（月）。他社の「エクステ以外の売上」もこれと同じだけ伸びる（市場より速くは伸びない） */
+export const MARKET_GROWTH = 0.015;
+/**
+ * 他社の伸びと撤退（docs/ISLAND_PHASE1.md「同業他社」）。
+ * pullCap：売り場の強さは RIVAL_GROWTH ずつ伸びるが、扱い始めたときの pullCap 倍で頭打ち（市場より速く強くなり続けない）。
+ * 追随で入った商品は、その月の売上がその商品の市場（自社＋他社）の weakShare 未満の月が weakMonths 続くと撤退する。
+ */
+export const RIVAL = { pullCap: 1.3, weakShare: 0.15, weakMonths: 3 };
 
 // ---------------------------------------------------------------- 建てられる建物
 

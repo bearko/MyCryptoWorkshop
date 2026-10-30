@@ -2710,8 +2710,9 @@ function advance(days: number) {
     if (r.report) {
       // 他社の追随：自社が売っている商品を、他社が真似して売り始めた
       for (const n of r.report.news) {
-        const [who, what] = n.split('|');
-        toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
+        const [who, what, kind] = n.split('|');
+        if (kind === 'out') toast(plain(t(`${who}が[[${what}]]から撤退した（売れなかった）`, `${who} pulled out of [[${what}]] (it didn't sell)`)));
+        else toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
       }
       // 他社の反撃：1 位を取った月から、他社が宣伝を始める
       // OJT：担当のある人の能力が上がった

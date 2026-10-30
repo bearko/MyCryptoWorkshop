@@ -1570,8 +1570,9 @@ export function openReport(ctx: Ctx, r: Report, then?: () => void) {
       rank.append(list);
       body.append(rank);
       for (const n of r.news) {
-        const [who, what] = n.split('|');
-        body.append(h('p', 'isl-warn', t(`${who}が「${what}」の販売を始めました。`, `${who} started selling ${what}.`)));
+        const [who, what, kind] = n.split('|');
+        if (kind === 'out') body.append(h('p', 'isl-good', t(`${who}が「${what}」から撤退しました。`, `${who} pulled out of ${what}.`)));
+        else body.append(h('p', 'isl-warn', t(`${who}が「${what}」の販売を始めました。`, `${who} started selling ${what}.`)));
       }
     },
     then,
