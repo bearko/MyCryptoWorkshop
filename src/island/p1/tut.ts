@@ -28,6 +28,12 @@ export interface TutPage {
   hero?: number;
   /** その枚だけに出すボタン（押すと会話を閉じて実行。到着の案内の「市場データを開く」） */
   button?: [string, () => void];
+  /** 話す人（ヒーローの id。無ければマインちゃん）。研究成果の発表の町の長 */
+  who?: number;
+  /** 話す人の肩書き（「町の長」など。who のときに名前の前に出す） */
+  role?: string;
+  /** 上に出す絵（到着の案内のお題のエクステなど。作るたびに新しい要素を返す） */
+  el?: () => HTMLElement;
 }
 
 export interface TutStep {

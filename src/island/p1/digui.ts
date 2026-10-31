@@ -24,6 +24,8 @@ export interface DigHooks {
   supply: () => void;
   /** 閉じた（地図の UI を描き直す） */
   closed: () => void;
+  /** 打った（発掘との出会いの「最初の出土」を見る） */
+  hit?: (hits: DigHit[]) => void;
 }
 
 const STAGE_NAME: Record<string, string> = { buy: t('① 調達', '① Buy'), craft: t('② 製造', '② Craft'), haul: t('③ 物流', '③ Haul'), sell: t('④ 販売', '④ Sell') };
@@ -323,6 +325,7 @@ function strike(x: number, y: number): 'more' | 'broke' | 'err' {
   p.err = null;
   soonSave();
   showHits(hits, useBlast);
+  p.hooks.hit?.(hits);
   // 上の帯（RP・資金）と吹き出しを描き直す
   p.ctx.refresh();
   refreshDig();

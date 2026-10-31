@@ -1408,6 +1408,60 @@ export const TABLETS: Tablet[] = [
 ];
 export const TABLET: Record<string, Tablet> = Object.fromEntries(TABLETS.map((x) => [x.id, x]));
 
+/**
+ * セクター長（町の長・シャドーヒーロー）の仮の絵：MCH のヒーローのデータに「シャドー」の区分が無いので、
+ * セクタごとに replica のヒーロー（Common のセクタは RepC、Uncommon は RepB）を割り当てる。差し替えはここだけ（docs/ISLAND_ART_TODO.md）。
+ */
+export const SECTOR_CHIEF: Record<string, number> = {
+  c1: 12023, // ミケランジェロ（職人の町のはじまり）
+  c2: 12006, // アルキメデス（湖・水）
+  c3: 12031, // ビスマルク（鉄の丘）
+  c4: 12026, // 豊臣秀吉（大勢の暮らし・城下町）
+  c5: 12030, // 出雲阿国（お祭り）
+  c6: 12019, // 金太郎（森と畑）
+  c7: 12036, // 樋口一葉（技を書き残した町）
+  c8: 12041, // ベンジャミン・フランクリン（商売敵の町）
+  u1: 13037, // マゼラン（どこへでも行ける港）
+  u2: 13018, // 武蔵坊弁慶（金物・刀）
+  u3: 13003, // 平賀源内（商人の坂・宣伝）
+  u4: 13035, // 小野小町（織物）
+  u5: 13044, // 徳川家康（大都市）
+};
+
+/** 到着の案内の「この町の地層には[[〇〇]]が眠っているはず」（docs/ISLAND_PHASE1.md「お題・発表・調査依頼状」） */
+export const DIG_THEME: Record<string, string> = {
+  c1: t('職人の町のはじまり', 'the start of the crafters’ town'),
+  c2: t('湖のガラス細工', 'the lakeside glasswork'),
+  c3: t('丘の鍛冶場', 'the hill forge'),
+  c4: t('大勢の暮らし', 'the life of many'),
+  c5: t('職人の祭り', 'the crafters’ festival'),
+  c6: t('森と畑の村', 'a village of woods and fields'),
+  c7: t('書き残された技', 'crafts written down'),
+  c8: t('粘土の人形', 'clay dolls'),
+  u1: t('どこへでも行けた港', 'a harbor to anywhere'),
+  u2: t('山からの鉄の道', 'the iron road from the mountains'),
+  u3: t('9 つのランドの市場', 'a market of nine lands'),
+  u4: t('9 色の織物', 'a cloth of nine colors'),
+  u5: t('石の地図の都', 'the city of the stone map'),
+};
+
+/** 発掘の依頼（セクタに 1 つ）：古い〇〇を掘り出す（お題以外の出土品から）。報酬は RP（Common 40・Uncommon 80） */
+export const DIG_REQUEST: Record<string, { ext: number; name: string; from: string }> = {
+  c1: { ext: 1111, name: t('懐中時計', 'Pocket Watch'), from: t('タオックスの町内会', 'Taox council') },
+  c2: { ext: 1086, name: t('アンモナイト', 'Ammonite'), from: t('湖の漁師', 'A lake fisher') },
+  c3: { ext: 1010, name: t('ノービスシールド', 'Novice Shield'), from: t('丘の鍛冶屋', 'A hill smith') },
+  c4: { ext: 1179, name: t('ネズミ捕り', 'Mouse Trap'), from: t('キッチョムシティの町内会', 'Kitchom City council') },
+  c5: { ext: 1064, name: t('フルート', 'Flute'), from: t('お祭りの楽団', 'The festival band') },
+  c6: { ext: 1137, name: t('ハチミツ', 'Honey'), from: t('村の養蜂家', 'A village beekeeper') },
+  c7: { ext: 1016, name: t('スクロール', 'Scrolls'), from: t('サクラコシティの町内会', 'Sakurako City council') },
+  c8: { ext: 1092, name: t('ステゴエッグ', 'Stego Egg'), from: t('ペストタウンの古物商', 'A Pest Town antique dealer') },
+  u1: { ext: 2647, name: t('クラブシェル', 'Crab Shell'), from: t('港の船大工', 'A harbor shipwright') },
+  u2: { ext: 2153, name: t('鉄製パンジャンドラム', 'Iron Panjandrum'), from: t('鍛冶組合の長老', 'An elder of the smiths’ guild') },
+  u3: { ext: 2111, name: t('エリート懐中時計', 'Elite Pocket Watch'), from: t('坂の時計屋', 'The slope watchmaker') },
+  u4: { ext: 2016, name: t('エリートスクロール', 'Elite Scrolls'), from: t('織物組合の記録係', 'The weavers’ archivist') },
+  u5: { ext: 2115, name: t('にゃ～さんのスクーター', 'Nya’s Scooter'), from: t('ザックシティの博物館', 'The Zack City museum') },
+};
+
 // ---------------------------------------------------------------- 商品開発・宣伝・調査・依頼・給与
 
 /** アンコモンの開発：値段は Common の値段 × 40、10 日（「魔法の釜」が要る） */
@@ -1440,6 +1494,8 @@ export interface Mission {
   reward: number;
   /** 研究ポイントの報酬（受け取るときに会社の RP へ。以前の ✨ 1 つ = RP_PER_DUST） */
   rp?: number;
+  /** 発掘の依頼：このエクステを掘り出す（研究ノートに 1 つ以上） */
+  dig?: number;
 }
 export const MISSIONS: Mission[] = [
   { id: 'first_sale', from: t('町内会', 'Neighborhood council'), title: t('はじめての売上', 'First sale'), text: t('お店で商品を 1 つ売る', 'Sell one item in your shop'), reward: 1000 },
@@ -1468,7 +1524,21 @@ export const MISSIONS: Mission[] = [
   { id: 'u3_top', sector: 'u3', from: t('エムケーシティの商店会', 'MK City association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('エムケーシティで 2 か月続けて 1 位になる', 'Become #1 in MK City two months in a row'), reward: 35000, rp: 80 },
   { id: 'u4_top', sector: 'u4', from: t('ゴリ・ラグズの織物組合', 'Gori Rugs weavers’ guild'), title: t('織物の町の一番店', 'Top shop in the weaving town'), text: t('ゴリ・ラグズで 2 か月続けて 1 位になる', 'Become #1 in Gori Rugs two months in a row'), reward: 38000, rp: 80 },
   { id: 'u5_top', sector: 'u5', from: t('ザックシティの商工会議所', 'Zack City chamber of commerce'), title: t('大都市の一番店', 'Top shop in the big city'), text: t('ザックシティで 2 か月続けて 1 位になる', 'Become #1 in Zack City two months in a row'), reward: 40000, rp: 80 },
+  // 発掘の依頼（セクタに 1 つ。id は <セクタ>_dig。報酬は RP だけ）
+  ...Object.entries(DIG_REQUEST).map(([sec, q]): Mission => ({
+    id: `${sec}_dig`,
+    sector: sec,
+    from: q.from,
+    title: t(`古い${q.name}を探して`, `Find an old ${q.name}`),
+    text: t(`発掘場で「${q.name}」を掘り出す`, `Dig up a ${q.name} at the dig site`),
+    reward: 0,
+    rp: sec.startsWith('u') ? 80 : 40,
+    dig: q.ext,
+  })),
 ];
+/** 依頼の報酬の文（お金・RP。RP だけの依頼はお金を書かない） */
+export const rewardText = (m: Mission) =>
+  m.reward > 0 && m.rp ? t(`報酬 ${m.reward.toLocaleString('en-US')} G・研究 ${m.rp} RP`, `Reward ${m.reward.toLocaleString('en-US')} G + ${m.rp} RP`) : m.reward > 0 ? t(`報酬 ${m.reward.toLocaleString('en-US')} G`, `Reward ${m.reward.toLocaleString('en-US')} G`) : t(`報酬 研究 ${m.rp ?? 0} RP`, `Reward ${m.rp ?? 0} RP`);
 
 /** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */
 export const PAY = { bonusBase: 800, bonusRate: 0.3, raiseSpeed: 0.05, raiseWage: 0.15, raiseMax: 3 };

@@ -12,7 +12,7 @@ import { icon } from '../../ui/dom';
 import { DEF } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
-import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, P1B, PACES, PRODUCT, SIDE, SKILL, TIERS, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
+import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, rewardText, P1B, PACES, PRODUCT, SIDE, SKILL, TIERS, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
   build,
@@ -65,6 +65,10 @@ import {
   market,
   trainingOf,
   invLv,
+  extName,
+  present,
+  topicsOf,
+  type DigHit,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -101,12 +105,13 @@ import { openSkills } from './tree';
 import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { closeDig, digOpen, digRect, openDig, openNotes, refreshDig } from './digui';
+import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig } from './digui';
+import { MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
 import { STRIP, corners, overviewScale, worldOf } from './worldrender';
-import { landCleared, playable } from './land';
+import { LETTER_LOCK, landCleared, letterLocked, playable } from './land';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -616,7 +621,8 @@ function renderFoot() {
   // チュートリアル：次に押すところを光らせる
   const tk = tutOf(s);
   const step = tk < TUT_DONE ? TUT[tk] : undefined;
-  const [hm, hk] = (step && !introPending() ? hlOf(step, s) : '').split(':');
+  // 発掘との出会いの最後：スキルタブを光らせる（四角い研究パネルを開いてもらう）
+  const [hm, hk] = (step && !introPending() ? hlOf(step, s) : !step && s.flags.digMeet === 'skill' && !root.querySelector('.isl-modal') ? 'skill' : '').split(':');
   for (const m of Object.keys(tabBtns) as Menu[]) {
     tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
     tabBtns[m].classList.toggle('is-lock', menuLocked(m));
@@ -1082,6 +1088,7 @@ function renderPop() {
     gate: () => payGate(),
     land: () => (closePop(), openLand(ctx)),
     dig: () => openDigPanel(),
+    present: () => startPresent(),
   });
   popTitle.textContent = title;
   popBody.replaceChildren(body);
@@ -1099,12 +1106,18 @@ function openDigPanel() {
   closeSheet();
   menu = null;
   sub = null;
+  // 発掘との出会い：工房の吹き出しの「⛏ 発掘場」を自分で押して開いた
+  if (s.flags.digMeet === 'tap') {
+    s.flags.digMeet = 'open';
+    save();
+  }
   openDig(ctx, {
     supply: () => {
       closeDig();
       goSub('scm', 'flow');
     },
     closed: () => renderAll(),
+    hit: (hits) => meetHit(hits),
   });
   renderAll();
   const ws = myWorkshop(s);
@@ -1116,6 +1129,168 @@ function openDigPanel() {
     const ty = rail ? H / 2 : (hudBottom + r.top) / 2 + 30 * cam.zoom;
     tween = { x0: cam.x, y0: cam.y, x1: (ws.i - ws.j) * 100 - (tx - W / 2) / cam.zoom, y1: (ws.i + ws.j) * 55 - (ty - H / 2) / cam.zoom, t0: performance.now() };
   }
+}
+
+// ---------------------------------------------------------------- 発掘との出会い・町の長と研究成果の発表（digmeet.ts）
+
+/** 操作がないまま進んだ日数（出会いの「初めて手が空いたとき」。押す・キーで 0 に戻る） */
+let idleDays = 0;
+addEventListener('pointerdown', () => (idleDays = 0), true);
+addEventListener('keydown', () => (idleDays = 0), true);
+addEventListener('wheel', () => (idleDays = 0), { capture: true, passive: true });
+/** 出会いの演出の途中（工房の上の ⛏ の吹き出しと「カツン」→ 会話） */
+let meetPing = false;
+/** 最初の出土のあとの会話（セリフ 4）を待っている */
+let meetFoundWait = false;
+
+/** 会話も画面も開いていない（出会い・発表の演出を割り込ませてよい） */
+const calm = () => !pop && !placing && !tour && !menu && !sheetOpen() && !digOpen() && !moving && !root.querySelector('.isl-modal, .isl-rp-reveal, .isl-picker');
+
+/** 2 か月目の途中、初めて手が空いたとき：工房の上に ⛏ と「カツン」→ 会話（セリフ 1〜3）→ 工房をタップしてもらう */
+function checkMeet() {
+  if (meetPing || !calm() || !meetReady(s, idleDays)) return;
+  meetPing = true;
+  focusOn('workshop');
+  // スマホは右上のミッションと重ならないよう、工房を画面の下寄りに（上に ⛏ の吹き出しが見えるように）
+  if (tween && innerWidth < 600 && tween.z1) tween.y1 -= 170 / tween.z1;
+  sfx.play('katsun');
+  setTimeout(() => sfx.play('katsun', 0.8), 420);
+  renderAll();
+  // ⛏ の吹き出しを見てもらってから、会話（会話のあいだは時間が止まる）
+  setTimeout(() => {
+    talk(
+      MEET_LINES().map((text) => ({ text })),
+      t('わかった', 'Got it'),
+      () => {
+        meetPing = false;
+        s.flags.digMeet = 'tap';
+        save();
+        renderAll();
+      },
+    );
+  }, 1600);
+}
+
+/** 発掘場で打った：出会いの途中なら、最初のエクステの出土のあとにセリフ 4（スキルツリーの四角いパネルへ） */
+function meetHit(hits: DigHit[]) {
+  if (s.flags.digMeet !== 'open' || meetFoundWait) return;
+  if (!hits.some((x) => x.broke && x.item?.kind === 'ext')) return;
+  meetFoundWait = true;
+  // 絵が研究ノートへ吸い込まれる（お題なら大きい演出が閉じる）のを待ってから
+  const wait = (n: number) => {
+    if (n > 0 && root.querySelector('.isl-dig-big, .isl-modal')) {
+      setTimeout(() => wait(n - 1), 300);
+      return;
+    }
+    talk([{ text: MEET_FOUND() }], t('わかった', 'Got it'), () => {
+      meetFoundWait = false;
+      s.flags.digMeet = 'skill';
+      save();
+      renderAll();
+    });
+  };
+  setTimeout(() => wait(40), 1500);
+}
+
+/** 地図の上の印：工房の上の ⛏（出会い）と、町の長の家の上の顔（発表できるときは吹き出し「研究成果を発表する」） */
+const meetEl = h('button', 'isl-meet');
+meetEl.type = 'button';
+meetEl.hidden = true;
+meetEl.append(h('span', 'isl-meet-pick', '⛏'), h('b', 'isl-meet-say', t('カツン！', 'Clink!')));
+meetEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const ws = myWorkshop(s);
+  if (ws && s.flags.digMeet === 'tap') openPop(ws.i, ws.j);
+});
+const chiefEl = h('div', 'isl-chief');
+chiefEl.hidden = true;
+let chiefKey = '';
+function updateMarks() {
+  const busy = !!placing || !!tour || overviewOn() || tutOf(s) < TUT_DONE;
+  const ws = myWorkshop(s);
+  const showMeet = !busy && !!ws && (meetPing || (s.flags.digMeet === 'tap' && !pop)) && !sheetOpen();
+  meetEl.hidden = !showMeet;
+  if (showMeet && ws) {
+    const p = toScreen(ws.i, ws.j);
+    meetEl.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 175 * cam.zoom)}px) translate(-50%, -100%)`;
+  }
+  const home = digMet(s) ? chiefHome(s) : null;
+  const chief = s.dig ? chiefOf(s.dig.sector) : null;
+  const showChief = !busy && !!home && chief != null && !sheetOpen() && !(pop && home && pop[0] === home.i && pop[1] === home.j);
+  chiefEl.hidden = !showChief;
+  if (!showChief || !home || chief == null) return;
+  const ready = canPresent(s);
+  const key = `${chief}|${ready}|${isEn}`;
+  if (key !== chiefKey) {
+    chiefKey = key;
+    const face = h('button', 'isl-chief-face');
+    face.type = 'button';
+    face.append(heroIcon(chief, 32), h('small', '', t('町の長', 'Head')));
+    face.title = t(`町の長 ${heroName(chief)}の家`, `Home of town head ${heroName(chief)}`);
+    face.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPop(home.i, home.j);
+    });
+    chiefEl.replaceChildren(face);
+    if (ready) {
+      const b = btn(t('📜 研究成果を発表する', '📜 Present findings'), () => startPresent(), 'is-on is-guide isl-chief-go');
+      chiefEl.prepend(b);
+    }
+  }
+  const p = toScreen(home.i, home.j);
+  chiefEl.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 120 * cam.zoom)}px) translate(-50%, -100%)`;
+}
+
+/** 町の長の家へカメラを寄せて、家の吹き出しを開く */
+function showChief() {
+  const home = chiefHome(s);
+  if (home) openPop(home.i, home.j);
+}
+
+/** 研究成果の発表：マインちゃんと町の長の会話（3 枚）→ RP（present）→ 調査依頼状を受け取る演出（4 枚目） */
+function startPresent() {
+  if (!canPresent(s) || !s.dig) return;
+  const sector = s.dig.sector;
+  const chief = chiefOf(sector);
+  closePop();
+  closeDig();
+  const home = chiefHome(s);
+  if (home) centerOn(home.i, home.j);
+  const fresh = letterToGet(s);
+  const pages: TutPage[] = presentPages(s).map((pg, k) => ({ text: pg.text, who: pg.who ?? undefined, role: pg.who != null ? t('町の長', 'Town head') : undefined, el: k === 0 ? () => topicsEl(sector) : undefined }));
+  talk(pages, t('受け取る', 'Accept'), () => {
+    const r = present(s);
+    if (typeof r === 'string') return;
+    save();
+    showLetter(r.rp, fresh, chief);
+    renderAll();
+  });
+}
+
+/** 調査依頼状（と RP）を受け取る演出 */
+function showLetter(rp: number, letter: Tier | null, chief: number | null) {
+  sfx.play('mining');
+  setTimeout(() => sfx.play('win'), 500);
+  const body = h('div', 'isl-letter');
+  const card = h('div', 'isl-letter-card');
+  const rays = h('div', 'isl-letter-rays');
+  card.append(rays);
+  if (letter) {
+    // 調査依頼状の仮の絵：MCH のエクステ「スクロール」（Uncommon）・「エリートスクロール」（Rare）。docs/ISLAND_ART_TODO.md
+    card.append(extIcon(letter === 'U' ? 1016 : 2016, 128), h('b', 'isl-letter-name', t(`${letter === 'U' ? 'Uncommon' : 'Rare'} の調査依頼状`, `${letter === 'U' ? 'Uncommon' : 'Rare'} survey request`)));
+    if (chief != null) card.append(h('small', 'isl-dim', t(`町の長 ${heroName(chief)}より`, `From town head ${heroName(chief)}`)));
+  }
+  card.append(h('span', 'isl-letter-rp', t(`研究ポイント +${rp}`, `Research points +${rp}`)));
+  const say = h('p', 'isl-letter-say');
+  say.append(rich(presentAfter(letter)));
+  body.append(card, say);
+  modal(
+    letter ? t('📜 調査依頼状を受け取った！', '📜 Survey request received!') : t('研究成果を発表した！', 'Findings presented!'),
+    body,
+    letter === 'U' ? [[t('ランドマップを見る', 'Open land map'), () => openLand(ctx), 'is-on'], [t('続ける', 'Keep going'), () => renderAll()]] : [[t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx), 'is-on'], [t('続ける', 'Keep going'), () => renderAll()]],
+    true,
+  );
+  root.querySelector('.isl-modal:last-of-type')?.classList.add('is-letter');
 }
 
 /** 関所の通行料を払って開通する */
@@ -1200,11 +1375,28 @@ function introPages(): TutPage[] {
   const d = sectorDef(s.sector ?? 'c1');
   const top = Math.max(0, ...Object.values(rivalMonthGuess(s)));
   const intro = d.profile.intro;
+  // お題の 1 枚（発掘と出会ったあと。最初の一手の前）：お題のエクステの絵（未発見はシルエット）
+  const topic = digMet(s) ? topicsPage(d.id) : null;
   return [
     { text: intro[0].split('{top}').join(money(Math.round(top / 100) * 100)) },
     ...intro.slice(1, -1).map((text) => ({ text })),
+    ...(topic ? [{ text: topic, el: () => topicsEl(d.id) }] : []),
     { text: introFirstStep(d.tier as Tier, has(s, 'pot')) },
   ];
+}
+
+/** お題のエクステの絵の並び（到着の案内・研究成果の発表）。未発見はシルエットと「？？？」 */
+function topicsEl(sector: string): HTMLElement {
+  const row = h('div', 'isl-topics');
+  for (const id of topicsOf(sector)) {
+    const known = (s.research?.[id] ?? 0) > 0;
+    const c = h('div', `isl-topics-one ${known ? 'is-known' : 'is-unknown'}`);
+    const pic = h('div', 'isl-topics-pic');
+    pic.append(extIcon(id, 64));
+    c.append(pic, h('small', '', known ? extName(id) : t('？？？', '???')));
+    row.append(c);
+  }
+  return row;
 }
 
 /** 到着の案内を出す。最初の一手が工房なら、閉じたら建築を開く。2 枚目（リサーチ）には「市場データを開く」ボタン */
@@ -1453,10 +1645,10 @@ function renderMissions() {
     row.append(h('small', 'isl-dim', pr && !done ? t(`${m.text}（${pr[0]} / ${pr[1]}）`, `${m.text} (${pr[0]} / ${pr[1]})`) : m.text));
     if (done)
       row.append(
-        btn(t(`報酬 ${money(m.reward)} を受け取る`, `Claim ${money(m.reward)}`), () => {
+        btn(t(`${rewardText(m)} を受け取る`, `Claim: ${rewardText(m)}`), () => {
           if (!claim(s, m.id)) {
             sfx.play('clear');
-            toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
+            toast(t(`${rewardText(m)} を受け取りました`, `Received: ${rewardText(m)}`));
           }
           save();
           renderAll();
@@ -1502,7 +1694,8 @@ const seenNow = () => (tutOpen ? new Set([...tutSeen, tutOpen]) : tutSeen);
 const pointEl = h('div', 'isl-point', '👈');
 pointEl.hidden = true;
 function updatePoint() {
-  const what = pointOf(tutStep());
+  // 発掘との出会い：会話のあと、地図の工房をタップしてもらう
+  const what = pointOf(tutStep()) ?? (s.flags.digMeet === 'tap' && !meetPing ? 'workshop' : null);
   const b = what === 'workshop' ? myWorkshop(s) : what === 'shop' ? myShops(s)[0] : undefined;
   const show = !!b && !placing && !pop && !sheetOpen() && !root.querySelector('.isl-modal');
   pointEl.hidden = !show;
@@ -2006,7 +2199,10 @@ function talk(pages: TutPage[], ok: string, then: () => void) {
   const name = h('b', 'isl-talk-name', t('マインちゃん', 'Mine-chan'));
   const text = h('p', 'isl-talk-text');
   const foot = h('div', 'isl-talk-foot');
-  box.append(mine, name, text, foot);
+  // 話す人がヒーロー（研究成果の発表の町の長）のときの顔
+  const face = h('div', 'isl-talk-who');
+  face.hidden = true;
+  box.append(mine, face, name, text, foot);
   m.append(stage, box);
   let k = 0;
   /** 画面の中の部分を、金色の枠で囲んで見せる（まわりは暗く） */
@@ -2027,12 +2223,20 @@ function talk(pages: TutPage[], ok: string, then: () => void) {
     }
     const last = k === pages.length - 1;
     mine.src = assetUrl(last ? 'mch/Image/Characters/navi_ain_cross_01_smile.png' : 'mch/Image/Characters/navi_ain_speak_00_talk.png');
+    mine.hidden = pg.who != null;
+    face.hidden = pg.who == null;
+    box.classList.toggle('is-who', pg.who != null);
+    if (pg.who != null) {
+      face.replaceChildren(heroIcon(pg.who, 64));
+      name.textContent = pg.role ? `${pg.role} ${heroName(pg.who)}` : heroName(pg.who);
+    } else name.textContent = t('マインちゃん', 'Mine-chan');
     text.replaceChildren(rich(pg.text));
     stage.replaceChildren();
     if (pg.show === 'crew') stage.append(crewEl(pg.hero));
     else if (pg.show === 'cycle') stage.append(cycleEl());
     else if (pg.show === 'gift') stage.append(giftEl(pg.gift));
-    stage.hidden = !pg.show;
+    else if (pg.el) stage.append(pg.el());
+    stage.hidden = !pg.show && !pg.el;
     foot.replaceChildren(h('small', 'isl-dim', `${k + 1} / ${pages.length}`));
     // その枚だけのボタン（到着の案内の「市場データを開く」など）：押すと会話を閉じて、その画面へ
     const extra = pg.button;
@@ -2155,6 +2359,15 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (s.monthPause && !s.cleared && (s.topStreak ?? 0) > 0 && s.reports.at(-1)?.rank === 1)
     return { text: t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
+  // 発掘との出会いの途中（工房をタップ → 発掘場／スキルツリーの四角いパネル）
+  const meet = meetTip(s);
+  if (meet) return { text: meet, action: s.flags.digMeet === 'tap' ? [t('工房の場所へ', 'To the workshop'), () => tutGo('workshop')] : undefined };
+  // 発掘の助言（digmeet.ts の digTips。tier ごとに、いまの並びの決まった所へ）
+  const dig = digTips(s).filter((x) => !(digOpen() && x.key !== 'present'));
+  const digAt = (tier: DigTip['tier']) => {
+    const x = dig.find((d) => d.tier === tier);
+    return x ? { text: x.text, action: digAct(x) } : null;
+  };
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
   const rec = PRODUCT[recommend(s)].name;
@@ -2185,6 +2398,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const closed = myShops(s).find((b) => s.shops[b.uid].staff == null && s.shops[b.uid].part === 0);
   if (closed) return { text: t(`${DEF[closed.id].name}に店員がいないので休業中です。店員かアルバイトを決めましょう。販売は INT の高いヒーローが得意です。`, `${DEF[closed.id].name} is closed: nobody on the floor. Choose a clerk or part-timer. High-INT heroes sell best.`), action: [t('お店を開く', 'Open shop'), () => openShop(ctx, closed.uid)] };
   if (poolFree(s) <= 4 && !myWarehouses(s).length && !s.buildings.some((b) => b.owner === 'me' && b.id === 'warehouse')) return { text: t(`工房の物置（${STORE.base} 個）がいっぱいです。このままでは素材を買えず、できた商品も置けません。「建築」で倉庫を建てましょう。`, `The workshop stockroom (${STORE.base}) is full: you can’t buy materials or store goods. Build a warehouse under Build.`), action: [t('建築を開く', 'Open Build'), openBuildTab] };
+  const digHigh = digAt('high');
+  if (digHigh) return digHigh;
   if (MISSIONS.some((m) => s.missions[m.id] === 'done')) return { text: t('依頼を達成しました！「マーケティング」→「依頼」で報酬を受け取りましょう。', 'You completed a request! Claim the reward under Marketing → Requests.'), action: [t('依頼を開く', 'Open requests'), () => openMissions(ctx)] };
   if (s.money <= SIDE.rescue && !s.staff.some((x) => x.task === 'side'))
     return { text: t('資金が少なくなってきたね。ヒーローに[[他店でバイト]]してもらえば、日給でお金を稼げるよ。腕が上がることもあるんだ！', 'Funds are running low. Send a hero to [[work part-time]] at another store for a daily wage. They might even improve!'), action: [t('バイトを探す', 'Find work'), () => goSub('plan', 'side')] };
@@ -2196,6 +2411,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (low && !buyer) return { text: t(`${MATS[low].name}が残り少なくなっています。「SCM」→「調達」で調達係を決めると、月の量を毎日自動で買い付けてくれます。`, `${MATS[low].name} is running low. Assign a buyer under SCM → Buy to purchase the monthly amounts automatically.`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
   if (low) return { text: t(`${MATS[low].name}が残り少なくなっています。「調達」で月の量を増やすか、いますぐ買い足しましょう（月の上限に注意）。`, `${MATS[low].name} is running low. Raise its monthly amount under Buy or buy some now (mind the monthly limit).`), action: [t('調達を開く', 'Open buy'), () => openBuy(ctx)] };
   if (s.staff.some((x) => x.resting)) return { text: t('休んでいる従業員がいます。「人事」→「給与・労務」の賞与ですぐ元気にできます。人手が足りないときは「人材登用」で雇えます。', 'Someone is resting. A bonus (HR → Pay & welfare) refreshes them at once; hire more under Recruiting.'), action: [t('給与・労務を開く', 'Open pay'), () => openPayroll(ctx)] };
+  const digMid = digAt('mid');
+  if (digMid) return digMid;
   const last = s.reports[s.reports.length - 1];
   // 1 回目の 1 位：ゴールは 2 か月続けて 1 位（いま 1 / 2）。他社の反撃中
   if (!s.cleared && (s.topStreak ?? 0) > 0 && last?.rank === 1)
@@ -2212,6 +2429,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
     const q = quarterNew;
     return { text: t(`第 ${q} 四半期の[[決算書]]が出たよ。売上と利益、お金の残りを確かめよう！`, `Your Q${q} [[statements]] are ready. Check sales, profit and cash!`), action: [t('決算書を見る', 'Open statements'), () => ((quarterNew = null), openBooks(ctx))] };
   }
+  const digLow = digAt('low');
+  if (digLow) return digLow;
   if (s.land && s.land.mine.length === 1) return { text: t('関所の先は[[ランドマップ]]で見られるよ。ほかの Common セクタなら、出店許可の費用も軽いんだ。', 'See what lies beyond the gate on the [[land map]]. Other Common sectors have cheap permits.'), action: [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)] };
   if (!Object.keys(s.intel).length) {
     const top = last.area.find((x) => !x.me);
@@ -2219,6 +2438,13 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   }
   if (last.rank > 1) return { text: t(`いまエリア ${last.rank} 位。1 位の${last.area[0].name}を抜くには、棚や作業台を増やしたり（お店／工房の設備投資）、アンコモンで単価を上げたり（商品開発）、宣伝したりしましょう。`, `You are #${last.rank} in the area. To pass ${last.area[0].name}, add shelves and benches (shop / workshop investment), raise prices with Uncommons (products) or advertise.`), action: [t('工房を開く', 'Open workshop'), () => openWorkshop(ctx)] };
   return { text: t('いい調子です！', 'Nice work!') };
+}
+
+/** 発掘の助言のボタン */
+function digAct(x: DigTip): [string, () => void] {
+  if (x.key === 'present') return [t('町の長の家へ', 'To the town head'), () => showChief()];
+  if (x.key === 'letter') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
+  return [t('発掘場を開く', 'Open dig site'), () => openDigPanel()];
 }
 
 /** いまの段の会話をまだ出していない（クリアの演出のあいだ）：次の段の吹き出し・光る場所は、会話のあとで出す */
@@ -2590,8 +2816,10 @@ function sectorPop(id: string): { title: string; body: HTMLElement } {
     const b = sectorBadges(s).find((x) => x.id === id);
     if (b?.manager != null) body.append(h('p', 'isl-dim', t(`マネージャー：${heroName(b.manager)}`, `Manager: ${heroName(b.manager)}`)));
     row.append(btn(t(`${d.name}へ移動`, `Go to ${d.name}`), () => goSector(id), 'is-on'));
-  } else if (st === 'open') row.append(advanceBtn(id));
-  else body.append(h('p', 'isl-warn', `🔒 ${needLine(s, d) ?? ''}`));
+  } else if (st === 'open') {
+    row.append(advanceBtn(id));
+    if (letterLocked(s, id)) body.append(h('p', 'isl-warn', LETTER_LOCK));
+  } else body.append(h('p', 'isl-warn', `🔒 ${needLine(s, d) ?? ''}`));
   if (row.childElementCount) body.append(row);
   return { title: st === 'cloud' ? '???' : d.name, body };
 }
@@ -2599,6 +2827,12 @@ function sectorPop(id: string): { title: string; body: HTMLElement } {
 /** 「このセクタに進出（入国料 N G）」。資金が足りなければ灰色で「あと N G」 */
 function advanceBtn(id: string): HTMLButtonElement {
   const d = sectorDef(id);
+  // 調査依頼状が無い（Uncommon 以上）：押せず、理由はボタンの下（edgeEl・sectorPop）
+  if (letterLocked(s, id)) {
+    const b = btn(t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => toast(LETTER_LOCK));
+    b.disabled = true;
+    return b;
+  }
   const short = d.fee - s.money;
   const b = btn(short > 0 ? t(`あと ${money(short)}`, `${money(short)} short`) : t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => {
     closePop();
@@ -2626,12 +2860,14 @@ function badgeEl(b: SectorBadge, mini: boolean): HTMLElement {
     for (const x of b.items.slice(0, mini ? 1 : 3)) row.append(skuIcon(x, sz));
     if (b.state === 'here') row.append(h('span', 'isl-wbadge-here', mini ? '📍' : t('📍 いまここ', '📍 Here')));
     else if (b.manager != null) row.append(heroIcon(b.manager, sz));
-  } else if (b.state === 'open') row.append(h('span', 'isl-wbadge-note', mini ? t('未進出', 'New') : t(`未進出・入国料 ${money(b.fee)}`, `Not yet · permit ${money(b.fee)}`)));
+  } else if (b.state === 'open' && letterLocked(s, b.id)) row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : LETTER_LOCK));
+  else if (b.state === 'open') row.append(h('span', 'isl-wbadge-note', mini ? t('未進出', 'New') : t(`未進出・入国料 ${money(b.fee)}`, `Not yet · permit ${money(b.fee)}`)));
   else row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : `🔒 ${needLine(s, sectorDef(b.id)) ?? ''}`));
   el.append(row);
   if (!mini && b.lastRev != null && !gray) el.append(h('small', 'isl-wbadge-rev', t(`先月 ${money(b.lastRev)}`, `Last month ${money(b.lastRev)}`)));
   el.addEventListener('click', () => {
     if (b.state === 'mine') goSector(b.id);
+    else if (b.state === 'open' && letterLocked(s, b.id)) toast(LETTER_LOCK);
     else if (b.state === 'open') startMove(ctx, b.id);
     else if (b.state === 'here') {
       const c = (s.n - 1) / 2;
@@ -2650,8 +2886,10 @@ function edgeEl(id: string): HTMLElement {
   const head = h('div', 'isl-wedge-head');
   head.append(h('span', 'isl-wedge-tier', d.tier), h('b', '', st === 'cloud' ? '???' : d.name));
   el.append(head);
-  if (st === 'open') el.append(advanceBtn(id));
-  else if (st === 'mine') el.append(btn(t(`${d.name}へ移動 ▶`, `Go to ${d.name} ▶`), () => goSector(id)));
+  if (st === 'open') {
+    el.append(advanceBtn(id));
+    if (letterLocked(s, id)) el.append(h('small', 'isl-wedge-need', LETTER_LOCK));
+  } else if (st === 'mine') el.append(btn(t(`${d.name}へ移動 ▶`, `Go to ${d.name} ▶`), () => goSector(id)));
   else el.append(h('small', 'isl-wedge-need', `🔒 ${needLine(s, d) ?? ''}`));
   return el;
 }
@@ -2673,12 +2911,12 @@ function placeWorldUi() {
   let items: { id: string; i: number; j: number; make: () => HTMLElement }[];
   if (ov) {
     const bs = sectorBadges(s);
-    key = `ov|${mini}|${JSON.stringify(bs)}|${Math.round(s.money)}`;
+    key = `ov|${mini}|${JSON.stringify(bs)}|${Math.round(s.money)}|${s.letters.join()}`;
     items = bs.map((b) => ({ id: b.id, i: b.delta[0] * n + c, j: b.delta[1] * n + c, make: () => badgeEl(b, mini) }));
   } else {
     const w = worldOf(s);
     const adj = (w?.regions ?? []).filter((r) => r.adj);
-    key = `edge|${land.cur}|${land.mine.join()}|${adj.map((r) => r.id).join()}|${Math.round(s.money)}`;
+    key = `edge|${land.cur}|${land.mine.join()}|${adj.map((r) => r.id).join()}|${Math.round(s.money)}|${s.letters.join()}`;
     // 隣のセクタ側の外周 3 マスの真ん中
     const mid = (STRIP - 1) / 2;
     items = adj.map((r) => {
@@ -2727,6 +2965,11 @@ function layout() {
 }
 function renderAll() {
   dirty = true;
+  // 発掘との出会いの最後：スキルツリーを開いたら終わり
+  if (s.flags.digMeet === 'skill' && root.querySelector('.isl-tree')) {
+    s.flags.digMeet = 'done';
+    save();
+  }
   // 発掘場のパネルは、ほかの画面（シート・メニュー・建てる）を開いたら閉じる（時間を止める画面と重ねない）
   if (digOpen() && (sheetOpen() || menu || placing || tour)) closeDig();
   root.classList.toggle('is-dig', digOpen());
@@ -2740,7 +2983,7 @@ function renderAll() {
   layout();
   sectorChecks();
 }
-root.append(worldUi, hud, sectorPill, zoomBox, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
+root.append(worldUi, meetEl, chiefEl, hud, sectorPill, zoomBox, pointEl, missionBox, tourEl, toasts, advisor, nextBtn, placeBox, popEl, foot, selBox, ghostUi);
 resize();
 renderAll();
 // 始めたばかりなら、建築の一覧を開いておく
@@ -3041,6 +3284,8 @@ function advance(days: number) {
   for (let k = 0; k < days; k++) {
     // 流れの案内を見ているあいだの日数は、最初の月の締めまでの日数に数えない（案内の途中や直後に締めが来ないように）
     if (tour && s.open !== null && !s.reports.length) s.open++;
+    // 操作がないまま進んだ日（発掘との出会い）
+    if (!tour) idleDays++;
     const r = step(s);
     for (const b of r.finished) {
       fx.push({ uid: b.uid, start: performance.now() });
@@ -3105,6 +3350,7 @@ function advance(days: number) {
   if (pop && !(document.activeElement instanceof HTMLSelectElement && popEl.contains(document.activeElement))) renderPop();
   renderAll();
   ticking = false;
+  checkMeet();
 }
 
 /** 会社の月の締め：マネージャーのセクタの結果・四半期の決算 */
@@ -3133,7 +3379,7 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   s.monthPause = true;
   save();
   closePop();
-  openMonthReport(ctx, r, { openSkills: (br) => openSkills(ctx, br), openSupply: () => openSupply(ctx), openRanking: () => openRanking(ctx), sfx: (k) => sfx.play(k) }, () => {
+  openMonthReport(ctx, r, { openSkills: (br) => openSkills(ctx, br), openSupply: () => openSupply(ctx), openRanking: () => openRanking(ctx), openNotes: () => openNotes(ctx), sfx: (k) => sfx.play(k) }, () => {
     if (tutOf(s) < TUT_DONE) {
       // チュートリアル中は、ランキングの紹介を案内の段（tut.ts の ranking）で出す
       s.flags.ranking = true;
@@ -3170,7 +3416,7 @@ function tutHold(): boolean {
   if (tour) return false;
   return hlOf(st, s) !== 'speed';
 }
-const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold() || !!s.monthPause;
+const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold() || !!s.monthPause || meetPing;
 let lastHeld = false;
 
 function frame(now: number) {
@@ -3215,6 +3461,7 @@ function frame(now: number) {
     dirty = true;
   }
   updatePoint();
+  updateMarks();
   checkSeamless();
   if (tour) tourFrame(now);
   for (let k = fx.length - 1; k >= 0; k--) if (effectDone(fx[k], now)) fx.splice(k, 1);
@@ -3276,4 +3523,6 @@ requestAnimationFrame(frame);
   dig: () => openDigPanel(),
   digOpen: () => digOpen(),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),
+  /** 発掘との出会い（撮影スクリプト用）：操作がないまま進んだ日数 */
+  idle: (v?: number) => (v != null ? (idleDays = v) : idleDays),
 };

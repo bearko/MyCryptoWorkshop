@@ -8,6 +8,7 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
+import { digMet, digReportLine, digReportText } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
@@ -42,6 +43,8 @@ export interface ReportHooks {
   openSkills: (branch?: string) => void;
   openSupply: () => void;
   openRanking: () => void;
+  /** 研究ノート（「今月の出土品」の導線） */
+  openNotes?: () => void;
   /** 効果音 */
   sfx?: (k: 'sale' | 'win' | 'levelup' | 'check' | 'report' | 'drum' | 'error') => void;
 }
@@ -525,6 +528,18 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       }
       hint.append(long, short);
       c4.append(hint);
+      // 今月の出土品（発掘との出会いのあと・発掘場のあるセクタ）：新発見・研究 Lv ↑・RP。導線は研究ノート
+      const dg = digMet(s) ? digReportLine(r) : null;
+      if (dg) {
+        const [dl, ds] = digReportText(dg);
+        const line = h('div', 'isl-rp-dig');
+        const txt = h('span', 'isl-rp-dig-text');
+        txt.append(h('b', '', t('⛏ 今月の出土品', '⛏ Finds this month')), h('span', 'is-long', dl), h('span', 'is-short', ds));
+        line.append(txt);
+        if (hooks.openNotes) line.append(btn(t('研究ノート', 'Notebook'), () => hooks.openNotes?.(), 'isl-rp-go'));
+        c4.append(line);
+        body.classList.add('has-dig');
+      }
       cards.push(c4);
 
       cards.forEach((c, k) => c.style.setProperty('--d', `${k * 0.08}s`));

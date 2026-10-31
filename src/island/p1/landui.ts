@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
 import { CAPITAL, TIER_NAME, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
-import { crowned, hasBusiness, lastRank, moveTo, recOf, type MoveErr } from './land';
+import { LETTER_LOCK, crowned, hasBusiness, lastRank, letterLocked, moveTo, recOf, type MoveErr } from './land';
 import { balance, date, lvMul, staffOf, type P1State } from './model';
 import { pickHero, rankEl } from './heroui';
 import { adjacent } from './world';
@@ -81,7 +81,7 @@ const ERR: Record<MoveErr, string> = {
   cloud: t('雲に覆われていて、まだ行けません', 'Still under clouds'),
   locked: t('まだ開放されていません', 'Not unlocked yet'),
   soon: t('このセクタは準備中です', 'This sector is coming soon'),
-  letter: t('🔒 調査依頼状が要る（Common のセクタのお題をそろえよう）', '🔒 Needs a survey request (complete a Common sector’s finds)'),
+  letter: LETTER_LOCK,
   money: t('資金が足りません', 'Not enough funds'),
   manager: t('セクタマネージャーを選んでください', 'Pick a sector manager'),
   busy: t('そのヒーローは、ほかのセクタのマネージャーです', 'That hero manages another sector'),
@@ -196,7 +196,8 @@ export function openLand(ctx: Ctx) {
         if (rk || crown) ico.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : t(`${rk} 位`, `#${rk}`)));
       }
       if (st === 'here') n.append(h('span', 'isl-land-pin', '📍'));
-      if (st === 'locked') ico.append(h('span', 'isl-land-lock', '🔒'));
+      const noLetter = letterLocked(s, d.id);
+      if (st === 'locked' || noLetter) ico.append(h('span', 'isl-land-lock', '🔒'));
       // マウスを乗せると一言の特徴・状態・開放の条件（PC。スマホは押すと下の説明に）
       // 上の段は下に、端の札は内側に出す（地図の外で切れないように）
       const tip = h('span', `isl-land-tip ${d.at[1] < 35 ? 'is-below' : ''} ${d.at[0] < 20 ? 'is-l' : d.at[0] > 80 ? 'is-r' : ''}`);
@@ -205,6 +206,7 @@ export function openLand(ctx: Ctx) {
         tip.append(h('b', '', d.name), h('small', 'isl-dim', stateText(s, d, st)));
         if (d.profile.tag) tip.append(h('span', 'isl-land-tag', d.profile.tag));
         if (st === 'locked') tip.append(h('span', 'isl-warn', needText(s, d)));
+        if (noLetter) tip.append(h('span', 'isl-warn', LETTER_LOCK));
       }
       n.append(tip);
       n.addEventListener('click', () => {
@@ -256,6 +258,12 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
   const row = h('div', 'isl-row');
   if (st === 'here') {
     box.append(h('p', 'isl-good', t('いまこのセクタを経営しています。', 'You are running this sector now.')));
+  } else if (st === 'open' && letterLocked(s, id)) {
+    // 調査依頼状が無い（Uncommon 以上）：押せず、理由
+    const b = btn(t(`出店する（出店許可申請 ${money(d.fee)}）`, `Open here (permit ${money(d.fee)})`), () => undefined);
+    b.disabled = true;
+    row.append(b);
+    box.append(h('p', 'isl-warn', LETTER_LOCK));
   } else if (st === 'open') {
     const b = btn(t(`出店する（出店許可申請 ${money(d.fee)}）`, `Open here (permit ${money(d.fee)})`), () => startMove(ctx, id), 'is-on');
     b.disabled = s.money < d.fee;
