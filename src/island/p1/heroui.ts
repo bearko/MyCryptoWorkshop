@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { MATS, PRODUCT, rivalDef, SECTORS, SKILL, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, techSkill, type Mat, type Sku, type Task } from './data';
-import { assign, DAYS, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
+import { assign, canSwap, DAYS, releaseForSwap, restDaysLeft, swapStops, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager'), train: t('修行', 'Training'), dig: t('発掘', 'Digging') };
@@ -167,8 +167,44 @@ function drawer(root: HTMLElement, title: string, note: string, fill: (box: HTML
   return close;
 }
 
-/** 引き出しの外（main.ts）につなぐもの：トースト・効果音・担当を外したあとの描き直し */
-export const pickHooks: { toast?: (text: string) => void; sfx?: (k: 'tap' | 'error') => void; changed?: () => void } = {};
+/** 引き出しの外（main.ts）につなぐもの：トースト・効果音・担当を外したあとの描き直し・チュートリアル中か（付け替えはチュートリアルのあと） */
+export const pickHooks: { toast?: (text: string) => void; sfx?: (k: 'tap' | 'error') => void; changed?: () => void; tutorial?: () => boolean } = {};
+
+/** ほかの担当についている人を押して付け替えられるか（チュートリアルが終わってから。修行中・マネージャー・休憩中は付け替えない） */
+export const swapOn = (st: Staff) => !pickHooks.tutorial?.() && canSwap(st);
+
+/**
+ * 付け替えの確認（引き出しの上の小さなダイアログ）：「○○ は いま『△△』の担当です。外して、ここに付けますか？」。
+ * 元の場所が無人になって止まるときは赤字で 1 行。「付け替える」で yes
+ */
+function swapConfirm(root: HTMLElement, s: P1State, st: Staff, toTask: Task, yes: () => void) {
+  root.querySelector('.isl-swap')?.remove();
+  const el = h('div', 'isl-swap');
+  const box = h('div', 'isl-swap-box');
+  box.setAttribute('role', 'dialog');
+  const from = jobLabel(s, st);
+  const name = heroName(st.hero);
+  const head = h('div', 'isl-swap-head');
+  head.append(heroIcon(st.hero, 40), h('p', '', t(`${name} は いま『${from}』の担当です。外して、ここに付けますか？`, `${name} is now on “${from}”. Move them here?`)));
+  box.append(head);
+  if (swapStops(s, st.hero, toTask)) box.append(h('p', 'isl-bad isl-swap-stop', t(`${from} は担当がいなくなり、止まります`, `${from} will have no one and stop`)));
+  const row = h('div', 'isl-row isl-swap-acts');
+  const close = () => el.remove();
+  row.append(
+    btn(t('付け替える', 'Move here'), () => {
+      close();
+      yes();
+    }, 'is-on'),
+    btn(t('やめる', 'Cancel'), close),
+  );
+  box.append(row);
+  el.append(box);
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (e.target === el) close();
+  });
+  root.append(el);
+}
 
 /**
  * ヒーロー選びのカードの見分け（docs/ISLAND_PHASE1.md「ヒーロー選びの見分け」）。
@@ -206,7 +242,13 @@ export function pickHero(
   // ほかのセクタでマネージャーをしている人は、ここにはいない
   const list = [...s.staff].filter((x) => x.task !== 'manager').sort((a, b) => KIND_ORDER[pickKind(a, o.current)] - KIND_ORDER[pickKind(b, o.current)] || aptitude(b.stats, o.task) - aptitude(a.stats, o.task));
   const best = Math.max(0, ...list.filter((x) => x.task !== 'train' && !x.resting).map((x) => Math.round(aptitude(x.stats, o.task))));
-  drawer(root, o.title, o.note ?? t(`数字は「${TASK_NAME[o.task]}」の適性です。灰色のヒーローはほかの担当か休憩中。右上の ✕ で担当を外すと選べます。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Grey heroes are busy or resting; use ✕ at the top right to free them.`), (body, close) => {
+  const swapNote = !pickHooks.tutorial?.();
+  const defNote = swapNote
+    ? t(`数字は「${TASK_NAME[o.task]}」の適性です。灰色のヒーローはほかの担当か休憩中。ほかの担当の人は、押すとここへ付け替えられます（右上の ✕ で外すだけもできます）。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Grey heroes are busy or resting. Tap a busy hero to move them here (or ✕ at the top right just frees them).`)
+    : t(`数字は「${TASK_NAME[o.task]}」の適性です。灰色のヒーローはほかの担当か休憩中。右上の ✕ で担当を外すと選べます。`, `Numbers are ${TASK_NAME[o.task]} aptitude. Grey heroes are busy or resting; use ✕ at the top right to free them.`);
+  let boxEl: HTMLElement | null = null;
+  drawer(root, o.title, o.note ?? defNote, (body, close) => {
+    boxEl = body.parentElement;
     const grid = h('div', 'isl-pick-grid');
     /** ✕ を 1 回押して「担当を外す」になっているカード（もう一度で外す。ほかを押すか 3 秒で戻る） */
     let armed: { card: HTMLElement; undo: () => void; timer: number } | null = null;
@@ -277,7 +319,23 @@ export function pickHero(
         const kind = pickKind(st, o.current);
         if (kind === 'resting') {
           pickHooks.sfx?.('error');
-          pickHooks.toast?.(t('休憩中は配置できません（賞与で元気にできます）', 'Resting heroes can’t be assigned (a bonus refreshes them)'));
+          const n = restDaysLeft(s, st);
+          pickHooks.toast?.(t(`休憩中（あと ${n} 日）`, `Resting (${n} more ${n === 1 ? 'day' : 'days'})`));
+          return;
+        }
+        if (kind === 'busy' && swapOn(st)) {
+          // ほかの担当の人：確認してから、元の担当から外してここに付ける
+          pickHooks.sfx?.('tap');
+          swapConfirm(boxEl ?? body, s, st, o.task, () => {
+            const from = jobLabel(s, st);
+            if (!releaseForSwap(s, st.hero)) return;
+            close();
+            o.onPick(st.hero);
+            const to = staffOf(s, st.hero);
+            const dest = to && to.task != null ? jobLabel(s, to) : o.title;
+            pickHooks.toast?.(t(`${heroName(st.hero)} を『${from}』から『${dest}』に付け替えました`, `Moved ${heroName(st.hero)} from “${from}” to “${dest}”`));
+            pickHooks.changed?.();
+          });
           return;
         }
         if (kind === 'busy') {

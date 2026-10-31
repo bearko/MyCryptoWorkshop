@@ -284,6 +284,8 @@ pickHooks.changed = () => {
   refreshSheet();
   renderAll();
 };
+// 付け替え（ほかの担当の人を押して、ここに付ける）はチュートリアルが終わってから
+pickHooks.tutorial = () => tutOf(s) < TUT_DONE;
 
 // ---------------------------------------------------------------- 上の帯
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { allowedDirs, assign, build, canPlaceAt, jamOf, newP1, setShelf, stageCaps, startCraft, step, type P1State } from '../src/island/p1/model';
+import { allowedDirs, assign, build, canPlaceAt, canSwap, jamOf, newP1, releaseForSwap, restDaysLeft, restRateOf, swapStops, setShelf, stageCaps, startCraft, step, type P1State } from '../src/island/p1/model';
 import { reportJam } from '../src/island/p1/report';
 import { jamGain, scmJam } from '../src/island/p1/scm';
-import { canRelease, pickable, pickKind, releaseHero } from '../src/island/p1/heroui';
+import { canRelease, pickable, pickHooks, pickKind, releaseHero, swapOn } from '../src/island/p1/heroui';
 import { TUT } from '../src/island/p1/tut';
 
 function lot(s: P1State, id: string): [number, number, 'rd' | 'ld' | 'ru' | 'lu'] {
@@ -135,5 +135,55 @@ describe('チュートリアル：調達の段は自分でタブを押す', () =
   it('運ぶ段のあと・ダッシュボードの段は、画面の ✕ を光らせる', () => {
     expect(TUT.find((x) => x.id === 'firstSale')?.closeOn).toContain('staff');
     expect(TUT.find((x) => x.id === 'scm')?.closeOn).toContain('scm');
+  });
+});
+
+describe('ヒーロー選び：ほかの担当の人を押して付け替え', () => {
+  it('付け替え：元の担当から外して（「担当を外す」と同じ）、新しい担当に付けられる', () => {
+    const { s } = running(1);
+    const artist = s.staff.find((x) => x.hero === 10003)!;
+    expect(canSwap(artist)).toBe(true);
+    expect(releaseForSwap(s, 10003)).toEqual({ task: 'craft', target: 0 });
+    expect(s.slots[0].worker).toBeNull();
+    expect(artist.task).toBeNull();
+    expect(assign(s, 10003, 'buy')).toBeNull();
+    expect(artist.task).toBe('buy');
+  });
+  it('元の場所が止まるか：唯一の運搬係・作るものがある作業台・アルバイトのいないお店は止まる', () => {
+    const { s, uid } = running(1);
+    expect(swapStops(s, 10001, 'shop')).toBe(true);
+    // 運搬係 → 運搬係（同じ仕事へ）なら止まらない
+    expect(swapStops(s, 10001, 'transport')).toBe(false);
+    expect(swapStops(s, 10003, 'transport')).toBe(true);
+    expect(swapStops(s, 10002, 'craft')).toBe(true);
+    s.shops[uid].part = 1;
+    expect(swapStops(s, 10002, 'craft')).toBe(false);
+    // 運搬係がもう 1 人いれば、止まらない
+    const extra = { ...s.staff[0], hero: 99999, task: 'transport' as const, target: null };
+    s.staff.push(extra);
+    expect(swapStops(s, 10001, 'shop')).toBe(false);
+  });
+  it('休憩中・修行中・待機中は付け替えない。休憩中は「あと N 日」が出る', () => {
+    const { s } = running(1);
+    const clerk = s.staff.find((x) => x.hero === 10002)!;
+    clerk.resting = true;
+    clerk.stamina = 0;
+    expect(canSwap(clerk)).toBe(false);
+    expect(releaseForSwap(s, 10002)).toBeNull();
+    expect(clerk.task).toBe('shop');
+    expect(restDaysLeft(s, clerk)).toBe(Math.ceil((clerk.stats.hp * 0.8) / restRateOf(s)));
+    clerk.resting = false;
+    expect(restDaysLeft(s, clerk)).toBe(0);
+    assign(s, 10002, null);
+    expect(canSwap(clerk)).toBe(false);
+  });
+  it('チュートリアル中は付け替えを出さない（今どおり灰色で押せない）', () => {
+    const { s } = running(1);
+    const artist = s.staff.find((x) => x.hero === 10003)!;
+    pickHooks.tutorial = () => true;
+    expect(swapOn(artist)).toBe(false);
+    pickHooks.tutorial = () => false;
+    expect(swapOn(artist)).toBe(true);
+    pickHooks.tutorial = undefined;
   });
 });
