@@ -222,7 +222,7 @@ const STAGE_BRANCH: Record<Stage, string> = { buy: 'buy', craft: 'craft', haul: 
 const DUST_OF: Record<Stage, string> = { buy: 'd_buy', craft: 'd_craft', haul: 'd_logi', sell: 'd_shop' };
 /**
  * 100% のゴール：Common・Uncommon の外周までの取れるパネル（Rare 以降のセクタはまだ遊べないので外周が開かない）。
- * v8：先に要るパネルが準備中のもの（Uncommon の技の大きめの研究パネル「技能の大会」← レアの技）は、いまは取れないので数えない
+ * v8：先に要るパネルが準備中のものは、いまは取れないので数えない（「技能の大会」は先に要るものを Uncommon の技「伝統工芸の継承」に替えたので、いまは 0 件）
  */
 export const fullSkills = () => LEARNABLE().filter((k) => ['C', 'U'].includes(skillTier(k)) && !(k.requires ?? []).some((r) => SKILL[r] && skillSoon(SKILL[r])));
 

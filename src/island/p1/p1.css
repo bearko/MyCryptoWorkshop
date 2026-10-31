@@ -1112,6 +1112,7 @@ body {
   pointer-events: auto;
 }
 .isl-picker-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(760px, 100%);
@@ -2705,6 +2706,8 @@ button.isl-mis {
 /* 右上のミッションと重ならないように：トーストは左の列、ほめ言葉は地図の真ん中あたり */
 #isl-ui .isl-toasts {
   top: calc(var(--hud-h, 56px) + 4px);
+  /* 画面（シート）・ヒーロー選びの引き出しより上に出す（スマホでは、開いた画面の下に隠れていた） */
+  z-index: 9;
 }
 @media (max-width: 899px) {
   #isl-ui .isl-toasts {
@@ -6211,6 +6214,47 @@ button.isl-mis {
   border-color: var(--isl-bad);
   background: var(--isl-bad);
   color: #fff;
+}
+/* ヒーロー選び：ほかの担当の人を押したときの付け替えの確認（引き出しの上の小さなダイアログ） */
+.isl-swap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border-radius: 16px 16px 0 0;
+  background: rgba(10, 14, 24, 0.6);
+}
+.isl-swap-box {
+  display: grid;
+  gap: 8px;
+  width: min(360px, 100%);
+  padding: 12px 14px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 12px;
+  background: var(--isl-night);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  animation: isl-up 0.14s ease-out;
+}
+.isl-swap-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.isl-swap-head p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.isl-swap-stop {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+.isl-swap-acts {
+  justify-content: flex-end;
+  gap: 8px;
 }
 .isl-known {
   display: inline-flex;
