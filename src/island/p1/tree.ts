@@ -3,7 +3,8 @@
  *   左 = ① 調達・左上 = 技・上 = ② 製造・右上 = ③ 物流・右 = システム・右下 = ④ 販売・下 = 経営・左下 = 人材。
  * 内側（Common）の段のさらに外へ、ランクごとの外周（Uncommon・Rare・Epic・Legendary）が同心円で広がる。
  * 外周は、そのランクのセクタに出店したあと、はじめてツリーを開いたときの演出で開く（Flags.rings）。
- * 大きめの研究パネル（以前の ✨）は枝の根もとの近くに金色の縁で。研究パネルは RP、お金パネルは資金で開く。線は「先に要るスキル」から引く（無ければ枝の根もと）。
+ * 2 区分：研究パネル（RP で開く・レベルなし）は四角（縁は枝の色）、お金パネル（資金で開く・Lv1〜5）は菱形（四角を 45° 回す。縁は金。絵と文字は傾けない）。
+ * 形で見分けられるので、色だけに頼らない。大きめの研究パネル（以前の ✨）は枝の根もとの近くに二重の縁の四角で。線は「先に要るスキル」から引く（無ければ枝の根もと）。
  * docs/ISLAND_PHASE1.md「スキルツリー」。
  */
 import { t } from '../../i18n';
@@ -237,11 +238,33 @@ function condTags(s: P1State, k: Skill): HTMLElement | null {
 }
 /** 値段の表示：研究パネルは「研 40」（RP）、お金パネルは資金 */
 const priceOf = (k: Skill) => (isResearch(k) ? t(`研 ${rpCost(k)}`, `RP ${rpCost(k)}`) : money(k.cost));
-/** 足りないぶん（RP・資金） */
-const shortOf = (s: P1State, k: Skill) => (isResearch(k) ? t(`研究ポイントがあと ${rpCost(k) - (s.rp ?? 0)} 足りない`, `${rpCost(k) - (s.rp ?? 0)} RP short`) : t(`あと ${money(k.cost - s.money)} 足りない`, `${money(k.cost - s.money)} short`));
+/** 足りないぶん（RP・資金）。RP は発掘でしか貯まらないので、どこで貯まるかも添える */
+const shortOf = (s: P1State, k: Skill) => (isResearch(k) ? t(`あと ${rpCost(k) - (s.rp ?? 0)} RP（発掘で貯まる）`, `${rpCost(k) - (s.rp ?? 0)} RP short (earn RP by digging)`) : t(`あと ${money(k.cost - s.money)} 足りない`, `${money(k.cost - s.money)} short`));
+/** 区分の 1 行：■ 研究パネル（レベルなし）／◆ お金パネル（Lv 3 / 5）。形の記号と文字で（色だけに頼らない） */
+function catLine(s: P1State, k: Skill, tut = false): HTMLElement {
+  if (isResearch(k)) {
+    const row = h('div', 'isl-tree-cat is-research');
+    row.append(h('i', 'isl-tree-catmark'), h('span', '', t('研究パネル（レベルなし）', 'Research panel (no levels)')));
+    return row;
+  }
+  const lv = lvOf(s, k.id);
+  const mx = maxLv(k);
+  const row = h('div', `isl-tree-cat is-money ${lv >= mx ? 'is-max' : ''}`);
+  // チュートリアル中はレベルの段を出さない（案内の画面を変えない）
+  const txt = tut ? t('お金パネル', 'Money panel') : lv >= mx ? t(`お金パネル（Lv ${lv} / ${mx}・最大）`, `Money panel (Lv ${lv} / ${mx}, max)`) : t(`お金パネル（Lv ${lv} / ${mx}）`, `Money panel (Lv ${lv} / ${mx})`);
+  row.append(h('i', 'isl-tree-catmark'), h('span', '', txt));
+  if (!tut && lv > 0) {
+    const dots = h('span', 'isl-tree-dots');
+    for (let i = 1; i <= mx; i++) dots.append(h('i', i <= lv ? 'is-on' : ''));
+    row.append(dots);
+  }
+  return row;
+}
+/** 開くボタンの言い方：研究パネル「研究する 40 RP」、お金パネル「開放する 4,000 G」 */
+const learnLabel = (k: Skill) => (isResearch(k) ? (k.train ? t(`研究して修行に出す ${rpCost(k)} RP`, `Research & train · ${rpCost(k)} RP`) : t(`研究する ${rpCost(k)} RP`, `Research · ${rpCost(k)} RP`)) : k.train ? t(`修行に出す ${money(k.cost)}`, `Start training · ${money(k.cost)}`) : t(`開放する ${money(k.cost)}`, `Unlock · ${money(k.cost)}`));
 /** 値段の札（研究パネル：RP・お金パネル：資金） */
 function costTag(k: Skill): HTMLElement {
-  return h('span', `isl-tree-cost ${isResearch(k) ? 'is-rp' : ''} ${k.big ? 'is-dust' : ''}`, priceOf(k));
+  return h('span', `isl-tree-cost ${isResearch(k) ? 'is-rp' : 'is-g'} ${k.big ? 'is-dust' : ''}`, priceOf(k));
 }
 /** 技の修行の説明（取ったあと、職人が修行して身につける） */
 const trainNote = (k: Skill) => t(`取ったあと、職人が修行して身につける（${k.train} 日。製造の適性が高いほど早い）。修行中の職人は作業台に立てない`, `After unlocking, a crafter trains to master it (${k.train} days, shorter with higher crafting aptitude). They can’t work a bench meanwhile`);
@@ -258,7 +281,6 @@ function trainBox(s: P1State, k: Skill): HTMLElement | null {
 /** ブランド力・エンブレムの条件（足りなければ 🔒、足りていれば ✓） */
 const brandNeed = (s: P1State, k: Skill) => ((s.brand ?? 0) < (k.brand ?? 0) ? t(`🔒 ブランド力 ${k.brand} が要る（いま ${s.brand ?? 0}）`, `🔒 Needs brand ${k.brand} (now ${s.brand ?? 0})`) : t(`✓ ブランド力 ${k.brand}（いま ${s.brand ?? 0}）`, `✓ Brand ${k.brand} (now ${s.brand ?? 0})`));
 const emblemNeed = (s: P1State, k: Skill) => ((s.emblem ?? 0) < (k.emblem ?? 0) ? t(`🔒 エンブレム ${k.emblem} が要る（いま ${s.emblem ?? 0}）`, `🔒 Needs ${k.emblem} emblem(s) (now ${s.emblem ?? 0})`) : t(`✓ エンブレム ${k.emblem}（いま ${s.emblem ?? 0}）`, `✓ ${k.emblem} emblem(s) (now ${s.emblem ?? 0})`));
-const rpNeed = (s: P1State, k: Skill) => t(`研究ポイント ${rpCost(k)} で開放（いま ${s.rp ?? 0}）`, `Unlock with ${rpCost(k)} RP (now ${s.rp ?? 0})`);
 const ringNeed = (k: Skill) => t(`${TIER_NAME[skillTier(k)]} のセクタに進出すると開く`, `Opens when you expand into a ${TIER_NAME[skillTier(k)]} sector`);
 /** 「技を 3 つ」のような条件（anyOf）の札 */
 const anyNeed = (s: P1State, k: Skill) => {
@@ -273,16 +295,6 @@ function titleEl(s: P1State, k: Skill): HTMLElement {
   const b = h('b', 'isl-tree-title');
   b.append(h('small', 'isl-tree-brname', t(`（${branchName(k)}）`, `(${branchName(k)}) `)), document.createTextNode(shownName(s, k)));
   return b;
-}
-/** レベルの段：●●●○○ と「Lv 3 / 5」 */
-function lvDots(s: P1State, k: Skill): HTMLElement {
-  const lv = lvOf(s, k.id);
-  const mx = maxLv(k);
-  const row = h('div', `isl-tree-lvrow ${lv >= mx ? 'is-max' : ''}`);
-  const dots = h('span', 'isl-tree-dots');
-  for (let i = 1; i <= mx; i++) dots.append(h('i', i <= lv ? 'is-on' : ''));
-  row.append(dots, h('b', '', lv >= mx ? t(`Lv ${lv} / ${mx}（最大）`, `Lv ${lv} / ${mx} (max)`) : `Lv ${lv} / ${mx}`));
-  return row;
 }
 /** いまの効果と次のレベルの効果（「クラフトの日数 −30% → −35%」） */
 function effLines(s: P1State, k: Skill): HTMLElement | null {
@@ -303,7 +315,7 @@ function effLines(s: P1State, k: Skill): HTMLElement | null {
   for (const x of up) line(x, true);
   return box;
 }
-/** そのパネルは、いまレベルを上げられるか（資金・ダストが足りて、最大でない） */
+/** そのパネルは、いまレベルを上げられるか（資金が足りて、最大でない） */
 const canLevel = (s: P1State, k: Skill) => levelLock(s, k) === null;
 /** 次のレベルの値段の表示 */
 const nextPrice = (s: P1State, k: Skill) => money(nextLevelCost(s, k));
@@ -326,7 +338,6 @@ function infoLines(s: P1State, k: Skill, st: State): HTMLElement[] {
     return out;
   }
   if (tier !== 'C') out.push(h('span', 'isl-tag is-tier', tierArea(tier)));
-  if (isResearch(k) && st !== 'done') out.push(h('small', (s.rp ?? 0) >= rpCost(k) ? 'isl-good' : 'isl-warn', rpNeed(s, k)));
   if (st === 'soon') out.push(h('small', 'isl-warn', t('準備中（まだ取れない）', 'Coming soon (not available yet)')));
   if (k.requires?.length) {
     const need = k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join(t('　', '  '));
@@ -346,27 +357,27 @@ function skillCard(s: P1State, k: Skill, tut = false): HTMLElement {
   const st = stateOf(s, k);
   const L = LAYOUT[k.branch];
   const c = h('div', 'isl-tree-hcard');
-  c.style.setProperty('--br', k.big ? 'var(--isl-gold)' : L.color);
+  c.style.setProperty('--br', isResearch(k) ? L.color : 'var(--isl-gold)');
   const top = h('div', 'isl-row');
   top.append(iconOf(k.id, 36), titleEl(s, k));
   c.append(top);
+  if (st !== 'ring' && st !== 'sealed' && st !== 'soon') c.append(catLine(s, k, tut));
   if ((st !== 'ring' || isGoalTier(k)) && !k.sealed) c.append(h('p', '', k.note));
   c.append(...infoLines(s, k, st));
   if (st === 'ring' || st === 'sealed' || st === 'soon') return c;
   if (st === 'done' && !tut) {
-    c.append(lvDots(s, k));
     const eff = effLines(s, k);
     if (eff) c.append(eff);
     const lv = lvOf(s, k.id);
     if (lv < maxLv(k)) c.append(h('small', canLevel(s, k) ? 'isl-good' : 'isl-dim', canLevel(s, k) ? t(`Lv ${lv + 1} に上げる ${nextPrice(s, k)}・ダブルクリック`, `Lv ${lv + 1} for ${nextPrice(s, k)} · double-click`) : t(`Lv ${lv + 1} に上げる ${nextPrice(s, k)}（足りない）`, `Lv ${lv + 1} for ${nextPrice(s, k)} (short)`)));
     return c;
   }
-  const price = priceOf(k);
+  const price = isResearch(k) ? `${rpCost(k)} RP` : priceOf(k);
   c.append(
     h(
       'small',
       st === 'open' ? 'isl-good' : st === 'poor' ? 'isl-warn' : 'isl-dim',
-      st === 'done' ? t('開放済み', 'Unlocked') : st === 'training' ? t('修行中', 'Training') : st === 'locked' ? t(`${price}（まだ取れない）`, `${price} (locked)`) : st === 'poor' ? t(`${price}（${shortOf(s, k)}）`, `${price} (${shortOf(s, k)})`) : t(`${price}・ダブルクリックで開放`, `${price} · double-click to unlock`),
+      st === 'done' ? (isResearch(k) ? t('研究済み', 'Researched') : t('開放済み', 'Unlocked')) : st === 'training' ? t('修行中', 'Training') : st === 'locked' ? t(`${price}（まだ取れない）`, `${price} (locked)`) : st === 'poor' ? t(`${price}（${shortOf(s, k)}）`, `${price} (${shortOf(s, k)})`) : t(`${learnLabel(k)}・ダブルクリック`, `${learnLabel(k)} · double-click`),
     ),
   );
   return c;
@@ -389,8 +400,9 @@ function currencyBar(s: P1State): HTMLElement {
     bar0.append(c);
   };
   item('is-money', t('資金', 'Funds'), money(s.money));
-  item('is-rp', t('研究', 'RP'), String(s.rp ?? 0));
-  item('is-brand', '★', String(s.brand ?? 0));
+  // スマホでは見出し（small）を隠すので、数字の側に「RP」「★」を付ける
+  item('is-rp', t('研究ポイント', 'Research'), `${s.rp ?? 0} RP`);
+  item('is-brand', t('ブランド力', 'Brand'), `★ ${s.brand ?? 0}`);
   item('is-emblem', t('エンブレム', 'Emblems'), String(s.emblem ?? 0), curImg('emblem'));
   return bar0;
 }
@@ -469,7 +481,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       chipEls.set(br.key, c);
       chips.append(c);
     }
-    // 通貨の帯の右：「上げられる：N」（いまの資金で取れる開放＋レベル上げ）。押すと、いちばん見込みの大きいものへカメラを寄せる
+    // 通貨の帯の右：「上げられる：N」（いまの RP と資金で取れる研究パネルの開放＋お金パネルの開放・レベル上げ）。押すと、いちばん見込みの大きいものへカメラを寄せる
     const nCan = sealed || only ? 0 : affordableSkills(s).length;
     if (nCan > 0) {
       const can = h('button', 'isl-tree-curitem is-can');
@@ -493,7 +505,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const mi = h('img');
       mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
       mi.alt = '';
-      stop.replaceChildren(mi, h('p', '', t('ちょっと待って！ いまは光っている「人材の募集」を開放しよう！', 'Wait! For now, let’s unlock the glowing Recruiting panel!')));
+      stop.replaceChildren(mi, h('p', '', t('ちょっと待って！ いまは光っている四角い「人材の募集」を研究しよう！', 'Wait! For now, research the glowing square Recruiting panel!')));
       stop.hidden = false;
       stop.classList.remove('is-shake');
       void stop.offsetWidth;
@@ -666,7 +678,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
           continue;
         }
         const from = k.requires?.length ? k.requires.map((r) => POS.get(r)!) : [hub];
-        for (const f of from) line(f, p, k.big ? 'var(--isl-gold)' : L.color, cls);
+        for (const f of from) line(f, p, L.color, cls);
       }
     }
     const root = h('button', `isl-tree-root ${sealed ? 'is-sealed' : ''} ${view.sel === HQ ? 'is-sel' : ''}`);
@@ -720,11 +732,13 @@ export function openSkills(ctx: Ctx, focus?: string) {
         const p = px(POS.get(k.id)!);
         const st = stateOf(s, k);
         const tier = skillTier(k);
-        const n = h('button', `isl-tree-node is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''} ${k.big ? 'is-dust' : ''} ${tier !== 'C' ? `is-tier-${tier}` : ''}`);
+        // 形：研究パネルは四角・お金パネルは菱形（閉じた外周の「?」は形を見せない）
+        const shape = isResearch(k) || (st === 'ring' && !isGoalTier(k)) || k.sealed ? 'is-research' : 'is-money';
+        const n = h('button', `isl-tree-node ${shape} is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''} ${k.big ? 'is-dust' : ''} ${tier !== 'C' ? `is-tier-${tier}` : ''}`);
         n.type = 'button';
         n.style.left = `${p.x}px`;
         n.style.top = `${p.y}px`;
-        n.style.setProperty('--br', k.big ? 'var(--isl-gold)' : L.color);
+        n.style.setProperty('--br', L.color);
         n.style.setProperty('--tc', TIERS[tier].color);
         setBurst(n, POS.get(k.id)!);
         if (fx && tier === fx.tier) {
@@ -805,18 +819,19 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const st = stateOf(s, sel);
       const L = LAYOUT[sel.branch];
       const top2 = h('div', 'isl-tree-dtop');
-      const ic = h('div', `isl-tree-dicon ${sel.big ? 'is-dust' : ''}`);
-      ic.style.setProperty('--br', sel.big ? 'var(--isl-gold)' : L.color);
+      const ic = h('div', `isl-tree-dicon ${isResearch(sel) ? 'is-research' : 'is-money'} ${sel.big ? 'is-dust' : ''}`);
+      ic.style.setProperty('--br', L.color);
       if (st === 'ring' && !isGoalTier(sel)) ic.append(h('span', 'isl-tree-q', '?'));
       else ic.append(iconOf(sel.id, 48));
       const txt = h('div');
       txt.append(titleEl(s, sel));
+      // 区分：研究パネル（レベルなし）／お金パネル（Lv 3 / 5）
+      if (st !== 'ring' && st !== 'sealed' && st !== 'soon') txt.append(catLine(s, sel, !!only));
       // 取ったパネルで数字の効果の行があるものは、説明の代わりに「いまの効果 → 次のレベル」を出す
       if ((st !== 'ring' || isGoalTier(sel)) && !sel.sealed && !(st === 'done' && !only && shownOf(sel).base.length)) txt.append(h('p', '', sel.note));
       txt.append(...infoLines(s, sel, st));
       // チュートリアル中はレベルの段を出さない（案内の画面を変えない）
       if (st === 'done' && !only) {
-        txt.append(lvDots(s, sel));
         const eff = effLines(s, sel);
         if (eff) txt.append(eff);
       }
@@ -826,7 +841,9 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const mx = maxLv(sel);
       const label =
         st === 'done'
-          ? only
+          ? isResearch(sel)
+            ? t('研究済み', 'Researched')
+            : only
             ? t('開放済み', 'Unlocked')
             : lv >= mx
             ? t('最大レベル', 'Max level')
@@ -839,20 +856,21 @@ export function openSkills(ctx: Ctx, focus?: string) {
                 ? t('準備中', 'Coming soon')
                 : st === 'locked'
                   ? t('まだ開放できない', 'Locked')
-                  : sel.train
-                    ? t(`修行に出す（${priceOf(sel)}）`, `Start training (${priceOf(sel)})`)
-                    : t(`開放する（${priceOf(sel)}）`, `Unlock (${priceOf(sel)})`);
+                  : st === 'poor' && isResearch(sel)
+                    ? shortOf(s, sel)
+                    : learnLabel(sel);
       const levelable = st === 'done' && lv < mx && !only;
       const b = btn(label, () => (st === 'done' ? tryLevel(sel) : tryLearn(sel)), st === 'open' || (levelable && canLevel(s, sel)) ? `is-on ${sel.big ? 'is-dust' : ''}` : '');
       // チュートリアル中のほかのパネルは、押せるがマインちゃんが止める
       b.disabled = levelable ? !canLevel(s, sel) : st !== 'open' && !(only && sel.id !== only && st !== 'done');
       if (levelable && !canLevel(s, sel)) top2.append(h('small', 'isl-warn', t(`あと ${money(nextLevelCost(s, sel) - s.money)} 足りない`, `${money(nextLevelCost(s, sel) - s.money)} short`)));
       if (levelable && canLevel(s, sel)) top2.append(h('small', 'isl-dim', t('取ったパネルをダブルタップしても上げられます', 'Double-tap an unlocked panel to level it up too')));
-      if (st === 'poor') top2.append(h('small', 'isl-warn', shortOf(s, sel)));
-      if (st === 'open') top2.append(h('small', 'isl-dim', t('パネルをダブルタップしても開放できます', 'Double-tap a panel to unlock it too')));
+      // 研究パネルの RP 不足はボタンに「あと N RP（発掘で貯まる）」と書く
+      if (st === 'poor' && !isResearch(sel)) top2.append(h('small', 'isl-warn', shortOf(s, sel)));
+      if (st === 'open') top2.append(h('small', 'isl-dim', isResearch(sel) ? t('パネルをダブルタップしても研究できます', 'Double-tap a panel to research it too') : t('パネルをダブルタップしても開放できます', 'Double-tap a panel to unlock it too')));
       detail.append(top2, b);
     } else if (sealed) detail.append(h('p', 'isl-dim', t('真ん中の本社を押して、開放しましょう。開放すると、事業ごとの強化の枝が広がります。', 'Tap HQ in the middle to unlock it. Upgrade branches for each business will spread out.')));
-    else detail.append(h('p', 'isl-dim', t('パネルを押すと、くわしい説明と「開放する」が出ます（ダブルタップでも開放）。外側の円は Uncommon 以上のエリア。研究パネルは研究ポイント（発掘で貯まる）、お金パネルは資金で開放します。', 'Tap a panel for details and Unlock (or double-tap it). The outer circles are Uncommon+ areas. Research panels cost RP (from digging); money panels cost funds.')));
+    else detail.append(h('p', 'isl-dim', t('四角は研究パネル（研究ポイントで開く・レベルなし）、菱形はお金パネル（資金で開く・Lv5 まで上げられる）。パネルを押すと説明が出ます（ダブルタップでも開く）。', 'Squares are research panels (RP, no levels); diamonds are money panels (funds, up to Lv5). Tap a panel for details (or double-tap to unlock).')));
     // ズーム
     const zoom = h('div', 'isl-tree-zoom');
     zoom.append(

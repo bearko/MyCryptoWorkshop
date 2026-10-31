@@ -583,7 +583,7 @@ function openSub(x: Sub) {
   if (x.needs === 'land' && !s.land) return toast(t('ランドのふちの関所を開くと使えます', 'Open the gate at the edge of the land first'));
   if (x.needs === 'hire' && !s.skills.includes('hire')) {
     sfx.play('error');
-    return toast(t('スキルツリーの「人材の募集」を開放すると使えます', 'Unlock Recruiting in the skill tree first'));
+    return toast(t('スキルツリーの「人材の募集」を研究すると使えます', 'Research Recruiting in the skill tree first'));
   }
   if (hireUnlocking) return;
   sub = x.key;
@@ -1618,7 +1618,8 @@ function tutTick() {
         save();
       }
       const rp = s.rp ?? 0;
-      pages.push({ text: t(`人材の募集は[[研究ポイント]]で開くパネルだよ。私の前の世界の研究ノートから、[[${rp} RP]] を持ってきたんだ！`, `Recruiting is unlocked with [[research points]]. I brought [[${rp} RP]] from my research notes from my old world!`), show: 'gift', gift: { icon: '📜', title: `${rp} RP`, note: t('マインちゃんの研究ノート', 'Mine-chan’s research notes') } });
+      // 最後の 1 枚（「行ってみよう！」＝次にすること）の前に入れる
+      pages.splice(Math.max(0, pages.length - 1), 0, { text: t(`人材の募集は[[研究ポイント]]で開くパネルだよ。私の前の世界の研究ノートから、[[${rp} RP]] を持ってきたんだ！`, `Recruiting is unlocked with [[research points]]. I brought [[${rp} RP]] from my research notes from my old world!`), show: 'gift', gift: { icon: '📜', title: `${rp} RP`, note: t('マインちゃんの研究ノート', 'Mine-chan’s research notes') } });
     }
     talk(pages, st.intro.ok, () => {
       const a = actOf(st, s);
@@ -2096,8 +2097,8 @@ function researchTip(): { text: string; action?: [string, () => void] } | null {
   const name = PRODUCT[rec].name;
   const tr = need?.kind === 'tech' ? trainingOf(s, need.skill) : null;
   if (tr) return { text: t(`${heroName(tr.hero)}が[[${SKILL[tr.id].name}]]を修行中だよ（あと ${tr.left} 日）。身につけたら「${name}」を作れるよ。それまでに素材とお店の準備をしよう！`, `${heroName(tr.hero)} is training in [[${SKILL[tr.id].name}]] (${tr.left} d left). Then you can make ${name}. Get materials and shops ready meanwhile!`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, tr.id)] };
-  if (need?.kind === 'tech') return { text: t(`「${name}」が売れそう。まずは[[${SKILL[need.skill].name}]]を開放しよう（スキルツリーの技の枝）。`, `${name} looks promising. First unlock [[${SKILL[need.skill].name}]] (Crafts branch of the skill tree).`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
-  if (need?.kind === 'route') return { text: t(`「${name}」には[[${MATS[need.mat].name}]]が要るよ。スキルツリーで[[${SKILL[need.skill].name}]]を開放しよう。`, `${name} needs [[${MATS[need.mat].name}]]. Unlock the [[${SKILL[need.skill].name}]] in the skill tree.`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
+  if (need?.kind === 'tech') return { text: t(`「${name}」が売れそう。まずは[[${SKILL[need.skill].name}]]を研究しよう（スキルツリーの技の枝）。`, `${name} looks promising. First research [[${SKILL[need.skill].name}]] (Crafts branch of the skill tree).`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
+  if (need?.kind === 'route') return { text: t(`「${name}」には[[${MATS[need.mat].name}]]が要るよ。スキルツリーで[[${SKILL[need.skill].name}]]を研究しよう。`, `${name} needs [[${MATS[need.mat].name}]]. Research [[${SKILL[need.skill].name}]] in the skill tree.`), action: [t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx, need.skill)] };
   if (need?.kind === 'dev' && s.dev.length && !s.lab) return { text: t(`「${name}」を[[商品開発]]でアンコモンにしよう（営業企画 → 商品開発）。`, `Develop ${name} into an Uncommon in [[Product development]] (Planning → Products).`), action: [t('商品開発を開く', 'Open products'), () => openDev(ctx)] };
   return null;
 }

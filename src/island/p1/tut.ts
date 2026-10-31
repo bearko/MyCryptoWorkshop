@@ -275,36 +275,36 @@ export const TUT: TutStep[] = [
   },
   {
     id: 'recruit',
-    goal: (_s) => t('スキルツリーで「人材の募集」を開放する', 'Unlock Recruiting in the skill tree'),
-    praise: t('人材の募集を開放できた！', 'Recruiting is unlocked!'),
+    goal: (_s) => t('スキルツリーで「人材の募集」を研究する（30 RP）', 'Research Recruiting in the skill tree (30 RP)'),
+    praise: t('人材の募集を研究できた！', 'Recruiting is researched!'),
     intro: {
       pages: [
         { text: t('ダッシュボードの [[① 調達]]を見て。調達係がいないから、いまは素材を手で買うしかないんだ。', 'Look at [[① Buy]] on the dashboard. With no buyer, you can only buy materials by hand.') },
         { text: t('素材を買い付けてくれるヒーローを雇いたいね。でも、ヒーローを雇うには[[人材の募集]]が要るんだ。', 'Let’s hire a hero to buy materials. But hiring needs [[Recruiting]] first.') },
-        { text: t('[[人材の募集]]は、[[スキルツリー]]で開放できるよ。行ってみよう！', 'You unlock [[Recruiting]] in the [[skill tree]]. Let’s go!') },
+        { text: t('[[スキルツリー]]の[[四角いパネル]]が、研究ポイントで開く研究パネルだよ。[[人材の募集]]を研究しに行こう！', 'In the [[skill tree]], [[square panels]] are research panels you open with RP. Let’s go research [[Recruiting]]!') },
       ],
       ok: t('スキルツリーへ', 'To the skill tree'),
     },
     rpTalk: (s) => Math.max(0, rpCost(SKILL.hire) - (s.rp ?? 0)),
     say: (s) =>
       has(s, 'hire')
-        ? t('開放できた！ スキルツリーの ✕ で、元の画面に戻ろう。', 'Unlocked! Close the skill tree with ✕.')
+        ? t('研究できた！ スキルツリーの ✕ で、元の画面に戻ろう。', 'Researched! Close the skill tree with ✕.')
         : hqOpen(s)
-          ? t('光っている[[人材の募集]]をダブルタップして開放しよう！', 'Double-tap the glowing [[Recruiting]] panel to unlock it!')
+          ? t('光っている四角い[[人材の募集]]を押して、「研究する 30 RP」で開こう！', 'Tap the glowing square [[Recruiting]] panel and press Research 30 RP!')
           : t('真ん中の「スキルツリー」を開いて、まずは[[本社]]を開放しよう。', 'Open the Skill tree and unlock [[HQ]] first.'),
     act: [t('スキルツリーを開く', 'Open skills'), 'skills'],
     hl: 'skill',
     checks: [
       [t('スキルツリーを開く', 'Open the skill tree'), (s, seen) => seen.has('skills') || hqOpen(s)],
       [t('真ん中の本社を開放する', 'Unlock HQ in the middle'), (s) => hqOpen(s)],
-      [t('人材の募集を開放する', 'Unlock Recruiting'), (s) => has(s, 'hire')],
+      [t('人材の募集を研究する（30 RP）', 'Research Recruiting (30 RP)'), (s) => has(s, 'hire')],
     ],
     tips: {
       skills: (s) =>
         has(s, 'hire')
-          ? t('開放できた！ 右上の [[✕]] で、元の画面に戻ろう！', 'Unlocked! Use [[✕]] at the top right to go back!')
+          ? t('研究できた！ 右上の [[✕]] で、元の画面に戻ろう！', 'Researched! Use [[✕]] at the top right to go back!')
           : hqOpen(s)
-            ? t('枝は[[事業ごと]]（① 調達〜④ 販売・人材・経営）に分かれているよ。光っている[[人材の募集]]をダブルタップして開放しよう！', 'Branches are split by [[business]]: Buy, Craft, Haul, Sell, People, Operations. For now, double-tap the glowing [[Recruiting]] panel!')
+            ? t('四角は[[研究ポイント]]、菱形は[[資金]]で開くパネルだよ。光っている四角い[[人材の募集]]を押して、「研究する 30 RP」で開こう！', 'Squares open with [[RP]], diamonds with [[funds]]. Tap the glowing square [[Recruiting]] panel and press Research 30 RP!')
             : t('真ん中の[[本社]]をタップして、「本社を開放する」を押そう！', 'Tap [[HQ]] in the middle and press Unlock HQ!'),
     },
     done: (s, seen) => has(s, 'hire') && hqOpen(s) && seen.has('skills'),
@@ -318,7 +318,7 @@ export const TUT: TutStep[] = [
         ? t('雇えた！ 「人事」→「ヒーローの配置」で、[[① 調達]]の四角に置こう。', 'Hired! Put them in the [[① Buy]] square under HR → Assign heroes.')
         : s.flags.hireUnlocked
           ? t('「人事」→「人材登用」で、[[調達]]が得意なヒーローを雇おう。', 'Hire a hero good at [[buying]] under HR → Recruiting.')
-          : t('スキルを開放したよ！ 光っている「[[人事]]」タブを開いてみよう。', 'Skill unlocked! Open the glowing [[HR]] tab.'),
+          : t('人材の募集を研究したよ！ 光っている「[[人事]]」タブを開いてみよう。', 'Recruiting is researched! Open the glowing [[HR]] tab.'),
     act: (s) => (hired(s) ? [t('配置を開く', 'Open Staff'), 'staff'] : s.flags.hireUnlocked ? [t('人材登用を開く', 'Open recruiting'), 'hire'] : [t('人事を開く', 'Open HR'), 'hr']),
     hl: (s) => (hired(s) ? 'hr:staff' : s.flags.hireUnlocked ? 'hr:hire' : 'hr'),
     checks: [

@@ -9,7 +9,7 @@
  * docs/ISLAND_PHASE1.md「投資の効き目の監査」
  */
 import { writeFileSync } from 'node:fs';
-import { ADS, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, SKILL, aptitude, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
+import { ADS, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, SKILL, aptitude, isResearch, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
 import {
   LEARNABLE,
   allowedDirs,
@@ -265,7 +265,7 @@ type Setup = (s: P1State) => void;
 export type Check = 'stage' | 'yen' | 'profit' | 'probe';
 export interface Item {
   id: string;
-  group: '設備投資' | 'スキル' | '人材' | '建物' | '宣伝' | '商品';
+  group: '設備投資' | '研究パネル' | 'お金パネル' | '人材' | '建物' | '宣伝' | '商品';
   name: string;
   /** 効くはずの段（空：段の数字ではなく、利益・ブランド力・候補などに効く。out があれば対象外） */
   expect: Stage[];
@@ -636,7 +636,7 @@ export function items(): Item[] {
     const spec = specOf(k);
     out.push({
       id: k.id,
-      group: 'スキル',
+      group: isResearch(k) ? '研究パネル' : 'お金パネル',
       name: k.name,
       expect: spec?.expect ?? [],
       base: spec?.base,
@@ -660,7 +660,7 @@ export function items(): Item[] {
     if (!spec || spec.out) continue;
     out.push({
       id: `${id}@lv2`,
-      group: 'スキル',
+      group: 'お金パネル',
       name: `${k.name}（Lv1 → Lv2）`,
       expect: spec.expect,
       base: spec.base,
@@ -895,6 +895,12 @@ export function table(rows: Row[]): string {
   const out: string[] = [];
   const n = (v: Verdict) => rows.filter((r) => r.verdict === v).length;
   out.push(`判定：○ ${n('○')}・× ${n('×')}・対象外 ${n('対象外')}（全 ${rows.length}）`);
+  // スキルツリーの 2 区分：研究パネル（RP・レベルなし）とお金パネル（資金・Lv1〜5。レベル上げの行を含む）
+  for (const g0 of ['研究パネル', 'お金パネル'] as const) {
+    const rs = rows.filter((r) => r.item.group === g0);
+    const m = (v: Verdict) => rs.filter((r) => r.verdict === v).length;
+    out.push(`- ${g0}：○ ${m('○')}・× ${m('×')}・対象外 ${m('対象外')}（${rs.length} 行）`);
+  }
   out.push('');
   out.push(`| 投資 | 種類 | 効くはずの段 | 基準 | (a) 段の数字 前→後 | 詰まり 前→後 | (b) ${RUN_DAYS} 日 ×${PHASES.length}：作った・運んだ・売れた 前→後 | (b) 売上 前→後 | 判定 | 備考 |`);
   out.push('|---|---|---|---|---|---|---|---|---|---|');
