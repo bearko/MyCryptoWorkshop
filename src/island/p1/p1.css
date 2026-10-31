@@ -6671,9 +6671,12 @@ button.isl-mis {
 .isl-tree.is-ringfx .isl-tree-node.is-ringpop {
   filter: none;
 }
-/* チュートリアル（マインちゃんの一言が出ているあいだ）は通貨の帯を出さない（チュートリアルの見た目を変えない） */
-.isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-cur {
+/* チュートリアル（マインちゃんの一言が出ているあいだ）は、通貨の帯は研究ポイントだけ（「人材の募集 30 RP」を、持っている 30 RP で開くことが分かるように） */
+.isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-cur > .isl-tree-curitem:not(.is-rp) {
   display: none;
+}
+.isl-tree-top .isl-tree-tip:not(:empty) ~ .isl-tree-cur > .isl-tree-curitem.is-rp {
+  box-shadow: 0 0 0 2px rgba(143, 230, 220, 0.35), 0 0 12px rgba(143, 230, 220, 0.45);
 }
 
 /* ================================================================ SCM「販売管理」（お店の一覧・その場で変える・一括） */
@@ -7069,4 +7072,193 @@ button.isl-mis {
     top: auto;
     bottom: calc(var(--foot-h, 60px) + 196px);
   }
+}
+
+/* ================================================================ スキルツリーの 2 区分：研究パネル（四角・縁は枝の色）／お金パネル（菱形・縁は金。絵と文字は傾けない） */
+.isl-tree-cost.is-rp {
+  color: #8fe6dc;
+  font-weight: 700;
+}
+.isl-tree-cost.is-g {
+  color: #ffd257;
+  font-weight: 700;
+}
+/* 大きめの研究パネル（以前の ✨）：四角のまま、縁を二重に（枝の色） */
+.isl-tree-node.is-research.is-dust {
+  border: 5px double var(--br);
+  background: linear-gradient(180deg, #4a4220, #262214);
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.3), 0 0 14px rgba(255, 210, 87, 0.3);
+}
+.isl-tree-lines line.is-dust {
+  stroke-dasharray: 6 5;
+}
+/* お金パネル：ボタンは透明にして、菱形は ::before（四角を 45° 回す）に描く */
+.isl-tree-node.is-money {
+  width: 116px;
+  height: 116px;
+  padding: 22px 14px 18px;
+  align-content: center;
+  gap: 0;
+  border-color: transparent !important;
+  background: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.isl-tree-node.is-money::before {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  z-index: -1;
+  transform: rotate(45deg);
+  border: 3px solid #ffd257;
+  border-radius: 9px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--br) 32%, #34497a), #1d2a44 75%);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+.isl-tree-node.is-money img,
+.isl-tree-node.is-money .px,
+.isl-tree-node.is-money .isl-tree-emoji {
+  width: 44px;
+  height: 34px;
+}
+.isl-tree-node.is-money .isl-tree-emoji {
+  font-size: 26px;
+}
+.isl-tree-node.is-money .isl-tree-name {
+  max-width: 78px;
+}
+/* 値段の札は下の角に */
+.isl-tree-node.is-money > .isl-tree-cost {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  padding: 0 7px;
+  border: 2px solid #ffd257;
+  border-radius: 999px;
+  background: #2a2210;
+  line-height: 16px;
+  white-space: nowrap;
+}
+/* ✓ は右上の辺、Lv の札は右の角の下、▲ は左の角の下（名前に重ならないように）、条件の札は左上の辺 */
+.isl-tree-node.is-money .isl-tree-mark {
+  top: 12px;
+  right: 12px;
+}
+.isl-tree-node.is-money .isl-tree-lv {
+  right: -8px;
+  bottom: 30px;
+}
+.isl-tree-node.is-money .isl-tree-up {
+  left: -4px;
+  bottom: 32px;
+}
+.isl-tree-node.is-money .isl-tree-tags {
+  top: 8px;
+  left: 6px;
+}
+.isl-tree-node.is-money.is-open::before {
+  animation: isl-tree-open-d 1.6s ease-in-out infinite alternate;
+}
+@keyframes isl-tree-open-d {
+  from {
+    box-shadow: 0 0 0 3px rgba(111, 208, 140, 0.4), 0 0 16px rgba(111, 208, 140, 0.45);
+  }
+  to {
+    box-shadow: 0 0 0 5px rgba(111, 208, 140, 0.15), 0 0 22px rgba(111, 208, 140, 0.6);
+  }
+}
+.isl-tree-node.is-money.is-done::before {
+  background: linear-gradient(135deg, #5a6d3e, #2b3b2a 75%);
+}
+.isl-tree-node.is-money.is-locked::before {
+  border-style: dashed;
+}
+.isl-tree-node.is-money.is-max::before {
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.55), 0 0 16px rgba(255, 210, 87, 0.5);
+}
+.isl-tree-node.is-money.is-sel::before {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+.isl-tree-node.is-money.is-hot::before {
+  box-shadow: 0 0 0 4px rgba(255, 214, 110, 0.9), 0 0 26px rgba(255, 214, 110, 0.85);
+}
+.isl-tree-node.is-money.is-goal::before {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--tc) 70%, transparent);
+  background: rgba(15, 22, 38, 0.55);
+  box-shadow: none;
+}
+.isl-tree-node.is-money.is-tier-U::before,
+.isl-tree-node.is-money.is-tier-R::before,
+.isl-tree-node.is-money.is-tier-E::before,
+.isl-tree-node.is-money.is-tier-L::before {
+  border-color: #ffd257;
+}
+/* 詳細カードの絵：お金パネルは菱形の枠 */
+.isl-tree-dicon.is-money {
+  position: relative;
+  border-color: transparent;
+  background: none;
+}
+.isl-tree-dicon.is-money::before {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  z-index: 0;
+  transform: rotate(45deg);
+  border: 3px solid #ffd257;
+  border-radius: 7px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--br) 32%, #34497a), #1d2a44 75%);
+}
+.isl-tree-dicon.is-money > * {
+  position: relative;
+  z-index: 1;
+}
+.isl-tree-dicon.is-money img,
+.isl-tree-dicon.is-money .px,
+.isl-tree-dicon.is-money .isl-tree-emoji {
+  width: 40px;
+  height: 34px;
+}
+.isl-tree-dicon.is-research.is-dust {
+  border: 5px double var(--br);
+}
+.isl-tree-hcard {
+  --catc: var(--br);
+}
+/* 区分の 1 行：■ 研究パネル（レベルなし）／◆ お金パネル（Lv 3 / 5）＋●●●○○ */
+.isl-tree-cat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 1px 0 2px;
+  font-size: 12px;
+  color: #dfe8ff;
+}
+.isl-tree-catmark {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #8fe6dc;
+  border-radius: 2px;
+  background: rgba(143, 230, 220, 0.25);
+}
+.isl-tree-cat.is-research span {
+  color: #8fe6dc;
+}
+.isl-tree-cat.is-money .isl-tree-catmark {
+  margin: 0 1px;
+  transform: rotate(45deg);
+  border-color: #ffd257;
+  background: rgba(255, 210, 87, 0.3);
+}
+.isl-tree-cat.is-money span {
+  color: #ffd257;
+}
+.isl-tree-cat .isl-tree-dots i {
+  width: 9px;
+  height: 9px;
 }

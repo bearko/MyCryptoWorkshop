@@ -110,9 +110,19 @@ export function moveUp(ctx: Ctx, s: P1State, w: StageIf): Up {
       };
     }
     case 'skill':
-      return { label: SKILL[m.id].name, sub: m.rp != null ? t(`${gain}・研究 ${m.rp} RP`, `${gain} · research ${m.rp} RP`) : t(`${gain}・スキル ${money(m.cost)}`, `${gain} · skill ${money(m.cost)}`), go: () => openSkills(ctx, m.id) };
+      // スキルツリーの 2 区分：研究パネルは「研究する 40 RP」、お金パネルは「開放する 4,000 G」（詳細カードのボタンと同じ言い方）
+      if (m.rp != null) {
+        const short = (s.rp ?? 0) < m.rp;
+        return {
+          label: SKILL[m.id].name,
+          sub: short ? t(`${gain}・あと ${m.rp - (s.rp ?? 0)} RP`, `${gain} · ${m.rp - (s.rp ?? 0)} RP short`) : t(`${gain}・研究する ${m.rp} RP`, `${gain} · research ${m.rp} RP`),
+          short,
+          go: () => openSkills(ctx, m.id),
+        };
+      }
+      return { label: SKILL[m.id].name, sub: t(`${gain}・開放する ${money(m.cost)}`, `${gain} · unlock ${money(m.cost)}`), short: s.money < m.cost, go: () => openSkills(ctx, m.id) };
     case 'level':
-      return { label: t(`${SKILL[m.id].name}を Lv${m.lv} に`, `${SKILL[m.id].name} to Lv${m.lv}`), sub: t(`${gain}・レベル上げ ${money(m.cost)}`, `${gain} · level up ${money(m.cost)}`), short: s.money < m.cost, go: () => openSkills(ctx, m.id) };
+      return { label: SKILL[m.id].name, sub: t(`${gain}・Lv${m.lv} に上げる ${money(m.cost)}`, `${gain} · level up to Lv${m.lv} ${money(m.cost)}`), short: s.money < m.cost, go: () => openSkills(ctx, m.id) };
     case 'person': {
       const who = m.hire ? t(`雇う：${heroName(m.hero)}（月給 ${money(m.cost)}）`, `Hire ${heroName(m.hero)} (${money(m.cost)}/mo)`) : heroName(m.hero);
       const label = m.replace != null ? t(`${TASK_NAME[m.task]}の得意な人に替える`, `A better ${TASK_NAME[m.task]} hand`) : PERSON_LABEL[w.stage as Exclude<Stage, 'sell'>];
