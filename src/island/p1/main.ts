@@ -101,6 +101,7 @@ import { openSkills } from './tree';
 import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
+import { closeDig, digOpen, digRect, openDig, openNotes, refreshDig } from './digui';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
@@ -379,7 +380,8 @@ function currencyNews() {
     toast(t(`🏅 エンブレムを獲得！（いま ${e}）`, `🏅 Emblem earned! (now ${e})`), 'mch/Image/Icons/emblem.webp');
     sfx.play('levelup');
   }
-  if (d > rpSeen) toast(t(`研究ポイント +${d - rpSeen}（いま ${d}）`, `Research points +${d - rpSeen} (now ${d})`));
+  // 発掘場を開いているあいだは、パネルの演出で見せる（トーストを重ねない）
+  if (d > rpSeen && !digOpen()) toast(t(`研究ポイント +${d - rpSeen}（いま ${d}）`, `Research points +${d - rpSeen} (now ${d})`));
   emblemSeen = e;
   rpSeen = d;
 }
@@ -444,6 +446,7 @@ const SUBS: Record<Exclude<Menu, 'skill'>, Sub[]> = {
     { key: 'side', name: t('他店でバイト', 'Part-time'), note: t('資金が足りないとき', 'When funds run low'), go: () => openSide(ctx) },
     { key: 'land', name: t('ランドマップ', 'Land map'), note: t('関所の先のセクタ', 'Sectors beyond the gate'), go: () => openLand(ctx), needs: 'land' },
     { key: 'books', name: t('決算書', 'Statements'), note: t('四半期の P/L・B/S', 'Quarterly P/L, B/S'), go: () => openBooks(ctx) },
+    { key: 'notes', name: t('研究ノート', 'Notebook'), note: t('出土品・石板', 'Finds and tablets'), go: () => openNotes(ctx) },
     { key: 'ma', name: 'M&A', note: t('買収・提携（準備中）', 'Deals (coming soon)'), go: () => openMA(ctx) },
   ],
   hr: [
@@ -1037,6 +1040,7 @@ popEl.hidden = true;
 popEl.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 function openPop(i: number, j: number) {
+  closeDig();
   pop = [i, j];
   popSector = null;
   menu = null;
@@ -1077,6 +1081,7 @@ function renderPop() {
     redraw: () => renderPop(),
     gate: () => payGate(),
     land: () => (closePop(), openLand(ctx)),
+    dig: () => openDigPanel(),
   });
   popTitle.textContent = title;
   popBody.replaceChildren(body);
@@ -1085,6 +1090,34 @@ function renderPop() {
   placePop();
   dirty = true;
 }
+/**
+ * 発掘場のパネルを開く（地図の工房の吹き出しから）。時間は止めない（憲章 1-2 の例外）。
+ * 工房がパネルに隠れないように、地図を寄せる（スマホ：上半分の真ん中、PC：パネルの左の真ん中）
+ */
+function openDigPanel() {
+  closePop();
+  closeSheet();
+  menu = null;
+  sub = null;
+  openDig(ctx, {
+    supply: () => {
+      closeDig();
+      goSub('scm', 'flow');
+    },
+    closed: () => renderAll(),
+  });
+  renderAll();
+  const ws = myWorkshop(s);
+  const r = digRect();
+  if (ws && r) {
+    const hudBottom = hud.getBoundingClientRect().bottom;
+    const rail = RAIL.matches;
+    const tx = rail ? r.left / 2 : W / 2;
+    const ty = rail ? H / 2 : (hudBottom + r.top) / 2 + 30 * cam.zoom;
+    tween = { x0: cam.x, y0: cam.y, x1: (ws.i - ws.j) * 100 - (tx - W / 2) / cam.zoom, y1: (ws.i + ws.j) * 55 - (ty - H / 2) / cam.zoom, t0: performance.now() };
+  }
+}
+
 /** 関所の通行料を払って開通する */
 function payGate() {
   const toll = gateToll(s);
@@ -2199,7 +2232,7 @@ function introPending(): boolean {
 }
 
 function renderAdvisor() {
-  advisor.style.display = placing || sheetOpen() || pop || !guideOn || introPending() ? 'none' : '';
+  advisor.style.display = placing || sheetOpen() || pop || !guideOn || introPending() || (digOpen() && !RAIL.matches) ? 'none' : '';
   const tip = tutorial();
   if (tip.text === hiddenTip) return;
   advisor.hidden = false;
@@ -2685,7 +2718,8 @@ function layout() {
   // 「次の月に進む」：スマホは下の帯とマインちゃんの吹き出しの上、PC は右の帯の左・下から 24px
   if (!nextBtn.hidden) {
     const advOn = !advisor.hidden && advisor.style.display !== 'none' && advisor.getBoundingClientRect().height > 0;
-    nextBtn.style.bottom = `${rail ? 24 : innerHeight - (advOn ? advisor.getBoundingClientRect().top : foot.getBoundingClientRect().top) + 8}px`;
+    const dr = digRect();
+    nextBtn.style.bottom = `${rail ? 24 : innerHeight - (dr ? dr.top : advOn ? advisor.getBoundingClientRect().top : foot.getBoundingClientRect().top) + 8}px`;
   }
   toasts.style.top = `${placing ? selBox.getBoundingClientRect().bottom + 8 : top}px`;
   selBox.style.top = `${hud.getBoundingClientRect().top}px`;
@@ -2693,6 +2727,9 @@ function layout() {
 }
 function renderAll() {
   dirty = true;
+  // 発掘場のパネルは、ほかの画面（シート・メニュー・建てる）を開いたら閉じる（時間を止める画面と重ねない）
+  if (digOpen() && (sheetOpen() || menu || placing || tour)) closeDig();
+  root.classList.toggle('is-dig', digOpen());
   tutTick();
   renderMissions();
   renderHud();
@@ -3064,6 +3101,7 @@ function advance(days: number) {
     }
   }
   refreshSheet();
+  refreshDig();
   if (pop && !(document.activeElement instanceof HTMLSelectElement && popEl.contains(document.activeElement))) renderPop();
   renderAll();
   ticking = false;
@@ -3090,6 +3128,7 @@ let quarterNew: number | null = null;
 
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;
+  closeDig();
   // 月末ポーズ：報告を閉じても、「次の月に進む」を押すまで時間は止まったまま（音は発表のドラムロールから）
   s.monthPause = true;
   save();
@@ -3233,4 +3272,8 @@ requestAnimationFrame(frame);
   world: () => worldOf(s)?.regions.map((r) => ({ id: r.id, tier: r.tier, kind: r.kind, dx: r.dx, dy: r.dy })) ?? [],
   badges: () => sectorBadges(s),
   minZoom: () => minZoom(),
+  /** 発掘場のパネル（撮影スクリプト用） */
+  dig: () => openDigPanel(),
+  digOpen: () => digOpen(),
+  speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),
 };

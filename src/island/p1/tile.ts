@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { digSite, picksCap, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
@@ -22,6 +22,8 @@ export interface TileHooks {
   gate: () => void;
   /** ランドマップを開く */
   land: () => void;
+  /** 工房の裏の発掘場を開く */
+  dig?: () => void;
 }
 
 const DESC: Record<string, string> = {
@@ -213,6 +215,11 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     const step = ctx.step?.();
     const guide = step === 'craft' && kind === 'workshop';
     acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), guide ? 'is-on is-guide' : 'is-on'));
+    // 工房の裏の発掘場（見習い期間のあと。発掘場のあるセクタだけ）
+    if (kind === 'workshop' && hooks.dig && s.dig && digSite(s) && step == null) {
+      const full = s.dig.picks >= picksCap(s);
+      acts.append(btn(t(`⛏ 発掘場（ツルハシ ${s.dig.picks} / ${picksCap(s)}）`, `⛏ Dig site (swings ${s.dig.picks} / ${picksCap(s)})`), () => hooks.dig?.(), `isl-pop-dig ${full ? 'is-full' : ''}`));
+    }
   }
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));
   mv.disabled = s.money < moveCost(b);
