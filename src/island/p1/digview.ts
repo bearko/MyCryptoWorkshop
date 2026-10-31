@@ -1,6 +1,6 @@
 /**
  * 発掘場と研究ノートの表示のための純粋な関数（DOM を持たない。tests/island-p1-digui.test.ts で確かめる）。
- * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「発掘場の画面」「研究ノート」。
+ * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「研究ノート」。
  */
 import { t } from '../../i18n';
 import { BLAST, DIG, DIG_AUTO, DIG_SITES, RESEARCH_NEED, TABLETS, type Tablet } from './data';
@@ -13,15 +13,16 @@ import {
   isDug,
   jamOf,
   myShops,
-  myWorkshop,
   peek,
-  picksCap,
   reachable,
   researchLeft,
   researchOf,
   speed,
   topicProgress,
+  siteProgress,
+  wasteName,
   type DigErr,
+  type DigGot,
   type DigHit,
   type DigItem,
   type P1State,
@@ -49,19 +50,19 @@ export function cellView(s: P1State, x: number, y: number): CellView {
   const L = digSite(s)!;
   const k = y * L.w + x;
   const cell = L.cells[k];
-  const left = s.dig!.hp[k];
+  const left = s.dig!.sites[L.site].hp[k];
   if (left <= 0) return { x, y, layer: cell.layer, state: 'dug', crack: 0, taps: 0, peek: null };
   const hurt = cell.hard - left;
   const crack: 0 | 1 | 2 = hurt <= 0 ? 0 : left / cell.hard > 0.5 ? 1 : 2;
   return { x, y, layer: cell.layer, state: reachable(s, x, y) ? 'open' : 'far', crack, taps: Math.ceil(left / digPower(s)), peek: peek(s, x, y) };
 }
 
-/** パネルの上の 1 行：ツルハシの回数・RP・いまの層・お題の進み・SCM の詰まり */
+/** パネルの上の 1 行：荒れ地の名前・掘った割合・RP・いまの層・お題の進み（SCM の詰まりは発掘作業のあいだは出さない） */
 export interface DigStatus {
-  picks: number;
-  cap: number;
-  /** 回数が上限（売れても増えない） */
-  full: boolean;
+  /** 荒れ地の名前（「北の荒れ地」） */
+  name: string;
+  /** 掘った割合（0〜100） */
+  pct: number;
   rp: number;
   layer: string;
   topics: [number, number];
@@ -71,11 +72,9 @@ export interface DigStatus {
 export function digStatus(s: P1State): DigStatus | null {
   const L = digSite(s);
   if (!L || !s.dig) return null;
-  const cap = picksCap(s);
   return {
-    picks: s.dig.picks,
-    cap,
-    full: s.dig.picks >= cap,
+    name: wasteName(L.sector, L.site),
+    pct: Math.round(siteProgress(s, L.site) * 100),
     rp: s.rp ?? 0,
     layer: DIG[L.tier].layers[digDepthLayer(s)].name,
     topics: topicProgress(s),
@@ -83,19 +82,36 @@ export function digStatus(s: P1State): DigStatus | null {
   };
 }
 
+/** 発掘作業の残り時間のバー：残りの秒（小数 1 桁）・残りの割合・残り 5 秒で赤く点滅（warn）・残り 3 秒で音（tick） */
+export function runBar(s: Pick<P1State, 'digRun'>): { sec: string; frac: number; warn: boolean; tick: boolean } | null {
+  const r = s.digRun;
+  if (!r) return null;
+  const sec = r.left / 1000;
+  return { sec: (Math.ceil(sec * 10) / 10).toFixed(1), frac: r.total > 0 ? r.left / r.total : 0, warn: sec <= 5, tick: sec <= 3 };
+}
+
+/** 発掘終了の札の行（今回の出土）：新発見・研究 Lv ↑・RP・素材・崩したマス */
+export function gotLines(g: DigGot): [string, string][] {
+  return [
+    [t('新発見', 'New finds'), `${g.found}`],
+    [t('研究 Lv ↑', 'Research Lv ↑'), `${g.lv}`],
+    [t('研究ポイント', 'RP'), `+${g.rp}`],
+    [t('素材', 'Materials'), `+${g.mat}`],
+    [t('崩したマス', 'Cells cleared'), `${g.cells}`],
+  ];
+}
+
 /** 打てない理由の文（画面に出す。選べないものには理由） */
 export function digErrText(e: DigErr): string {
   switch (e) {
-    case 'no-picks':
-      return t('ツルハシの回数が 0。お店で売れると増えるよ', 'No pick swings left. They refill as your shops sell');
+    case 'no-run':
+      return t('発掘作業は終わった。荒れ地をタップすると、もう一度掘れるよ', 'The dig is over. Tap a wasteland to dig again');
     case 'far':
       return t('まだ手が届かない。上か隣のマスを先に掘ろう', 'Out of reach. Dig the cell above or beside it first');
     case 'dug':
       return t('もう掘ったマスだよ', 'Already dug');
-    case 'no-workshop':
-      return t('このセクタに工房が無いので掘れない。先に工房を建てよう', 'No workshop in this sector. Build one first');
     case 'no-site':
-      return t('このセクタには発掘場が無い（Rare 以降は準備中）', 'No dig site in this sector (Rare and up: coming soon)');
+      return t('このセクタには荒れ地が無い（Rare 以降は準備中）', 'No wasteland in this sector (Rare and up: coming soon)');
     case 'no-blast':
       return t('発破の道具が無い（工房の設備投資で買える）', 'No blasting kit (buy it as a workshop investment)');
     case 'money':
@@ -105,11 +121,10 @@ export function digErrText(e: DigErr): string {
   }
 }
 
-/** パネル全体で掘れない理由（掘れるなら null）：発掘場が無い・工房が無い・回数が 0 */
+/** パネル全体で掘れない理由（掘れるなら null）：荒れ地が無い・発掘作業が終わった */
 export function digBlock(s: P1State): DigErr | null {
   if (!digSite(s) || !s.dig) return 'no-site';
-  if (!myWorkshop(s)) return 'no-workshop';
-  if (s.dig.picks < 1) return 'no-picks';
+  if (!s.digRun) return 'no-run';
   return null;
 }
 
@@ -148,7 +163,7 @@ export function focusRow(s: P1State): number {
   return deep;
 }
 
-/** 自動発掘の人（発掘の担当）と、1 日に打つ回数（適性の速さ × DIG_AUTO.perDay） */
+/** 発掘隊（発掘の担当。発掘作業のあいだだけ手伝う）と、1 日に打つ回数（適性の速さ × DIG_AUTO.perDay） */
 export function autoDiggers(s: P1State): { hero: number; perDay: number; resting: boolean }[] {
   if (!s.dig) return [];
   return s.staff.filter((x) => x.task === 'dig').map((x) => ({ hero: x.hero, perDay: Math.round(DIG_AUTO.perDay * speed(x, 'dig', s) * 10) / 10, resting: x.resting }));

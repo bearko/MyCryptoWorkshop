@@ -1,11 +1,11 @@
 /**
  * 発掘場の画面・研究ノートの表示用の純粋な関数（src/island/p1/digview.ts）。
- * マスの見え方（穴・押せる・届かない・ひび・あと何回）・上の 1 行・打てない理由・演出の大きさ・研究ノートのタブと行。
+ * マスの見え方（穴・押せる・届かない・ひび・あと何回）・上の 1 行・残り時間のバー・発掘終了の札・打てない理由・演出の大きさ・研究ノートのタブと行。
  */
 import { describe, expect, it } from 'vitest';
 import { DIG_SITES, RESEARCH_NEED, TABLETS } from '../src/island/p1/data';
-import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, stars } from '../src/island/p1/digview';
-import { allowedDirs, assign, build, dig, digLayout, newP1, type DigHit, type P1State } from '../src/island/p1/model';
+import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from '../src/island/p1/digview';
+import { allowedDirs, assign, build, dig, digLayout, endRun, newP1, runTick, startRun, type DigHit, type P1State } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
   for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
@@ -17,9 +17,12 @@ function site(sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   const b = build(s, 'workshop', ...lot(s, 'workshop'));
   if (typeof b === 'string') throw new Error(b);
   b.left = 0;
-  s.dig!.picks = 30;
+  // 北の荒れ地（0）で発掘作業を始めておく
+  s.dig!.sites[0].permit = true;
+  startRun(s, 0);
   return s;
 }
+const hp = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
 const hit = (o: Partial<DigHit>): DigHit => ({ x: 0, y: 0, broke: true, left: 0, item: null, rp: 0, ...o });
 
 describe('マスの見え方', () => {
@@ -27,8 +30,8 @@ describe('マスの見え方', () => {
     const s = site();
     expect(cellView(s, 0, 0).state).toBe('open');
     expect(cellView(s, 0, 1).state).toBe('far');
-    const L = digLayout('c1')!;
-    s.dig!.hp[0] = 1;
+    const L = digLayout('c1', 0)!;
+    hp(s)[0] = 1;
     dig(s, 0, 0);
     expect(cellView(s, 0, 0).state).toBe('dug');
     expect(cellView(s, 0, 0).taps).toBe(0);
@@ -37,23 +40,23 @@ describe('マスの見え方', () => {
   });
   it('ひび：打ちかけで 1、半分を切ったら 2。あと何回は 1 打の強さで割る', () => {
     const s = site();
-    const L = digLayout('c1')!;
+    const L = digLayout('c1', 0)!;
     expect(cellView(s, 0, 0).crack).toBe(0);
     // 硬さ 3 のマス（岩盤）まで穴を開けて、残りの硬さを変えて見る
     const k = L.cells.findIndex((c) => c.hard === 3);
     const x = k % L.w;
     const y = Math.floor(k / L.w);
-    for (let yy = 0; yy < y; yy++) s.dig!.hp[yy * L.w + x] = 0;
-    s.dig!.hp[k] = 2;
+    for (let yy = 0; yy < y; yy++) hp(s)[yy * L.w + x] = 0;
+    hp(s)[k] = 2;
     expect(cellView(s, x, y).crack).toBe(1);
     expect(cellView(s, x, y).taps).toBe(2);
-    s.dig!.hp[k] = 1;
+    hp(s)[k] = 1;
     expect(cellView(s, x, y).crack).toBe(2);
     expect(cellView(s, x, y).taps).toBe(1);
   });
   it('ランタンが無ければ中身は見えない。あれば手が届くマスと 1 段下が見える', () => {
     const s = site();
-    const L = digLayout('c1')!;
+    const L = digLayout('c1', 0)!;
     const k = L.cells.findIndex((c, i) => i >= 7 && i < 14 && c.item);
     expect(k).toBeGreaterThan(0);
     const x = k % L.w;
@@ -68,40 +71,62 @@ describe('マスの見え方', () => {
 });
 
 describe('上の 1 行と、打てない理由', () => {
-  it('回数・上限・RP・層・お題。お店が無ければ詰まりは出さない', () => {
+  it('荒れ地の名前・掘った割合・RP・層・お題。お店が無ければ詰まりは出さない', () => {
     const s = site();
     const st = digStatus(s)!;
-    expect(st.picks).toBe(30);
-    expect(st.cap).toBe(30);
-    expect(st.full).toBe(true);
+    expect(st.name).toBe('北の荒れ地');
+    expect(st.pct).toBe(0);
     expect(st.layer).toBe('表土');
     expect(st.topics).toEqual([0, 3]);
     expect(st.jam).toBeNull();
     expect(st.rp).toBe(s.rp);
+    hp(s)[0] = 0;
+    expect(digStatus(s)!.pct).toBe(1);
   });
-  it('回数 0・工房が無い・発掘場が無いは、パネル全体の理由。文は「お店で売れると増えるよ」', () => {
+  it('残り時間のバー：15.0 秒から。残り 5 秒で赤く（warn）、残り 3 秒で音（tick）。作業していなければ null', () => {
+    const s = site();
+    expect(runBar(s)).toEqual({ sec: '15.0', frac: 1, warn: false, tick: false });
+    runTick(s, 10500);
+    expect(runBar(s)).toMatchObject({ sec: '4.5', warn: true, tick: false });
+    runTick(s, 2000);
+    expect(runBar(s)).toMatchObject({ sec: '2.5', warn: true, tick: true });
+    endRun(s);
+    expect(runBar(s)).toBeNull();
+  });
+  it('発掘終了の札：新発見・研究 Lv ↑・RP・素材・崩したマス', () => {
+    expect(gotLines({ found: 2, lv: 1, rp: 38, mat: 6, cells: 21 })).toEqual([
+      ['新発見', '2'],
+      ['研究 Lv ↑', '1'],
+      ['研究ポイント', '+38'],
+      ['素材', '+6'],
+      ['崩したマス', '21'],
+    ]);
+  });
+  it('作業が終わった・荒れ地が無いは、パネル全体の理由（工房が無くても掘れる）', () => {
     const s = site();
     expect(digBlock(s)).toBeNull();
-    s.dig!.picks = 0;
-    expect(digBlock(s)).toBe('no-picks');
-    expect(digErrText('no-picks')).toContain('お店で売れると増える');
+    endRun(s);
+    expect(digBlock(s)).toBe('no-run');
+    expect(digErrText('no-run')).toContain('もう一度');
     const r = newP1(1, 'C', 'c1');
-    expect(digBlock(r)).toBe('no-workshop');
+    r.dig!.sites[0].permit = true;
+    startRun(r, 0);
+    expect(digBlock(r)).toBeNull();
     const x = site();
     x.dig = null;
     expect(digBlock(x)).toBe('no-site');
     expect(digStatus(x)).toBeNull();
-    for (const e of ['no-site', 'no-workshop', 'no-picks', 'dug', 'far', 'no-blast', 'money'] as const) expect(digErrText(e).length).toBeGreaterThan(0);
+    for (const e of ['no-site', 'no-run', 'dug', 'far', 'no-blast', 'money'] as const) expect(digErrText(e).length).toBeGreaterThan(0);
   });
   it('開いたときに見せる行は、いちばん深く崩れた行', () => {
     const s = site();
     expect(focusRow(s)).toBe(0);
-    s.dig!.hp[0] = 0;
-    s.dig!.hp[7] = 0;
-    s.dig!.hp[14] = 0;
+    hp(s)[0] = 0;
+    hp(s)[7] = 0;
+    hp(s)[14] = 0;
     expect(focusRow(s)).toBe(2);
   });
-  it('自動発掘の人：発掘の担当の顔と 1 日の回数', () => {
+  it('発掘隊：発掘の担当の顔と 1 日の回数', () => {
     const s = site();
     expect(autoDiggers(s)).toEqual([]);
     expect(assign(s, s.staff[0].hero, 'dig', null)).toBeNull();

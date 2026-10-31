@@ -52,6 +52,8 @@ export interface Anim {
   spot?: { i: number; j: number; r: number } | null;
   /** チュートリアル：建ててもらう場所の印 */
   mark?: { i: number; j: number; label: string } | null;
+  /** 発掘との出会い：光らせる荒れ地の番号（無ければ null） */
+  wasteGlow?: number | null;
 }
 
 export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, dayMs: 1200, walkers: [], crowd: [], buyer: null, coins: new Map(), plus: [] });

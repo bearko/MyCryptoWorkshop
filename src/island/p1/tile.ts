@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { digSite, picksCap, presentLock, topicProgress, topicsOf, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { permitFee, permitLock, presentLock, runLock, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
@@ -24,8 +24,12 @@ export interface TileHooks {
   gate: () => void;
   /** ランドマップを開く */
   land: () => void;
-  /** 工房の裏の発掘場を開く */
-  dig?: () => void;
+  /** 荒れ地 k で発掘作業（15 秒）を始める */
+  dig?: (k: number) => void;
+  /** 荒れ地 k の発掘許可を申請する */
+  permit?: (k: number) => void;
+  /** 研究ノートを開く */
+  notes?: () => void;
   /** 町の長に研究成果を発表する */
   present?: () => void;
 }
@@ -98,7 +102,7 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   const chief = chiefOf(s.dig!.sector)!;
   const who = h('div', 'isl-row isl-chief-who');
   who.append(heroIcon(chief, 64), h('b', '', t(`町の長 ${heroName(chief)}`, `Town head ${heroName(chief)}`)));
-  body.append(who, h('p', '', t('この町の長が住む家。町の地層から「お題」の出土品を全部掘り出したら、ここで研究成果を発表しよう。上のランクの調査依頼状がもらえる。', 'Home of the town head. Dig up every target in this town’s strata, then present your findings here for a higher-rank survey request.')));
+  body.append(who, h('p', '', t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。上のランクの調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here for a higher-rank survey request.')));
   const [a, n] = topicProgress(s);
   const row = h('div', 'isl-stock');
   for (const id of topicsOf(s.dig!.sector)) {
@@ -116,6 +120,53 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   body.append(acts);
   if (lock === 'not-yet') body.append(h('small', 'isl-warn', t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
   else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み（調査依頼状を受け取った）。', 'Already presented here (survey request received).')));
+  return body;
+}
+
+/**
+ * 荒れ地（未開拓エリア）の吹き出し：名前・許可の有無・掘った割合・お題の気配・ボタン
+ * （許可が無い：📜 発掘許可を申請する／許可がある：⛏ 発掘する（15 秒）・📖 研究ノート／掘りきった：復興は近日）。
+ * 発掘との出会いの前は「まだ発掘許可がない」だけ（チュートリアルの案内の邪魔をしない）
+ */
+function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): HTMLElement {
+  const st = s.dig!.sites[k];
+  const met = digMet(s);
+  const state = st.done ? t('掘りきった', 'Fully dug') : st.permit ? t('発掘許可あり', 'Permit granted') : t('発掘許可なし', 'No permit');
+  body.append(meta([[t('所有者', 'Owner'), t('Lime の国', 'Kingdom of Lime')], [t('状態', 'Status'), state]]));
+  body.append(h('p', '', t('Lime が復興を進めている荒れ地。国の発掘許可をもらって掘りきると、建物を建てられるようになる。栄えていた頃の Lime の遺物が眠っている。', 'A wasteland Lime is reviving. Dig it out with a national permit and it becomes buildable. Relics of Lime’s golden age lie beneath.')));
+  if (!met) {
+    body.append(h('p', 'isl-dim', t('まだ発掘許可がない。', 'No dig permit yet.')));
+    return body;
+  }
+  const grid = h('div', 'isl-pop-grid');
+  stat(grid, t('掘った割合', 'Dug'), `${Math.round(siteProgress(s, k) * 100)}%`);
+  const tp = siteTopic(s, k);
+  if (tp !== 'none') stat(grid, t('お題', 'Target'), tp === 'found' ? t('見つけ済み', 'Found') : t('？ 何かが眠っている気配', '? Something sleeps here'), tp === 'found' ? '' : 'isl-gold');
+  body.append(grid);
+  const acts = h('div', 'isl-row isl-pop-acts');
+  if (st.done) {
+    const b = btn(t('掘りきった（復興は近日）', 'Fully dug (revival coming soon)'), () => undefined);
+    b.disabled = true;
+    acts.append(b);
+  } else if (!st.permit) {
+    const fee = permitFee(s);
+    const lock = permitLock(s, k);
+    const b = btn(fee > 0 ? t(`📜 発掘許可を申請する（${money(fee)}）`, `📜 Apply for a dig permit (${money(fee)})`) : t('📜 発掘許可を申請する（無料）', '📜 Apply for a dig permit (free)'), () => hooks.permit?.(k), `isl-pop-permit ${lock ? '' : 'is-on'}`);
+    b.disabled = !!lock;
+    acts.append(b);
+    body.append(acts);
+    if (lock === 'money') body.append(h('small', 'isl-bad', t(`あと ${money(fee - s.money)}`, `${money(fee - s.money)} short`)));
+    else body.append(h('small', 'isl-dim', t('国の役所に申請する。一度もらえば、何度でも掘れる（セクタの 1 か所目は無料）。', 'Apply at the national office. Once granted, dig as often as you like (a sector’s first permit is free).')));
+    return body;
+  } else {
+    const meet = (s.flags.digMeet === 'tap' || (s.flags.digMeet === 'open' && !s.digRun)) && runLock(s, k) === null;
+    const go = btn(t('⛏ 発掘する（15 秒）', '⛏ Dig (15 s)'), () => hooks.dig?.(k), `isl-pop-dig is-on ${meet ? 'is-guide' : ''}`);
+    go.disabled = runLock(s, k) !== null;
+    acts.append(go);
+    if (hooks.notes) acts.append(btn(t('📖 研究ノート', '📖 Notebook'), () => hooks.notes?.()));
+    if (s.monthPause) body.append(h('small', 'isl-warn', t('発掘を始めると、次の月が始まるよ（作業のあいだは時間が流れる）。', 'Digging starts the next month (time flows while you dig).')));
+  }
+  body.append(acts);
   return body;
 }
 
@@ -146,6 +197,8 @@ function gate(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
 }
 
 function empty(s: P1State, i: number, j: number, body: HTMLElement, hooks: TileHooks) {
+  const wk = wasteAt(s, i, j);
+  if (wk >= 0 && s.dig) return { title: wasteName(s.dig.sector, wk), body: wastePop(s, wk, body, hooks) };
   const g = ground(s, i, j);
   if (g === 'road') {
     body.append(meta([[t('所有者', 'Owner'), t('エリアの自治体', 'Local government')]]), h('p', '', t('荷車やお客さんが通る道路。建物の入口は道路の方に向けます。', 'A road for carts and shoppers. Entrances must face a road.')));
@@ -246,12 +299,6 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     const step = ctx.step?.();
     const guide = step === 'craft' && kind === 'workshop';
     acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), guide ? 'is-on is-guide' : 'is-on'));
-    // 工房の裏の発掘場（2 か月目の途中の「発掘との出会い」のあと。発掘場のあるセクタだけ）。出会いの途中は金色に光らせて 👆
-    if (kind === 'workshop' && hooks.dig && s.dig && digSite(s) && step == null && digMet(s)) {
-      const full = s.dig.picks >= picksCap(s);
-      const meet = s.flags.digMeet === 'tap';
-      acts.append(btn(t(`⛏ 発掘場（ツルハシ ${s.dig.picks} / ${picksCap(s)}）`, `⛏ Dig site (swings ${s.dig.picks} / ${picksCap(s)})`), () => hooks.dig?.(), `isl-pop-dig ${full ? 'is-full' : ''} ${meet ? 'is-on is-guide' : ''}`));
-    }
   }
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));
   mv.disabled = s.money < moveCost(b);

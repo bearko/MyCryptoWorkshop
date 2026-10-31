@@ -1,13 +1,14 @@
 /**
- * 発掘との出会い・お題の発表・調査依頼状・助言の優先順・月次報告の「今月の出土品」（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）。
+ * 発掘との出会い（国の役所からの手紙）・お題の発表・調査依頼状・助言の優先順・月次報告の「今月の出土品」・発掘作業のまとめ報告
+ * （docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）。
  */
 import { describe, expect, it } from 'vitest';
 import { heroById } from '../src/game/catalog';
 import { DEF } from '../src/island/defs';
-import { DIG_REQUEST, DIG_SITES, DIG_THEME, MISSIONS, RP_GAIN, SECTOR_CHIEF, rewardText } from '../src/island/p1/data';
-import { DIG_TIP_ORDER, MEET_FOUND, MEET_IDLE_DAYS, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digReportLine, digReportText, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage } from '../src/island/p1/digmeet';
+import { DIG_BALANCE, DIG_REQUEST, DIG_SITES, DIG_THEME, MISSIONS, RP_GAIN, SECTOR_CHIEF, rewardText } from '../src/island/p1/data';
+import { DIG_IDLE_DAYS, DIG_TIP_ORDER, MEET_FOUND, MEET_IDLE_DAYS, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digReportLine, digReportText, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage } from '../src/island/p1/digmeet';
 import { LETTER_LOCK, letterLocked, moveTo } from '../src/island/p1/land';
-import { accept, allowedDirs, build, claim, dig, digLayout, missionMet, newP1, openGate, present, step, type DigHit, type P1State, type Report } from '../src/island/p1/model';
+import { accept, allowedDirs, build, claim, dig, digLayouts, endRun, missionMet, newP1, openGate, present, startRun, step, type DigHit, type P1State, type Report } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
   for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
@@ -25,9 +26,15 @@ function month2(seed = 1, sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   s.monthPause = false;
   return s;
 }
+/** 荒れ地 k の許可をもらって発掘作業を始める */
+function run(s: P1State, k: number) {
+  s.dig!.sites[k].permit = true;
+  if (s.digRun) endRun(s);
+  if (typeof startRun(s, k) === 'string') throw new Error('run');
+}
+const hp = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
 function breakCell(s: P1State, x: number, y: number): DigHit {
   for (let k = 0; k < 20; k++) {
-    s.dig!.picks = Math.max(1, s.dig!.picks);
     const r = dig(s, x, y);
     if (typeof r === 'string') throw new Error(`${x},${y}: ${r}`);
     if (r.broke) return r;
@@ -35,21 +42,23 @@ function breakCell(s: P1State, x: number, y: number): DigHit {
   throw new Error('not broken');
 }
 const digTo = (s: P1State, x: number, y: number) => {
-  for (let yy = 0; yy < y; yy++) if (s.dig!.hp[yy * 7 + x] > 0) breakCell(s, x, yy);
+  for (let yy = 0; yy < y; yy++) if (hp(s)[yy * 7 + x] > 0) breakCell(s, x, yy);
   return breakCell(s, x, y);
 };
-/** いまのセクタのお題を n 個（上の層から）掘る */
+/** いまのセクタのお題を n 個（上の層から）掘る（お題のある荒れ地で作業して、終える） */
 function topics(s: P1State, n = 99) {
-  const L = digLayout(s.dig!.sector)!;
-  let k0 = 0;
-  L.cells.forEach((c, k) => {
-    if (k0 >= n) return;
-    if (c.item?.kind === 'ext' && c.item.topic && s.dig!.hp[k] > 0) {
-      digTo(s, k % 7, Math.floor(k / 7));
-      k0++;
-    }
-  });
+  const sec = s.dig!.sector;
+  const want = DIG_SITES[sec].topics.slice(0, n);
+  for (const L of digLayouts(sec)) {
+    if (L.topic == null || !want.includes(L.topic) || s.dig!.topics.includes(L.topic)) continue;
+    run(s, L.site);
+    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && c.item.topic);
+    digTo(s, k % 7, Math.floor(k / 7));
+    endRun(s);
+  }
 }
+/** 報告（締め）を作る */
+const rep = (month: number, revenue: number, rank: number, extra: Partial<Report> = {}): Report => ({ month, revenue, bySeries: {}, costs: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 }, profit: 0, area: [], rank, news: [], ...extra });
 
 describe('発掘との出会い（2 か月目の途中、初めて手が空いたとき）', () => {
   it('チュートリアルのあと・最初の月の締めのあと・月末ポーズでない・操作がないまま 5 日で出会う', () => {
@@ -75,9 +84,11 @@ describe('発掘との出会い（2 か月目の途中、初めて手が空い�
     expect(digMet(s)).toBe(true);
   });
 
-  it('工房が無い（工事中）・発掘場の無いセクタでは出会わない。古いセーブ（チュートリアルの番号が無い）も 2 か月目を過ぎていれば出会う', () => {
+  it('荒れ地の無いセクタ・発掘作業のあいだは出会わない（工房は要らない）。古いセーブ（チュートリアルの番号が無い）も 2 か月目を過ぎていれば出会う', () => {
     const s = month2();
     s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop')!.left = 3;
+    expect(meetReady(s, 9)).toBe(true);
+    run(s, 0);
     expect(meetReady(s, 9)).toBe(false);
     const r = month2(1, 'r1' as string, 'U');
     r.dig = null;
@@ -87,18 +98,26 @@ describe('発掘との出会い（2 か月目の途中、初めて手が空い�
     expect(meetReady(old, 5)).toBe(true);
   });
 
-  it('セリフ 1〜3 と 4（1 枚 2 文まで・最後は次にすること）。途中の一言は「工房をタップ」→「スキルツリーの四角いパネル」', () => {
+  it('国の役所からの手紙（セリフ 1〜3）と 4（1 枚 2 文まで・最後は次にすること）。途中の一言は「荒れ地をタップ」→「マスを掘る」→「スキルツリーの四角いパネル」', () => {
     const lines = [...MEET_LINES(), MEET_FOUND()];
     expect(lines).toHaveLength(4);
     for (const l of lines) expect(l.replace(/[！？]/g, '。').split('。').filter((x) => x.trim()).length).toBeLessThanOrEqual(2);
+    expect(lines[0]).toContain('[[国の役所]]から手紙');
+    expect(lines[0]).toContain('[[復興]]');
+    expect(lines[1]).toContain('[[遺物]]');
+    expect(lines[2]).toContain('[[発掘許可]]');
     expect(lines[2]).toContain('掘ってみよう');
     expect(lines[3]).toContain('四角いパネル');
+    for (const l of lines) expect(l).not.toContain('ツルハシ');
     const s = month2();
     expect(meetTip(s)).toBeNull();
     s.flags.digMeet = 'tap';
-    expect(meetTip(s)).toContain('工房');
+    expect(meetTip(s)).toContain('荒れ地');
     s.flags.digMeet = 'open';
+    expect(meetTip(s)).toContain('荒れ地');
+    run(s, 0);
     expect(meetTip(s)).toContain('掘ってみよう');
+    endRun(s);
     s.flags.digMeet = 'skill';
     expect(meetTip(s)).toContain('スキル');
     s.flags.digMeet = 'done';
@@ -158,37 +177,59 @@ describe('町の長と研究成果の発表', () => {
     expect(presentPages(s)[2].text).not.toContain('調査依頼状');
   });
 
-  it('到着の案内のお題の 1 枚：「この町の地層には[[〇〇]]が眠っているはず。お題は 3 つ（Uncommon は 4 つ）」', () => {
+  it('到着の案内のお題の 1 枚：「この町の荒れ地には、栄えていた頃の[[〇〇]]が眠っているはず。お題は 3 つ（Uncommon は 4 つ）」', () => {
     expect(Object.keys(DIG_THEME).sort()).toEqual(Object.keys(DIG_SITES).sort());
-    expect(topicsPage('c2')).toContain(`[[${DIG_THEME.c2}]]が眠っているはず。お題は 3 つ`);
+    expect(topicsPage('c2')).toContain(`荒れ地には、栄えていた頃の[[${DIG_THEME.c2}]]が眠っているはず。お題は 3 つ`);
     expect(topicsPage('u1')).toContain('お題は 4 つ');
     expect(topicsPage('r1')).toBeNull();
   });
 });
 
 describe('マインちゃんの助言（発掘）の優先順', () => {
-  it('並びは 発表できる（high）→ ツルハシが上限（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
-    expect(DIG_TIP_ORDER).toEqual(['present', 'picks-full', 'topic-one', 'letter']);
+  it('並びは 発表できる（high）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
+    expect(DIG_TIP_ORDER).toEqual(['present', 'idle', 'permit', 'topic-one', 'letter']);
+    expect(DIG_IDLE_DAYS).toBe(10);
     const s = month2(5);
-    // 出会いの前・出会いの途中（工房をタップする段）は出さない
-    s.dig!.picks = 30;
+    s.money = 0;
+    // 出会いの前・出会いの途中（荒れ地をタップする段）は出さない
     expect(digTips(s)).toEqual([]);
     s.flags.digMeet = 'tap';
     expect(digTips(s)).toEqual([]);
     s.flags.digMeet = 'done';
-    expect(digTips(s).map((x) => [x.key, x.tier])).toEqual([['picks-full', 'mid']]);
+    // 許可のある荒れ地が無い・申請料は 1 か所目なので無料
+    expect(digTips(s).map((x) => [x.key, x.tier])).toEqual([['permit', 'mid']]);
+    s.dig!.sites[1].permit = true;
+    s.dig!.last = s.day;
+    // 許可がある・さっき掘った・2 か所目の申請料（2,000 G）が払えない → 何も出さない
+    expect(digTips(s)).toEqual([]);
+    s.money = DIG_BALANCE.permitFee.C;
+    const pm = digTips(s);
+    expect(pm.map((x) => x.key)).toEqual(['permit']);
+    expect(pm[0].text).toContain('2,000 G');
+    s.money = 0;
+    // 10 日掘っていない → 「15 秒だけ掘ってみよう」（その荒れ地を指す）
+    s.day += DIG_IDLE_DAYS;
+    const idle = digTips(s);
+    expect(idle.map((x) => [x.key, x.tier, x.site])).toEqual([['idle', 'mid', 1]]);
+    expect(idle[0].text).toContain('15 秒だけ掘ってみよう');
+    // 発掘作業のあいだは出さない
+    run(s, 1);
+    expect(digTips(s)).toEqual([]);
+    endRun(s);
+    s.dig!.last = s.day;
     topics(s, 2);
-    s.dig!.picks = 30;
     const one = digTips(s);
-    expect(one.map((x) => x.key)).toEqual(['picks-full', 'topic-one']);
-    expect(one[1].text).toContain('あと 1 つ');
-    expect(one[1].text).toContain('岩盤');
+    expect(one.map((x) => x.key)).toEqual(['topic-one']);
+    expect(one[0].text).toContain('あと 1 つ');
+    expect(one[0].text).toContain('岩盤');
+    expect(one[0].text).toContain('の荒れ地');
     topics(s);
-    s.dig!.picks = 30;
-    openGate(s);
-    expect(digTips(s).map((x) => [x.key, x.tier])).toEqual([['present', 'high'], ['picks-full', 'mid']]);
+    s.dig!.last = s.day;
+    s.money = 1e7;
+    expect(openGate(s)).toBe(true);
+    s.money = 0;
+    expect(digTips(s).map((x) => [x.key, x.tier])).toEqual([['present', 'high']]);
     present(s);
-    s.dig!.picks = 0;
     const low = digTips(s);
     expect(low.map((x) => [x.key, x.tier])).toEqual([['letter', 'low']]);
     expect(low[0].text).toContain('150,000 G');
@@ -204,7 +245,9 @@ describe('月次報告の「今月の出土品」', () => {
     s.reports = [];
     s.open = s.day;
     // 1 段目のマスをいくつか掘る（エクステが出れば新発見と RP）
+    run(s, 0);
     for (let x = 0; x < 7; x++) breakCell(s, x, 0);
+    endRun(s);
     const m = { ...s.dig!.month };
     let r: Report | undefined;
     for (let k = 0; k < 40 && !r; k++) r = step(s).report ?? undefined;
@@ -214,6 +257,37 @@ describe('月次報告の「今月の出土品」', () => {
     expect(digReportLine({})).toBeNull();
     expect(digReportText({ found: 2, lv: 3, rp: 45 })[0]).toBe('新発見 2・研究 Lv ↑ 3・RP +45');
     expect(digReportText({ found: 0, lv: 0, rp: 0 })[0]).toContain('なし');
+    expect(digReportText({ found: 0, lv: 0, rp: 0 })[0]).not.toContain('ツルハシ');
+  });
+});
+
+describe('発掘作業のまとめ報告（純粋な関数）', () => {
+  const got = { found: 2, lv: 1, rp: 45, mat: 6, cells: 30 };
+  it('題・期間の売上の合計・月ごとの売上・順位の変化・資金の増減・今回の出土・最新の月', () => {
+    const before = rep(2, 30000, 3);
+    const a = rep(3, 40000, 2, { money: { start: 50000, end: 62000 } });
+    const b = rep(4, 52000, 2, { money: { start: 62000, end: 81000 } });
+    const sum = digSummary({ reports: [before, a, b] }, [a, b], got);
+    expect(sum.title).toBe('発掘中の報告（1 年目・3 月〜4 月）');
+    expect(sum.total).toBe(92000);
+    expect(sum.months).toEqual([
+      { month: 3, label: '3 月', revenue: 40000 },
+      { month: 4, label: '4 月', revenue: 52000 },
+    ]);
+    expect([sum.rankFrom, sum.rankTo]).toEqual([3, 2]);
+    expect(sum.money).toEqual({ start: 50000, end: 81000 });
+    expect(sum.got).toEqual(got);
+    expect(sum.latest).toBe(b);
+    expect(sum.conquered).toBe(false);
+  });
+  it('1 か月だけ・年をまたぐ・最初の月（前の順位が無い）・制覇（2 か月続けて 1 位）', () => {
+    const one = rep(5, 1000, 1, { streak: 1 });
+    expect(digSummary({ reports: [one] }, [one], got)).toMatchObject({ title: '発掘中の報告（1 年目・5 月）', rankFrom: null, rankTo: 1, money: null, conquered: false });
+    const x = rep(12, 1, 2);
+    const y = rep(13, 2, 1, { streak: 2 });
+    const sum = digSummary({ reports: [rep(11, 0, 4), x, y] }, [x, y], got);
+    expect(sum.title).toBe('発掘中の報告（1 年目・12 月〜2 年目・1 月）');
+    expect(sum.conquered).toBe(true);
   });
 });
 

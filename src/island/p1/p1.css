@@ -7930,7 +7930,7 @@ button.isl-mis {
 }
 
 /* ================================================================ 発掘との出会い・町の長・研究成果の発表（digmeet.ts） */
-/* 工房の上の ⛏ の吹き出し（「カツン！」）。会話のあと、工房をタップするまで出したまま */
+/* 荒れ地の上の吹き出し（国の役所からの手紙 📜 → 会話のあとは 👆「タップ！」。荒れ地をタップして作業を始めるまで出したまま） */
 .isl-meet {
   position: absolute;
   left: 0;
@@ -8218,4 +8218,273 @@ button.isl-mis {
   .is-report.has-dig .isl-rp-stage {
     gap: 0;
   }
+}
+
+/* ================================================================ 発掘 v2 の 1 段目：荒れ地・発掘許可・15 秒の発掘・まとめ報告 */
+/* 「発掘を終える」（作業のあいだ。札のあとは ✕） */
+.isl-btn.isl-dig-end {
+  border-color: #6a1414;
+  background: #c8503c;
+  color: #fff;
+}
+.isl-btn.isl-dig-end[hidden] {
+  display: none;
+}
+/* 残り時間のバー（現実の秒。残り 5 秒で赤く点滅） */
+.isl-dig-timer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin: 0 8px 4px;
+  padding: 0 10px;
+  border: 2px solid #3a2c20;
+  border-radius: 999px;
+  background: #120e0b;
+  overflow: hidden;
+  font-size: 13px;
+}
+.isl-dig-timer[hidden] {
+  display: none;
+}
+.isl-dig-timer-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  background: linear-gradient(90deg, #3fae6a, #8fd85a);
+  transition: width 0.1s linear;
+}
+.isl-dig-timer-k,
+.isl-dig-timer-sec {
+  position: relative;
+  text-shadow: 0 1px 0 #000;
+}
+.isl-dig-timer-sec {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.isl-dig-timer.is-warn .isl-dig-timer-fill {
+  background: linear-gradient(90deg, #c83c3c, #ff7a5a);
+  animation: isl-dig-warn 0.5s steps(2) infinite;
+}
+.isl-dig-timer.is-warn {
+  border-color: #c83c3c;
+}
+@keyframes isl-dig-warn {
+  50% {
+    opacity: 0.45;
+  }
+}
+/* 発掘終了の札（パネルの中） */
+.isl-dig-endcard {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(10, 8, 6, 0.6);
+  animation: isl-dig-read 0.25s ease-out;
+}
+.isl-dig-endbox {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: min(320px, 100%);
+  padding: 14px 14px 12px;
+  border: 3px solid var(--isl-gold);
+  border-radius: 12px;
+  background: #2a2018;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+}
+.isl-dig-endtitle {
+  font-size: 20px;
+  color: var(--isl-gold);
+}
+.isl-dig-endgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 100%;
+}
+.isl-dig-endstat {
+  display: grid;
+  justify-items: center;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: #3a2c20;
+}
+.isl-dig-endstat small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-dig-endstat b {
+  font-size: 16px;
+}
+.isl-dig-endbox p {
+  margin: 0;
+  font-size: 13px;
+}
+.isl-dig-endacts {
+  justify-content: center;
+  min-height: 36px;
+}
+/* 発掘許可の判子（吹き出しの上でポン） */
+.isl-stamp {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  border: 5px solid #d8322c;
+  border-radius: 50%;
+  color: #d8322c;
+  background: rgba(255, 246, 230, 0.86);
+  font-weight: 900;
+  pointer-events: none;
+  transform: rotate(-14deg);
+  animation: isl-stamp 1.5s ease-out forwards;
+}
+.isl-stamp b {
+  font-size: 30px;
+  line-height: 1;
+}
+.isl-stamp small {
+  margin-top: -18px;
+  font-size: 11px;
+}
+@keyframes isl-stamp {
+  0% {
+    transform: rotate(-14deg) scale(2.4);
+    opacity: 0;
+  }
+  18% {
+    transform: rotate(-14deg) scale(0.92);
+    opacity: 1;
+  }
+  26% {
+    transform: rotate(-14deg) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-14deg) scale(1);
+    opacity: 0;
+  }
+}
+.isl-btn.isl-pop-permit.is-on {
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+}
+/* 荒れ地の上の 👆（発掘との出会い：タップしてもらう） */
+.isl-meet.is-tap .isl-meet-pick {
+  animation: isl-tree-tap 0.7s ease-in-out infinite alternate;
+}
+/* まとめ報告 1 枚（スマホ 390×844 でスクロールなし） */
+.isl-sheet-body.is-dsum {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.isl-ds-card {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.isl-ds-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+.isl-ds-total {
+  font-size: 30px;
+  line-height: 1.1;
+  color: var(--isl-gold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.isl-ds-total.is-hit {
+  animation: isl-rp-hit 0.4s ease-out;
+}
+.isl-ds-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 52px;
+}
+.isl-ds-bar {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  width: 30px;
+  height: 100%;
+}
+.isl-ds-bar i {
+  align-self: end;
+  width: 18px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(#ffd257, #c8902c);
+}
+.isl-ds-bar small {
+  color: var(--isl-dim);
+  font-size: 10px;
+}
+.isl-ds-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.isl-ds-chip {
+  display: grid;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+.isl-ds-chip small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-ds-rank.is-up {
+  color: var(--isl-good);
+}
+.isl-ds-rank.is-down {
+  color: var(--isl-bad);
+}
+.isl-ds-crown {
+  color: var(--isl-gold);
+  font-weight: 900;
+}
+.isl-ds-got {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.isl-ds-stat {
+  display: grid;
+  justify-items: center;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.isl-ds-stat small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-ds-hint {
+  margin: 0;
+  font-size: 13px;
+}
+.isl-ds-acts {
+  justify-content: flex-end;
 }

@@ -68,7 +68,17 @@ import {
   extName,
   present,
   topicsOf,
+  applyPermit,
+  endRun,
+  firstSite,
+  grantFirst,
+  holdReport,
+  runTick,
+  startRun,
+  wasteName,
+  wasteSpots,
   type DigHit,
+  type RunEnd,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -96,17 +106,18 @@ import {
   shopScene,
   shopSceneSale,
   open as openSheet,
+  setOpenGuard,
 } from './screens';
 import { openSupply } from './scm';
 import { openSales } from './sales';
 import { pickHooks } from './heroui';
-import { openMonthReport } from './report';
+import { openDigSummary, openMonthReport } from './report';
 import { openSkills } from './tree';
 import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
-import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig } from './digui';
-import { MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
+import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig, refreshTimer, showEndCard } from './digui';
+import { MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
@@ -335,7 +346,12 @@ const SPEEDS = [0, 1, 4];
 const speedBtns = SPEEDS.map((v) =>
   btn(v === 0 ? '⏸' : v === 1 ? '▶' : '⏩', () => {
     // 月末ポーズのあいだは ▶⏩ では進まない（「次の月に進む」で始める）
-    if (v > 0 && s.monthPause) {
+    // 発掘作業のあいだは止められない（15 秒は現実の時間。止めて掘り続けることはできない）
+    if (v === 0 && s.digRun) {
+      toast(t('発掘作業のあいだは、時間は止まらないよ', 'Time keeps running while you dig'));
+      return;
+    }
+    if (v > 0 && s.monthPause && !s.digRun) {
       toast(t('「次の月に進む」を押すと、次の月が始まるよ', 'Press “Next month” to start the next month'));
       return;
     }
@@ -548,6 +564,7 @@ function unlockHire() {
 
 /** 下の帯のタブ：押すと 1 つ目のサブタブの画面まで開く。もう一度押すと閉じる */
 function pickMenu(m: Menu) {
+  if (s.digRun) return busyDig();
   const ws = !!myWorkshop(s);
   if (menuLocked(m)) return lockedNote();
   // ほかのセクタに来たばかり（工房がまだ）でも、会社ぜんたいのスキルと人事は開ける
@@ -661,6 +678,7 @@ function renderFoot() {
 
 const ERR: Record<PlaceErr, string> = {
   ground: t('空き地にだけ建てられます', 'Build on empty lots only'),
+  waste: t('荒れ地は発掘許可をもらって掘りきると、建てられるようになる', 'Wastelands become buildable once you dig them out with a permit'),
   taken: t('ほかの建物があります', 'Something is already there'),
   road: t('道路に面した場所にだけ建てられます（入口は道路側）', 'Must face a road (entrance toward the road)'),
   money: t('資金が足りません', 'Not enough funds'),
@@ -887,6 +905,7 @@ function reasonOf(err: PlaceErr | 'spot' | null): string {
     return onRoad ? t('道路には置けません', 'Not on a road') : t('ここには置けません', 'Can’t build here');
   }
   if (err === 'taken') return t('建物があります', 'Already built on');
+  if (err === 'waste') return t('荒れ地は掘りきるまで建てられません', 'Not until the wasteland is dug out');
   if (err === 'road') return t('道路に面していません', 'Doesn’t face a road');
   if (err === 'money') return t('資金が足りません', 'Not enough funds');
   return ERR[err];
@@ -897,6 +916,8 @@ function tryPlace() {
   const err = placeErr();
   if (err) {
     sfx.play('error');
+    // 荒れ地：なぜ建てられないか、いつ建てられるかを一言で
+    if (err === 'waste') toast(ERR.waste);
     return;
   }
   const name = DEF[placing.id].name;
@@ -1046,6 +1067,8 @@ popEl.hidden = true;
 popEl.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 function openPop(i: number, j: number) {
+  // 発掘作業のあいだは、地図の吹き出しを出さない（発掘に集中）
+  if (s.digRun) return busyDig();
   closeDig();
   pop = [i, j];
   popSector = null;
@@ -1087,7 +1110,9 @@ function renderPop() {
     redraw: () => renderPop(),
     gate: () => payGate(),
     land: () => (closePop(), openLand(ctx)),
-    dig: () => openDigPanel(),
+    dig: (k) => startDig(k),
+    permit: (k) => askPermit(k),
+    notes: () => (closePop(), openNotes(ctx)),
     present: () => startPresent(),
   });
   popTitle.textContent = title;
@@ -1097,38 +1122,169 @@ function renderPop() {
   placePop();
   dirty = true;
 }
+// 発掘作業のあいだに開けるのは研究ノートだけ（時間は流れたまま）
+setOpenGuard((title) => {
+  if (!s.digRun || title === t('研究ノート', 'Research notebook')) return true;
+  busyDig();
+  return false;
+});
+/** 発掘作業のあいだに、ほかの操作をしようとした */
+function busyDig() {
+  sfx.play('error');
+  toast(t('発掘中はあとで（「発掘を終える」で町に戻る）', 'Not while digging (press “Stop digging” to return)'));
+}
+
+/** 荒れ地 k のまんなか（マスの座標） */
+function wasteMid(k: number): [number, number] | null {
+  const sp = wasteSpots(s.sector ?? 'c1')[k];
+  return sp ? [sp[0] + 0.5, sp[1] + 0.5] : null;
+}
+/** 荒れ地 k へカメラを寄せる */
+function focusWaste(k: number) {
+  const m = wasteMid(k);
+  if (!m) return;
+  tween = { x0: cam.x, y0: cam.y, x1: (m[0] - m[1]) * 100, y1: (m[0] + m[1]) * 55, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 0.75 : 1, dur: 800 };
+}
+/** 荒れ地 k の吹き出しを開く（助言のボタン） */
+function showWaste(k: number) {
+  const sp = wasteSpots(s.sector ?? 'c1')[k];
+  if (!sp) return;
+  closeSheet();
+  menu = null;
+  sub = null;
+  openPop(sp[0], sp[1]);
+  renderAll();
+}
+
+/** 発掘許可を申請する（荒れ地の吹き出し）：許可が下りたら判子がポンと押される */
+function askPermit(k: number) {
+  const r = applyPermit(s, k);
+  if (typeof r === 'string') {
+    sfx.play('error');
+    if (r === 'money') toast(t('申請料が足りません', 'Not enough funds for the fee'));
+    return;
+  }
+  save();
+  renderPop();
+  sfx.play('check');
+  const st = h('div', 'isl-stamp');
+  st.append(h('b', '', t('許可', 'OK')), h('small', '', t('Lime 国', 'Lime')));
+  popEl.append(st);
+  setTimeout(() => st.remove(), 1500);
+  setTimeout(() => sfx.play('win', 0.6), 380);
+  toast(t(`${wasteName(s.sector ?? 'c1', k)}の発掘許可が下りた！`, `Dig permit granted for the ${wasteName(s.sector ?? 'c1', k)}!`));
+  renderAll();
+}
+
 /**
- * 発掘場のパネルを開く（地図の工房の吹き出しから）。時間は止めない（憲章 1-2 の例外）。
- * 工房がパネルに隠れないように、地図を寄せる（スマホ：上半分の真ん中、PC：パネルの左の真ん中）
+ * 発掘作業を始める（荒れ地の吹き出しの「⛏ 発掘する（15 秒）」）。時間は止めない（止まっていたら 1 倍で流す。月末ポーズからなら次の月へ）。
+ * 作業のあいだは月の締めがあっても月末ポーズと月次報告を出さず、作業のあとにまとめ報告（finishDig）
  */
-function openDigPanel() {
+function startDig(k: number) {
+  const wasPause = !!s.monthPause;
+  const r = startRun(s, k);
+  if (typeof r === 'string') {
+    sfx.play('error');
+    if (r === 'no-permit') toast(t('この荒れ地は、まだ発掘許可がありません', 'No dig permit for this wasteland yet'));
+    else if (r === 'done') toast(t('この荒れ地は掘りきった（復興は近日）', 'This wasteland is fully dug (revival coming soon)'));
+    return;
+  }
+  if (wasPause) toast(t('発掘を始めたので、次の月が始まったよ', 'Digging started the next month'));
+  if (speed === 0) speed = 1;
+  // 発掘との出会いの最初の 1 回は 1 倍で（はじめての 15 秒を落ち着いて）
+  if (s.flags.digMeet === 'tap') {
+    s.flags.digMeet = 'open';
+    speed = 1;
+  }
+  save();
   closePop();
   closeSheet();
   menu = null;
   sub = null;
-  // 発掘との出会い：工房の吹き出しの「⛏ 発掘場」を自分で押して開いた
-  if (s.flags.digMeet === 'tap') {
-    s.flags.digMeet = 'open';
-    save();
-  }
+  placing = null;
+  sfx.play('dig');
+  openDigPanel();
+}
+/** 発掘作業のパネルを開いて、荒れ地がパネルに隠れないように地図を寄せる（スマホ：上半分の真ん中、PC：パネルの左の真ん中） */
+function openDigPanel() {
   openDig(ctx, {
-    supply: () => {
-      closeDig();
-      goSub('scm', 'flow');
-    },
+    end: () => finishDig(),
     closed: () => renderAll(),
-    hit: (hits) => meetHit(hits),
+    hit: (hits) => digHit(hits),
+    // 発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる
+    noEnd: () => s.flags.digMeet === 'open',
   });
   renderAll();
-  const ws = myWorkshop(s);
+  const m = s.dig ? wasteMid(s.dig.cur) : null;
   const r = digRect();
-  if (ws && r) {
+  if (m && r) {
     const hudBottom = hud.getBoundingClientRect().bottom;
     const rail = RAIL.matches;
     const tx = rail ? r.left / 2 : W / 2;
     const ty = rail ? H / 2 : (hudBottom + r.top) / 2 + 30 * cam.zoom;
-    tween = { x0: cam.x, y0: cam.y, x1: (ws.i - ws.j) * 100 - (tx - W / 2) / cam.zoom, y1: (ws.i + ws.j) * 55 - (ty - H / 2) / cam.zoom, t0: performance.now() };
+    tween = { x0: cam.x, y0: cam.y, x1: (m[0] - m[1]) * 100 - (tx - W / 2) / cam.zoom, y1: (m[0] + m[1]) * 55 - (ty - H / 2) / cam.zoom, t0: performance.now() };
   }
+}
+/** 打った：荒れ地を掘りきったら、作業を終える */
+function digHit(hits: DigHit[]) {
+  if (!hits.some((x) => x.done)) return;
+  toast(t('この荒れ地は掘りきった！（復興は近日）', 'This wasteland is fully dug! (Revival coming soon)'));
+  sfx.play('win');
+  finishDig();
+}
+/** 発掘作業のあいだに締めた月のトースト（他社のニュース・会社の締め）。作業のあとにまとめて出す */
+let heldNews: (() => void)[] = [];
+function flushHeld() {
+  const xs = heldNews;
+  heldNews = [];
+  for (const f of xs) f();
+}
+/** 発掘作業を終える（時間切れ・「発掘を終える」）：発掘終了の札 → 月をまたいでいたらまとめ報告 → 月末ポーズを 1 回 */
+function finishDig() {
+  const end = endRun(s);
+  if (!end) return;
+  save();
+  // 研究ノートを開いていたら閉じて、パネルに戻して札を見せる
+  if (sheetOpen()) closeSheet();
+  if (!digOpen()) openDigPanel();
+  const meetFirst = s.flags.digMeet === 'open';
+  showEndCard(end, {
+    then: end.crossed ? () => showDigSummary(end) : undefined,
+    again: meetFirst ? undefined : () => startDig(end.site),
+    after: () => {
+      flushHeld();
+      if (meetFirst) meetAfterDig();
+    },
+  });
+  renderAll();
+}
+/** まとめ報告 1 枚（作業のあいだに締めた月）。閉じたら月末ポーズ（「次の月へ」を押すまで止まる。endRun で monthPause） */
+function showDigSummary(end: RunEnd) {
+  speed = 0;
+  closePop();
+  const sum = digSummary(s, end.held, end.got);
+  let detail = false;
+  const after = () => {
+    flushHeld();
+    afterReport();
+    if (s.flags.digMeet === 'open') meetAfterDig();
+    renderAll();
+  };
+  openDigSummary(
+    ctx,
+    sum,
+    {
+      detail: () => {
+        detail = true;
+        openMonthReport(ctx, sum.latest, reportHooks(), after);
+      },
+      openNotes: () => openNotes(ctx),
+      sfx: (k) => sfx.play(k),
+    },
+    () => {
+      if (!detail) after();
+    },
+  );
 }
 
 // ---------------------------------------------------------------- 発掘との出会い・町の長と研究成果の発表（digmeet.ts）
@@ -1138,25 +1294,30 @@ let idleDays = 0;
 addEventListener('pointerdown', () => (idleDays = 0), true);
 addEventListener('keydown', () => (idleDays = 0), true);
 addEventListener('wheel', () => (idleDays = 0), { capture: true, passive: true });
-/** 出会いの演出の途中（工房の上の ⛏ の吹き出しと「カツン」→ 会話） */
+/** 出会いの演出の途中（荒れ地の上の 📜 と手紙の音 → 会話） */
 let meetPing = false;
-/** 最初の出土のあとの会話（セリフ 4）を待っている */
-let meetFoundWait = false;
+/** 出会いで光らせる荒れ地（1 か所目） */
+const meetSite = () => (s.dig ? firstSite(s) : -1);
 
 /** 会話も画面も開いていない（出会い・発表の演出を割り込ませてよい） */
-const calm = () => !pop && !placing && !tour && !menu && !sheetOpen() && !digOpen() && !moving && !root.querySelector('.isl-modal, .isl-rp-reveal, .isl-picker');
+const calm = () => !s.digRun && !pop && !placing && !tour && !menu && !sheetOpen() && !digOpen() && !moving && !root.querySelector('.isl-modal, .isl-rp-reveal, .isl-picker');
 
-/** 2 か月目の途中、初めて手が空いたとき：工房の上に ⛏ と「カツン」→ 会話（セリフ 1〜3）→ 工房をタップしてもらう */
+/**
+ * 2 か月目の途中、初めて手が空いたとき：国の役所からの手紙（荒れ地の上に 📜 と音）→ 会話（セリフ 1〜3）→
+ * 1 か所目の荒れ地（発掘許可は手紙で済ませる）をタップしてもらう
+ */
 function checkMeet() {
   if (meetPing || !calm() || !meetReady(s, idleDays)) return;
   meetPing = true;
-  focusOn('workshop');
-  // スマホは右上のミッションと重ならないよう、工房を画面の下寄りに（上に ⛏ の吹き出しが見えるように）
-  if (tween && innerWidth < 600 && tween.z1) tween.y1 -= 170 / tween.z1;
-  sfx.play('katsun');
-  setTimeout(() => sfx.play('katsun', 0.8), 420);
+  const k = grantFirst(s);
+  save();
+  focusWaste(k);
+  // スマホは右上のミッションと重ならないよう、荒れ地を少し下寄りに（下のマインちゃんの一言には隠れない程度）
+  if (tween && innerWidth < 600 && tween.z1) tween.y1 -= 70 / tween.z1;
+  sfx.play('page');
+  setTimeout(() => sfx.play('check', 0.8), 420);
   renderAll();
-  // ⛏ の吹き出しを見てもらってから、会話（会話のあいだは時間が止まる）
+  // 手紙を見てもらってから、会話（会話のあいだは時間が止まる）
   setTimeout(() => {
     talk(
       MEET_LINES().map((text) => ({ text })),
@@ -1171,52 +1332,52 @@ function checkMeet() {
   }, 1600);
 }
 
-/** 発掘場で打った：出会いの途中なら、最初のエクステの出土のあとにセリフ 4（スキルツリーの四角いパネルへ） */
-function meetHit(hits: DigHit[]) {
-  if (s.flags.digMeet !== 'open' || meetFoundWait) return;
-  if (!hits.some((x) => x.broke && x.item?.kind === 'ext')) return;
-  meetFoundWait = true;
-  // 絵が研究ノートへ吸い込まれる（お題なら大きい演出が閉じる）のを待ってから
-  const wait = (n: number) => {
-    if (n > 0 && root.querySelector('.isl-dig-big, .isl-modal')) {
-      setTimeout(() => wait(n - 1), 300);
-      return;
-    }
-    talk([{ text: MEET_FOUND() }], t('わかった', 'Got it'), () => {
-      meetFoundWait = false;
-      s.flags.digMeet = 'skill';
-      save();
-      renderAll();
-    });
-  };
-  setTimeout(() => wait(40), 1500);
+/** 最初の発掘作業が終わった（発掘終了の札のあと）：セリフ 4（スキルツリーの四角いパネルへ） */
+function meetAfterDig() {
+  if (s.flags.digMeet !== 'open') return;
+  talk([{ text: MEET_FOUND() }], t('わかった', 'Got it'), () => {
+    s.flags.digMeet = 'skill';
+    save();
+    closeDig();
+    renderAll();
+  });
 }
 
-/** 地図の上の印：工房の上の ⛏（出会い）と、町の長の家の上の顔（発表できるときは吹き出し「研究成果を発表する」） */
+/** 地図の上の印：荒れ地の上の 📜（手紙）・👆（タップしてもらう）と、町の長の家の上の顔（発表できるときは吹き出し「研究成果を発表する」） */
 const meetEl = h('button', 'isl-meet');
 meetEl.type = 'button';
 meetEl.hidden = true;
-meetEl.append(h('span', 'isl-meet-pick', '⛏'), h('b', 'isl-meet-say', t('カツン！', 'Clink!')));
+const meetIcon = h('span', 'isl-meet-pick', '📜');
+const meetSay = h('b', 'isl-meet-say', t('国の役所から手紙！', 'A letter from the office!'));
+meetEl.append(meetIcon, meetSay);
 meetEl.addEventListener('click', (e) => {
   e.stopPropagation();
-  const ws = myWorkshop(s);
-  if (ws && s.flags.digMeet === 'tap') openPop(ws.i, ws.j);
+  const sp = wasteSpots(s.sector ?? 'c1')[meetSite()];
+  if (sp && (s.flags.digMeet === 'tap' || s.flags.digMeet === 'open') && !s.digRun) openPop(sp[0], sp[1]);
 });
 const chiefEl = h('div', 'isl-chief');
 chiefEl.hidden = true;
 let chiefKey = '';
 function updateMarks() {
   const busy = !!placing || !!tour || overviewOn() || tutOf(s) < TUT_DONE;
-  const ws = myWorkshop(s);
-  const showMeet = !busy && !!ws && (meetPing || (s.flags.digMeet === 'tap' && !pop)) && !sheetOpen();
+  const tapping = (s.flags.digMeet === 'tap' || s.flags.digMeet === 'open') && !s.digRun && !digOpen();
+  const m = s.dig ? wasteMid(meetSite()) : null;
+  const showMeet = !busy && !!m && (meetPing || (tapping && !pop)) && !sheetOpen();
   meetEl.hidden = !showMeet;
-  if (showMeet && ws) {
-    const p = toScreen(ws.i, ws.j);
-    meetEl.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 175 * cam.zoom)}px) translate(-50%, -100%)`;
+  if (showMeet && m) {
+    const ping = meetPing;
+    meetEl.classList.toggle('is-tap', !ping);
+    const ic = ping ? '📜' : '👆';
+    if (meetIcon.textContent !== ic) meetIcon.textContent = ic;
+    const say = ping ? t('国の役所から手紙！', 'A letter from the office!') : t('タップ！', 'Tap!');
+    if (meetSay.textContent !== say) meetSay.textContent = say;
+    const p = toScreen(m[0], m[1]);
+    meetEl.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 60 * cam.zoom)}px) translate(-50%, -100%)`;
   }
+  anim.wasteGlow = !busy && tapping ? meetSite() : null;
   const home = digMet(s) ? chiefHome(s) : null;
   const chief = s.dig ? chiefOf(s.dig.sector) : null;
-  const showChief = !busy && !!home && chief != null && !sheetOpen() && !(pop && home && pop[0] === home.i && pop[1] === home.j);
+  const showChief = !busy && !!home && chief != null && !sheetOpen() && !s.digRun && !(pop && home && pop[0] === home.i && pop[1] === home.j);
   chiefEl.hidden = !showChief;
   if (!showChief || !home || chief == null) return;
   const ready = canPresent(s);
@@ -1694,8 +1855,8 @@ const seenNow = () => (tutOpen ? new Set([...tutSeen, tutOpen]) : tutSeen);
 const pointEl = h('div', 'isl-point', '👈');
 pointEl.hidden = true;
 function updatePoint() {
-  // 発掘との出会い：会話のあと、地図の工房をタップしてもらう
-  const what = pointOf(tutStep()) ?? (s.flags.digMeet === 'tap' && !meetPing ? 'workshop' : null);
+  // （発掘との出会いの「荒れ地をタップ」は、荒れ地の上の 👆：updateMarks）
+  const what = pointOf(tutStep());
   const b = what === 'workshop' ? myWorkshop(s) : what === 'shop' ? myShops(s)[0] : undefined;
   const show = !!b && !placing && !pop && !sheetOpen() && !root.querySelector('.isl-modal');
   pointEl.hidden = !show;
@@ -2361,7 +2522,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   // 発掘との出会いの途中（工房をタップ → 発掘場／スキルツリーの四角いパネル）
   const meet = meetTip(s);
-  if (meet) return { text: meet, action: s.flags.digMeet === 'tap' ? [t('工房の場所へ', 'To the workshop'), () => tutGo('workshop')] : undefined };
+  if (meet) return { text: meet, action: (s.flags.digMeet === 'tap' || s.flags.digMeet === 'open') && !s.digRun ? [t('荒れ地の場所へ', 'To the wasteland'), () => focusWaste(meetSite())] : undefined };
   // 発掘の助言（digmeet.ts の digTips。tier ごとに、いまの並びの決まった所へ）
   const dig = digTips(s).filter((x) => !(digOpen() && x.key !== 'present'));
   const digAt = (tier: DigTip['tier']) => {
@@ -2444,7 +2605,8 @@ function tutorial(): { text: string; action?: [string, () => void] } {
 function digAct(x: DigTip): [string, () => void] {
   if (x.key === 'present') return [t('町の長の家へ', 'To the town head'), () => showChief()];
   if (x.key === 'letter') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
-  return [t('発掘場を開く', 'Open dig site'), () => openDigPanel()];
+  if (x.key === 'permit') return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? 0)];
+  return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? s.dig?.cur ?? 0)];
 }
 
 /** いまの段の会話をまだ出していない（クリアの演出のあいだ）：次の段の吹き出し・光る場所は、会話のあとで出す */
@@ -2719,7 +2881,7 @@ const overviewOn = () => !!s.land && s.n * 200 * cam.zoom < W * 0.6;
 const toScreen = (i: number, j: number) => ({ x: ((i - j) * 100 - cam.x) * cam.zoom + W / 2, y: ((i + j) * 55 - cam.y) * cam.zoom + H / 2 });
 
 /** 動かせないとき（ほかの画面・案内・置いている途中） */
-const worldBusy = () => !!placing || !!tour || sheetOpen() || !!root.querySelector('.isl-modal, .isl-talk, .isl-picker') || tutOf(s) < TUT_DONE;
+const worldBusy = () => !!s.digRun || !!placing || !!tour || sheetOpen() || !!root.querySelector('.isl-modal, .isl-talk, .isl-picker') || tutOf(s) < TUT_DONE;
 
 /** 移れなかったセクタ（中心が出るまで、もう一度は試さない。トーストが続かないように） */
 let blockedTo: string | null = null;
@@ -3052,6 +3214,8 @@ canvas.addEventListener('pointerup', (e) => {
   const d = drag;
   drag = null;
   if (!d || d.moved) return;
+  // 発掘作業のあいだは、地図のマスを押しても吹き出しを出さない
+  if (s.digRun) return busyDig();
   const [i, j] = local(e);
   if (placing) {
     // 置いている建物のマスをもう一度押すと建てる。ほかのマスなら、そこを真ん中にして建物を動かす
@@ -3317,7 +3481,12 @@ function advance(days: number) {
       sfx.play('levelup');
     }
     for (const id of r.missions) toast(t(`依頼「${MISSIONS.find((m) => m.id === id)?.title ?? ''}」を達成しました`, `Request done: ${MISSIONS.find((m) => m.id === id)?.title ?? ''}`));
-    if (r.company) companyNews(r.company);
+    if (r.company) {
+      const c = r.company;
+      // 発掘作業のあいだに締めた月のトーストは、作業のあとにまとめて
+      if (holdReport(s)) heldNews.push(() => companyNews(c));
+      else companyNews(c);
+    }
     // 注文が届いた：問屋の人が工房に入って在庫になり、卸問屋へ帰っていく
     for (const o of r.orders ?? []) {
       toast(t(`${heroName(o.courier)}が${MATS[o.m].name} ${o.qty} 個を届けてくれました`, `${heroName(o.courier)} delivered ${o.qty} ${MATS[o.m].name}`));
@@ -3327,21 +3496,18 @@ function advance(days: number) {
       if (back) anim.walkers.push({ hero: o.courier, path: back, t0: anim.clock + 300, dur: walkDays(s) * dayMs() });
     }
     if (r.report) {
-      // 他社の追随：自社が売っている商品を、他社が真似して売り始めた
-      for (const n of r.report.news) {
-        const [who, what, kind] = n.split('|');
-        if (kind === 'out') toast(plain(t(`${who}が[[${what}]]から撤退した（売れなかった）`, `${who} pulled out of [[${what}]] (it didn't sell)`)));
-        else toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
+      const rep = r.report;
+      // 発掘作業のあいだ：月の締めは行うが、月末ポーズと月次報告の画面・ニュースのトーストは作業のあとにまとめて（finishDig）
+      if (holdReport(s)) {
+        heldNews.push(() => reportNews(rep));
+        save();
+        continue;
       }
-      // 他社の反撃：1 位を取った月から、他社が宣伝を始める
-      // OJT：担当のある人の能力が上がった
-      if (r.report.ojt) toast(t(`OJT：${r.report.ojt} 人の能力が 1 上がりました`, `OJT: ${r.report.ojt} staff gained +1 in a stat`));
-      const ra = r.report.rally;
-      if (ra) toast(plain(t(`他社が反撃！ [[${ra.by}]]が宣伝を始めた（${ra.months} か月）`, `Rivals strike back! [[${ra.by}]] started advertising (${ra.months} months)`)));
+      reportNews(rep);
       save();
       // 流れの案内のあいだは、終わってから出す
-      if (tour) tourReport = r.report;
-      else showReport(r.report);
+      if (tour) tourReport = rep;
+      else showReport(rep);
       break;
     }
   }
@@ -3351,6 +3517,21 @@ function advance(days: number) {
   renderAll();
   ticking = false;
   checkMeet();
+}
+
+/** 月の締めのトースト：他社の追随・撤退、OJT、他社の反撃 */
+function reportNews(rep: NonNullable<ReturnType<typeof step>['report']>) {
+  // 他社の追随：自社が売っている商品を、他社が真似して売り始めた
+  for (const n of rep.news) {
+    const [who, what, kind] = n.split('|');
+    if (kind === 'out') toast(plain(t(`${who}が[[${what}]]から撤退した（売れなかった）`, `${who} pulled out of [[${what}]] (it didn't sell)`)));
+    else toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
+  }
+  // OJT：担当のある人の能力が上がった
+  if (rep.ojt) toast(t(`OJT：${rep.ojt} 人の能力が 1 上がりました`, `OJT: ${rep.ojt} staff gained +1 in a stat`));
+  // 他社の反撃：1 位を取った月から、他社が宣伝を始める
+  const ra = rep.rally;
+  if (ra) toast(plain(t(`他社が反撃！ [[${ra.by}]]が宣伝を始めた（${ra.months} か月）`, `Rivals strike back! [[${ra.by}]] started advertising (${ra.months} months)`)));
 }
 
 /** 会社の月の締め：マネージャーのセクタの結果・四半期の決算 */
@@ -3372,6 +3553,9 @@ function companyNews(c: NonNullable<ReturnType<typeof step>['company']>) {
 /** 見ていない四半期の決算（マインちゃんが勧める） */
 let quarterNew: number | null = null;
 
+/** 月次報告の画面からほかの画面へ */
+const reportHooks = () => ({ openSkills: (br?: string) => openSkills(ctx, br), openSupply: () => openSupply(ctx), openRanking: () => openRanking(ctx), openNotes: () => openNotes(ctx), sfx: (k: Parameters<typeof sfx.play>[0]) => sfx.play(k) });
+
 function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   speed = 0;
   closeDig();
@@ -3379,30 +3563,32 @@ function showReport(r: NonNullable<ReturnType<typeof step>['report']>) {
   s.monthPause = true;
   save();
   closePop();
-  openMonthReport(ctx, r, { openSkills: (br) => openSkills(ctx, br), openSupply: () => openSupply(ctx), openRanking: () => openRanking(ctx), openNotes: () => openNotes(ctx), sfx: (k) => sfx.play(k) }, () => {
-    if (tutOf(s) < TUT_DONE) {
-      // チュートリアル中は、ランキングの紹介を案内の段（tut.ts の ranking）で出す
-      s.flags.ranking = true;
-      save();
-      renderAll();
-    } else if (!s.flags.ranking) {
-      s.flags.ranking = true;
-      save();
-      modal(
-        t('企業ランキングを紹介します', 'Meet the company ranking'),
-        t('はじめての売上報告、おつかれさまでした！会社の月の売上は「企業ランキング」で、エリア別・ランド別・世界全体と比べられます（「マーケティング」→「企業ランキング」、上の順位を押しても開けます）。まずは、同じエリアに出店している同業他社を月の売上で抜いて、エリア 1 位を 2 か月続けて守る（制覇）のが目標です！', 'Well done on your first sales report! The company ranking compares monthly sales by area, by land and worldwide (Marketing → Ranking, or tap your rank at the top). Your goal: beat the rival retailers in your area and hold #1 for two months in a row!'),
-        [[t('ランキングを見る', 'Open ranking'), () => openRanking(ctx), 'is-on']],
-        true,
-      );
-    } else if (s.cleared && !s.flags.clearSeen) {
-      s.flags.clearSeen = true;
-      save();
-      modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`2 か月続けてエリアで売上 1 位、このセクタを制覇しました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `#1 in area sales two months running — you conquered this sector! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
-    } else {
-      speed = 1;
-      renderHud();
-    }
-  });
+  openMonthReport(ctx, r, reportHooks(), () => afterReport());
+}
+/** 月次報告（・発掘作業のまとめ報告）を閉じたあと：ランキングの紹介・制覇のお祝い。月末ポーズのまま */
+function afterReport() {
+  if (tutOf(s) < TUT_DONE) {
+    // チュートリアル中は、ランキングの紹介を案内の段（tut.ts の ranking）で出す
+    s.flags.ranking = true;
+    save();
+    renderAll();
+  } else if (!s.flags.ranking) {
+    s.flags.ranking = true;
+    save();
+    modal(
+      t('企業ランキングを紹介します', 'Meet the company ranking'),
+      t('はじめての売上報告、おつかれさまでした！会社の月の売上は「企業ランキング」で、エリア別・ランド別・世界全体と比べられます（「マーケティング」→「企業ランキング」、上の順位を押しても開けます）。まずは、同じエリアに出店している同業他社を月の売上で抜いて、エリア 1 位を 2 か月続けて守る（制覇）のが目標です！', 'Well done on your first sales report! The company ranking compares monthly sales by area, by land and worldwide (Marketing → Ranking, or tap your rank at the top). Your goal: beat the rival retailers in your area and hold #1 for two months in a row!'),
+      [[t('ランキングを見る', 'Open ranking'), () => openRanking(ctx), 'is-on']],
+      true,
+    );
+  } else if (s.cleared && !s.flags.clearSeen) {
+    s.flags.clearSeen = true;
+    save();
+    modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`2 か月続けてエリアで売上 1 位、このセクタを制覇しました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `#1 in area sales two months running — you conquered this sector! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
+  } else {
+    speed = 1;
+    renderHud();
+  }
 }
 
 /**
@@ -3416,7 +3602,8 @@ function tutHold(): boolean {
   if (tour) return false;
   return hlOf(st, s) !== 'speed';
 }
-const uiHold = () => !!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold() || !!s.monthPause || meetPing;
+/** 発掘作業のあいだは止めない（研究ノートを開いていても流れる。憲章 1-2 の例外） */
+const uiHold = () => !s.digRun && (!!placing || !!menu || !!pop || sheetOpen() || !!root.querySelector('.isl-modal') || tutHold() || !!s.monthPause || meetPing);
 let lastHeld = false;
 
 function frame(now: number) {
@@ -3429,6 +3616,12 @@ function frame(now: number) {
     statDate.classList.toggle('is-held', held);
   }
   renderNext();
+  // 発掘作業の残り時間（現実の秒。ゲームの速さに寄らない）
+  if (s.digRun) {
+    if (speed === 0) speed = 1;
+    if (runTick(s, dt)) finishDig();
+    else refreshTimer();
+  }
   if (!held) acc += dt * speed;
   if (!held && speed > 0) tickAnim(dt * speed);
   anim.frac = held || speed === 0 ? anim.frac : Math.min(1, acc / dayMs());
@@ -3519,9 +3712,12 @@ requestAnimationFrame(frame);
   world: () => worldOf(s)?.regions.map((r) => ({ id: r.id, tier: r.tier, kind: r.kind, dx: r.dx, dy: r.dy })) ?? [],
   badges: () => sectorBadges(s),
   minZoom: () => minZoom(),
-  /** 発掘場のパネル（撮影スクリプト用） */
-  dig: () => openDigPanel(),
+  /** 発掘作業（撮影スクリプト用）：荒れ地 k で始める・終える */
+  dig: (k?: number) => startDig(k ?? s.dig?.cur ?? 0),
+  digEnd: () => finishDig(),
   digOpen: () => digOpen(),
+  /** 荒れ地の左上のマス（撮影スクリプト用） */
+  wastes: () => wasteSpots(s.sector ?? 'c1'),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),
   /** 発掘との出会い（撮影スクリプト用）：操作がないまま進んだ日数 */
   idle: (v?: number) => (v != null ? (idleDays = v) : idleDays),
