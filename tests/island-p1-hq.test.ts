@@ -28,16 +28,17 @@ describe('スキルツリーの本社', () => {
 });
 
 describe('チュートリアル：人材の募集は自分で開放する', () => {
-  it('人材の募集はもらえない。段「recruit」は本社と人材の募集を開放し、ツリーを閉じたら進む。資金が足りなければ援助', async () => {
+  it('人材の募集はもらえない。段「recruit」は本社と人材の募集を開放し、ツリーを閉じたら進む。開始時の 30 RP で開く（足りない古いセーブだけ足す）', async () => {
     const { TUT } = await import('../src/island/p1/tut');
     const { learn } = await import('../src/island/p1/model');
     const st = TUT.find((x) => x.id === 'recruit')!;
     const s = newP1(4);
     expect(s.skills).not.toContain('hire');
-    s.money = 500;
-    expect(st.grant!(s)).toBe(3000);
-    s.money = 10000;
-    expect(st.grant!(s)).toBe(0);
+    expect(s.rp).toBe(30);
+    expect(st.rpTalk!(s)).toBe(0);
+    s.rp = 10;
+    expect(st.rpTalk!(s)).toBe(20);
+    s.rp = 30;
     expect(st.done(s, new Set(['skills']))).toBe(false);
     openHQ(s);
     expect(learn(s, 'hire')).toBeNull();

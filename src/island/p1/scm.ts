@@ -6,7 +6,7 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
-import { INVEST, MAT_KEYS, MATS, MARKET, PRODUCT, SKILL, SKILLS, TRANSPORT, skuPrice, type Mat, type Sku } from './data';
+import { INVEST, MAT_KEYS, MATS, MARKET, PRODUCT, SKILL, SKILLS, TRANSPORT, isResearch, rpCost, skuPrice, type Mat, type Sku } from './data';
 import { has, invest, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, learn, matDays, monthRevenue, myShops, myWorkshop, nextJam, poolCap, poolFree, poolUsed, sellInfo, speed, stageCaps, staffOf, storageCap, assign, whatIf, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type StageIf, type WhatIf } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
 import { after, mineSay, mineTip, open, openAds, openBuy, openData, openHire, openShop, openStaff, openWorkshop, SHELF_TIP, type Ctx } from './screens';
@@ -22,12 +22,12 @@ const STAGE: Record<Stage, { n: string; name: string; branch: string; what: stri
   sell: { n: '④', name: t('販売', 'Sell'), branch: 'shop', what: t('売れた', 'sold') },
 };
 
-/** いま資金で取れる（資金だけが足りないものも含む）スキルか。外周・エンブレム・ブランド力・✨ のパネルは除く */
+/** いま取れる（資金・研究ポイントだけが足りないものも含む）スキルか。外周・エンブレム・ブランド力・大きめの研究パネルは除く */
 const canNow = (s: P1State, id: string) => {
   const k = SKILL[id];
-  if (!k || k.dust) return false;
+  if (!k || k.big) return false;
   const e = skillLock(s, k);
-  return e === null || e === 'money';
+  return e === null || e === 'money' || e === 'rp';
 };
 /** まだ取れるスキル（先に要るものを取ってあるもの）を、その段の系統から 2 つ */
 function nextSkills(s: P1State, branch: string) {
@@ -110,7 +110,7 @@ export function moveUp(ctx: Ctx, s: P1State, w: StageIf): Up {
       };
     }
     case 'skill':
-      return { label: SKILL[m.id].name, sub: t(`${gain}・スキル ${money(m.cost)}`, `${gain} · skill ${money(m.cost)}`), go: () => openSkills(ctx, m.id) };
+      return { label: SKILL[m.id].name, sub: m.rp != null ? t(`${gain}・研究 ${m.rp} RP`, `${gain} · research ${m.rp} RP`) : t(`${gain}・スキル ${money(m.cost)}`, `${gain} · skill ${money(m.cost)}`), go: () => openSkills(ctx, m.id) };
     case 'level':
       return { label: t(`${SKILL[m.id].name}を Lv${m.lv} に`, `${SKILL[m.id].name} to Lv${m.lv}`), sub: t(`${gain}・レベル上げ ${money(m.cost)}`, `${gain} · level up ${money(m.cost)}`), short: s.money < m.cost, go: () => openSkills(ctx, m.id) };
     case 'person': {
@@ -676,11 +676,13 @@ export function openSupply(ctx: Ctx, opt: { breakdown?: boolean } = {}) {
       for (const sk of sks) {
         const b = h('button', 'isl-scm-skill');
         b.type = 'button';
-        b.append(h('b', '', sk.name), h('small', '', sk.note), h('span', 'isl-gold', money(sk.cost)));
-        b.disabled = s.money < sk.cost;
+        const research = isResearch(sk);
+        b.append(h('b', '', sk.name), h('small', '', sk.note), h('span', 'isl-gold', research ? t(`研 ${rpCost(sk)}`, `RP ${rpCost(sk)}`) : money(sk.cost)));
+        b.disabled = research ? (s.rp ?? 0) < rpCost(sk) : s.money < sk.cost;
         b.addEventListener('click', () => {
           const e = learn(s, sk.id);
           if (e === 'money') ctx.toast(t('資金が足りません', 'Not enough funds'));
+          else if (e === 'rp') ctx.toast(t('研究ポイントが足りません（発掘で貯まります）', 'Not enough RP (earned by digging)'));
           else if (!e) ctx.toast(t(`「${sk.name}」を習得しました`, `Learned: ${sk.name}`));
           after(ctx);
         });

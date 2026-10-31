@@ -5,7 +5,7 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, DUST_COST, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, levelDust, maxLv, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, isResearch, maxLv, rpCost, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
 import {
@@ -17,6 +17,9 @@ import {
   canBuild,
   claim,
   craftDays,
+  dig,
+  digNext,
+  present,
   batchOf,
   develop,
   gapOf,
@@ -153,7 +156,7 @@ const BRANCH_ORDER: Record<Stage, string[]> = {
   haul: ['loading', '@carts:1', 'shortcut', 'timetable', '@backroom:1', 'route_opt', '@truck:1', '@carts:2', 'hub', 'joint', 'crossdock', 'fleet'],
   sell: ['@shelves:1', 'host', '@staffroom:1', 'display', 'vmd', 'hours', 'shop2', 'golden', 'pop', '@shelves:2', 'set', 'point', 'shop3', 'b_sign', 'order', 'fair', 'concierge', 'b_premium'],
 };
-/** 詰まりの段 → その段の ✨（ゴールドダスト）のパネル。通常の方針は、ダストが 3 たまったら詰まりの段のものを取る */
+/** 詰まりの段 → その段の大きめの研究パネル（以前の ✨）。通常の方針は、RP がたまったら詰まりの段のものを取る */
 const DUST_OF: Record<Stage, string> = { buy: 'd_buy', craft: 'd_craft', haul: 'd_logi', sell: 'd_shop' };
 /** 100% のゴール：Common・Uncommon の外周までの取れるパネル（Rare 以降のセクタはまだ遊べないので外周が開かない） */
 export const fullSkills = () => LEARNABLE().filter((k) => ['C', 'U'].includes(skillTier(k)));
@@ -341,15 +344,15 @@ export function policy(s: P1State, c: Ctx): Action[] {
   }
   // ---- スキル（人材の募集はチュートリアルでも取る）
   const pending = new Set<string>();
-  let dustUsed = 0;
+  let rpUsed = 0;
   const learnable = (id: string) => {
     const k = SKILL[id];
     if (!k) return false;
     // 技の修行は 1 つずつ（修行中・同じ日にもう 1 つ取ろうとしているときは待つ）
     if (k.train && (s.training || [...pending].some((x) => SKILL[x]?.train))) return false;
-    // v5：外周（開いていない）・封印・準備中・エンブレム・ゴールドダスト
+    // v5：外周（開いていない）・封印・準備中・エンブレム。v8：研究パネルは RP
     if (k.sealed || skillSoon(k) || !ringOpen(s, skillTier(k)) || (s.emblem ?? 0) < (k.emblem ?? 0)) return false;
-    if (k.dust && (s.dust ?? 0) - dustUsed < k.dust) return false;
+    if (isResearch(k) && (s.rp ?? 0) - rpUsed < rpCost(k)) return false;
     return !has(s, id) && !pending.has(id) && !c.ban.has(id) && !(k.requires ?? []).some((r) => !has(s, r) && !pending.has(r)) && anyOfMet(k, (r) => has(s, r) || pending.has(r)) && (s.brand ?? 0) >= (k.brand ?? 0);
   };
   /** 設備投資「@id:段」：その段に届いていない建物ぜんぶ（無ければ取れない） */
@@ -370,12 +373,11 @@ export function policy(s: P1State, c: Ctx): Action[] {
     for (const b of bs) acts.push({ kind: 'invest', run: () => invest(s, b.uid, iv.id) });
     return true;
   };
-  /** レベル上げ「lv:id」（v7）：次のレベル。✨ はダスト */
+  /** レベル上げ「lv:id」（v7）：次のレベル（v8：お金パネルだけ） */
   const lvTok = (id: string) => (id.startsWith('lv:') ? SKILL[id.slice(3)] : null);
   const lvCan = (k: Skill) => {
     if (pending.has(`lv:${k.id}`) || c.ban.has(k.id)) return false;
     const e = levelLock(s, k);
-    if (k.dust) return (e === null || e === 'dust') && (s.dust ?? 0) - dustUsed >= levelDust(k, lvOf(s, k.id) + 1);
     return e === null || e === 'money';
   };
   const take = (id: string, keep = reserve) => {
@@ -385,21 +387,21 @@ export function policy(s: P1State, c: Ctx): Action[] {
       const cost = nextLevelCost(s, lk);
       if (!lvCan(lk) || budget < cost + keep) return false;
       spend(cost);
-      dustUsed += lk.dust ? levelDust(lk, lvOf(s, lk.id) + 1) : 0;
       pending.add(id);
       acts.push({ kind: 'skill', run: () => levelUp(s, lk.id) });
       return true;
     }
-    if (!learnable(id) || budget < SKILL[id].cost + keep) return false;
-    spend(SKILL[id].cost);
-    dustUsed += SKILL[id].dust ?? 0;
+    const research = isResearch(SKILL[id] ?? ({} as Skill));
+    if (!learnable(id) || (!research && budget < SKILL[id].cost + keep)) return false;
+    if (research) rpUsed += rpCost(SKILL[id]);
+    else spend(SKILL[id].cost);
     pending.add(id);
     acts.push({ kind: 'skill', run: () => learn(s, id) });
     return true;
   };
   /** 取れる（スキル：条件を満たしている／設備投資：その段に届いていない建物がある） */
   const can = (id: string) => (invOf(id) ? invNeed(id).length > 0 : lvTok(id) ? lvCan(lvTok(id)!) : learnable(id));
-  const costOf = (id: string) => (invOf(id) ? invCost(id) : lvTok(id) ? nextLevelCost(s, lvTok(id)!) : SKILL[id].cost);
+  const costOf = (id: string) => (invOf(id) ? invCost(id) : lvTok(id) ? nextLevelCost(s, lvTok(id)!) : SKILL[id] && isResearch(SKILL[id]) ? 0 : SKILL[id].cost);
   if (!has(s, 'hire')) take('hire', 0);
 
   // ---- お店（最初の 1 軒）
@@ -703,8 +705,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
         }
         if (n > 0) break;
       }
-      // ゴールドダストが 3 たまったら、詰まりの段の ✨ のパネル（どこを重点的に伸ばすか）。100% は下でまとめて取る
-      if (c.policy === 'normal' && (s.dust ?? 0) >= DUST_COST) take(DUST_OF[bn] ?? 'd_logi', 0) || take('d_logi', 0);
+      // RP がたまったら、詰まりの段の大きめの研究パネル（どこを重点的に伸ばすか）。100% は下でまとめて取る
+      if (c.policy === 'normal') take(DUST_OF[bn] ?? 'd_logi', 0) || take('d_logi', 0);
       // 売り場が細いのに枝で取れるものが無ければ、お店（月 1 軒まで）・チラシ・看板
       if (bn === 'sell') {
         const ad = ADS[0];
@@ -975,6 +977,13 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       invSeen.sector = s.sector;
     }
 
+    // ---- 発掘（v8 の仮：たまったツルハシの回数を毎日ぜんぶ手で使う。そろったら発表する。計測は docs/ISLAND_BALANCE.md v8 で）
+    while ((s.dig?.picks ?? 0) > 0 && s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0)) {
+      const at = digNext(s);
+      if (!at || typeof dig(s, at[0], at[1]) === 'string') break;
+    }
+    if (typeof present(s) !== 'string') res.actions.present = (res.actions.present ?? 0) + 1;
+
     // ---- 1 日
     const d = step(s);
     if (d.developed.length || d.finished.length) c.lineupDirty = true;
@@ -1025,11 +1034,9 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
         // 100%：全スキル・全依頼まで続ける
         const claimed = MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length;
-        // ✨ はダストが続くかぎり（全部の依頼のダストを使い切ったら終わり）
-        // v7：C・U の取れるパネルをすべて Lv 最大（✨ はダストが続くかぎり）
+        // v8：C・U の取れるパネルをすべて開放（お金パネルは Lv 最大）
         const got = fullSkills().filter((k) => lvOf(s, k.id) >= maxLv(k)).length;
-        const dustLeft = fullSkills().some((k) => k.dust && lvOf(s, k.id) < maxLv(k) && (s.dust ?? 0) >= (has(s, k.id) ? levelDust(k, lvOf(s, k.id) + 1) : k.dust));
-        if (got >= allSkills - fullSkills().filter((k) => k.dust && lvOf(s, k.id) < maxLv(k)).length && !dustLeft && claimed >= fullMissions) {
+        if (got >= allSkills && claimed >= fullMissions) {
           res.done = true;
           break;
         }
@@ -1251,7 +1258,7 @@ export function observations(rep: Report2): string {
   out.push('');
   const fulls = rep.runs.filter((x) => x.policy === 'full');
   if (fulls.length) {
-    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${fullSkills().length}（C・U の取れるパネル。✨ ${fullSkills().filter((k) => k.dust).length} 枚を含む）・Lv 最大 ${r.goal?.maxed}/${fullSkills().length}（レベルの合計 ${r.goal?.levels}/${fullSkills().reduce((a, k) => a + maxLv(k), 0)}）・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
+    out.push(`100% のゴールの到達（${fulls.length} シード）：` + fulls.map((r) => `seed ${r.seed}：👑 ${r.goal?.crowns}/13・スキル ${r.goal?.skills}/${fullSkills().length}（C・U の取れるパネル。大きめの研究パネル ${fullSkills().filter((k) => k.big).length} 枚を含む）・Lv 最大 ${r.goal?.maxed}/${fullSkills().length}（レベルの合計 ${r.goal?.levels}/${fullSkills().reduce((a, k) => a + maxLv(k), 0)}）・依頼 ${r.goal?.missions}/${MISSIONS.length}${r.goal?.missing?.length ? `（残り：${r.goal.missing.join('・')}）` : ''}${r.stop ? `（${r.stop}）` : ''}`).join('／'));
     out.push('');
   }
   const stops = rep.runs.filter((r) => r.stop && r.policy !== 'full');

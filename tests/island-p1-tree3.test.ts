@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { baseOf } from '../scripts/island/audit';
-import { BRANCHES, LV_COST, SKILL, SKILLS, levelCost, levelDust, lvMulOf, maxLv, shownOf, sku } from '../src/island/p1/data';
+import { BRANCHES, LV_COST, SKILL, SKILLS, isResearch, levelCost, lvMulOf, maxLv, shownOf, sku } from '../src/island/p1/data';
 import { craftDays, deserializeP1, gainSkill, fxSum, levelLock, levelUp, lvOf, matPrice, newP1, serializeP1, setLevel, skillPull, whatIf, type P1State } from '../src/island/p1/model';
 
 const rich = (seed = 5): P1State => {
@@ -43,34 +43,27 @@ describe('パネルのレベル', () => {
     expect(lvOf(s, 'host')).toBe(1);
   });
 
-  it('最大レベルの既定：数字の効果 5・✨ 3・解放型 2〜3・準備中 1', () => {
-    expect(maxLv(SKILL.host)).toBe(5);
-    expect(maxLv(SKILL.d_shop)).toBe(3);
-    for (const id of ['hub', 'pot', 'shop2', 'route_cloth', 'hire', 't_wood']) expect(maxLv(SKILL[id]), id).toBeLessThanOrEqual(3);
+  it('最大レベル：お金パネル 5・研究パネル（解放型・以前の ✨ も）1・準備中 1', () => {
+    for (const id of ['host', 'jig', 'shortcut', 'bulk', 'manual', 'budget', 'pos', 'u_shop_1']) expect(maxLv(SKILL[id]), id).toBe(5);
+    for (const id of ['d_shop', 'hub', 'pot', 'shop2', 'route_cloth', 'hire', 't_wood', 'golden', 'u_shop_2']) expect(maxLv(SKILL[id]), id).toBe(1);
     expect(maxLv(SKILL.t_rare)).toBe(1);
-    // 解放型は Lv2 からの効果がある（説明に「Lv2〜」）
+    // 研究パネルには Lv2 からの効果は無い（説明に「Lv2〜」が出ない）
     for (const id of ['hub', 'pot', 'shop2', 'route_cloth', 'hire', 't_wood', 'timetable', 'pace1']) {
-      expect(shownOf(SKILL[id]).up.length, id).toBeGreaterThan(0);
-      expect(SKILL[id].note, id).toContain('Lv2');
+      expect(shownOf(SKILL[id]).up.length, id).toBe(0);
+      expect(SKILL[id].note, id).not.toContain('Lv2');
     }
   });
 
-  it('✨ のレベル：Lv2・3 もゴールドダストで払う（✨3 → ✨4 → ✨5）', () => {
+  it('研究パネルはレベルを上げられない（開けたら完了）', () => {
     const s = rich();
-    const m0 = s.money;
-    s.dust = 3 + 4 + 5;
-    s.skills.push('d_shop');
-    s.dust -= 3;
-    expect([1, 2, 3].map((lv) => levelDust(SKILL.d_shop, lv))).toEqual([3, 4, 5]);
-    expect(levelUp(s, 'd_shop')).toBeNull();
-    expect(levelUp(s, 'd_shop')).toBeNull();
-    expect(s.dust).toBe(0);
-    expect(s.money).toBe(m0);
+    s.skills.push('d_shop', 'golden');
     expect(levelUp(s, 'd_shop')).toBe('max');
+    expect(levelUp(s, 'golden')).toBe('max');
+    expect(lvOf(s, 'golden')).toBe(1);
   });
 
-  it('Common の内側のパネル 1 つなら、1 セクタの利益で Lv5 まで届く（Lv1〜最大の合計 ≤ 400,000 G）', () => {
-    for (const k of SKILLS.filter((x) => !x.tier && !x.dust)) {
+  it('Common の内側のお金パネル 1 つなら、1 セクタの利益で Lv5 まで届く（Lv1〜最大の合計 ≤ 400,000 G）', () => {
+    for (const k of SKILLS.filter((x) => !x.tier && !isResearch(x))) {
       let sum = 0;
       for (let lv = 1; lv <= maxLv(k); lv++) sum += levelCost(k, lv);
       expect(sum, k.id).toBeLessThanOrEqual(400_000);
@@ -118,32 +111,33 @@ describe('汎用の効き目（fx）', () => {
     expect(fxSum(s, 'pull')).toBeCloseTo(k.fx![0].v * 2, 6);
   });
 
-  it('ロット・ブランド力は数で足す（v × レベル。最大 3）', () => {
+  it('ロット・ブランド力は数で足す（v × レベル）。そのパネルは研究パネルなので Lv1 の値', () => {
     const s = rich();
     const lot = SKILLS.find((k) => k.tier === 'U' && k.fx?.[0].kind === 'lot')!;
-    expect(maxLv(lot)).toBe(3);
+    expect(maxLv(lot)).toBe(1);
     s.skills.push(lot.id);
+    expect(fxSum(s, 'lot')).toBe(lot.fx![0].v);
+    // 仕組み（監査・テストの setLevel）：数で足す効き目は v × レベル
     setLevel(s, lot.id, 3);
     expect(fxSum(s, 'lot')).toBe(lot.fx![0].v * 3);
   });
 
-  it('解放型の Lv2 からの効果（人材の募集 Lv2：給料 −5%）', () => {
+  it('研究パネルになった解放型（人材の募集）は、Lv2 からの効果を持たない', () => {
     const s = rich();
     s.skills.push('hire');
-    expect(fxSum(s, 'wage')).toBe(0);
     setLevel(s, 'hire', 3);
-    expect(fxSum(s, 'wage')).toBeCloseTo(0.1, 6);
+    expect(fxSum(s, 'wage')).toBe(0);
   });
 });
 
 describe('外周のボリューム（Uncommon 以降）', () => {
-  it('各ランクの外周は 52〜60 枚（✨ を除く）、✨ は枝ごとに 1 枚。効果はすべて fx か既存の効き目', () => {
+  it('各ランクの外周は 52〜60 枚（大きめの研究パネルを除く）、大きめの研究パネル（以前の ✨）は枝ごとに 1 枚。効果はすべて fx か既存の効き目', () => {
     for (const tier of ['U', 'R', 'E', 'L'] as const) {
       const all = SKILLS.filter((k) => k.tier === tier);
-      const n = all.filter((k) => !k.dust).length;
+      const n = all.filter((k) => !k.big).length;
       expect(n, tier).toBeGreaterThanOrEqual(52);
       expect(n, tier).toBeLessThanOrEqual(60);
-      for (const b of BRANCHES) expect(all.filter((k) => k.dust && k.branch === b.key), `${tier} ${b.key}`).toHaveLength(1);
+      for (const b of BRANCHES) expect(all.filter((k) => k.big && k.branch === b.key), `${tier} ${b.key}`).toHaveLength(1);
     }
   });
 
@@ -154,14 +148,14 @@ describe('外周のボリューム（Uncommon 以降）', () => {
     }
     for (const tier of ['U', 'R', 'E', 'L'] as const)
       for (const b of BRANCHES) {
-        const first = SKILLS.filter((k) => k.tier === tier && k.branch === b.key && !k.dust && k.id.startsWith(`${tier.toLowerCase()}_`)).slice(0, 2);
+        const first = SKILLS.filter((k) => k.tier === tier && k.branch === b.key && !k.big && k.id.startsWith(`${tier.toLowerCase()}_`)).slice(0, 2);
         for (const k of first) expect(k.emblem, k.id).toBeGreaterThan(0);
       }
   });
 
   it('新しいパネルの値段はランクの範囲（U 15,000〜60,000・R 60,000〜250,000・E 250,000〜1,000,000・L 1,000,000〜4,000,000）', () => {
     const R = { U: [15000, 60000], R: [60000, 250000], E: [250000, 1000000], L: [1000000, 4000000] } as const;
-    for (const k of SKILLS.filter((x) => /^[urel]_/.test(x.id) && !x.dust)) {
+    for (const k of SKILLS.filter((x) => /^[urel]_/.test(x.id) && !x.big)) {
       const [lo, hi] = R[k.tier as keyof typeof R];
       expect(k.cost, k.id).toBeGreaterThanOrEqual(lo);
       expect(k.cost, k.id).toBeLessThanOrEqual(hi);

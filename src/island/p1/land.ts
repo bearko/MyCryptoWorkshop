@@ -7,7 +7,7 @@
 import { t } from '../../i18n';
 import { BRAND, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, fitEquipment, groundOf, newP1, staffOf, type P1State, type Report } from './model';
+import { assign, fitEquipment, groundOf, hasLetter, newDig, newP1, staffOf, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -50,6 +50,8 @@ export const SECTOR_KEYS = [
   'rally',
   'dustShop',
   'yday',
+  // 発掘場（地層の進み具合・ツルハシの回数。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
+  'dig',
 ] as const;
 
 /** いまのセクタに自社の建物があるか（あれば、離れるときにマネージャーが要る） */
@@ -81,11 +83,12 @@ export function townSeed(s: P1State, id: string): number {
 /** 出店許可申請（入国料） */
 export const feeOf = (id: string) => sectorDef(id).fee;
 
-export type MoveErr = 'no-land' | 'here' | 'cloud' | 'locked' | 'soon' | 'money' | 'manager' | 'busy';
+export type MoveErr = 'no-land' | 'here' | 'cloud' | 'locked' | 'soon' | 'letter' | 'money' | 'manager' | 'busy';
 
 /**
  * ほかのセクタへ移る。いまのセクタに建物があれば manager（ヒーロー）を指名する。
  * 初めてのセクタは出店許可申請の費用を払い、まっさらな区画から始める。
+ * Uncommon 以上のセクタへの出店（新規）は、そのランクの調査依頼状が要る（'letter'。Common のセクタのお題をそろえて発表するともらえる）。
  */
 export function moveTo(s: P1State, target: string, manager: number | null): MoveErr | null {
   const land = s.land;
@@ -94,6 +97,7 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (st === 'here') return 'here';
   if (st === 'cloud' || st === 'locked' || st === 'soon') return st;
   const fresh = st === 'open';
+  if (fresh && !hasLetter(s, sectorDef(target).tier)) return 'letter';
   const fee = fresh ? feeOf(target) : 0;
   if (s.money < fee) return 'money';
   const cur = land.cur;
@@ -113,7 +117,7 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
     s.buyTrip = null;
   }
   // このセクタで担当していた仕事（戻ったら、空いていれば元に戻す）
-  const local = ['craft', 'transport', 'shop', 'buy', 'intel'];
+  const local = ['craft', 'transport', 'shop', 'buy', 'intel', 'dig'];
   rec.jobs = s.staff.filter((x) => x.task && local.includes(x.task)).map((x) => ({ hero: x.hero, task: x.task as string, target: x.target }));
   for (const j of rec.jobs) assign(s, j.hero, null);
   if (manager != null) {
@@ -134,6 +138,8 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (!fresh && back?.snap) {
     const snap = back.snap as Partial<P1State>;
     Object.assign(s, snap);
+    // 以前の写し：発掘場が無い（そのセクタの新しい発掘場から）
+    if (snap.dig === undefined) s.dig = newDig(target);
     // 以前の写し：制覇の月数・反撃は無い（もう 1 位なら制覇のまま）
     s.topStreak = snap.topStreak ?? (snap.cleared ? TOP_STREAK : 0);
     s.rally = snap.rally ?? 0;

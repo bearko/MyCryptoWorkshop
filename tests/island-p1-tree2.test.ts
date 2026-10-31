@@ -51,11 +51,11 @@ describe('スキルツリー v2：データと配置', () => {
     for (const [, p] of HUBPOS) for (const [id, q] of ps) expect(Math.hypot(p.x - q.x, p.y - q.y), id).toBeGreaterThan(0.9);
   });
 
-  it('先に要るスキルは全部ある。内側の ✨ は資金 0・ダスト 3。E・L は封印でなく名前のあるパネル（v3）', () => {
+  it('先に要るスキルは全部ある。内側の大きめの研究パネル（以前の ✨）は資金 0・125 RP。E・L は封印でなく名前のあるパネル（v3）', () => {
     for (const k of SKILLS) for (const r of k.requires ?? []) expect(SKILL[r], `${k.id} → ${r}`).toBeTruthy();
-    const dust = SKILLS.filter((k) => k.dust && !k.tier);
-    expect(dust.map((k) => k.branch).sort()).toEqual(['buy', 'craft', 'logi', 'ops', 'people', 'shop', 'sys']);
-    for (const k of dust) expect([k.cost, k.dust, k.tier ?? 'C']).toEqual([0, 3, 'C']);
+    const big = SKILLS.filter((k) => k.big && !k.tier);
+    expect(big.map((k) => k.branch).sort()).toEqual(['buy', 'craft', 'logi', 'ops', 'people', 'shop', 'sys']);
+    for (const k of big) expect([k.cost, k.rp, k.cat, k.tier ?? 'C']).toEqual([0, 125, 'research', 'C']);
     for (const b of BRANCHES) for (const tier of ['E', 'L'] as const) expect(SKILLS.filter((k) => k.branch === b.key && k.tier === tier && k.sealed)).toHaveLength(0);
   });
 
@@ -64,13 +64,13 @@ describe('スキルツリー v2：データと配置', () => {
     for (const [id, c] of Object.entries(old)) expect(SKILL[id].cost, id).toBe(c);
   });
 
-  it('「○○で 1 位」の依頼はダスト 1（Uncommon は 2）。アンコモン 5 個・エリア 3 位・アンコモン開発も 1', () => {
-    for (const m of MISSIONS.filter((x) => x.id.endsWith('_top'))) expect(m.dust, m.id).toBe(m.sector?.startsWith('u') ? 2 : 1);
-    for (const id of ['uncommon', 'rank3', 'u1_dev']) expect(MISSIONS.find((m) => m.id === id)?.dust).toBe(1);
+  it('依頼の ✨ 報酬は RP に（1 ✨ = 40 RP）：「○○で 1 位」は 40 RP（Uncommon は 80）。アンコモン 5 個・エリア 3 位・アンコモン開発も 40', () => {
+    for (const m of MISSIONS.filter((x) => x.id.endsWith('_top'))) expect(m.rp, m.id).toBe(m.sector?.startsWith('u') ? 80 : 40);
+    for (const id of ['uncommon', 'rank3', 'u1_dev']) expect(MISSIONS.find((m) => m.id === id)?.rp).toBe(40);
   });
 });
 
-describe('エンブレム・ゴールドダスト', () => {
+describe('エンブレム・研究ポイント', () => {
   it('関所の開通でエンブレム +1', () => {
     const s = rich();
     expect(s.emblem).toBe(0);
@@ -93,32 +93,31 @@ describe('エンブレム・ゴールドダスト', () => {
     expect(s.emblem).toBe(1);
   });
 
-  it('依頼の報酬を受け取ると、ゴールドダストが増える（セーブにも残る）', () => {
+  it('依頼の報酬を受け取ると、研究ポイントが増える（セーブにも残る）', () => {
     const s = rich();
     s.missions.rank3 = 'done';
     expect(claim(s, 'rank3')).toBeNull();
-    expect(s.dust).toBe(1);
-    expect(deserializeP1(serializeP1(s))!.dust).toBe(1);
+    expect(s.rp).toBe(30 + 40);
+    expect(deserializeP1(serializeP1(s))!.rp).toBe(70);
   });
 
-  it('古いセーブは 0 から', () => {
+  it('古いセーブのエンブレムは 0 から', () => {
     const o = JSON.parse(serializeP1(newP1(2)));
     delete o.emblem;
-    delete o.dust;
     const s = deserializeP1(JSON.stringify(o))!;
-    expect([s.emblem, s.dust]).toEqual([0, 0]);
+    expect(s.emblem).toBe(0);
   });
 
-  it('✨ のパネルは資金（GUM）では取れず、ダストを使う', () => {
+  it('大きめの研究パネル（以前の ✨）は資金（GUM）では取れず、RP を使う', () => {
     const s = rich();
     const before = s.money;
-    expect(learn(s, 'd_shop')).toBe('dust');
+    expect(learn(s, 'd_shop')).toBe('rp');
     expect(s.money).toBe(before);
-    s.dust = 4;
+    s.rp = 130;
     expect(learn(s, 'd_shop')).toBeNull();
     expect(s.money).toBe(before);
-    expect(s.dust).toBe(1);
-    expect(learn(s, 'd_craft')).toBe('dust');
+    expect(s.rp).toBe(5);
+    expect(learn(s, 'd_craft')).toBe('rp');
   });
 });
 
@@ -127,6 +126,7 @@ describe('外周（ランクのエリア）', () => {
     const s = rich();
     s.brand = 99;
     s.emblem = 5;
+    s.rp = 10_000;
     learn(s, 'host');
     expect(skillLock(s, SKILL.b_sign)).toBe('ring');
     expect(learn(s, 'b_sign')).toBe('ring');
@@ -145,6 +145,7 @@ describe('外周（ランクのエリア）', () => {
   it('エンブレムが足りないと取れない（持っている数で判定し、減らない）', () => {
     const s = rich();
     s.flags.rings = ['U', 'R'];
+    s.rp = 10_000;
     for (const id of ['jig', 'five_s', 'jig2', 'kaizen']) expect(learn(s, id)).toBeNull();
     expect(learn(s, 'night')).toBe('emblem');
     s.emblem = 1;

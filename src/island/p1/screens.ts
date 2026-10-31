@@ -1760,7 +1760,7 @@ export function openMissions(ctx: Ctx) {
         c.append(f);
       }
       const row = h('div', 'isl-row');
-      row.append(h('b', 'isl-gold', t(`報酬 ${money(m.reward)}`, `Reward ${money(m.reward)}`)));
+      row.append(h('b', 'isl-gold', m.rp ? t(`報酬 ${money(m.reward)}・研究 ${m.rp} RP`, `Reward ${money(m.reward)} + ${m.rp} RP`) : t(`報酬 ${money(m.reward)}`, `Reward ${money(m.reward)}`)));
       if (st === 'done')
         row.append(
           btn(t('報酬を受け取る', 'Claim'), () => {

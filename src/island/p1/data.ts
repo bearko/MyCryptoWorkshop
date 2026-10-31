@@ -174,7 +174,7 @@ export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.m
 
 // ---------------------------------------------------------------- 従業員
 
-export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side' | 'manager' | 'train';
+export type Task = 'craft' | 'transport' | 'shop' | 'explore' | 'intel' | 'buy' | 'side' | 'manager' | 'train' | 'dig';
 export const TASKS: { key: Task; name: string; note: string }[] = [
   { key: 'craft', name: t('製造', 'Craft'), note: t('3 つの能力のバランス', 'Balance of all three stats') },
   { key: 'transport', name: t('運搬', 'Haul'), note: t('PHY 重視', 'Mostly PHY') },
@@ -218,6 +218,9 @@ export function aptitude(s: Stats, task: Task): number {
     case 'train':
       // 技の修行：製造と同じ
       return 0.5 * Math.min(s.phy, s.int, s.agi) + 0.5 * ((s.phy + s.int + s.agi) / 3);
+    case 'dig':
+      // 発掘：力仕事が中心（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
+      return 0.6 * s.phy + 0.2 * s.agi + 0.2 * s.int;
   }
 }
 
@@ -760,14 +763,23 @@ export interface Skill {
   tier?: Tier;
   /** 取るのに要るエンブレムの数（持っている数。使って減らない） */
   emblem?: number;
-  /** ゴールドダストで取る（資金は要らない。cost は 0） */
-  dust?: number;
+  /**
+   * 大きめの研究パネル（以前の ✨ ゴールドダストのパネル）。同じランクの研究パネルの約 2.5 倍の RP。
+   * docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」
+   */
+  big?: boolean;
+  /**
+   * 区分：研究パネル（RP で開く。レベルなし）／お金パネル（資金で開く。Lv1〜5）。data.ts の最後で決める（MONEY_PANELS）
+   */
+  cat?: SkillCat;
+  /** 研究パネルの値段（RP）。お金パネルは 0 */
+  rp?: number;
   /** 封印（Epic・Legendary の外周。名前は「???」。まだ取れない） */
   sealed?: boolean;
   /** 準備中（まだ取れない） */
   soon?: boolean;
   /**
-   * 最大レベル（2〜5）。無ければ数字の効果のパネルは 5、✨ は 3。解放型（建物・商品・ルート・人材の募集・進行速度など）は 2〜3 を書く。
+   * お金パネルの最大レベル（無ければ 5）。研究パネルはいつも 1（レベルなし。ここの値は使わない）。
    * docs/ISLAND_PHASE1.md「スキルツリー」「パネルのレベル」
    */
   max?: number;
@@ -859,12 +871,14 @@ export const fxShown = (f: Fx): Shown => ({ label: FX_LABEL[f.kind], v: f.v, uni
 export const LV_COST = [1, 2, 3.5, 5.5, 8];
 /** レベル n の効果の倍率：1 + 0.25(n − 1)（Lv5 で 2 倍）。未取得 0 */
 export const lvMulOf = (lv: number) => (lv <= 0 ? 0 : 1 + 0.25 * (lv - 1));
-/** 最大レベル（封印・準備中は 1） */
-export const maxLv = (k: Skill) => (k.sealed || k.soon ? 1 : (k.max ?? (k.dust ? 3 : 5)));
+/** スキルの区分：研究パネル（RP）・お金パネル（資金） */
+export type SkillCat = 'research' | 'money';
+/** 研究パネルか（お金パネルでなければ研究パネル） */
+export const isResearch = (k: Skill) => k.cat !== 'money';
+/** 最大レベル（研究パネル・封印・準備中は 1） */
+export const maxLv = (k: Skill) => (k.sealed || k.soon || isResearch(k) ? 1 : (k.max ?? 5));
 /** そのレベル（lv）にするコスト（GUM）：round(cost × 倍率 / 100) × 100 */
 export const levelCost = (k: Skill, lv: number) => Math.round((k.cost * LV_COST[Math.max(0, Math.min(LV_COST.length, lv) - 1)]) / 100) * 100;
-/** ✨ のパネルのそのレベルのダスト（✨3 → ✨4 → ✨5） */
-export const levelDust = (k: Skill, lv: number) => (k.dust ? k.dust + lv - 1 : 0);
 /** 効き目の表示の行：レベル lv のときの値（up は Lv2 から） */
 export const shownAt = (x: Shown, lv: number, up = false) => (up ? x.v * Math.max(0, lv - 1) : x.lin ? x.v * lv : x.v * lvMulOf(lv));
 /** パネルの効き目の行（fx・show と、Lv2 からの up・upShow） */
@@ -879,8 +893,6 @@ export function shownOf(k: Skill): { base: Shown[]; up: Shown[] } {
 }
 /** 修行の日数の縮み方：適性 apt で ×(1 − min(cut, apt / per))（適性 100 で −40%） */
 export const TRAIN = { cut: 0.4, per: 250 };
-/** ゴールドダストのパネルの値段（どの枝も同じ） */
-export const DUST_COST = 3;
 
 /**
  * スキルツリー v2（docs/ISLAND_PHASE1.md「スキルツリー」）。実際の店舗運営で使われている工夫をパネルにし、効き目は数字で書く。
@@ -904,7 +916,7 @@ export const SKILLS: Skill[] = [
   { id: 'fair', branch: 'shop', name: t('季節の催事', 'Seasonal fairs'), note: t('宣伝の費用 −30%・効き目 +10%', 'Ads cost 30% less and work 10% better'), cost: 12000, requires: ['point'], tier: 'U' },
   { id: 'b_premium', branch: 'shop', name: t('プレミアム価格', 'Premium pricing'), note: t('すべての商品の値段 +15%', 'All prices +15%'), cost: 30000, requires: ['shop3', 'b_sign'], brand: 80, tier: 'R' },
   { id: 'concierge', branch: 'shop', name: t('接客の匠', 'Master hosts'), note: t('すべてのお店の売り場の強さ +20%', 'All shops’ pull +20%'), cost: 40000, requires: ['b_sign'], tier: 'R', emblem: 3 },
-  { id: 'd_shop', branch: 'shop', name: t('名物店主', 'Famous shopkeeper'), note: t('選んだ 1 軒の売り場の強さ +40%（お店の画面で選ぶ。替えられる）', 'One chosen shop’s pull +40% (pick it in the shop screen; you can switch)'), cost: 0, dust: DUST_COST },
+  { id: 'd_shop', branch: 'shop', name: t('名物店主', 'Famous shopkeeper'), note: t('選んだ 1 軒の売り場の強さ +40%（お店の画面で選ぶ。替えられる）', 'One chosen shop’s pull +40% (pick it in the shop screen; you can switch)'), cost: 0, big: true },
   // ---------------------------------------------------------------- ② 製造
   { id: 'jig', branch: 'craft', name: t('段取りの改善', 'Better setups'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 4000 },
   { id: 'pot', branch: 'craft', name: t('魔法の釜', 'Magic pot'), note: t('「商品開発」でアンコモンを開発できる（作るには製造の適性 31 以上の職人）', 'Develop Uncommons in Product development (crafting them needs aptitude 31+)'), cost: 10000 },
@@ -916,7 +928,7 @@ export const SKILLS: Skill[] = [
   { id: 'night', branch: 'craft', name: t('夜間稼働', 'Night shifts'), note: t('クラフトの日数 −15%・職人のスタミナの減り +20%', 'Crafting −15% days; crafters tire 20% faster'), cost: 12000, requires: ['kaizen'], tier: 'U', emblem: 1 },
   { id: 'mold', branch: 'craft', name: t('共通の型', 'Shared molds'), note: t('アンコモンの 1 ロット +1 個', 'Uncommons +1 per lot'), cost: 15000, requires: ['pot'], tier: 'U' },
   { id: 'line', branch: 'craft', name: t('自動化ライン', 'Automated line'), note: t('クラフトの日数 −20%', 'Crafting −20% days'), cost: 40000, requires: ['night'], tier: 'R', emblem: 3 },
-  { id: 'd_craft', branch: 'craft', name: t('名工の作業台', 'Master’s workbench'), note: t('全員の製造の適性 +15', 'Everyone’s crafting aptitude +15'), cost: 0, dust: DUST_COST },
+  { id: 'd_craft', branch: 'craft', name: t('名工の作業台', 'Master’s workbench'), note: t('全員の製造の適性 +15', 'Everyone’s crafting aptitude +15'), cost: 0, big: true },
   // ---------------------------------------------------------------- ③ 物流
   { id: 'loading', branch: 'logi', name: t('積み込みの工夫', 'Smart loading'), note: t('荷車に積める数 +30%', 'Cart load +30%'), cost: 2500 },
   { id: 'shortcut', branch: 'logi', name: t('近道の地図', 'Shortcut map'), note: t('運ぶ日数 −15%', 'Hauling −15% days'), cost: 3500, requires: ['loading'] },
@@ -926,7 +938,7 @@ export const SKILLS: Skill[] = [
   { id: 'crossdock', branch: 'logi', name: t('クロスドッキング', 'Cross-docking'), note: t('工房 → 拠点の日数 ×0.3 → ×0.2', 'Workshop → hub days ×0.3 → ×0.2'), cost: 12000, requires: ['hub'], tier: 'U', emblem: 1 },
   { id: 'joint', branch: 'logi', name: t('共同配送', 'Shared deliveries'), note: t('運搬係 1 人が同時に出せる便 +1', 'Each hauler runs one more trip at once'), cost: 15000, requires: ['route_opt'], tier: 'U' },
   { id: 'fleet', branch: 'logi', name: t('自社トラック網', 'Own truck fleet'), note: t('運ぶ速さ ×1.3', 'Hauling speed ×1.3'), cost: 40000, requires: ['crossdock'], tier: 'R', emblem: 3 },
-  { id: 'd_logi', branch: 'logi', name: t('配送センター', 'Distribution center'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 0, dust: DUST_COST },
+  { id: 'd_logi', branch: 'logi', name: t('配送センター', 'Distribution center'), note: t('運ぶ日数 −30%', 'Hauling −30% days'), cost: 0, big: true },
   // ---------------------------------------------------------------- ① 調達
   { id: 'route_cloth', branch: 'buy', name: t('布のルート', 'Cloth route'), note: t('布を買えるようになる', 'Lets you buy cloth'), cost: 2000 },
   { id: 'route_paper', branch: 'buy', name: t('紙のルート', 'Paper route'), note: t('紙を買えるようになる', 'Lets you buy paper'), cost: 2000, requires: ['route_cloth'] },
@@ -943,7 +955,7 @@ export const SKILLS: Skill[] = [
   { id: 'contract', branch: 'buy', name: t('長期契約', 'Long-term contract'), note: t('素材の値段 −5%（値段の変動が入ったら 6 か月固定）', 'Materials −5% (locks prices for 6 months once prices fluctuate)'), cost: 10000, requires: ['bulk2'], tier: 'U', emblem: 1 },
   { id: 'b_partner', branch: 'buy', name: t('指名の取引先', 'Preferred supplier'), note: t('素材の値段 −15%・月の調達の上限 +50%', 'Materials −15%, monthly buying limit +50%'), cost: 15000, requires: ['bulk2'], brand: 50, tier: 'U' },
   { id: 'direct', branch: 'buy', name: t('産地との直接取引', 'Direct sourcing'), note: t('素材の値段 −10%・月の調達の上限 +50%', 'Materials −10%, monthly buying limit +50%'), cost: 35000, requires: ['contract'], tier: 'R', emblem: 3 },
-  { id: 'd_buy', branch: 'buy', name: t('商社との提携', 'Trading-house alliance'), note: t('すべての素材のルートが開く・素材の値段 −10%', 'Opens every material route; materials −10%'), cost: 0, dust: DUST_COST },
+  { id: 'd_buy', branch: 'buy', name: t('商社との提携', 'Trading-house alliance'), note: t('すべての素材のルートが開く・素材の値段 −10%', 'Opens every material route; materials −10%'), cost: 0, big: true },
   // ---------------------------------------------------------------- 人材
   { id: 'hire', branch: 'people', name: t('人材の募集', 'Recruiting'), note: t('ヒーローを雇えるようになる（候補 3 人・毎月入れ替わる）', 'Hire heroes (3 candidates, refreshed monthly)'), cost: 3000 },
   { id: 'lounge', branch: 'people', name: t('休憩室', 'Lounge'), note: t('スタミナの回復 +50%', 'Stamina recovers 50% faster'), cost: 2500 },
@@ -957,7 +969,7 @@ export const SKILLS: Skill[] = [
   { id: 'training', branch: 'people', name: t('社内研修', 'In-house training'), note: t('技の修行の日数 −30%', 'Craft-skill training −30% days'), cost: 12000, requires: ['ojt'], tier: 'U', emblem: 1 },
   { id: 'mgr', branch: 'people', name: t('マネージャー研修', 'Manager training'), note: t('セクタマネージャーの売上の倍率 +0.1', 'Sector managers’ sales rate +0.1'), cost: 15000, requires: ['incentive'], tier: 'U' },
   { id: 'headhunt', branch: 'people', name: t('ヘッドハンティング', 'Headhunting'), note: t('雇える候補にレアのヒーローが 1 人来る', 'One Rare hero joins the hiring candidates'), cost: 40000, requires: ['b_scout'], tier: 'R', emblem: 3 },
-  { id: 'd_people', branch: 'people', name: t('カリスマ採用', 'Star recruiter'), note: t('雇うときの能力 +20%（PHY・INT・AGI。上限 100）', 'New hires’ stats +20% (PHY/INT/AGI, max 100)'), cost: 0, dust: DUST_COST },
+  { id: 'd_people', branch: 'people', name: t('カリスマ採用', 'Star recruiter'), note: t('雇うときの能力 +20%（PHY・INT・AGI。上限 100）', 'New hires’ stats +20% (PHY/INT/AGI, max 100)'), cost: 0, big: true },
   // ---------------------------------------------------------------- 経営
   { id: 'pace1', branch: 'ops', name: t('業務の効率化', 'Streamlined operations'), note: t('ゲームの進行速度を 1.5 倍にできる（システム → 進行速度）', 'Lets you run the game at 1.5× (System → Game speed)'), cost: 4000 },
   { id: 'pace2', branch: 'ops', name: t('業務の自動化', 'Automated operations'), note: t('ゲームの進行速度を 2 倍にできる（システム → 進行速度）', 'Lets you run the game at 2× (System → Game speed)'), cost: 12000, requires: ['pace1'] },
@@ -966,7 +978,7 @@ export const SKILLS: Skill[] = [
   { id: 'b_ads', branch: 'ops', name: t('ブランド広告', 'Brand advertising'), note: t('宣伝の効き目 ×1.5・ブランド力が月に +2', 'Ads 1.5× as strong; brand +2 a month'), cost: 10000, requires: ['pace1'], brand: 40, tier: 'U' },
   { id: 'pr', branch: 'ops', name: t('広報室', 'PR office'), note: t('ブランド力が月に +1', 'Brand +1 a month'), cost: 12000, requires: ['pdca'], tier: 'U', emblem: 1 },
   { id: 'holding', branch: 'ops', name: t('持株会社', 'Holding company'), note: t('マネージャーのセクタの利益 +10%', 'Managed sectors’ profit +10%'), cost: 40000, requires: ['pr'], tier: 'R', emblem: 3 },
-  { id: 'd_ops', branch: 'ops', name: t('ブランド戦略室', 'Brand strategy office'), note: t('ブランド力の効き目 ×2（売り場の強さ 最大 +30% → +60%）', 'Brand effect ×2 (pull bonus cap +30% → +60%)'), cost: 0, dust: DUST_COST },
+  { id: 'd_ops', branch: 'ops', name: t('ブランド戦略室', 'Brand strategy office'), note: t('ブランド力の効き目 ×2（売り場の強さ 最大 +30% → +60%）', 'Brand effect ×2 (pull bonus cap +30% → +60%)'), cost: 0, big: true },
   // ---------------------------------------------------------------- システム
   { id: 'pos', branch: 'sys', name: t('POS レジ', 'POS registers'), note: t('市場データに商品ごとの「きのう売れた数」が出る・売り場の強さ +3%', 'Market data shows yesterday’s sales per item; pull +3%'), cost: 5000 },
   { id: 'auto_order', branch: 'sys', name: t('自動発注（EDI）', 'Auto-ordering (EDI)'), note: t('調達係の買い付けが毎日届く（往復なし）・注文の納期 −50%', 'Buyer purchases arrive daily (no round trip); order lead time −50%'), cost: 8000, requires: ['pos'] },
@@ -976,7 +988,7 @@ export const SKILLS: Skill[] = [
   { id: 'flow', branch: 'sys', name: t('人流解析', 'Foot-traffic analytics'), note: t('建てるときにお客さんの多い区画（上位 20%）が光る・売り場の強さ +5%', 'Busiest blocks (top 20%) glow when placing; pull +5%'), cost: 15000, requires: ['inventory'], tier: 'U' },
   { id: 'forecast', branch: 'sys', name: t('需要予測 AI', 'Demand-forecast AI'), note: t('新商品の認知が 30% → 50% から始まる', 'New items start 50% known instead of 30%'), cost: 40000, requires: ['erp'], tier: 'R', emblem: 3 },
   { id: 'ec', branch: 'sys', name: t('EC サイト', 'Online store'), note: t('遠いお客さんも買う（自社のお店の届き方が最低 25%）', 'Far customers buy too (your shops reach at least 25%)'), cost: 45000, requires: ['dyn'], tier: 'R' },
-  { id: 'd_sys', branch: 'sys', name: t('基幹システム刷新', 'Core system overhaul'), note: t('全段の「ひと月に流せる数」+10%（調達・製造・物流・販売）', 'Every stage’s monthly flow +10% (buy, craft, haul, sell)'), cost: 0, dust: DUST_COST },
+  { id: 'd_sys', branch: 'sys', name: t('基幹システム刷新', 'Core system overhaul'), note: t('全段の「ひと月に流せる数」+10%（調達・製造・物流・販売）', 'Every stage’s monthly flow +10% (buy, craft, haul, sell)'), cost: 0, big: true },
   // ---------------------------------------------------------------- 技（作れる商品を増やす。docs/ISLAND_PHASE1.md「商品と技」）
   { id: 't_wood', branch: 'tech', name: t('木工の技', 'Woodworking'), note: t('椅子を作れる', 'Lets you make Chairs'), cost: 4000, train: 8 },
   { id: 't_paper', branch: 'tech', name: t('紙工の技', 'Papercraft'), note: t('傘・ペンを作れる', 'Lets you make Parasols and Quills'), cost: 5000, train: 10 },
@@ -1094,7 +1106,81 @@ for (const k of SKILLS) if (k.branch === 'tech' && k.train) LEVELS[k.id] = { max
 for (const k of SKILLS) Object.assign(k, LEVELS[k.id] ?? {});
 // 外周（U・R・E・L）のパネル：汎用の効き目（fx）で書いた追加のパネル
 SKILLS.push(...OUTER_SKILLS);
-// 解放型のパネルの説明に「Lv2〜：…」を足す
+
+// ---------------------------------------------------------------- スキルツリーの 2 区分（研究パネル・お金パネル）
+
+/**
+ * お金パネル（資金で開く・Lv1〜5）：技を除く 7 本の枝 × 5 ランクに 1 枚ずつ（35 枚）。それ以外はすべて研究パネル（RP で開く・レベルなし）。
+ * Common は仕様の 7 枚。Uncommon〜Legendary は「枝の根もと近く、Lv5 まであり、レベルを上げるほど素直に効く数字のパネル」＝
+ * そのランク・その枝の追加のパネルの 1 枚目（`<ランク>_<枝>_1`。ロット・ブランド力のような最大 3 のパネルは無い）。
+ * docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」「お金パネル 35 枚」
+ */
+export const MONEY_PANELS: Record<Tier, Partial<Record<Branch, string>>> = {
+  C: { shop: 'host', craft: 'jig', logi: 'shortcut', buy: 'bulk', people: 'manual', ops: 'budget', sys: 'pos' },
+  U: { shop: 'u_shop_1', craft: 'u_craft_1', logi: 'u_logi_1', buy: 'u_buy_1', people: 'u_people_1', ops: 'u_ops_1', sys: 'u_sys_1' },
+  R: { shop: 'r_shop_1', craft: 'r_craft_1', logi: 'r_logi_1', buy: 'r_buy_1', people: 'r_people_1', ops: 'r_ops_1', sys: 'r_sys_1' },
+  E: { shop: 'e_shop_1', craft: 'e_craft_1', logi: 'e_logi_1', buy: 'e_buy_1', people: 'e_people_1', ops: 'e_ops_1', sys: 'e_sys_1' },
+  L: { shop: 'l_shop_1', craft: 'l_craft_1', logi: 'l_logi_1', buy: 'l_buy_1', people: 'l_people_1', ops: 'l_ops_1', sys: 'l_sys_1' },
+};
+/**
+ * 研究パネルの RP の値段（仮）。ランク・枝ごとに、根もと（lo）から枝先（hi）へ、先に要るパネルの深さの順に並べて割り振る（平均は (lo + hi) / 2）。
+ * Common 20〜80（平均 50）・Uncommon 60〜180（平均 120）・Rare 以降は Uncommon の 2.5 倍ずつ。大きめの研究パネル（以前の ✨）は big。
+ * 人材の募集はチュートリアルで最初の 30 RP で開くので 30（START_RP）。
+ */
+export const RP_PRICE: Record<Tier, { lo: number; hi: number; big: number; step: number }> = {
+  C: { lo: 20, hi: 80, big: 125, step: 5 },
+  U: { lo: 60, hi: 180, big: 300, step: 5 },
+  R: { lo: 150, hi: 450, big: 750, step: 10 },
+  E: { lo: 375, hi: 1125, big: 1875, step: 25 },
+  L: { lo: 940, hi: 2810, big: 4700, step: 50 },
+};
+/** 開始時に持っている研究ポイント（マインちゃんの「前の世界の研究ノート」。新しいゲームだけ） */
+export const START_RP = 30;
+/** 以前のゴールドダスト 1 つ ＝ RP（古いセーブの移し替え・依頼の報酬の置き換え） */
+export const RP_PER_DUST = 40;
+const RP_FIXED: Record<string, number> = { hire: START_RP };
+{
+  const money = new Set(Object.values(MONEY_PANELS).flatMap((x) => Object.values(x)));
+  const byId = new Map(SKILLS.map((k) => [k.id, k]));
+  const tierOf = (k: Skill) => k.tier ?? 'C';
+  // 同じランクの中の深さ（先に要るパネルのうち、同じランクのものをたどった最長の数）
+  const depth = new Map<string, number>();
+  const dep = (k: Skill): number => {
+    const hit = depth.get(k.id);
+    if (hit != null) return hit;
+    depth.set(k.id, 0);
+    const inner = (k.requires ?? []).map((r) => byId.get(r)).filter((r): r is Skill => !!r && tierOf(r) === tierOf(k));
+    const d = inner.length ? 1 + Math.max(...inner.map(dep)) : 0;
+    depth.set(k.id, d);
+    return d;
+  };
+  for (const k of SKILLS) {
+    k.cat = money.has(k.id) ? 'money' : 'research';
+    k.rp = 0;
+  }
+  for (const tier of ['C', 'U', 'R', 'E', 'L'] as Tier[]) {
+    const P = RP_PRICE[tier];
+    const round = (v: number) => Math.max(P.step, Math.round(v / P.step) * P.step);
+    for (const b of new Set(SKILLS.map((k) => k.branch))) {
+      const list = SKILLS.filter((k) => tierOf(k) === tier && k.branch === b && k.cat === 'research' && !k.big).sort((x, y) => dep(x) - dep(y) || x.cost - y.cost);
+      list.forEach((k, i) => (k.rp = round(P.lo + ((P.hi - P.lo) * (list.length > 1 ? i : 0)) / Math.max(1, list.length - 1))));
+      // 1 枚だけの枝は真ん中の値段
+      if (list.length === 1) list[0].rp = round((P.lo + P.hi) / 2);
+    }
+    for (const k of SKILLS) if (tierOf(k) === tier && k.big) k.rp = P.big;
+  }
+  for (const [id, v] of Object.entries(RP_FIXED)) if (byId.get(id)) byId.get(id)!.rp = v;
+  // 研究パネルはレベルなし（効き目は Lv1 の値）：Lv2 からの効き目は持たない
+  for (const k of SKILLS)
+    if (k.cat === 'research') {
+      delete k.up;
+      delete k.upShow;
+    }
+}
+/** 研究パネルの値段（RP。お金パネルは 0） */
+export const rpCost = (k: Skill) => (isResearch(k) ? (k.rp ?? 0) : 0);
+
+// 解放型のお金パネルの説明に「Lv2〜：…」を足す
 for (const k of SKILLS) {
   // 外周のパネルの説明は fx から（「すべてのお店の売り場の強さ +13%・…」）
   if (!k.note && k.fx) k.note = k.fx.map((f) => `${FX_LABEL[f.kind]} ${fmtShown(fxShown(f), f.v)}`).join(t('・', ', '));
@@ -1172,6 +1258,10 @@ export const INVESTS: Invest[] = [
   { id: 'tools', kind: 'workshop', name: t('道具の新調', 'New tools'), note: t('クラフトの日数 −10%（1 段ごと）', 'Crafting −10% days per level'), cost: [3000, 6000, 12000] },
   { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
   { id: 'rack', kind: 'warehouse', name: t('倉庫の高い棚', 'Tall racks'), note: t('この倉庫の置き場所 +100 個', 'This warehouse holds 100 more'), cost: [6000] },
+  // 発掘の道具（工房の裏の発掘場。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」。値段は仮）
+  { id: 'pick', kind: 'workshop', name: t('ツルハシの新調', 'New pickaxe'), note: t('発掘の 1 打の強さ +1（1 段ごと）', 'Each strike digs 1 harder (per level)'), cost: [5000, 15000] },
+  { id: 'lantern', kind: 'workshop', name: t('発掘のランタン', 'Dig lantern'), note: t('掘れるマスの 1 段下の出土品が薄く見える', 'Faintly shows finds one row below the open cells'), cost: [3000] },
+  { id: 'blast', kind: 'workshop', name: t('発破の道具', 'Blasting kit'), note: t('ツルハシ 1 回で 3 × 3 マスを崩せる（1 回ごとに火薬代がかかる）', 'Clear 3 × 3 cells with one pick use (each blast costs powder)'), cost: [6000] },
 ];
 /**
  * 以前のスキル → 設備投資（古いセーブの移し替え。deserializeP1）。
@@ -1194,6 +1284,129 @@ export const INVEST: Record<string, Invest> = Object.fromEntries(INVESTS.map((x)
 
 /** 移転は建てる値段の半分（最低 2,000 G）・工期の半分。撤去は建てる値段の 3 割が戻る */
 export const MOVE = { rate: 0.5, min: 2000, days: 0.5, refund: 0.3 };
+
+// ---------------------------------------------------------------- 地層の発掘と研究ポイント（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
+
+/** 発掘場のあるランク（Rare 以降は準備中） */
+export type DigTier = 'C' | 'U';
+export interface Stratum {
+  name: string;
+  /** 層の行数 */
+  rows: number;
+  /** 1 マスの硬さ（打つ回数。1 打の強さ 1 のとき）の範囲 */
+  hard: [number, number];
+  /** コードで描くときの色（仮。docs/ISLAND_ART_TODO.md） */
+  color: string;
+}
+/**
+ * 発掘場：横 w × 縦（層の行数の合計）。上から掘り進める（1 段目か、崩れたマスの隣だけ打てる）。
+ * picks：ツルハシの回数の上限（自社のお店で 1 個売れるごとに 1 回たまる）。mat：素材のマスで出る数
+ */
+export const DIG: Record<DigTier, { w: number; layers: Stratum[]; picks: number; mat: number; mats: Mat[] }> = {
+  C: {
+    w: 7,
+    picks: 30,
+    mat: 3,
+    mats: ['iron', 'wood', 'clay', 'glass'],
+    layers: [
+      { name: t('表土', 'Topsoil'), rows: 10, hard: [1, 1], color: '#8a6a44' },
+      { name: t('粘土層', 'Clay layer'), rows: 10, hard: [1, 2], color: '#a0704a' },
+      { name: t('岩盤', 'Bedrock'), rows: 10, hard: [2, 3], color: '#6f6a66' },
+    ],
+  },
+  U: {
+    w: 7,
+    picks: 60,
+    mat: 2,
+    mats: ['cloth', 'paper', 'gem'],
+    layers: [
+      { name: t('岩盤', 'Bedrock'), rows: 10, hard: [3, 3], color: '#6f6a66' },
+      { name: t('古い港の跡', 'Old harbor ruins'), rows: 10, hard: [3, 4], color: '#5a6e7a' },
+      { name: t('古い街道の跡', 'Old highway ruins'), rows: 10, hard: [4, 4], color: '#6b5d74' },
+      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: 10, hard: [4, 5], color: '#4c4a5e' },
+    ],
+  },
+};
+/** マスの中身の割合（お題・石板のほかに）：エクステ・素材。残りは土だけ */
+export const DIG_ODDS = { ext: 0.24, mat: 0.14 };
+/** 石板を置く層（Common 1 枚・Uncommon 2 枚） */
+export const TABLET_LAYERS: Record<DigTier, number[]> = { C: [2], U: [1, 3] };
+/** 自動発掘（仕事「発掘」）：適性の速さ 1.0 で 1 日に打つ回数（手で掘るほうが速い） */
+export const DIG_AUTO = { perDay: 3 };
+/** 発破：1 回ごとの火薬代（G。仮） */
+export const BLAST = { cost: 1000 };
+
+/**
+ * 研究ポイント（RP）の入り方（数字は仮）。研究レベルは Lv1〜5：Lv2・3・4・5 に上がるのに、重なりがそれぞれ 1・2・3・4 個要る。
+ * first：新しいエクステを初めて掘る／lv：Lv2〜5 に上がる／topic：お題を掘る（その場で Lv5）／tablet：石板／present：お題をそろえて発表する
+ */
+export const RP_GAIN: Record<DigTier, { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }> = {
+  C: { first: 10, lv: [5, 10, 15, 20], topic: 40, tablet: 20, present: 60 },
+  U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
+};
+/** 研究レベルに要る、掘った数の合計（Lv1〜5）：1・2・4・7・11 */
+export const RESEARCH_NEED = [1, 2, 4, 7, 11];
+/** 掘った数 → 研究レベル（0〜5） */
+export const researchLv = (n: number) => RESEARCH_NEED.filter((x) => n >= x).length;
+
+/**
+ * セクタごとの出土品（ここ 1 か所にまとめる。bearko があとで差し替えられるように）。
+ * topics：お題（Common 3・Uncommon 4。各層に 1 つずつ、上の層から順に）。どのセクタのお題も、ほかのセクタの出土品には入れない。
+ * finds：お題以外（Common 8・Uncommon 10。何度も出る。となりのセクタと重なってよい＝研究レベルは続きから）。
+ * いまの 17 商品のシリーズ（PRODUCTS）は入れない。選んだ理由は docs/ISLAND_PHASE1.md「出土品の一覧」。
+ */
+export const DIG_SITES: Record<string, { topics: number[]; finds: number[] }> = {
+  // Common：職人の町の名残（道具・暮らし・祭り）
+  c1: { topics: [1122, 1104, 1034], finds: [1011, 1056, 1031, 1096, 1008, 1016, 1105, 1111] },
+  c2: { topics: [1160, 1075, 1019], finds: [1089, 1132, 1169, 1185, 1155, 1086, 1105, 1017] },
+  c3: { topics: [1099, 1152, 1018], finds: [1011, 1010, 1004, 1081, 1097, 1164, 1183, 1001] },
+  c4: { topics: [1182, 1061, 1193], finds: [1031, 1096, 1172, 1174, 1129, 1151, 1180, 1179] },
+  c5: { topics: [1071, 1140, 1063], finds: [1064, 1067, 1066, 1037, 1118, 1058, 1157, 1141] },
+  c6: { topics: [1163, 1173, 1131], finds: [1056, 1137, 1159, 1191, 1184, 1138, 1020, 1023] },
+  c7: { topics: [1103, 1006, 1142], finds: [1016, 1141, 1013, 1124, 1058, 1098, 1181, 1139] },
+  c8: { topics: [1108, 1177, 1189], finds: [1109, 1134, 1092, 1094, 1087, 1091, 1179, 1051] },
+  // Uncommon：つながっていた 9 つのランド（港・道・市場・織物・都。お題に 8 つのランドのエクステ）
+  u1: { topics: [2047, 2038, 2143, 2045], finds: [2019, 2647, 2640, 2160, 2089, 2086, 2151, 2157, 2084, 2122] },
+  u2: { topics: [2131, 2034, 2099, 2042], finds: [2011, 2001, 2006, 2010, 2004, 2081, 2152, 2153, 2097, 2164] },
+  u3: { topics: [2033, 2036, 2172, 2040], finds: [2017, 2009, 2111, 2178, 2140, 2095, 2037, 2063, 2064, 2067] },
+  u4: { topics: [2141, 2193, 2043, 2044], finds: [2096, 2031, 2077, 2007, 2180, 2174, 2016, 2112, 2139, 2184] },
+  u5: { topics: [2182, 2041, 2039, 2046], finds: [2118, 2129, 2154, 2142, 2115, 2186, 2130, 2158, 2161, 2121] },
+};
+
+/** 石板（読み物）。Common：Lime に昔、職人の町があった／Uncommon：世界はもとは 1 つで、9 つのランドはつながっていた／Rare 以降：枠だけ */
+export interface Tablet {
+  id: string;
+  sector: string;
+  title: string;
+  text: string;
+  /** まだ読めない（Rare 以降の枠） */
+  soon?: boolean;
+}
+export const TABLETS: Tablet[] = [
+  { id: 'tab_c1', sector: 'c1', title: t('職人の町', 'The crafters’ town'), text: t('ここに職人の町があった。人々は工房に集まり、道具から暮らしの品まで、なんでも自分たちの手で作った。', 'A crafters’ town once stood here. People gathered in workshops and made everything by hand, from tools to everyday goods.') },
+  { id: 'tab_c2', sector: 'c2', title: t('湖のガラス', 'Glass by the lake'), text: t('湖のほとりで、職人たちは砂からガラスを吹いた。町で作った品は、舟で湖の向こうへ運ばれた。', 'By the lake, crafters blew glass from sand. Goods made in town were ferried across the water.') },
+  { id: 'tab_c3', sector: 'c3', title: t('丘の鍛冶場', 'The hill forge'), text: t('丘の鍛冶場では、鉄を打つ音が一日じゅう響いた。ここで鍛えた道具が、町の仕事を支えた。', 'At the hill forge, hammers rang all day. The tools forged here kept the town at work.') },
+  { id: 'tab_c4', sector: 'c4', title: t('にぎやかな市場', 'The busy market'), text: t('町には大勢が暮らし、家具も服も、隣どうしで作って分け合った。市場はいつもにぎわっていた。', 'Many lived in the town, making furniture and clothes for each other. The market was always lively.') },
+  { id: 'tab_c5', sector: 'c5', title: t('職人の祭り', 'The crafters’ festival'), text: t('年に一度、職人たちは作った品を持ち寄り、祭りで見せ合った。いちばんの品を作った者が、町の長になった。', 'Once a year, crafters showed their work at a festival. Whoever made the finest piece became head of the town.') },
+  { id: 'tab_c6', sector: 'c6', title: t('森と畑の村', 'Village of woods and fields'), text: t('森の木を切り、畑を耕し、町の職人に材料を届けた。この村が、町の暮らしを支えていた。', 'They felled trees, tilled fields and brought materials to the town’s crafters. This village kept the town going.') },
+  { id: 'tab_c7', sector: 'c7', title: t('はじまりの国', 'The Land of Beginnings'), text: t('職人たちは紙に技を書き残し、弟子へと伝えた。「はじまりの国」の名は、ここで技がはじまったことから。', 'Crafters wrote their skills on paper and passed them to apprentices. The “Land of Beginnings” is named for where the crafts began.') },
+  { id: 'tab_c8', sector: 'c8', title: t('町の外へ', 'Beyond the town'), text: t('職人の町はやがて大きくなり、店どうしの競い合いが始まった。粘土の人形が、町の外へも売られていった。', 'The crafters’ town grew, and shops began to compete. Clay dolls were sold far beyond its walls.') },
+  { id: 'tab_u1a', sector: 'u1', title: t('どこへでも行ける港', 'A harbor to anywhere'), text: t('この港から、船はどこへでも行けた。海の向こうにあったのは別の国ではなく、同じ大地の続きだった。', 'From this harbor, ships could go anywhere. Across the sea lay not another country, but more of the same land.') },
+  { id: 'tab_u1b', sector: 'u1', title: t('古い海図', 'An old sea chart'), text: t('古い海図には、9 つの土地が 1 本の航路で結ばれている。いまの地図には、その航路が無い。', 'An old chart links nine lands with a single route. Today’s maps show no such route.') },
+  { id: 'tab_u2a', sector: 'u2', title: t('山からの鉄', 'Iron from the mountains'), text: t('鍛冶の町の鉄は、遠いグラファイトの山から運ばれてきた。山と港は、陸の道でつながっていた。', 'The smiths’ iron came from the far Graphite mountains. Mountain and harbor were joined by road.') },
+  { id: 'tab_u2b', sector: 'u2', title: t('途切れた道', 'The broken road'), text: t('道は 9 つの土地を巡っていた。どこで道が切れたのか、記録は途中で途切れている。', 'The road once circled all nine lands. Where it broke, the records do not say.') },
+  { id: 'tab_u3a', sector: 'u3', title: t('9 つの品の市場', 'A market of nine lands'), text: t('坂の上の市場には、9 つの土地の品が並んだ。タンジェリンの果実も、ここでは珍しくなかった。', 'The hilltop market sold goods from all nine lands. Even Tangerine fruit was nothing unusual here.') },
+  { id: 'tab_u3b', sector: 'u3', title: t('ひとつの通貨', 'One currency'), text: t('商人の帳簿には、9 つの土地の名が同じ通貨で書かれている。世界は、もとは 1 つだった。', 'Merchants’ ledgers list all nine lands in one currency. The world was once one.') },
+  { id: 'tab_u4a', sector: 'u4', title: t('9 色の織物', 'A cloth of nine colors'), text: t('織物の模様は、9 つの土地の色を 1 枚に織り込んだもの。どの色も、となりの色とつながっている。', 'The pattern weaves the colors of nine lands into one cloth. Every color touches the next.') },
+  { id: 'tab_u4b', sector: 'u4', title: t('ひとつの谷', 'One valley'), text: t('グレープとセージの職人は、同じ機で布を織った。2 つの土地は、もとは 1 つの谷だった。', 'Grape and Sage weavers shared one loom. The two lands were once a single valley.') },
+  { id: 'tab_u5a', sector: 'u5', title: t('石の地図', 'The stone map'), text: t('大きな街の広場に、9 つの土地を描いた石の地図がある。真ん中に、ひとつの大地が描かれている。', 'In the city square lies a stone map of nine lands. At its center is a single, whole land.') },
+  { id: 'tab_u5b', sector: 'u5', title: t('霧の向こう', 'Beyond the mist'), text: t('ある日、大地は 9 つに分かれた。そのうちいくつかは、霧の向こうに見えなくなったという。', 'One day, the land split into nine. Some of them, it is said, vanished beyond the mist.') },
+  // Rare 以降：枠だけ（準備中）
+  ...['r1', 'r2', 'r3', 'r4'].flatMap((id) =>
+    ['a', 'b'].map((x): Tablet => ({ id: `tab_${id}${x}`, sector: id, title: t('（準備中）', '(Coming soon)'), text: t('まだ読めない。', 'Not readable yet.'), soon: true })),
+  ),
+];
+export const TABLET: Record<string, Tablet> = Object.fromEntries(TABLETS.map((x) => [x.id, x]));
 
 // ---------------------------------------------------------------- 商品開発・宣伝・調査・依頼・給与
 
@@ -1225,8 +1438,8 @@ export interface Mission {
   title: string;
   text: string;
   reward: number;
-  /** ゴールドダストの報酬（受け取るときに会社のダストへ） */
-  dust?: number;
+  /** 研究ポイントの報酬（受け取るときに会社の RP へ。以前の ✨ 1 つ = RP_PER_DUST） */
+  rp?: number;
 }
 export const MISSIONS: Mission[] = [
   { id: 'first_sale', from: t('町内会', 'Neighborhood council'), title: t('はじめての売上', 'First sale'), text: t('お店で商品を 1 つ売る', 'Sell one item in your shop'), reward: 1000 },
@@ -1235,26 +1448,26 @@ export const MISSIONS: Mission[] = [
   { id: 'two_shops', from: t('商店会', 'Merchants’ association'), title: t('通りににぎわいを', 'Liven up the street'), text: t('お店を 2 軒にする', 'Open a second shop'), reward: 3000 },
   { id: 'research', from: t('商店会', 'Merchants’ association'), title: t('ライバルを知る', 'Know your rivals'), text: t('他社のお店を調査する', 'Research a rival store'), reward: 1500 },
   { id: 'lantern50', from: t('駅長', 'Stationmaster'), title: t('夜道を明るく', 'Light up the night'), text: t('ひと月にランタンを 10 個売る', 'Sell 10 Lanterns in one month'), reward: 3000 },
-  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000, dust: 1 },
-  { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000, dust: 1 },
+  { id: 'uncommon', from: t('収集家', 'A collector'), title: t('めずらしい品を', 'Something rare'), text: t('アンコモンを合わせて 5 個売る', 'Sell 5 Uncommons in total'), reward: 5000, rp: 40 },
+  { id: 'rank3', from: t('商店会', 'Merchants’ association'), title: t('エリアの顔に', 'Face of the area'), text: t('月の報告でエリア 3 位以内に入る', 'Finish a month in the area top 3'), reward: 5000, rp: 40 },
   // セクタの依頼（そのセクタでだけ受けられる。id はセーブと繋がる）
   // 湖・丘の依頼は、そのセクタの「まだ誰も売っていない」商品（ランタン・マレットは他店で供給が足りているので、ゴブレット・ナイフに）
-  { id: 'c2_goblet', sector: 'c2', from: t('湖の宿', 'The lakeside inn'), title: t('湖畔で乾杯', 'A toast by the lake'), text: t('ひと月にゴブレットを 10 個売る', 'Sell 10 Goblets in one month'), reward: 4000, dust: 1 },
-  { id: 'c2_top', sector: 'c2', from: t('ユーホタウンの町内会', 'Yuho Town council'), title: t('湖の一番店', 'Top shop on the lake'), text: t('ユーホタウンで 2 か月続けて 1 位になる', 'Become #1 in Yuho Town two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c3_knife', sector: 'c3', from: t('丘の上の大工さん', 'A hilltop carpenter'), title: t('ナイフを 10 本', 'Ten Knives'), text: t('ひと月にナイフを 10 本売る', 'Sell 10 Knives in one month'), reward: 4000, dust: 1 },
-  { id: 'c3_top', sector: 'c3', from: t('リデル・ヒルズの町内会', 'Riddle Hills council'), title: t('丘の一番店', 'Top shop on the hill'), text: t('リデル・ヒルズで 2 か月続けて 1 位になる', 'Become #1 in Riddle Hills two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c4_top', sector: 'c4', from: t('キッチョムシティの町内会', 'Kitchom City council'), title: t('町いちばんの店', 'Top shop in town'), text: t('キッチョムシティで 2 か月続けて 1 位になる', 'Become #1 in Kitchom City two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c5_top', sector: 'c5', from: t('お祭りの実行委員会', 'The festival committee'), title: t('お祭りの顔に', 'Face of the festival'), text: t('オマツリタウンで 2 か月続けて 1 位になる', 'Become #1 in Omatsuri Town two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c6_top', sector: 'c6', from: t('ジラ・カントリーの村長', 'Zira Country’s village head'), title: t('村の一番店', 'Top shop in the village'), text: t('ジラ・カントリーで 2 か月続けて 1 位になる', 'Become #1 in Zira Country two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c7_top', sector: 'c7', from: t('サクラコシティの町内会', 'Sakurako City council'), title: t('桜の一番店', 'Top shop under the blossoms'), text: t('サクラコシティで 2 か月続けて 1 位になる', 'Become #1 in Sakurako City two months in a row'), reward: 10000, dust: 1 },
-  { id: 'c8_top', sector: 'c8', from: t('ペストタウンの商店会', 'Pest Town merchants'), title: t('激戦区の一番店', 'Top of the battleground'), text: t('ペストタウンで 2 か月続けて 1 位になる', 'Become #1 in Pest Town two months in a row'), reward: 10000, dust: 1 },
-  { id: 'u1_dev', sector: 'u1', from: t('港の商人', 'A harbor merchant'), title: t('新しい品を', 'Something new'), text: t('アンコモンを 1 つ開発する', 'Develop one Uncommon'), reward: 8000, dust: 1 },
-  { id: 'u1_top', sector: 'u1', from: t('ウメコタウンの商工会', 'Umeko Town guild'), title: t('港の一番店', 'Top shop in the harbor'), text: t('ウメコタウンで 2 か月続けて 1 位になる', 'Become #1 in Umeko Town two months in a row'), reward: 30000, dust: 2 },
-  { id: 'u2_top', sector: 'u2', from: t('ヤツカノタウンの鍛冶組合', 'Yatsukano smiths’ guild'), title: t('金物の町の一番店', 'Top shop in the hardware town'), text: t('ヤツカノタウンで 2 か月続けて 1 位になる', 'Become #1 in Yatsukano Town two months in a row'), reward: 32000, dust: 2 },
+  { id: 'c2_goblet', sector: 'c2', from: t('湖の宿', 'The lakeside inn'), title: t('湖畔で乾杯', 'A toast by the lake'), text: t('ひと月にゴブレットを 10 個売る', 'Sell 10 Goblets in one month'), reward: 4000, rp: 40 },
+  { id: 'c2_top', sector: 'c2', from: t('ユーホタウンの町内会', 'Yuho Town council'), title: t('湖の一番店', 'Top shop on the lake'), text: t('ユーホタウンで 2 か月続けて 1 位になる', 'Become #1 in Yuho Town two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c3_knife', sector: 'c3', from: t('丘の上の大工さん', 'A hilltop carpenter'), title: t('ナイフを 10 本', 'Ten Knives'), text: t('ひと月にナイフを 10 本売る', 'Sell 10 Knives in one month'), reward: 4000, rp: 40 },
+  { id: 'c3_top', sector: 'c3', from: t('リデル・ヒルズの町内会', 'Riddle Hills council'), title: t('丘の一番店', 'Top shop on the hill'), text: t('リデル・ヒルズで 2 か月続けて 1 位になる', 'Become #1 in Riddle Hills two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c4_top', sector: 'c4', from: t('キッチョムシティの町内会', 'Kitchom City council'), title: t('町いちばんの店', 'Top shop in town'), text: t('キッチョムシティで 2 か月続けて 1 位になる', 'Become #1 in Kitchom City two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c5_top', sector: 'c5', from: t('お祭りの実行委員会', 'The festival committee'), title: t('お祭りの顔に', 'Face of the festival'), text: t('オマツリタウンで 2 か月続けて 1 位になる', 'Become #1 in Omatsuri Town two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c6_top', sector: 'c6', from: t('ジラ・カントリーの村長', 'Zira Country’s village head'), title: t('村の一番店', 'Top shop in the village'), text: t('ジラ・カントリーで 2 か月続けて 1 位になる', 'Become #1 in Zira Country two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c7_top', sector: 'c7', from: t('サクラコシティの町内会', 'Sakurako City council'), title: t('桜の一番店', 'Top shop under the blossoms'), text: t('サクラコシティで 2 か月続けて 1 位になる', 'Become #1 in Sakurako City two months in a row'), reward: 10000, rp: 40 },
+  { id: 'c8_top', sector: 'c8', from: t('ペストタウンの商店会', 'Pest Town merchants'), title: t('激戦区の一番店', 'Top of the battleground'), text: t('ペストタウンで 2 か月続けて 1 位になる', 'Become #1 in Pest Town two months in a row'), reward: 10000, rp: 40 },
+  { id: 'u1_dev', sector: 'u1', from: t('港の商人', 'A harbor merchant'), title: t('新しい品を', 'Something new'), text: t('アンコモンを 1 つ開発する', 'Develop one Uncommon'), reward: 8000, rp: 40 },
+  { id: 'u1_top', sector: 'u1', from: t('ウメコタウンの商工会', 'Umeko Town guild'), title: t('港の一番店', 'Top shop in the harbor'), text: t('ウメコタウンで 2 か月続けて 1 位になる', 'Become #1 in Umeko Town two months in a row'), reward: 30000, rp: 80 },
+  { id: 'u2_top', sector: 'u2', from: t('ヤツカノタウンの鍛冶組合', 'Yatsukano smiths’ guild'), title: t('金物の町の一番店', 'Top shop in the hardware town'), text: t('ヤツカノタウンで 2 か月続けて 1 位になる', 'Become #1 in Yatsukano Town two months in a row'), reward: 32000, rp: 80 },
   { id: 'u3_ads', sector: 'u3', from: t('坂の商店会', 'Slope merchants'), title: t('坂を宣伝で', 'Advertise the slope'), text: t('宣伝を 2 種類以上同時にする', 'Run 2 or more kinds of ads at once'), reward: 6000 },
-  { id: 'u3_top', sector: 'u3', from: t('エムケーシティの商店会', 'MK City association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('エムケーシティで 2 か月続けて 1 位になる', 'Become #1 in MK City two months in a row'), reward: 35000, dust: 2 },
-  { id: 'u4_top', sector: 'u4', from: t('ゴリ・ラグズの織物組合', 'Gori Rugs weavers’ guild'), title: t('織物の町の一番店', 'Top shop in the weaving town'), text: t('ゴリ・ラグズで 2 か月続けて 1 位になる', 'Become #1 in Gori Rugs two months in a row'), reward: 38000, dust: 2 },
-  { id: 'u5_top', sector: 'u5', from: t('ザックシティの商工会議所', 'Zack City chamber of commerce'), title: t('大都市の一番店', 'Top shop in the big city'), text: t('ザックシティで 2 か月続けて 1 位になる', 'Become #1 in Zack City two months in a row'), reward: 40000, dust: 2 },
+  { id: 'u3_top', sector: 'u3', from: t('エムケーシティの商店会', 'MK City association'), title: t('坂の一番店', 'Top shop on the slope'), text: t('エムケーシティで 2 か月続けて 1 位になる', 'Become #1 in MK City two months in a row'), reward: 35000, rp: 80 },
+  { id: 'u4_top', sector: 'u4', from: t('ゴリ・ラグズの織物組合', 'Gori Rugs weavers’ guild'), title: t('織物の町の一番店', 'Top shop in the weaving town'), text: t('ゴリ・ラグズで 2 か月続けて 1 位になる', 'Become #1 in Gori Rugs two months in a row'), reward: 38000, rp: 80 },
+  { id: 'u5_top', sector: 'u5', from: t('ザックシティの商工会議所', 'Zack City chamber of commerce'), title: t('大都市の一番店', 'Top shop in the big city'), text: t('ザックシティで 2 か月続けて 1 位になる', 'Become #1 in Zack City two months in a row'), reward: 40000, rp: 80 },
 ];
 
 /** 賞与：スタミナが満タンになる。昇給：作業の速さ +5%（3 段まで）、月給 +15%（基準の月給に対して） */

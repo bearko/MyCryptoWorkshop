@@ -81,6 +81,7 @@ const ERR: Record<MoveErr, string> = {
   cloud: t('雲に覆われていて、まだ行けません', 'Still under clouds'),
   locked: t('まだ開放されていません', 'Not unlocked yet'),
   soon: t('このセクタは準備中です', 'This sector is coming soon'),
+  letter: t('🔒 調査依頼状が要る（Common のセクタのお題をそろえよう）', '🔒 Needs a survey request (complete a Common sector’s finds)'),
   money: t('資金が足りません', 'Not enough funds'),
   manager: t('セクタマネージャーを選んでください', 'Pick a sector manager'),
   busy: t('そのヒーローは、ほかのセクタのマネージャーです', 'That hero manages another sector'),

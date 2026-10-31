@@ -270,6 +270,7 @@ describe('sectorBadges（縮小したときの札）', () => {
   it('まだ行けないセクタには条件', () => {
     const s = newP1(9);
     s.money = 1e7;
+    s.letters = ['U'];
     openGate(s);
     expect(moveTo(s, 'u1', null)).toBeNull();
     s.land!.mine.push('u2');

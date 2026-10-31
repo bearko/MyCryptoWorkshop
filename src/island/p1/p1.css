@@ -6328,9 +6328,8 @@ button.isl-mis {
 .isl-tree-curitem.is-emblem {
   border-color: #c7a7ff;
 }
-.isl-tree-curitem.is-dust {
-  border-color: #ffd257;
-  box-shadow: 0 0 10px rgba(255, 210, 87, 0.25);
+.isl-tree-curitem.is-rp {
+  border-color: #7fd0c8;
 }
 .isl-tree-curimg {
   width: 18px;
