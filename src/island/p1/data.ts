@@ -1110,21 +1110,32 @@ SKILLS.push(...OUTER_SKILLS);
 // ---------------------------------------------------------------- 発掘と研究ポイントの調整値（ここ 1 か所）
 
 /**
- * 地層の発掘と研究ポイントの、自動プレイ（`npm run island:sim`）で直す数字はここにまとめる（docs/ISLAND_BALANCE.md「v8」）。
- * 使う所：研究パネルの値段（RP_PRICE）・RP の入り方（RP_GAIN）・地層の硬さとツルハシの上限（DIG）・自動発掘の速さ（DIG_AUTO）・
- * 発掘の道具の値段（INVESTS の pick・lantern・blast）・発破の火薬代（BLAST）。
+ * 地層の発掘と研究ポイントの、自動プレイ（`npm run island:sim`）で直す数字はここにまとめる（docs/ISLAND_BALANCE.md「v8」「v9」）。
+ * 使う所：研究パネルの値段（RP_PRICE）・RP の入り方（RP_GAIN）・地層の硬さと荒れ地の断面の行数（DIG）・自動発掘の速さ（DIG_AUTO）・
+ * 発掘の道具の値段（INVESTS の pick・lantern・blast）・発破の火薬代（BLAST）・発掘作業の長さ（sessionSec）・長押しの間隔（repeatMs）・
+ * 発掘許可の申請料（permitFee）・自動プレイの打つ速さ（simTapsPerSec）。
  * v8 で直したもの（前 → 後）：Common の粘土層の硬さ 1〜2 → 1〜3・岩盤 2〜3 → 3（掘り尽くすのを Common の 1 か所目の滞在に合わせる）／
  * Common の RP「初めて掘る」10 → 15・「研究 Lv」5・10・15・20 → 8・15・20・25（1 か所目で RP が尽きて止まらない）／
- * ツルハシの新調 5,000・15,000 → 10,000・30,000 G（1 か所目のはじめに買って、すぐ掘り尽くさない）／発破の火薬代 1,000 → 2,000 G（余ったお金の使い道）
+ * ツルハシの新調 5,000・15,000 → 10,000・30,000 G（1 か所目のはじめに買って、すぐ掘り尽くさない）／発破の火薬代 1,000 → 2,000 G（余ったお金の使い道）。
+ * v9（発掘 v2 の 1 段目）：ツルハシの回数をやめ、荒れ地 4 か所 × 15 秒の発掘作業に（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
  */
 export const DIG_BALANCE: {
   rpPrice: Record<Tier, { lo: number; hi: number; big: number; step: number }>;
   rpGain: Record<'C' | 'U', { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
   hard: Record<'C' | 'U', [number, number][]>;
-  picks: Record<'C' | 'U', number>;
+  /** 荒れ地 1 か所の断面の、層ごとの行数（横は DIG.<ランク>.w） */
+  rows: Record<'C' | 'U', number[]>;
   autoPerDay: number;
   tools: { pick: number[]; lantern: number[]; blast: number[] };
   blastCost: number;
+  /** 1 回の発掘作業の長さ（現実の秒）。2 段目のスキル「追加申請」で延びる（model.ts の sessionSec） */
+  sessionSec: number;
+  /** 長押しで続けて打つ間隔（ミリ秒）。2 段目のスキル「速さ」で短くなる（model.ts の digRepeatMs） */
+  repeatMs: number;
+  /** 発掘許可の申請料（G。セクタの 1 か所目は無料、2 か所目から） */
+  permitFee: Record<'C' | 'U', number>;
+  /** 自動プレイ（scripts/island/sim.ts）で、1 秒に打てる数の仮定 */
+  simTapsPerSec: number;
 } = {
   // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
   rpPrice: {
@@ -1153,14 +1164,21 @@ export const DIG_BALANCE: {
       [4, 5],
     ],
   },
-  // ツルハシの回数の上限
-  picks: { C: 30, U: 60 },
+  // 荒れ地 1 か所の断面の、層ごとの行数（Common 横 7 × 縦 20・Uncommon 横 7 × 縦 24）
+  rows: { C: [7, 7, 6], U: [6, 6, 6, 6] },
   // 自動発掘：適性の速さ 1.0 で 1 日に打つ回数
   autoPerDay: 3,
   // 発掘の道具（工房の設備投資。G）：ツルハシの新調（2 段）・ランタン・発破の道具
   tools: { pick: [10000, 30000], lantern: [3000], blast: [6000] },
   // 発破の火薬代（1 回ごと。G）
   blastCost: 2000,
+  // 発掘作業：15 秒（現実の秒）・長押し 0.17 秒ごと
+  sessionSec: 15,
+  repeatMs: 170,
+  // 発掘許可の申請料（仮。セクタの 1 か所目は無料）
+  permitFee: { C: 2000, U: 8000 },
+  // 自動プレイ：1 秒に 4 打
+  simTapsPerSec: 4,
 };
 
 // ---------------------------------------------------------------- スキルツリーの 2 区分（研究パネル・お金パネル）
@@ -1308,10 +1326,10 @@ export const INVESTS: Invest[] = [
   { id: 'tools', kind: 'workshop', name: t('道具の新調', 'New tools'), note: t('クラフトの日数 −10%（1 段ごと）', 'Crafting −10% days per level'), cost: [3000, 6000, 12000] },
   { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
   { id: 'rack', kind: 'warehouse', name: t('倉庫の高い棚', 'Tall racks'), note: t('この倉庫の置き場所 +100 個', 'This warehouse holds 100 more'), cost: [6000] },
-  // 発掘の道具（工房の裏の発掘場。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」。値段は仮）
+  // 発掘の道具（荒れ地の発掘。工房の設備投資として買う。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」。値段は仮）
   { id: 'pick', kind: 'workshop', name: t('ツルハシの新調', 'New pickaxe'), note: t('発掘の 1 打の強さ +1（1 段ごと）', 'Each strike digs 1 harder (per level)'), cost: DIG_BALANCE.tools.pick },
   { id: 'lantern', kind: 'workshop', name: t('発掘のランタン', 'Dig lantern'), note: t('掘れるマスの 1 段下の出土品が薄く見える', 'Faintly shows finds one row below the open cells'), cost: DIG_BALANCE.tools.lantern },
-  { id: 'blast', kind: 'workshop', name: t('発破の道具', 'Blasting kit'), note: t('ツルハシ 1 回で 3 × 3 マスを崩せる（1 回ごとに火薬代がかかる）', 'Clear 3 × 3 cells with one pick use (each blast costs powder)'), cost: DIG_BALANCE.tools.blast },
+  { id: 'blast', kind: 'workshop', name: t('発破の道具', 'Blasting kit'), note: t('1 打で 3 × 3 マスを崩せる（1 回ごとに火薬代がかかる）', 'Clear 3 × 3 cells in one strike (each blast costs powder)'), cost: DIG_BALANCE.tools.blast },
 ];
 /**
  * 以前のスキル → 設備投資（古いセーブの移し替え。deserializeP1）。
@@ -1349,39 +1367,42 @@ export interface Stratum {
   color: string;
 }
 /**
- * 発掘場：横 w × 縦（層の行数の合計）。上から掘り進める（1 段目か、崩れたマスの隣だけ打てる）。
- * picks：ツルハシの回数の上限（自社のお店で 1 個売れるごとに 1 回たまる）。mat：素材のマスで出る数
+ * 荒れ地 1 か所の発掘場（断面）：横 w × 縦（層の行数の合計。DIG_BALANCE.rows）。上から掘り進める（1 段目か、崩れたマスの隣だけ打てる）。
+ * mat：素材のマスで出る数。セクタの地図に荒れ地が 4 か所（WASTE）あり、1 か所に 1 つの断面
  */
-export const DIG: Record<DigTier, { w: number; layers: Stratum[]; picks: number; mat: number; mats: Mat[] }> = {
+export const DIG: Record<DigTier, { w: number; layers: Stratum[]; mat: number; mats: Mat[] }> = {
   C: {
     w: 7,
-    picks: DIG_BALANCE.picks.C,
     mat: 3,
     mats: ['iron', 'wood', 'clay', 'glass'],
     layers: [
-      { name: t('表土', 'Topsoil'), rows: 10, hard: DIG_BALANCE.hard.C[0], color: '#8a6a44' },
-      { name: t('粘土層', 'Clay layer'), rows: 10, hard: DIG_BALANCE.hard.C[1], color: '#a0704a' },
-      { name: t('岩盤', 'Bedrock'), rows: 10, hard: DIG_BALANCE.hard.C[2], color: '#6f6a66' },
+      { name: t('表土', 'Topsoil'), rows: DIG_BALANCE.rows.C[0], hard: DIG_BALANCE.hard.C[0], color: '#8a6a44' },
+      { name: t('粘土層', 'Clay layer'), rows: DIG_BALANCE.rows.C[1], hard: DIG_BALANCE.hard.C[1], color: '#a0704a' },
+      { name: t('岩盤', 'Bedrock'), rows: DIG_BALANCE.rows.C[2], hard: DIG_BALANCE.hard.C[2], color: '#6f6a66' },
     ],
   },
   U: {
     w: 7,
-    picks: DIG_BALANCE.picks.U,
     mat: 2,
     mats: ['cloth', 'paper', 'gem'],
     layers: [
-      { name: t('岩盤', 'Bedrock'), rows: 10, hard: DIG_BALANCE.hard.U[0], color: '#6f6a66' },
-      { name: t('古い港の跡', 'Old harbor ruins'), rows: 10, hard: DIG_BALANCE.hard.U[1], color: '#5a6e7a' },
-      { name: t('古い街道の跡', 'Old highway ruins'), rows: 10, hard: DIG_BALANCE.hard.U[2], color: '#6b5d74' },
-      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: 10, hard: DIG_BALANCE.hard.U[3], color: '#4c4a5e' },
+      { name: t('岩盤', 'Bedrock'), rows: DIG_BALANCE.rows.U[0], hard: DIG_BALANCE.hard.U[0], color: '#6f6a66' },
+      { name: t('古い港の跡', 'Old harbor ruins'), rows: DIG_BALANCE.rows.U[1], hard: DIG_BALANCE.hard.U[1], color: '#5a6e7a' },
+      { name: t('古い街道の跡', 'Old highway ruins'), rows: DIG_BALANCE.rows.U[2], hard: DIG_BALANCE.hard.U[2], color: '#6b5d74' },
+      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: DIG_BALANCE.rows.U[3], hard: DIG_BALANCE.hard.U[3], color: '#4c4a5e' },
     ],
   },
 };
+/**
+ * 荒れ地（未開拓エリア）：発掘場のあるセクタの地図に 2 × 2 マスを 4 か所。1 か所が 1 つの発掘場。
+ * 置き場所は区画の内側（道路に面していないマス＝町の 1 マスの建物が建たない所）から、セクタの id で決める（model.ts の wasteSpots）
+ */
+export const WASTE = { count: 4, size: 2 };
 /** マスの中身の割合（お題・石板のほかに）：エクステ・素材。残りは土だけ */
 export const DIG_ODDS = { ext: 0.24, mat: 0.14 };
 /** 石板を置く層（Common 1 枚・Uncommon 2 枚） */
 export const TABLET_LAYERS: Record<DigTier, number[]> = { C: [2], U: [1, 3] };
-/** 自動発掘（仕事「発掘」）：適性の速さ 1.0 で 1 日に打つ回数（手で掘るほうが速い） */
+/** 発掘隊（仕事「発掘」）：発掘作業のあいだだけ、適性の速さ 1.0 で 1 日に打つ回数（手で掘るほうが速い） */
 export const DIG_AUTO = { perDay: DIG_BALANCE.autoPerDay };
 /** 発破：1 回ごとの火薬代（G。仮） */
 export const BLAST = { cost: DIG_BALANCE.blastCost };
@@ -1420,7 +1441,7 @@ export const DIG_SITES: Record<string, { topics: number[]; finds: number[] }> = 
   u5: { topics: [2182, 2041, 2039, 2046], finds: [2118, 2129, 2154, 2142, 2115, 2186, 2130, 2158, 2161, 2121] },
 };
 
-/** 石板（読み物）。Common：Lime に昔、職人の町があった／Uncommon：世界はもとは 1 つで、9 つのランドはつながっていた／Rare 以降：枠だけ */
+/** 石板（読み物）。Common：栄えていた頃の Lime の職人の町／Uncommon：Lime がほかの国とつながって交易していた頃（9 つのランドの謎は伏線）／Rare 以降：枠だけ */
 export interface Tablet {
   id: string;
   sector: string;
@@ -1430,17 +1451,17 @@ export interface Tablet {
   soon?: boolean;
 }
 export const TABLETS: Tablet[] = [
-  { id: 'tab_c1', sector: 'c1', title: t('職人の町', 'The crafters’ town'), text: t('ここに職人の町があった。人々は工房に集まり、道具から暮らしの品まで、なんでも自分たちの手で作った。', 'A crafters’ town once stood here. People gathered in workshops and made everything by hand, from tools to everyday goods.') },
-  { id: 'tab_c2', sector: 'c2', title: t('湖のガラス', 'Glass by the lake'), text: t('湖のほとりで、職人たちは砂からガラスを吹いた。町で作った品は、舟で湖の向こうへ運ばれた。', 'By the lake, crafters blew glass from sand. Goods made in town were ferried across the water.') },
+  { id: 'tab_c1', sector: 'c1', title: t('職人の町', 'The crafters’ town'), text: t('栄えていた頃の Lime には、ここに職人の町があった。人々は工房に集まり、道具から暮らしの品まで、なんでも自分たちの手で作った。', 'In Lime’s golden age, a crafters’ town stood here. People gathered in workshops and made everything by hand, from tools to everyday goods.') },
+  { id: 'tab_c2', sector: 'c2', title: t('湖のガラス', 'Glass by the lake'), text: t('湖のほとりで、Lime の職人たちは砂からガラスを吹いた。町で作った品は、舟で湖の向こうへ運ばれた。', 'By the lake, Lime’s crafters blew glass from sand. Goods made in town were ferried across the water.') },
   { id: 'tab_c3', sector: 'c3', title: t('丘の鍛冶場', 'The hill forge'), text: t('丘の鍛冶場では、鉄を打つ音が一日じゅう響いた。ここで鍛えた道具が、町の仕事を支えた。', 'At the hill forge, hammers rang all day. The tools forged here kept the town at work.') },
-  { id: 'tab_c4', sector: 'c4', title: t('にぎやかな市場', 'The busy market'), text: t('町には大勢が暮らし、家具も服も、隣どうしで作って分け合った。市場はいつもにぎわっていた。', 'Many lived in the town, making furniture and clothes for each other. The market was always lively.') },
+  { id: 'tab_c4', sector: 'c4', title: t('にぎやかな市場', 'The busy market'), text: t('栄えていた Lime の町には大勢が暮らし、家具も服も、隣どうしで作って分け合った。市場はいつもにぎわっていた。', 'Many lived in Lime’s thriving town, making furniture and clothes for each other. The market was always lively.') },
   { id: 'tab_c5', sector: 'c5', title: t('職人の祭り', 'The crafters’ festival'), text: t('年に一度、職人たちは作った品を持ち寄り、祭りで見せ合った。いちばんの品を作った者が、町の長になった。', 'Once a year, crafters showed their work at a festival. Whoever made the finest piece became head of the town.') },
   { id: 'tab_c6', sector: 'c6', title: t('森と畑の村', 'Village of woods and fields'), text: t('森の木を切り、畑を耕し、町の職人に材料を届けた。この村が、町の暮らしを支えていた。', 'They felled trees, tilled fields and brought materials to the town’s crafters. This village kept the town going.') },
   { id: 'tab_c7', sector: 'c7', title: t('はじまりの国', 'The Land of Beginnings'), text: t('職人たちは紙に技を書き残し、弟子へと伝えた。「はじまりの国」の名は、ここで技がはじまったことから。', 'Crafters wrote their skills on paper and passed them to apprentices. The “Land of Beginnings” is named for where the crafts began.') },
-  { id: 'tab_c8', sector: 'c8', title: t('町の外へ', 'Beyond the town'), text: t('職人の町はやがて大きくなり、店どうしの競い合いが始まった。粘土の人形が、町の外へも売られていった。', 'The crafters’ town grew, and shops began to compete. Clay dolls were sold far beyond its walls.') },
-  { id: 'tab_u1a', sector: 'u1', title: t('どこへでも行ける港', 'A harbor to anywhere'), text: t('この港から、船はどこへでも行けた。海の向こうにあったのは別の国ではなく、同じ大地の続きだった。', 'From this harbor, ships could go anywhere. Across the sea lay not another country, but more of the same land.') },
+  { id: 'tab_c8', sector: 'c8', title: t('町の外へ', 'Beyond the town'), text: t('職人の町はやがて大きくなり、店どうしの競い合いが始まった。粘土の人形は町の外へも売られたが、ある時から、町は静かに荒れていった。', 'The crafters’ town grew, and shops began to compete. Clay dolls were sold far beyond its walls — until, one day, the town quietly fell to ruin.') },
+  { id: 'tab_u1a', sector: 'u1', title: t('どこへでも行ける港', 'A harbor to anywhere'), text: t('この港から、Lime の船はどこへでも行けた。海の向こうの国々と品物を交わし、港はいつも荷であふれていた。', 'From this harbor, Lime’s ships could go anywhere. They traded with lands across the sea, and the docks overflowed with cargo.') },
   { id: 'tab_u1b', sector: 'u1', title: t('古い海図', 'An old sea chart'), text: t('古い海図には、9 つの土地が 1 本の航路で結ばれている。いまの地図には、その航路が無い。', 'An old chart links nine lands with a single route. Today’s maps show no such route.') },
-  { id: 'tab_u2a', sector: 'u2', title: t('山からの鉄', 'Iron from the mountains'), text: t('鍛冶の町の鉄は、遠いグラファイトの山から運ばれてきた。山と港は、陸の道でつながっていた。', 'The smiths’ iron came from the far Graphite mountains. Mountain and harbor were joined by road.') },
+  { id: 'tab_u2a', sector: 'u2', title: t('山からの鉄', 'Iron from the mountains'), text: t('鍛冶の町の鉄は、遠いグラファイトの山から運ばれてきた。Lime と山の国は、交易の道でつながっていた。', 'The smiths’ iron came from the far Graphite mountains. Lime and the mountain land were joined by a trade road.') },
   { id: 'tab_u2b', sector: 'u2', title: t('途切れた道', 'The broken road'), text: t('道は 9 つの土地を巡っていた。どこで道が切れたのか、記録は途中で途切れている。', 'The road once circled all nine lands. Where it broke, the records do not say.') },
   { id: 'tab_u3a', sector: 'u3', title: t('9 つの品の市場', 'A market of nine lands'), text: t('坂の上の市場には、9 つの土地の品が並んだ。タンジェリンの果実も、ここでは珍しくなかった。', 'The hilltop market sold goods from all nine lands. Even Tangerine fruit was nothing unusual here.') },
   { id: 'tab_u3b', sector: 'u3', title: t('ひとつの通貨', 'One currency'), text: t('商人の帳簿には、9 つの土地の名が同じ通貨で書かれている。世界は、もとは 1 つだった。', 'Merchants’ ledgers list all nine lands in one currency. The world was once one.') },

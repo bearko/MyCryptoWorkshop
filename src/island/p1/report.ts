@@ -8,13 +8,13 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
-import { digMet, digReportLine, digReportText } from './digmeet';
+import { digMet, digReportLine, digReportText, type DigSummary } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
 import { jamOf, myShops, whatIf, type P1State, type Report, type Stage } from './model';
 import { moveUp } from './scm';
-import { open, type Ctx } from './screens';
+import { closeSheet, open, type Ctx } from './screens';
 import { btn, h, money, rich, select, skuIcon } from './ui';
 
 const STAGE_NAME: Record<Stage, string> = { buy: t('① 調達', '① Buy'), craft: t('② 製造', '② Craft'), haul: t('③ 物流', '③ Haul'), sell: t('④ 販売', '④ Sell') };
@@ -573,5 +573,120 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
     },
     // チュートリアル中は従来どおり自動で本体へ
     !!ctx.step?.(),
+  );
+}
+
+// ---------------------------------------------------------------- 発掘作業のまとめ報告（docs/ISLAND_PHASE1.md「まとめ報告」）
+
+export interface DigSummaryHooks {
+  /** 「くわしい報告を見る」（最新の月のいつもの月次報告） */
+  detail: () => void;
+  openNotes?: () => void;
+  sfx?: ReportHooks['sfx'];
+}
+
+/**
+ * 発掘作業のあいだに締めた月（1〜複数）をまとめた 1 枚（スマホ 390×844 でスクロールなし）：
+ * 期間の売上の合計（カウントアップ。カウント中のタップで到達）・月ごとの小さな棒・順位の変化・資金の増減・今回の出土・詰まりと打ち手 1 つ。
+ * ボタン「くわしい報告を見る」「続ける」。閉じたら then（main.ts が月末ポーズの「次の月へ」を出す）
+ */
+export function openDigSummary(ctx: Ctx, sum: DigSummary, hooks: DigSummaryHooks, then?: () => void) {
+  const s = ctx.s();
+  let counted = false;
+  open(
+    ctx,
+    sum.title,
+    (body) => {
+      body.classList.add('is-dsum');
+      // ---- 売上の合計（カウントアップ）と月ごとの棒
+      const c1 = h('div', 'isl-card2 isl-ds-card');
+      c1.append(cardHead(t('KPI ①', 'KPI 1'), false, t('期間の売上', 'Sales in this period')));
+      const top = h('div', 'isl-ds-top');
+      const num = h('b', 'isl-ds-total', counted ? money(sum.total) : '0 G');
+      top.append(num);
+      const bars = h('div', 'isl-ds-bars');
+      const max = Math.max(1, ...sum.months.map((m) => m.revenue));
+      for (const m of sum.months) {
+        const col = h('span', 'isl-ds-bar');
+        const f = h('i');
+        f.style.height = `${Math.max(4, Math.round((m.revenue / max) * 100))}%`;
+        col.append(f, h('small', '', m.label));
+        col.title = `${m.label} ${money(m.revenue)}`;
+        bars.append(col);
+      }
+      top.append(bars);
+      c1.append(top);
+      const row = h('div', 'isl-ds-row');
+      // 順位の変化
+      const rk = h('span', 'isl-ds-chip');
+      const mv = sum.rankFrom == null ? 0 : sum.rankFrom - sum.rankTo;
+      rk.append(h('small', '', t('エリアの順位', 'Area rank')), h('b', `isl-ds-rank ${mv > 0 ? 'is-up' : mv < 0 ? 'is-down' : ''}`, sum.rankFrom == null ? t(`${sum.rankTo} 位`, `#${sum.rankTo}`) : t(`${sum.rankFrom} 位 → ${sum.rankTo} 位`, `#${sum.rankFrom} → #${sum.rankTo}`)));
+      if (sum.conquered) rk.append(h('span', 'isl-ds-crown', t('👑 制覇！', '👑 Conquered!')));
+      row.append(rk);
+      // 資金の増減
+      const cash = h('span', 'isl-ds-chip');
+      cash.append(h('small', '', t('資金', 'Funds')));
+      if (sum.money) {
+        const dm = sum.money.end - sum.money.start;
+        cash.append(h('b', '', `${money(sum.money.start)} → ${money(sum.money.end)}`), h('small', dm >= 0 ? 'isl-good' : 'isl-bad', `${dm >= 0 ? '+' : '−'}${money(Math.abs(dm))}`));
+      } else cash.append(h('b', '', '—'));
+      row.append(cash);
+      c1.append(row);
+      // ---- 今回の出土
+      const c2 = h('div', 'isl-card2 isl-ds-card');
+      c2.append(cardHead('⛏', false, t('今回の出土', 'This dig'), hooks.openNotes ? btn(t('研究ノート', 'Notebook'), () => hooks.openNotes?.(), 'isl-rp-go') : undefined));
+      const g = h('div', 'isl-ds-got');
+      const got = sum.got;
+      for (const [k, v] of [
+        [t('新発見', 'New'), `${got.found}`],
+        [t('研究 Lv ↑', 'Lv ↑'), `${got.lv}`],
+        ['RP', `+${got.rp}`],
+        [t('素材', 'Mats'), `+${got.mat}`],
+      ]) {
+        const c = h('span', 'isl-ds-stat');
+        c.append(h('small', '', k), h('b', '', v));
+        g.append(c);
+      }
+      c2.append(g);
+      // ---- 詰まり（最新の月）と打ち手 1 つ
+      const c3 = h('div', 'isl-card2 isl-ds-card');
+      const bn = reportJam(s, sum.latest);
+      c3.append(cardHead(t('KPI ③', 'KPI 3'), false, t('いまの詰まり', 'Current jam')));
+      const hint = h('p', 'isl-rp-hint isl-ds-hint');
+      const tw = bn !== 'sell' || myShops(s).length ? whatIf(s, bn).find((w) => w.ok) : undefined;
+      const best = tw ? moveUp(ctx, s, tw) : null;
+      if (best && tw) hint.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。効く手：[[${best.label}]]（+${Math.round(tw.units)} 個／月）`, `[[${STAGE_NAME[bn]}]] jam. Best: [[${best.label}]] (+${Math.round(tw.units)} / mo)`)));
+      else hint.append(rich(t(`[[${STAGE_NAME[bn]}]]が詰まり。${STAGE_HINT_SHORT[bn]}`, `[[${STAGE_NAME[bn]}]] jam. ${STAGE_HINT_SHORT[bn]}`)));
+      c3.append(hint);
+      // ---- ボタン
+      const acts = h('div', 'isl-row isl-ds-acts');
+      acts.append(btn(t('くわしい報告を見る', 'Full report'), () => hooks.detail()), btn(t('続ける', 'Continue'), () => closeSheet(), 'is-on'));
+      body.append(c1, c2, c3, acts);
+      // カウントアップ（いつもの報告の発表と同じ長さ。カウント中のタップで到達）
+      if (!counted) {
+        const t0 = performance.now();
+        let landed = false;
+        const land = () => {
+          if (landed) return;
+          landed = true;
+          counted = true;
+          num.textContent = money(sum.total);
+          num.classList.add('is-hit');
+          hooks.sfx?.(sum.conquered || sum.rankTo === 1 ? 'win' : 'sale');
+        };
+        num.addEventListener('click', land);
+        c1.addEventListener('click', land);
+        hooks.sfx?.('drum');
+        const tick = (now: number) => {
+          if (landed || !num.isConnected) return;
+          const k = Math.min(1, (now - t0) / REVEAL.count);
+          num.textContent = money(countValue(sum.total, k));
+          if (k < 1) requestAnimationFrame(tick);
+          else land();
+        };
+        requestAnimationFrame(tick);
+      }
+    },
+    then,
   );
 }

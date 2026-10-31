@@ -14,6 +14,8 @@ import {
   BLAST,
   DIG,
   DIG_AUTO,
+  DIG_BALANCE,
+  WASTE,
   DIG_ODDS,
   DIG_SITES,
   RESEARCH_NEED,
@@ -260,8 +262,8 @@ export interface Flags {
 }
 
 export interface P1State {
-  /** セーブの版（2：地層の発掘と研究ポイント。1 のセーブは deserializeP1 で移す） */
-  v: 1 | 2;
+  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘。1・2 のセーブは deserializeP1 で順に移す） */
+  v: 1 | 2 | 3;
   kind: 'p1';
   seed: number;
   n: number;
@@ -374,8 +376,10 @@ export interface P1State {
   letters: Tier[];
   /** 研究成果を発表したセクタ（id） */
   presented: string[];
-  /** このセクタの発掘場（Common・Uncommon のセクタだけ。無ければ null） */
+  /** このセクタの発掘場（荒れ地 4 か所。Common・Uncommon のセクタだけ。無ければ null） */
   dig: DigState | null;
+  /** 発掘作業（15 秒）の途中。月の締めは行うが、月末ポーズと月次報告の画面は作業のあとにまとめて（docs/ISLAND_PHASE1.md「15 秒の発掘」） */
+  digRun?: DigRun | null;
   /** 「名物店主」（以前の ✨）にしたお店（このセクタの uid） */
   dustShop?: number | null;
   /** きのう売れた数（商品ごと。POS レジで市場データに出す） */
@@ -474,6 +478,8 @@ export const facesRoad = (s: P1State, id: string, i: number, j: number, dir: Dir
 
 function lotFree(s: P1State, id: string, i: number, j: number, dir: Dir, ignore?: number) {
   return cells(DEF[id], i, j, dir).every(([x, y]) => {
+    // 荒れ地（発掘許可をもらって掘りきると、建てられるようになる：4 段目）
+    if (isWaste(s, x, y)) return false;
     const o = ground(s, x, y) === 'grass' ? occupant(s, x, y) : undefined;
     return o !== undefined && (!o || o.uid === ignore);
   });
@@ -490,7 +496,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
-    v: 2,
+    v: 3,
     kind: 'p1',
     seed,
     n,
@@ -802,6 +808,7 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
   } else if (task === 'side') {
     if (!s.rivals.some((x) => x.id === target)) return 'no-rival';
   } else if (task === 'dig') {
+    // 発掘隊：荒れ地のあるセクタだけ（働くのは発掘作業のあいだだけ）
     if (!s.dig) return 'no-site';
   }
   st.task = task;
@@ -890,7 +897,7 @@ export function setRest(s: P1State, hero: number, rest: boolean) {
 
 // ---------------------------------------------------------------- 建てる
 
-export type PlaceErr = 'ground' | 'taken' | 'road' | 'money' | 'locked' | 'soon' | 'limit';
+export type PlaceErr = 'ground' | 'waste' | 'taken' | 'road' | 'money' | 'locked' | 'soon' | 'limit';
 
 /** 入口が道路に向く向きだけ */
 /**
@@ -964,6 +971,7 @@ export function canPlaceAt(s: P1State, id: string, i: number, j: number, dir: Di
   if (e) return e;
   const cs = cells(DEF[id], i, j, dir);
   if (cs.some(([x, y]) => ground(s, x, y) !== 'grass')) return 'ground';
+  if (cs.some(([x, y]) => isWaste(s, x, y))) return 'waste';
   if (cs.some(([x, y]) => occupant(s, x, y))) return 'taken';
   if (!facesRoad(s, id, i, j, dir)) return 'road';
   return null;
@@ -989,7 +997,7 @@ export function turn(s: P1State, uid: number): boolean {
   for (let k = 1; k < 4; k++) {
     const d = order[(order.indexOf(b.dir) + k) % 4];
     const cs = cells(DEF[b.id], b.i, b.j, d);
-    const free = cs.every(([x, y]) => ground(s, x, y) === 'grass' && !others.some((o) => cells(DEF[o.id], o.i, o.j, o.dir).some(([p, q]) => p === x && q === y)));
+    const free = cs.every(([x, y]) => ground(s, x, y) === 'grass' && !isWaste(s, x, y) && !others.some((o) => cells(DEF[o.id], o.i, o.j, o.dir).some(([p, q]) => p === x && q === y)));
     if (free && facesRoad(s, b.id, b.i, b.j, d)) {
       b.dir = d;
       return true;
@@ -1012,6 +1020,7 @@ export function canMoveTo(s: P1State, uid: number, i: number, j: number, dir: Di
   if (s.money < moveCost(b)) return 'money';
   const cs = cells(DEF[b.id], i, j, dir);
   if (cs.some(([x, y]) => ground(s, x, y) !== 'grass')) return 'ground';
+  if (cs.some(([x, y]) => isWaste(s, x, y))) return 'waste';
   if (cs.some(([x, y]) => {
     const o = occupant(s, x, y);
     return o && o.uid !== uid;
@@ -2415,9 +2424,9 @@ export function step(s: P1State): DayResult {
     }
   }
 
-  // 発掘（自動）：たまったツルハシの回数を、1 日に数回ぶんゆっくり使う（手で掘るほうが速い）
+  // 発掘隊：発掘作業のあいだだけ、同じ荒れ地を 1 日に数回ぶん打つ（作業していない日は働かない・スタミナも減らない）
   for (const st of s.staff) {
-    if (st.task !== 'dig' || st.resting || !s.dig) continue;
+    if (st.task !== 'dig' || st.resting || !s.dig || !s.digRun) continue;
     working.add(st.hero);
     const hits = autoDig(s, st);
     if (hits.length) (res.dug ??= []).push(...hits);
@@ -2526,8 +2535,6 @@ export function step(s: P1State): DayResult {
 
   // POS レジ：きのう売れた数
   if (!s.holdSales) s.yday = today;
-  // 発掘：自社のお店で 1 個売れるごとに、ツルハシの回数が 1 回たまる（上限まで）
-  addPicks(s, Object.values(today).reduce<number>((a, n) => a + (n ?? 0), 0));
 
   // スタミナ（休憩室・福利厚生で回復 +50% ずつ。減り方は drainOf。SCM の数字の稼働率 uptime と同じ式）
   const restRate = restRateOf(s);
@@ -2942,7 +2949,7 @@ export function serializeP1(s: P1State): string {
 export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
-    if ((o.v !== 1 && o.v !== 2) || o.kind !== 'p1') return null;
+    if ((o.v !== 1 && o.v !== 2 && o.v !== 3) || o.kind !== 'p1') return null;
     const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
@@ -2965,7 +2972,14 @@ export function deserializeP1(json: string): P1State | null {
     s.tablets ??= [];
     s.letters ??= [];
     s.presented ??= [];
-    if (s.dig === undefined || (s.dig && s.dig.sector !== (s.sector ?? 'c1'))) s.dig = newDig(s.sector ?? 'c1');
+    // 版 2 → 3：荒れ地 4 か所の発掘場に作り直す（研究ノート・RP・お題の発見はそのまま。1 か所目の許可は済み。ツルハシの回数は捨てる）
+    ensureDig(s);
+    // 発掘作業の途中で閉じた：作業は終わり。月をまたいでいたら、月末ポーズから
+    if (s.digRun) {
+      if (s.reports.length > s.digRun.rep0) s.monthPause = true;
+      s.digRun = null;
+    }
+    s.v = 3;
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -3749,28 +3763,61 @@ export interface DigCell {
   layer: number;
   item: DigItem | null;
 }
+/** 荒れ地 1 か所の断面（発掘場） */
 export interface DigLayout {
   sector: string;
   tier: DigTier;
+  /** 荒れ地の番号（0〜3。wasteSpots の順） */
+  site: number;
   w: number;
   h: number;
   cells: DigCell[];
   /** 層ごとのはじめの行 */
   rows: number[];
+  /** この荒れ地に眠っているお題（エクステの id。無ければ null。1 か所に 1 つまで） */
+  topic: number | null;
 }
-/** このセクタの発掘場（セクタごと。SECTOR_KEYS の dig） */
-export interface DigState {
-  sector: string;
-  /** ツルハシの回数（売れるごとに +1。上限 DIG[tier].picks） */
-  picks: number;
+/** 荒れ地 1 か所の進み具合 */
+export interface DigSiteState {
   /** マスごとの残りの硬さ（0 で崩れた） */
   hp: number[];
+  /** 国の発掘許可をもらった（一度もらえば何度でも掘れる） */
+  permit: boolean;
+  /** 掘りきった（マスを全部崩した。復興は 4 段目） */
+  done: boolean;
+}
+/** このセクタの発掘場（荒れ地 4 か所。セクタごと。SECTOR_KEYS の dig） */
+export interface DigState {
+  sector: string;
+  sites: DigSiteState[];
+  /** いま掘っている（最後に掘った）荒れ地 */
+  cur: number;
   /** 掘り出したお題（エクステの id） */
   topics: number[];
-  /** 自動発掘の端数 */
+  /** 発掘隊の端数 */
   carry: number;
   /** 今月：新発見・研究 Lv が上がった数・入った RP（月次報告の「今月の出土品」） */
   month: { found: number; lv: number; rp: number };
+  /** 最後に発掘作業をした日（助言「しばらく掘っていない」） */
+  last?: number;
+}
+/** 1 回の発掘作業の出土（発掘終了の札・まとめ報告） */
+export interface DigGot {
+  found: number;
+  lv: number;
+  rp: number;
+  mat: number;
+  cells: number;
+}
+/** 発掘作業（15 秒・現実の秒）。作業のあいだは時間が流れ、月をまたいでも月末ポーズと月次報告の画面は出さない */
+export interface DigRun {
+  site: number;
+  /** 残り・長さ（ミリ秒） */
+  left: number;
+  total: number;
+  /** 作業を始めたときの報告の数（これより後の報告が、作業のあいだに締めた月） */
+  rep0: number;
+  got: DigGot;
 }
 /** 1 打の結果 */
 export interface DigHit {
@@ -3788,8 +3835,10 @@ export interface DigHit {
   first?: boolean;
   /** 研究レベルが上がった（上がったあとのレベル） */
   lv?: number;
+  /** この 1 打で、荒れ地を掘りきった */
+  done?: boolean;
 }
-export type DigErr = 'no-site' | 'no-workshop' | 'no-picks' | 'out' | 'dug' | 'far' | 'no-blast' | 'money';
+export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'far' | 'no-blast' | 'money';
 
 /** 文字列の種（セクタの id → 発掘場の配置の種。同じセクタは何度遊んでも同じ配置） */
 function strSeed(x: string): number {
@@ -3797,85 +3846,201 @@ function strSeed(x: string): number {
   for (let i = 0; i < x.length; i++) h = Math.imul(h ^ x.charCodeAt(i), 16777619);
   return h >>> 0;
 }
-const layoutCache = new Map<string, DigLayout | null>();
-/** セクタの発掘場の配置（Common・Uncommon で出土品の決まったセクタだけ。無ければ null）。seed から決めるので、いつも同じ */
-export function digLayout(sector: string): DigLayout | null {
-  if (layoutCache.has(sector)) return layoutCache.get(sector)!;
+
+/** 発掘場のあるセクタ（Common・Uncommon で出土品の決まったセクタ）のランク。無ければ null */
+function digTierOf(sector: string): DigTier | null {
+  const tier = SECTORS.find((x) => x.id === sector)?.tier;
+  return DIG_SITES[sector] && (tier === 'C' || tier === 'U') ? tier : null;
+}
+
+// ---------------------------------------------------------------- 荒れ地（未開拓エリア）
+
+const spotCache = new Map<string, [number, number][]>();
+/**
+ * 荒れ地 4 か所の左上のマス（2 × 2。発掘場の無いセクタは []）。
+ * 区画（道路のあいだ。地図の端の区画は除く）の内側の 2 × 2 ＝ 道路に面していないマスなので、町の 1 マスの建物（住宅・お店・交番…）も
+ * チュートリアルで建てる場所（工房・よろず屋・倉庫。道路に面した 1 マス）も、ここには来ない。ゲームの種に寄らず、セクタの id で決める。
+ * Common（16 マス）は内側の区画がちょうど 4 つ（4 つの象限に 1 つずつ）。Uncommon（21 マス）は 9 つから、角の 4 つかひし形の 4 つ。
+ */
+export function wasteSpots(sector: string): [number, number][] {
+  const hit = spotCache.get(sector);
+  if (hit) return hit;
+  const tier = digTierOf(sector);
+  let out: [number, number][] = [];
+  if (tier) {
+    const n = tier === 'C' ? N : TIERS[tier].n;
+    const roads = roadLines(n);
+    const starts: number[] = [];
+    for (let k = 0; k + 1 < roads.length; k++) {
+      const a = roads[k] + 1;
+      const len = roads[k + 1] - 1 - a + 1;
+      if (len >= WASTE.size + 2) starts.push(a + Math.floor((len - WASTE.size) / 2));
+    }
+    const all = starts.flatMap((j) => starts.map((i): [number, number] => [i, j]));
+    if (all.length <= WASTE.count) out = all;
+    else {
+      const lo = starts[0];
+      const hi = starts[starts.length - 1];
+      const mid = starts[Math.floor((starts.length - 1) / 2)];
+      const corners: [number, number][] = [[lo, lo], [hi, lo], [lo, hi], [hi, hi]];
+      const diamond: [number, number][] = [[mid, lo], [hi, mid], [mid, hi], [lo, mid]];
+      out = rng(strSeed(`waste:${sector}`))() < 0.5 ? corners : diamond;
+    }
+  }
+  spotCache.set(sector, out);
+  return out;
+}
+/** 荒れ地の 4 マス */
+export function wasteCells(sector: string, k: number): [number, number][] {
+  const sp = wasteSpots(sector)[k];
+  if (!sp) return [];
+  const out: [number, number][] = [];
+  for (let dj = 0; dj < WASTE.size; dj++) for (let di = 0; di < WASTE.size; di++) out.push([sp[0] + di, sp[1] + dj]);
+  return out;
+}
+/** マス (i, j) の荒れ地の番号（荒れ地でなければ -1） */
+export function wasteAt(s: Pick<P1State, 'sector'>, i: number, j: number): number {
+  const sp = wasteSpots(s.sector ?? 'c1');
+  for (let k = 0; k < sp.length; k++) if (i >= sp[k][0] && j >= sp[k][1] && i < sp[k][0] + WASTE.size && j < sp[k][1] + WASTE.size) return k;
+  return -1;
+}
+export const isWaste = (s: Pick<P1State, 'sector'>, i: number, j: number) => wasteAt(s, i, j) >= 0;
+
+/** 画面で見た 8 つの向き（東から時計回り）の荒れ地の名前 */
+const WASTE_NAMES = () => [
+  t('東の荒れ地', 'East wasteland'),
+  t('南東の荒れ地', 'Southeast wasteland'),
+  t('南の荒れ地', 'South wasteland'),
+  t('南西の荒れ地', 'Southwest wasteland'),
+  t('西の荒れ地', 'West wasteland'),
+  t('北西の荒れ地', 'Northwest wasteland'),
+  t('北の荒れ地', 'North wasteland'),
+  t('北東の荒れ地', 'Northeast wasteland'),
+];
+/** 荒れ地の名前（画面で見た向き：「北の荒れ地」「南東の荒れ地」…） */
+export function wasteName(sector: string, k: number): string {
+  const sp = wasteSpots(sector)[k];
+  const tier = digTierOf(sector);
+  if (!sp || !tier) return t(`荒れ地 ${k + 1}`, `Wasteland ${k + 1}`);
+  const n = tier === 'C' ? N : TIERS[tier].n;
+  const c = (n - 1) / 2;
+  const ci = sp[0] + (WASTE.size - 1) / 2 - c;
+  const cj = sp[1] + (WASTE.size - 1) / 2 - c;
+  const a = Math.atan2((ci + cj) * 55, (ci - cj) * 100);
+  return WASTE_NAMES()[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+}
+
+// ---------------------------------------------------------------- 荒れ地の断面（発掘場）
+
+const layoutCache = new Map<string, DigLayout[]>();
+/**
+ * セクタの荒れ地 4 か所の断面（Common・Uncommon で出土品の決まったセクタだけ。無ければ []）。seed から決めるので、いつも同じ。
+ * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は決まった層に（お題と別のマス）
+ */
+export function digLayouts(sector: string): DigLayout[] {
+  const hit = layoutCache.get(sector);
+  if (hit) return hit;
   const def = SECTORS.find((x) => x.id === sector);
   const site = DIG_SITES[sector];
-  const tier = def?.tier;
-  if (!def || !site || (tier !== 'C' && tier !== 'U')) {
-    layoutCache.set(sector, null);
-    return null;
+  const tier = digTierOf(sector);
+  if (!def || !site || !tier) {
+    layoutCache.set(sector, []);
+    return [];
   }
   const D = DIG[tier];
   const r = rng(strSeed(`dig:${sector}`));
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+  const shuffle = <T>(xs: T[]) => {
+    const a = [...xs];
+    for (let k = a.length - 1; k > 0; k--) {
+      const m = Math.floor(r() * (k + 1));
+      [a[k], a[m]] = [a[m], a[k]];
+    }
+    return a;
+  };
   // 素材：そのセクタの特産（Common は安い素材、Uncommon は最初から開いているルート）を 3 倍出やすく
   const prof = def.profile;
   const special = new Set<Mat>([...(prof.cheap ?? []), ...(tier === 'U' ? (prof.routes ?? []) : [])]);
   const matBag = D.mats.flatMap((m) => (special.has(m) ? [m, m, m] : [m]));
-  const cells: DigCell[] = [];
-  const rows: number[] = [];
-  let y0 = 0;
-  D.layers.forEach((L, layer) => {
-    rows.push(y0);
-    for (let y = 0; y < L.rows; y++)
-      for (let x = 0; x < D.w; x++) {
-        const hard = L.hard[0] + Math.floor(r() * (L.hard[1] - L.hard[0] + 1));
-        const roll = r();
-        const item: DigItem | null = roll < DIG_ODDS.ext ? { kind: 'ext', id: pick(site.finds) } : roll < DIG_ODDS.ext + DIG_ODDS.mat ? { kind: 'mat', mat: pick(matBag), n: D.mat } : null;
-        cells.push({ hard, layer, item });
+  const n = wasteSpots(sector).length;
+  // どの荒れ地にどのお題があるか（1 か所に 1 つまで）と、石板を置く荒れ地
+  const order = shuffle(Array.from({ length: n }, (_, k) => k));
+  const topicAt = new Map<number, number>();
+  site.topics.forEach((_, k) => topicAt.set(order[k % n], k));
+  const tabs = TABLETS.filter((x) => x.sector === sector);
+  const tabSites = shuffle(Array.from({ length: n }, (_, k) => k));
+  const out: DigLayout[] = [];
+  for (let sk = 0; sk < n; sk++) {
+    const cells: DigCell[] = [];
+    const rows: number[] = [];
+    let y0 = 0;
+    const tk = topicAt.get(sk);
+    D.layers.forEach((L, layer) => {
+      rows.push(y0);
+      for (let y = 0; y < L.rows; y++)
+        for (let x = 0; x < D.w; x++) {
+          const hard = L.hard[0] + Math.floor(r() * (L.hard[1] - L.hard[0] + 1));
+          const roll = r();
+          const item: DigItem | null = roll < DIG_ODDS.ext ? { kind: 'ext', id: pick(site.finds) } : roll < DIG_ODDS.ext + DIG_ODDS.mat ? { kind: 'mat', mat: pick(matBag), n: D.mat } : null;
+          cells.push({ hard, layer, item });
+        }
+      // この層のどこか（1 段目は避ける）
+      const at = (taken: number[]) => {
+        for (;;) {
+          const k = (y0 + 1 + Math.floor(r() * Math.max(1, L.rows - 1))) * D.w + Math.floor(r() * D.w);
+          if (!taken.includes(k)) return k;
+        }
+      };
+      const taken: number[] = [];
+      if (tk === layer) {
+        const k = at(taken);
+        taken.push(k);
+        cells[k].item = { kind: 'ext', id: site.topics[layer], topic: true };
       }
-    // お題は、この層のどこかに 1 つだけ（1 段目は避ける）。石板は、決まった層に 1 枚（お題と別のマス）
-    const at = (taken: number[]) => {
-      for (;;) {
-        const k = (y0 + 1 + Math.floor(r() * Math.max(1, L.rows - 1))) * D.w + Math.floor(r() * D.w);
-        if (!taken.includes(k)) return k;
-      }
-    };
-    const tk = at([]);
-    cells[tk].item = { kind: 'ext', id: site.topics[layer], topic: true };
-    const ti = TABLET_LAYERS[tier].indexOf(layer);
-    if (ti >= 0) {
-      const tab = TABLETS.filter((x) => x.sector === sector)[ti];
-      if (tab) cells[at([tk])].item = { kind: 'tablet', id: tab.id };
-    }
-    y0 += L.rows;
-  });
-  const out: DigLayout = { sector, tier, w: D.w, h: y0, cells, rows };
+      const ti = TABLET_LAYERS[tier].indexOf(layer);
+      if (ti >= 0 && tabs[ti] && tabSites[ti % n] === sk) cells[at(taken)].item = { kind: 'tablet', id: tabs[ti].id };
+      y0 += L.rows;
+    });
+    out.push({ sector, tier, site: sk, w: D.w, h: y0, cells, rows, topic: tk != null ? site.topics[tk] : null });
+  }
   layoutCache.set(sector, out);
   return out;
 }
-/** 新しい発掘場（そのセクタに発掘場が無ければ null） */
+/** 荒れ地 k の断面（無ければ null） */
+export const digLayout = (sector: string, k = 0): DigLayout | null => digLayouts(sector)[k] ?? null;
+
+/** 新しい発掘場（荒れ地 4 か所。そのセクタに発掘場が無ければ null）。許可はまだ（1 か所目は申請料なし） */
 export function newDig(sector: string): DigState | null {
-  const L = digLayout(sector);
-  if (!L) return null;
-  return { sector, picks: 0, hp: L.cells.map((c) => c.hard), topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 } };
+  const Ls = digLayouts(sector);
+  if (!Ls.length) return null;
+  return { sector, sites: Ls.map((L) => ({ hp: L.cells.map((c) => c.hard), permit: false, done: false })), cur: 0, topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 } };
 }
-/** いまのセクタの発掘場の配置 */
-export const digSite = (s: Pick<P1State, 'dig'>) => (s.dig ? digLayout(s.dig.sector) : null);
-/** ツルハシの回数の上限 */
-export const picksCap = (s: Pick<P1State, 'dig'>) => {
-  const L = digSite(s);
-  return L ? DIG[L.tier].picks : 0;
-};
-/** ツルハシの回数を足す（売れた数。上限まで） */
-export function addPicks(s: P1State, n: number) {
-  if (!s.dig || n <= 0) return;
-  s.dig.picks = Math.min(picksCap(s), s.dig.picks + n);
-}
-/** 1 打の強さ：1 ＋ ツルハシの新調の段 */
+/** いま掘っている荒れ地の断面 */
+export const digSite = (s: Pick<P1State, 'dig'>) => (s.dig ? digLayout(s.dig.sector, s.dig.cur) : null);
+/** いま掘っている荒れ地の進み具合 */
+const curSite = (s: Pick<P1State, 'dig'>) => s.dig?.sites[s.dig.cur] ?? null;
+/** 1 打の強さ：1 ＋ ツルハシの新調の段（工房の設備投資。工房が無ければ 1） */
 export const digPower = (s: P1State) => 1 + invLv(myWorkshop(s), 'pick');
+/** 1 回の発掘作業の長さ（秒。2 段目のスキル「追加申請」で延びる足場） */
+export const sessionSec = (_s: P1State) => DIG_BALANCE.sessionSec;
+/** 長押しで続けて打つ間隔（ミリ秒。2 段目のスキル「速さ」で短くなる足場） */
+export const digRepeatMs = (_s: P1State) => DIG_BALANCE.repeatMs;
 /** そのマスは崩れている */
 export const isDug = (s: Pick<P1State, 'dig'>, x: number, y: number) => {
   const L = digSite(s);
-  return !!L && x >= 0 && y >= 0 && x < L.w && y < L.h && s.dig!.hp[y * L.w + x] <= 0;
+  return !!L && x >= 0 && y >= 0 && x < L.w && y < L.h && curSite(s)!.hp[y * L.w + x] <= 0;
 };
 /** そのマスに手が届く（1 段目か、上下左右のどこかが崩れている） */
 export function reachable(s: Pick<P1State, 'dig'>, x: number, y: number): boolean {
   if (y === 0) return true;
   return isDug(s, x, y - 1) || isDug(s, x - 1, y) || isDug(s, x + 1, y) || isDug(s, x, y + 1);
+}
+/** マスの中身（もう見つけたお題は、ほかの荒れ地で二度と出ない：古いセーブの移し替えで配置が変わったとき） */
+function itemAt(s: Pick<P1State, 'dig'>, L: DigLayout, k: number): DigItem | null {
+  // （掘り出した瞬間は、まだ topics に入っていないので出る）
+  const it = L.cells[k].item;
+  if (it?.kind === 'ext' && it.topic && s.dig?.topics.includes(it.id)) return null;
+  return it;
 }
 /** ランタン：掘れるマス（手が届くマス）のさらに 1 段下まで、中身が薄く見える */
 export function peek(s: P1State, x: number, y: number): DigItem | null {
@@ -3884,17 +4049,16 @@ export function peek(s: P1State, x: number, y: number): DigItem | null {
   if (isDug(s, x, y)) return L.cells[y * L.w + x].item;
   if (invLv(myWorkshop(s), 'lantern') <= 0) return null;
   const open = reachable(s, x, y) || (y > 0 && !isDug(s, x, y - 1) && reachable(s, x, y - 1));
-  return open ? L.cells[y * L.w + x].item : null;
+  return open ? itemAt(s, L, y * L.w + x) : null;
 }
-/** そのマスを打てない理由（null なら打てる） */
+/** そのマスを打てない理由（null なら打てる）。打てるのは発掘作業のあいだだけ（回数の制限は無い） */
 export function digCheck(s: P1State, x: number, y: number): DigErr | null {
   const L = digSite(s);
   if (!L || !s.dig) return 'no-site';
-  if (!myWorkshop(s)) return 'no-workshop';
+  if (!s.digRun || s.digRun.site !== s.dig.cur) return 'no-run';
   if (x < 0 || y < 0 || x >= L.w || y >= L.h) return 'out';
-  if (s.dig.hp[y * L.w + x] <= 0) return 'dug';
+  if (curSite(s)!.hp[y * L.w + x] <= 0) return 'dug';
   if (!reachable(s, x, y)) return 'far';
-  if (s.dig.picks < 1) return 'no-picks';
   return null;
 }
 /** そのエクステの研究レベル（会社で共有。0〜5） */
@@ -3905,19 +4069,29 @@ export const researchLeft = (s: Pick<P1State, 'research'>, id: number) => {
   const next = RESEARCH_NEED.find((x) => x > n);
   return next == null ? 0 : next - n;
 };
-/** RP を足す（今月の出土品にも数える） */
+/** RP を足す（今月の出土品・発掘作業の出土にも数える） */
 function gainRp(s: P1State, v: number) {
   s.rp = (s.rp ?? 0) + v;
   if (s.dig) s.dig.month.rp += v;
+  if (s.digRun) s.digRun.got.rp += v;
+}
+function countFound(s: P1State) {
+  s.dig!.month.found++;
+  if (s.digRun) s.digRun.got.found++;
+}
+function countLv(s: P1State) {
+  s.dig!.month.lv++;
+  if (s.digRun) s.digRun.got.lv++;
 }
 /** マスが崩れた：中身を受け取る（研究レベル・RP・素材・石板・お題） */
 function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
-  const it = L.cells[k].item;
+  const it = itemAt(s, L, k);
   hit.item = it;
   if (!it) return;
   const G = RP_GAIN[L.tier];
   if (it.kind === 'mat') {
     s.mats[it.mat] = (s.mats[it.mat] ?? 0) + it.n;
+    if (s.digRun) s.digRun.got.mat += it.n;
     return;
   }
   if (it.kind === 'tablet') {
@@ -3935,11 +4109,11 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
     if (!s.dig!.topics.includes(it.id)) s.dig!.topics.push(it.id);
     if (before === 0) {
       hit.first = true;
-      s.dig!.month.found++;
+      countFound(s);
     }
     if (researchLv(before) < 5) {
       hit.lv = 5;
-      s.dig!.month.lv++;
+      countLv(s);
     }
     hit.rp += G.topic;
     gainRp(s, G.topic);
@@ -3951,69 +4125,73 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
   const lv1 = researchLv(n);
   if (before === 0) {
     hit.first = true;
-    s.dig!.month.found++;
+    countFound(s);
     hit.rp += G.first;
     gainRp(s, G.first);
   } else if (lv1 > lv0) {
     hit.lv = lv1;
-    s.dig!.month.lv++;
+    countLv(s);
     const v = G.lv[lv1 - 2];
     hit.rp += v;
     gainRp(s, v);
   }
 }
-/** 1 マスを強さ power で打つ（回数は使わない） */
+/** 1 マスを強さ power で打つ。崩れたら中身が出る。全部崩れたら、その荒れ地は掘りきった（done） */
 function strike(s: P1State, L: DigLayout, x: number, y: number, power: number): DigHit {
   const k = y * L.w + x;
-  const hp = s.dig!.hp;
+  const st = s.dig!.sites[L.site];
+  const hp = st.hp;
   hp[k] = Math.max(0, hp[k] - power);
   const hit: DigHit = { x, y, broke: hp[k] <= 0, left: hp[k], item: null, rp: 0 };
-  if (hit.broke) reveal(s, L, k, hit);
+  if (hit.broke) {
+    if (s.digRun) s.digRun.got.cells++;
+    reveal(s, L, k, hit);
+    if (!st.done && hp.every((v) => v <= 0)) {
+      st.done = true;
+      hit.done = true;
+    }
+  }
   return hit;
 }
-/**
- * 打つ：ツルハシを 1 回使って、そのマスを 1 打（1 打の強さ digPower）。崩れたら中身が出る。
- * 月末ポーズのあいだも、たまった回数のぶんは掘れる（回数は売上からしか増えない）。打てなければ理由（DigErr）
- */
+/** 打つ：そのマスを 1 打（1 打の強さ digPower）。崩れたら中身が出る。発掘作業のあいだは何回でも打てる。打てなければ理由（DigErr） */
 export function dig(s: P1State, x: number, y: number): DigHit | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
-  const L = digSite(s)!;
-  s.dig!.picks -= 1;
-  return strike(s, L, x, y, digPower(s));
+  return strike(s, digSite(s)!, x, y, digPower(s));
 }
 /** 発破の道具があるか */
 export const hasBlast = (s: P1State) => invLv(myWorkshop(s), 'blast') > 0;
-/** 発破：ツルハシ 1 回と火薬代で、(x, y) を真ん中に 3 × 3 マスを一度に崩す（(x, y) に手が届くこと） */
+/** 発破：火薬代で、(x, y) を真ん中に 3 × 3 マスを一度に崩す（(x, y) に手が届くこと） */
 export function blast(s: P1State, x: number, y: number): DigHit[] | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
   if (!hasBlast(s)) return 'no-blast';
   if (s.money < BLAST.cost) return 'money';
   const L = digSite(s)!;
-  s.dig!.picks -= 1;
   s.money -= BLAST.cost;
   spend(s, 'build', BLAST.cost);
+  const hp = curSite(s)!.hp;
   const out: DigHit[] = [];
   for (let dy = -1; dy <= 1; dy++)
     for (let dx = -1; dx <= 1; dx++) {
       const X = x + dx;
       const Y = y + dy;
-      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || s.dig!.hp[Y * L.w + X] <= 0) continue;
+      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0) continue;
       out.push(strike(s, L, X, Y, Infinity));
     }
   return out;
 }
-/** 次に打つマス（自動発掘）：打ちかけのマス → 浅いマス → 左から */
+/** 次に打つマス（発掘隊）：打ちかけのマス → 浅いマス → 左から */
 export function digNext(s: P1State): [number, number] | null {
   const L = digSite(s);
-  if (!L || !s.dig) return null;
+  const st = curSite(s);
+  if (!L || !st) return null;
   let best: [number, number] | null = null;
   let score = Infinity;
   for (let y = 0; y < L.h; y++)
     for (let x = 0; x < L.w; x++) {
       const k = y * L.w + x;
-      const hp = s.dig.hp[k];
+      const hp = st.hp[k];
       if (hp <= 0 || !reachable(s, x, y)) continue;
       const v = (hp < L.cells[k].hard ? -1e6 : 0) + y * 100 + x;
       if (v < score) {
@@ -4023,12 +4201,12 @@ export function digNext(s: P1State): [number, number] | null {
     }
   return best;
 }
-/** 自動発掘の 1 日：適性の速さ × DIG_AUTO.perDay 回ぶん（端数は持ち越す。回数が無ければたまらない） */
+/** 発掘隊の 1 日：発掘作業のあいだだけ、適性の速さ × DIG_AUTO.perDay 回ぶん同じ荒れ地を打つ（端数は持ち越す） */
 export function autoDig(s: P1State, st: Staff): DigHit[] {
-  if (!s.dig) return [];
+  if (!s.dig || !s.digRun) return [];
   const out: DigHit[] = [];
   s.dig.carry += DIG_AUTO.perDay * speed(st, 'dig', s);
-  while (s.dig.carry >= 1 && s.dig.picks >= 1) {
+  while (s.dig.carry >= 1) {
     const at = digNext(s);
     if (!at) break;
     const r = dig(s, at[0], at[1]);
@@ -4039,6 +4217,128 @@ export function autoDig(s: P1State, st: Staff): DigHit[] {
   s.dig.carry = Math.min(1, s.dig.carry);
   return out;
 }
+
+// ---------------------------------------------------------------- 発掘許可（荒れ地ごと）
+
+/** このセクタで許可をもらった荒れ地の数 */
+export const permitCount = (s: Pick<P1State, 'dig'>) => s.dig?.sites.filter((x) => x.permit).length ?? 0;
+/** 次の発掘許可の申請料（セクタの 1 か所目は無料。2 か所目から DIG_BALANCE.permitFee） */
+export function permitFee(s: Pick<P1State, 'dig'>): number {
+  const tier = s.dig ? digTierOf(s.dig.sector) : null;
+  if (!tier) return 0;
+  return permitCount(s) === 0 ? 0 : DIG_BALANCE.permitFee[tier];
+}
+export type PermitErr = 'no-site' | 'have' | 'money';
+/** 荒れ地 k の発掘許可を申請できない理由（null ならできる） */
+export function permitLock(s: P1State, k: number): PermitErr | null {
+  const st = s.dig?.sites[k];
+  if (!st) return 'no-site';
+  if (st.permit) return 'have';
+  return s.money < permitFee(s) ? 'money' : null;
+}
+/** 発掘許可を申請する（国の役所へ。申請料は帳簿の「許可・通行料」） */
+export function applyPermit(s: P1State, k: number): { fee: number } | PermitErr {
+  const e = permitLock(s, k);
+  if (e) return e;
+  const fee = permitFee(s);
+  if (fee > 0) {
+    s.money -= fee;
+    book(s, 'fees', fee);
+  }
+  s.dig!.sites[k].permit = true;
+  return { fee };
+}
+/** 1 か所目の荒れ地：自社の工房にいちばん近い荒れ地（工房が無ければ 0） */
+export function firstSite(s: Pick<P1State, 'sector' | 'buildings'>): number {
+  const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
+  const sp = wasteSpots(s.sector ?? 'c1');
+  if (!ws || !sp.length) return 0;
+  let best = 0;
+  let bd = Infinity;
+  sp.forEach(([i, j], k) => {
+    const d = Math.abs(i + 0.5 - ws.i) + Math.abs(j + 0.5 - ws.j);
+    if (d < bd) {
+      bd = d;
+      best = k;
+    }
+  });
+  return best;
+}
+/** 1 か所目の発掘許可を、申請料なしで済ませる（発掘との出会いの手紙・古いセーブ）。許可した荒れ地の番号 */
+export function grantFirst(s: P1State): number {
+  if (!s.dig) return -1;
+  const k = firstSite(s);
+  if (permitCount(s) === 0 && s.dig.sites[k]) s.dig.sites[k].permit = true;
+  return k;
+}
+/** 荒れ地 k の掘った割合（0〜1） */
+export function siteProgress(s: Pick<P1State, 'dig'>, k: number): number {
+  const st = s.dig?.sites[k];
+  if (!st || !st.hp.length) return 0;
+  return st.hp.filter((v) => v <= 0).length / st.hp.length;
+}
+/** 荒れ地 k のお題：'none'（無い）／'hidden'（まだ眠っている）／'found'（見つけ済み） */
+export function siteTopic(s: Pick<P1State, 'dig'>, k: number): 'none' | 'hidden' | 'found' {
+  const L = s.dig ? digLayout(s.dig.sector, k) : null;
+  if (!L || L.topic == null) return 'none';
+  return s.dig!.topics.includes(L.topic) ? 'found' : 'hidden';
+}
+
+// ---------------------------------------------------------------- 発掘作業（15 秒）
+
+export type RunErr = 'no-site' | 'no-permit' | 'done' | 'busy';
+/** 荒れ地 k で発掘作業を始められない理由（null なら始められる） */
+export function runLock(s: P1State, k: number): RunErr | null {
+  const st = s.dig?.sites[k];
+  if (!st) return 'no-site';
+  if (s.digRun) return 'busy';
+  if (!st.permit) return 'no-permit';
+  if (st.done) return 'done';
+  return null;
+}
+/**
+ * 発掘作業を始める（sessionSec 秒）。作業のあいだは時間が流れる（月末ポーズから始めたら、次の月が始まる）。
+ * 月の締め（endMonth）は行うが、月末ポーズと月次報告の画面は作業のあとにまとめる（holdReport・endRun）
+ */
+export function startRun(s: P1State, k: number): DigRun | RunErr {
+  const e = runLock(s, k);
+  if (e) return e;
+  s.dig!.cur = k;
+  s.dig!.last = s.day;
+  s.monthPause = false;
+  const ms = sessionSec(s) * 1000;
+  s.digRun = { site: k, left: ms, total: ms, rep0: s.reports.length, got: { found: 0, lv: 0, rp: 0, mat: 0, cells: 0 } };
+  return s.digRun;
+}
+/** 現実の時間を ms 進める。時間切れなら true */
+export function runTick(s: P1State, ms: number): boolean {
+  if (!s.digRun) return false;
+  s.digRun.left = Math.max(0, s.digRun.left - ms);
+  return s.digRun.left <= 0;
+}
+/** 月の締めの報告を、いまは画面に出さずに積む（発掘作業のあいだ） */
+export const holdReport = (s: Pick<P1State, 'digRun'>) => !!s.digRun;
+export interface RunEnd {
+  site: number;
+  got: DigGot;
+  /** 作業のあいだに締めた月の報告（古い順） */
+  held: Report[];
+  /** 月をまたいだ（まとめ報告を出し、そのあと月末ポーズを 1 回） */
+  crossed: boolean;
+  /** その荒れ地を掘りきっている */
+  done: boolean;
+}
+/** 発掘作業を終える（時間切れ・「発掘を終える」）。月をまたいでいたら、月末ポーズを 1 回（「次の月へ」を押すまで止まる） */
+export function endRun(s: P1State): RunEnd | null {
+  const r = s.digRun;
+  if (!r) return null;
+  s.digRun = null;
+  if (s.dig) s.dig.last = s.day;
+  const held = s.reports.slice(r.rep0);
+  if (held.length) s.monthPause = true;
+  return { site: r.site, got: r.got, held, crossed: held.length > 0, done: !!s.dig?.sites[r.site]?.done };
+}
+
 /** そのセクタのお題（エクステの id。上の層から） */
 export const topicsOf = (sector: string) => DIG_SITES[sector]?.topics ?? [];
 /** 掘り出したお題の数 / お題の数 */
@@ -4046,12 +4346,13 @@ export function topicProgress(s: Pick<P1State, 'dig'>): [number, number] {
   if (!s.dig) return [0, 0];
   return [s.dig.topics.length, topicsOf(s.dig.sector).length];
 }
-/** いまの層（いちばん深く崩れたマスの層。まだ掘っていなければ 0） */
+/** いまの層（いま掘っている荒れ地の、いちばん深く崩れたマスの層。まだ掘っていなければ 0） */
 export function digDepthLayer(s: Pick<P1State, 'dig'>): number {
   const L = digSite(s);
-  if (!L || !s.dig) return 0;
+  const st = curSite(s);
+  if (!L || !st) return 0;
   let deep = -1;
-  for (let k = 0; k < s.dig.hp.length; k++) if (s.dig.hp[k] <= 0) deep = Math.max(deep, Math.floor(k / L.w));
+  for (let k = 0; k < st.hp.length; k++) if (st.hp[k] <= 0) deep = Math.max(deep, Math.floor(k / L.w));
   return deep < 0 ? 0 : L.cells[deep * L.w].layer;
 }
 /** 発表すると受け取る調査依頼状（Common → Uncommon。Uncommon → Rare は枠だけ） */
@@ -4068,11 +4369,12 @@ export function presentLock(s: P1State): PresentErr | null {
 export function present(s: P1State): { rp: number; letter: Tier | null } | PresentErr {
   const e = presentLock(s);
   if (e) return e;
-  const L = digSite(s)!;
-  s.presented.push(L.sector);
-  const v = RP_GAIN[L.tier].present;
+  const sector = s.dig!.sector;
+  const tier = digTierOf(sector)!;
+  s.presented.push(sector);
+  const v = RP_GAIN[tier].present;
   gainRp(s, v);
-  const letter = NEXT_TIER[L.tier] ?? null;
+  const letter = NEXT_TIER[tier] ?? null;
   if (letter && !s.letters.includes(letter)) s.letters.push(letter);
   return { rp: v, letter };
 }
@@ -4085,6 +4387,35 @@ export function extName(id: number): string {
   extNames ??= new Map(allSeries.flatMap((x) => x.items.map((e) => [e.id, { name: e.name, nameEn: e.nameEn }] as const)));
   const e = extNames.get(id);
   return e ? t(e.name, e.nameEn) : `#${id}`;
+}
+
+/** 版 2 の発掘場（セクタに 1 つ・工房の裏）。版 3 で荒れ地 4 か所に作り直す */
+interface OldDig {
+  sector: string;
+  hp: number[];
+  topics: number[];
+  month?: { found: number; lv: number; rp: number };
+}
+/**
+ * 版 2 → 3（docs/ISLAND_PHASE1.md「セーブの引き継ぎ（版 3）」）：断面のマス目は新しい荒れ地 4 か所で作り直す。
+ * 見つけたお題（・研究ノート・RP・石板は会社のもの）はそのまま（見つけ済みのお題は、新しい配置で再び出ない）。1 か所目の許可は済み。ツルハシの回数は捨てる
+ */
+export function upgradeDig(old: OldDig, s: Pick<P1State, 'buildings'>): DigState | null {
+  const d = newDig(old.sector);
+  if (!d) return null;
+  d.topics = [...(old.topics ?? [])];
+  if (old.month) d.month = { ...old.month };
+  const k = firstSite({ sector: old.sector, buildings: s.buildings });
+  d.sites[k].permit = true;
+  d.cur = k;
+  return d;
+}
+/** いまのセクタの発掘場を、いまの形にそろえる（無い・別のセクタ → 新しく。版 2 の形 → 作り直す） */
+export function ensureDig(s: P1State) {
+  const sec = s.sector ?? 'c1';
+  const d = s.dig as (DigState & Partial<OldDig>) | null | undefined;
+  if (d === undefined || (d && d.sector !== sec)) s.dig = newDig(sec);
+  else if (d && !Array.isArray(d.sites)) s.dig = upgradeDig(d as OldDig, s);
 }
 
 /** 以前のゴールドダストのパネルの値段（版 1 のセーブの返金に使う：✨ 3 → 4 → 5。外周は U 5・R 6・E 8・L 10 から） */

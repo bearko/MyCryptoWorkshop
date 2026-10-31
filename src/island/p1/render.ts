@@ -10,7 +10,7 @@ import { center, diamond, drawArt, drawBuilding, drawCell, image, type Camera, t
 import { cells, frontCell, type Dir } from '../sim';
 import { PRODUCT, skuParts, type Sku } from './data';
 import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
-import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, type P1State, type Stop } from './model';
+import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
 import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
 
 export interface P1Ghost {
@@ -118,10 +118,20 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       else drawCell(ctx, water, i, j);
     }
   }
+  // 荒れ地（2 × 2）：乾いた土・小石・石垣のかけら・枯れ草。発掘中は杭とロープ（仮の絵。docs/ISLAND_ART_TODO.md）
+  const wastes = s.dig ? wasteSpots(s.dig.sector) : [];
+  wastes.forEach((sp, k) => {
+    if (visible(sp[0], sp[1]) || visible(sp[0] + 1, sp[1] + 1)) drawWaste(ctx, s, k, sp, now, anim?.wasteGlow === k);
+  });
   // 置くとき：置けないマスは暗く、置く場所は緑（置ける）か赤（置けない）
   if (placeable)
     for (let j = 0; j < s.n; j++)
       for (let i = 0; i < s.n; i++) if (!placeable.has(j * s.n + i) && visible(i, j)) diamond(ctx, i, j, 'rgba(14,18,30,0.55)');
+
+  // 置くとき：荒れ地は赤く（発掘許可をもらって掘りきると建てられる）
+  if (placeable)
+    for (const [i0, j0] of wastes)
+      for (let dj = 0; dj < 2; dj++) for (let di = 0; di < 2; di++) if (visible(i0 + di, j0 + dj)) diamond(ctx, i0 + di, j0 + dj, 'rgba(225,60,60,0.42)');
 
   // 人流解析：お客さんの多い区画を薄い金色に（置けないマスの暗さの上に）
   if (ghost?.hot)
@@ -165,6 +175,12 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       },
     });
   }
+  // 荒れ地の旗（発掘許可あり）：建物と同じく奥から手前へ
+  wastes.forEach(([i0, j0], k) => {
+    const st = s.dig?.sites[k];
+    if (!st?.permit || st.done || s.digRun?.site === k || !visible(i0, j0)) return;
+    items.push({ depth: (i0 + j0) * 1000 + i0 + 0.3, draw: () => wasteFlag(ctx, i0, j0, now) });
+  });
   if (ghost) {
     const def = DEF[ghost.id];
     const [fi, fj] = frontCell(def, ghost.i, ghost.j, ghost.dir);
@@ -246,6 +262,20 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   }
   items.sort((a, b) => a.depth - b.depth);
   for (const it of items) it.draw();
+  // 発掘との出会い：光らせる荒れ地のふちを、建物の上にも金色で（手前の家に隠れないように）
+  if (anim?.wasteGlow != null && wastes[anim.wasteGlow]) {
+    const [i0, j0] = wastes[anim.wasteGlow];
+    const a = 0.45 + 0.35 * Math.sin(now / 220);
+    ctx.beginPath();
+    [wastePt(i0, j0, 0, 0), wastePt(i0, j0, 1, 0), wastePt(i0, j0, 1, 1), wastePt(i0, j0, 0, 1)].forEach((q, n) => (n ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.setLineDash([22, 14]);
+    ctx.lineDashOffset = -now / 30;
+    ctx.strokeStyle = `rgba(255,214,90,${a.toFixed(3)})`;
+    ctx.lineWidth = 7;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   // つながった地図：手前のセクタと、セクタのあいだの境界線
   if (world) {
     drawWorld(ctx, s, world, 'front', visible, regionVis, now, overview, cacheScale(cam.zoom, dpr));
@@ -451,4 +481,176 @@ function tripPath(s: P1State, a: [number, number], b: [number, number]): [number
     tripPaths.set(key, p);
   }
   return p;
+}
+
+
+// ---------------------------------------------------------------- 荒れ地（仮の絵。PixelLab で作り直す：docs/ISLAND_ART_TODO.md）
+
+/** 荒れ地ごとの決まった乱数（同じ荒れ地はいつも同じ絵） */
+function wasteRng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = a;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+/** 2 × 2 の菱形の中の点（u：右上へ・v：左下へ。0〜1） */
+function wastePt(i: number, j: number, u: number, v: number) {
+  const c = center(i, j);
+  return { x: c.x + (u - v) * 200, y: c.y - 55 + (u + v) * 110 };
+}
+/**
+ * 荒れ地 1 か所（2 × 2）：ひびの入った乾いた土・小石・崩れた石垣のかけら・枯れ草。
+ * 発掘中は杭とロープ、掘りきった後はならした土（4 段目で建てられる土地に）。glow：発掘との出会いで光らせる
+ */
+function drawWaste(ctx: CanvasRenderingContext2D, s: P1State, k: number, sp: [number, number], now: number, glow: boolean) {
+  const [i, j] = sp;
+  const st = s.dig?.sites[k];
+  const done = !!st?.done;
+  const running = s.digRun?.site === k;
+  const r = wasteRng(i * 131 + j * 17 + k * 7 + (s.sector ?? 'c1').charCodeAt(1) * 1009);
+  const T = wastePt(i, j, 0, 0);
+  const R = wastePt(i, j, 1, 0);
+  const B = wastePt(i, j, 1, 1);
+  const L = wastePt(i, j, 0, 1);
+  const poly = (pts: { x: number; y: number }[]) => {
+    ctx.beginPath();
+    pts.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+  };
+  // 地面：乾いた土（掘りきった後は明るく平らに）
+  poly([T, R, B, L]);
+  ctx.fillStyle = done ? '#c2a476' : '#94734a';
+  ctx.fill();
+  // 土のむら（明るい斑と暗い斑）
+  for (let n = 0; n < 14; n++) {
+    const p = wastePt(i, j, 0.1 + r() * 0.8, 0.1 + r() * 0.8);
+    ctx.fillStyle = done ? (n % 2 ? 'rgba(255,240,200,0.18)' : 'rgba(120,90,50,0.15)') : n % 2 ? 'rgba(190,150,96,0.45)' : 'rgba(70,50,30,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, 18 + r() * 30, 8 + r() * 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (done) {
+    // ならした土：熊手の筋
+    ctx.strokeStyle = 'rgba(120,92,56,0.45)';
+    ctx.lineWidth = 3;
+    for (let n = 1; n < 8; n++) {
+      const a = wastePt(i, j, n / 8, 0.08);
+      const b = wastePt(i, j, n / 8, 0.92);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  } else {
+    // ひび（ジグザグの線）
+    ctx.strokeStyle = 'rgba(46,30,16,0.75)';
+    ctx.lineWidth = 3;
+    for (let n = 0; n < 6; n++) {
+      let u = 0.15 + r() * 0.7;
+      let v = 0.15 + r() * 0.7;
+      ctx.beginPath();
+      const p0 = wastePt(i, j, u, v);
+      ctx.moveTo(p0.x, p0.y);
+      for (let m = 0; m < 4; m++) {
+        u = Math.min(0.92, Math.max(0.08, u + (r() - 0.5) * 0.22));
+        v = Math.min(0.92, Math.max(0.08, v + (r() - 0.5) * 0.22));
+        const p = wastePt(i, j, u, v);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    // 崩れた石垣のかけら（灰色の小さな塊）
+    for (let n = 0; n < 5; n++) {
+      const p = wastePt(i, j, 0.12 + r() * 0.76, 0.12 + r() * 0.76);
+      const w = 14 + r() * 16;
+      ctx.fillStyle = '#5e5a57';
+      ctx.fillRect(Math.round(p.x - w / 2), Math.round(p.y - 9), Math.round(w), 12);
+      ctx.fillStyle = '#8d8984';
+      ctx.fillRect(Math.round(p.x - w / 2), Math.round(p.y - 13), Math.round(w), 5);
+      ctx.fillStyle = '#2c2a28';
+      ctx.fillRect(Math.round(p.x - w / 2), Math.round(p.y + 3), Math.round(w), 2);
+    }
+    // 小石
+    for (let n = 0; n < 16; n++) {
+      const p = wastePt(i, j, 0.06 + r() * 0.88, 0.06 + r() * 0.88);
+      ctx.fillStyle = n % 3 ? '#b8ab98' : '#6f675d';
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 5, 4);
+    }
+    // 枯れ草（黄土色の短い線の束）
+    ctx.strokeStyle = '#c9b06a';
+    ctx.lineWidth = 2;
+    for (let n = 0; n < 9; n++) {
+      const p = wastePt(i, j, 0.08 + r() * 0.84, 0.08 + r() * 0.84);
+      for (let m = -1; m <= 1; m++) {
+        ctx.beginPath();
+        ctx.moveTo(p.x + m * 3, p.y);
+        ctx.lineTo(p.x + m * 6, p.y - 10 - r() * 6);
+        ctx.stroke();
+      }
+    }
+  }
+  // ふち（暗い土の線）
+  poly([T, R, B, L]);
+  ctx.strokeStyle = 'rgba(52,36,20,0.6)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  // 発掘中：四隅と辺の真ん中に杭、そのあいだにロープ
+  if (running) {
+    const posts = [0, 0.5, 1].flatMap((u) => [0, 0.5, 1].map((v) => [u, v] as [number, number])).filter(([u, v]) => u === 0 || v === 0 || u === 1 || v === 1);
+    const ring: [number, number][] = [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]];
+    const pin = (u: number, v: number) => wastePt(i, j, 0.04 + u * 0.92, 0.04 + v * 0.92);
+    const rope = (color: string, w: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ring.forEach(([u, v], n) => {
+        const p = pin(u, v);
+        if (n) ctx.lineTo(p.x, p.y - 26);
+        else ctx.moveTo(p.x, p.y - 26);
+      });
+      ctx.closePath();
+      ctx.stroke();
+    };
+    rope('#2a1a0c', 6);
+    rope('#ffe9a0', 3);
+    for (const [u, v] of posts) {
+      const p = pin(u, v);
+      ctx.fillStyle = '#2a1a0c';
+      ctx.fillRect(Math.round(p.x - 5), Math.round(p.y - 36), 10, 38);
+      ctx.fillStyle = '#8a5c30';
+      ctx.fillRect(Math.round(p.x - 3), Math.round(p.y - 34), 6, 34);
+      ctx.fillStyle = '#c98a4a';
+      ctx.fillRect(Math.round(p.x - 3), Math.round(p.y - 34), 2, 34);
+    }
+  }
+  // 発掘との出会い：金色に光らせる
+  if (glow) {
+    const a = 0.55 + 0.35 * Math.sin(now / 220);
+    poly([T, R, B, L]);
+    ctx.fillStyle = `rgba(255,214,90,${(a * 0.35).toFixed(3)})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255,214,90,${a.toFixed(3)})`;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  }
+}
+/** 発掘許可の小さな旗（荒れ地の奥の角） */
+function wasteFlag(ctx: CanvasRenderingContext2D, i: number, j: number, now: number) {
+  const p = wastePt(i, j, 0.22, 0.22);
+  const wave = Math.sin(now / 300) * 3;
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(Math.round(p.x - 2), Math.round(p.y - 64), 4, 66);
+  ctx.fillStyle = '#e94b4b';
+  ctx.beginPath();
+  ctx.moveTo(p.x + 2, p.y - 64);
+  ctx.lineTo(p.x + 34, p.y - 54 + wave);
+  ctx.lineTo(p.x + 2, p.y - 42);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff3d0';
+  ctx.fillRect(Math.round(p.x + 9), Math.round(p.y - 57), 8, 6);
 }

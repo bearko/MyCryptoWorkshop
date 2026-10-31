@@ -311,7 +311,12 @@ export function closeSheet() {
   current = null;
 }
 
+/** 画面を開いてよいか（発掘作業のあいだは研究ノートだけ。main.ts が決める。false なら開かない） */
+let openGuard: ((title: string) => boolean) | null = null;
+export const setOpenGuard = (f: ((title: string) => boolean) | null) => (openGuard = f);
+
 export function open(ctx: Ctx, title: string, render: (body: HTMLElement) => void, onClose?: () => void) {
+  if (openGuard && !openGuard(title)) return;
   closeSheet();
   const sh = sheet(
     ctx.root,

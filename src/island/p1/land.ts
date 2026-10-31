@@ -7,7 +7,7 @@
 import { t } from '../../i18n';
 import { BRAND, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, fitEquipment, groundOf, hasLetter, newDig, newP1, staffOf, type P1State, type Report } from './model';
+import { assign, ensureDig, fitEquipment, groundOf, hasLetter, newP1, staffOf, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -50,7 +50,7 @@ export const SECTOR_KEYS = [
   'rally',
   'dustShop',
   'yday',
-  // 発掘場（地層の進み具合・ツルハシの回数。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
+  // 発掘場（荒れ地 4 か所の進み具合と発掘許可。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
   'dig',
 ] as const;
 
@@ -143,8 +143,8 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (!fresh && back?.snap) {
     const snap = back.snap as Partial<P1State>;
     Object.assign(s, snap);
-    // 以前の写し：発掘場が無い（そのセクタの新しい発掘場から）
-    if (snap.dig === undefined) s.dig = newDig(target);
+    // 以前の写し：発掘場が無い（そのセクタの新しい発掘場から）・版 2 の発掘場（荒れ地 4 か所に作り直す）
+    ensureDig(s);
     // 以前の写し：制覇の月数・反撃は無い（もう 1 位なら制覇のまま）
     s.topStreak = snap.topStreak ?? (snap.cleared ? TOP_STREAK : 0);
     s.rally = snap.rally ?? 0;

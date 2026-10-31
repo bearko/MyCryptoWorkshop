@@ -1,9 +1,11 @@
 /**
- * 発掘場のパネルと研究ノート（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「発掘場の画面」「研究ノート」）。
+ * 発掘場のパネルと研究ノート（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「研究ノート」）。
  *
- * - 発掘場は地図の工房の吹き出しから開く。**開いていても時間を止めない**（憲章 1-2 の例外：売れるのを待つあいだに掘る遊び）。
- *   シート（screens.ts の open）ではなく、地図の上に重ねるパネル。スマホは地図の下半分、PC は右の帯の横に縦長。
- * - 片手のタップで 1 打、長押しで同じマスを連続で打つ。月末ポーズのあいだも、たまった回数のぶんは掘れる（model.ts の dig）。
+ * - 地図の荒れ地をタップ → 吹き出しの「⛏ 発掘する（15 秒）」で、その荒れ地の断面のパネルを開く（発掘作業）。
+ *   **発掘作業のあいだは時間を止めない**（憲章 1-2 の例外）。シート（screens.ts の open）ではなく、地図の上に重ねるパネル。
+ *   スマホは地図の下半分、PC は右の帯の横に縦長。パネルの上に残り時間のバー（現実の秒。残り 5 秒で赤く点滅）。
+ * - 片手のタップで 1 打、長押しで同じマスを連続で打つ（回数の制限は無い。打てるのは作業のあいだだけ）。
+ * - 時間切れか「発掘を終える」で、パネルの中に「発掘終了」の札（今回の出土）。月をまたいでいたら、そのあと main.ts がまとめ報告を出す。
  * - 出土の演出は 1 つだけ大きく（憲章 3）：崩れたら小さく砕ける粒、エクステは絵が飛び出して研究ノートのボタンへ吸い込まれる、
  *   お題のときだけ画面の中央に大きく。石板は読み物の小さな窓。
  * 表示の計算は digview.ts（純粋な関数）。
@@ -12,23 +14,23 @@ import { getExtension } from '../../game/catalog';
 import { t } from '../../i18n';
 import { icon } from '../../ui/dom';
 import { BLAST, DIG, TABLET, type Mat } from './data';
-import { assign, blast, dig, digSite, extName, hasBlast, picksCap, type DigErr, type DigHit, type DigItem } from './model';
-import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, stars } from './digview';
+import { assign, blast, dig, digRepeatMs, digSite, extName, hasBlast, type DigErr, type DigHit, type DigItem, type RunEnd } from './model';
+import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from './digview';
 import { pickHero } from './heroui';
 import { open, refreshSheet, sheetOpen, type Ctx } from './screens';
 import { btn, h, heroIcon, heroName, matIcon, money } from './ui';
 
 /** 発掘場からほかの画面へ（main.ts が渡す） */
 export interface DigHooks {
-  /** SCM のサプライチェーンを開く（上の 1 行の詰まりを押した） */
-  supply: () => void;
+  /** 「発掘を終える」を押した（main.ts が endRun と発掘終了の札・まとめ報告を出す） */
+  end: () => void;
   /** 閉じた（地図の UI を描き直す） */
   closed: () => void;
-  /** 打った（発掘との出会いの「最初の出土」を見る） */
+  /** 打った（掘りきった・発掘との出会い） */
   hit?: (hits: DigHit[]) => void;
+  /** 「発掘を終える」を出さない（発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる） */
+  noEnd?: () => boolean;
 }
-
-const STAGE_NAME: Record<string, string> = { buy: t('① 調達', '① Buy'), craft: t('② 製造', '② Craft'), haul: t('③ 物流', '③ Haul'), sell: t('④ 販売', '④ Sell') };
 
 /** エクステの絵（MCH の 64×64。整数倍か半分で） */
 export function extIcon(id: number, size = 64): HTMLElement {
@@ -55,6 +57,11 @@ interface Panel {
   ctx: Ctx;
   hooks: DigHooks;
   el: HTMLElement;
+  title: HTMLElement;
+  endBtn: HTMLButtonElement;
+  timer: HTMLElement;
+  fill: HTMLElement;
+  sec: HTMLElement;
   bar: HTMLElement;
   tools: HTMLElement;
   why: HTMLElement;
@@ -63,10 +70,15 @@ interface Panel {
   notes: HTMLButtonElement;
   cells: HTMLButtonElement[];
   sector: string;
+  site: number;
   /** 次に押したマスで発破を使う */
   blastArm: boolean;
   /** 直前の「打てない理由」（数秒だけ出す） */
   err: { text: string; until: number } | null;
+  /** 残り 3 秒の音を鳴らした秒 */
+  ticked: number;
+  /** 発掘終了の札を出している */
+  over: boolean;
 }
 let P: Panel | null = null;
 let saveTimer = 0;
@@ -99,6 +111,7 @@ function soonSave() {
   }, 800);
 }
 
+/** 発掘作業のパネルを開く（発掘作業のあいだだけ。s.digRun の荒れ地の断面） */
 export function openDig(ctx: Ctx, hooks: DigHooks) {
   const s = ctx.s();
   if (!digSite(s) || !s.dig) {
@@ -107,27 +120,32 @@ export function openDig(ctx: Ctx, hooks: DigHooks) {
   }
   if (P) closeDig();
   const el = h('section', 'isl-dig');
-  el.setAttribute('aria-label', t('発掘場', 'Dig site'));
+  el.setAttribute('aria-label', t('発掘作業', 'Digging'));
   // 地図のドラッグ・タップに渡さない
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
   const head = h('div', 'isl-dig-head');
-  const title = h('h2', '', t('⛏ 発掘場', '⛏ Dig site'));
+  const title = h('h2', '');
   const notes = btn(t('📖 研究ノート', '📖 Notebook'), () => openNotes(ctx, { fromDig: hooks }), 'isl-dig-notes');
-  const x = btn('✕', () => closeDig(), 'isl-dig-x');
-  x.setAttribute('aria-label', t('閉じる', 'Close'));
-  head.append(title, notes, x);
+  const endBtn = btn(t('発掘を終える', 'Stop digging'), () => (P?.over ? closeDig() : hooks.end()), 'isl-dig-end');
+  head.append(title, notes, endBtn);
+  // 残り時間のバー（現実の秒）
+  const timer = h('div', 'isl-dig-timer');
+  const fill = h('i', 'isl-dig-timer-fill');
+  const sec = h('b', 'isl-dig-timer-sec');
+  timer.append(fill, h('span', 'isl-dig-timer-k', t('⏱ 残り', '⏱ Left')), sec);
   const bar = h('div', 'isl-dig-bar');
   const tools = h('div', 'isl-dig-tools');
   const why = h('p', 'isl-dig-why');
   const scroll = h('div', 'isl-dig-scroll');
   const grid = h('div', 'isl-dig-grid');
   scroll.append(grid);
-  el.append(head, bar, tools, why, scroll);
+  el.append(head, timer, bar, tools, why, scroll);
   ctx.root.append(el);
-  P = { ctx, hooks, el, bar, tools, why, scroll, grid, notes, cells: [], sector: s.dig.sector, blastArm: false, err: null };
+  P = { ctx, hooks, el, title, endBtn, timer, fill, sec, bar, tools, why, scroll, grid, notes, cells: [], sector: s.dig.sector, site: s.dig.cur, blastArm: false, err: null, ticked: 99, over: false };
   buildGrid();
   refreshDig();
+  refreshTimer();
   // 上の帯・吹き出し・「次の月へ」の位置を合わせる
   ctx.refresh();
   // いちばん深く掘ったあたりを、上から 3 分の 1 に
@@ -170,35 +188,60 @@ function buildGrid() {
   }
 }
 
+/** 毎フレーム（main.ts）：残り時間のバー。残り 5 秒で赤く点滅、残り 3 秒から 1 秒ごとに音 */
+export function refreshTimer() {
+  const p = P;
+  if (!p) return;
+  const s = p.ctx.s();
+  const rb = runBar(s);
+  p.timer.hidden = !rb && !p.over;
+  if (!rb) {
+    p.fill.style.width = '0%';
+    p.sec.textContent = t('0.0 秒', '0.0 s');
+    p.timer.classList.remove('is-warn');
+    return;
+  }
+  p.fill.style.width = `${(rb.frac * 100).toFixed(1)}%`;
+  const txt = t(`${rb.sec} 秒`, `${rb.sec} s`);
+  if (p.sec.textContent !== txt) p.sec.textContent = txt;
+  p.timer.classList.toggle('is-warn', rb.warn);
+  const whole = Math.ceil(Number(rb.sec));
+  if (rb.tick && whole < p.ticked && whole > 0) {
+    p.ticked = whole;
+    p.ctx.sfx?.('tap');
+  }
+}
+
 /** 1 日ごと・打つたびに：上の 1 行・道具・マス目を描き直す（パネルを作り直さない） */
 export function refreshDig() {
   const p = P;
   if (!p) return;
   const s = p.ctx.s();
   if (!s.dig || !digSite(s)) return closeDig();
-  if (s.dig.sector !== p.sector) {
+  if (s.dig.sector !== p.sector || s.dig.cur !== p.site) {
     p.sector = s.dig.sector;
+    p.site = s.dig.cur;
     buildGrid();
   }
   const st = digStatus(s)!;
-  // 上の 1 行：SCM の詰まり（赤）・ツルハシの回数・RP・いまの層・お題の進み
+  p.title.textContent = t(`⛏ ${st.name}`, `⛏ ${st.name}`);
+  // 「発掘を終える」：作業のあいだ（出会いの最初の 1 回は出さない）。札を出したあとは ✕（町に戻る）
+  p.endBtn.textContent = p.over ? '✕' : t('発掘を終える', 'Stop digging');
+  p.endBtn.hidden = !p.over && !!p.hooks.noEnd?.();
+  p.endBtn.setAttribute('aria-label', p.over ? t('町に戻る', 'Back to town') : t('発掘を終える', 'Stop digging'));
+  // 上の 1 行：掘った割合・RP・いまの層・お題の進み（SCM の詰まりは、作業のあいだは出さない：発掘に集中）
   p.bar.replaceChildren();
-  if (st.jam) {
-    const j = btn(t(`詰まり ${STAGE_NAME[st.jam]}`, `Jam ${STAGE_NAME[st.jam]}`), () => p.hooks.supply(), 'isl-dig-jam');
-    j.title = t('SCM のいちばん細いところ（押すとサプライチェーン）', 'Narrowest SCM stage (tap for the supply chain)');
-    p.bar.append(j);
-  }
   const chip = (cls: string, k: string, v: string) => {
     const c = h('span', `isl-dig-chip ${cls}`);
     c.append(h('small', '', k), h('b', '', v));
     p.bar.append(c);
     return c;
   };
-  chip(st.full ? 'is-full' : st.picks ? '' : 'is-zero', '⛏', `${st.picks} / ${st.cap}`).title = st.full ? t('上限。いま売れても増えないので、掘ろう', 'At the cap: sales add no more until you dig') : t('ツルハシの回数（お店で 1 個売れるごとに +1）', 'Pick swings (+1 per item sold)');
+  chip('', t('掘った', 'Dug'), `${st.pct}%`);
   chip('is-rp', t('研', 'RP'), `${st.rp}`);
   chip('', t('層', 'Layer'), st.layer);
   chip(st.topics[0] >= st.topics[1] ? 'is-done' : '', t('お題', 'Targets'), `${st.topics[0]} / ${st.topics[1]}`);
-  // 道具：発破（買ってあれば）・自動発掘の人
+  // 道具：発破（買ってあれば）・発掘隊
   p.tools.replaceChildren();
   if (hasBlast(s)) {
     const b = btn(p.blastArm ? t('💥 発破：掘るマスを押す（やめる）', '💥 Blast: tap a cell (cancel)') : t(`💥 発破（1 回 ${money(BLAST.cost)}）`, `💥 Blast (${money(BLAST.cost)} each)`), () => {
@@ -206,7 +249,7 @@ export function refreshDig() {
       p.ctx.sfx?.('tap');
       refreshDig();
     }, `isl-dig-blast ${p.blastArm ? 'is-on' : ''}`);
-    b.title = t('ツルハシ 1 回と火薬代で、押したマスを真ん中に 3 × 3 を一度に崩す', 'One swing plus powder clears 3 × 3 around the cell');
+    b.title = t('火薬代で、押したマスを真ん中に 3 × 3 を一度に崩す', 'Pay for powder to clear 3 × 3 around the cell');
     if (s.money < BLAST.cost) {
       b.disabled = true;
       b.title = digErrText('money');
@@ -219,22 +262,71 @@ export function refreshDig() {
   if (auto.length) {
     for (const a of auto.slice(0, 2)) who.append(heroIcon(a.hero, 28));
     const per = auto.reduce((v, a) => v + (a.resting ? 0 : a.perDay), 0);
-    who.append(h('span', '', t(`自動発掘 1 日 ${Math.round(per * 10) / 10} 回`, `Auto ${Math.round(per * 10) / 10}/day`)));
+    who.append(h('span', '', t(`発掘隊 1 日 ${Math.round(per * 10) / 10} 回`, `Dig crew ${Math.round(per * 10) / 10}/day`)));
     if (auto.every((a) => a.resting)) who.append(h('small', 'isl-bad', t('休憩中', 'Resting')));
-  } else who.append(h('span', '', t('＋ 自動発掘の担当', '+ Auto digger')));
+  } else who.append(h('span', '', t('＋ 発掘隊の担当', '+ Dig crew')));
   who.addEventListener('click', (e) => {
     e.stopPropagation();
     pickDigger();
   });
   p.tools.append(who);
-  // 打てない理由（パネル全体：回数 0 など）。直前に押したマスの理由は数秒だけ
-  const block = digBlock(s);
+  // 打てない理由（パネル全体：作業が終わった など）。直前に押したマスの理由は数秒だけ
+  const block = p.over ? null : digBlock(s);
   const now = performance.now();
-  const msg = p.err && p.err.until > now ? p.err.text : block ? digErrText(block) : p.blastArm ? t('発破：手が届くマスを押すと、まわり 3 × 3 も一度に崩れる', 'Blast: tap a reachable cell to clear the 3 × 3 around it') : st.full ? t('ツルハシの回数が上限。いま売れても増えないので、掘ろう！', 'Swings are at the cap: dig so sales keep adding more!') : t('光っているマスをタップで 1 打、長押しで続けて打つ', 'Tap a lit cell to strike, hold to keep striking');
+  const msg = p.err && p.err.until > now ? p.err.text : block ? digErrText(block) : p.blastArm ? t('発破：手が届くマスを押すと、まわり 3 × 3 も一度に崩れる', 'Blast: tap a reachable cell to clear the 3 × 3 around it') : t('光っているマスをタップで 1 打、長押しで続けて打つ（何回でも打てる）', 'Tap a lit cell to strike, hold to keep striking (no limit)');
   p.why.textContent = msg;
-  p.why.className = `isl-dig-why ${(p.err && p.err.until > now) || block ? 'is-bad' : st.full ? 'is-warn' : ''}`;
+  p.why.className = `isl-dig-why ${(p.err && p.err.until > now) || block ? 'is-bad' : ''}`;
   p.el.classList.toggle('is-blast', p.blastArm);
   paintCells();
+}
+
+/**
+ * 発掘終了の札（今回の出土）を 1.2 秒。月をまたいでいたら then（まとめ報告）へ。
+ * またいでいなければ「⛏ もう一度（15 秒）」「町に戻る」（6 秒たったら町に戻る）
+ */
+export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => void; after?: () => void }) {
+  const p = P;
+  if (!p) {
+    o.then?.();
+    o.after?.();
+    return;
+  }
+  p.over = true;
+  stopHold();
+  p.blastArm = false;
+  p.el.querySelector('.isl-dig-endcard')?.remove();
+  const card = h('div', 'isl-dig-endcard');
+  const box = h('div', 'isl-dig-endbox');
+  box.append(h('b', 'isl-dig-endtitle', t('⛏ 発掘終了', '⛏ Dig over')), h('small', 'isl-dim', t('今回の出土', 'This dig')));
+  const g = h('div', 'isl-dig-endgrid');
+  for (const [k, v] of gotLines(end.got)) {
+    const c = h('span', 'isl-dig-endstat');
+    c.append(h('small', '', k), h('b', '', v));
+    g.append(c);
+  }
+  box.append(g);
+  if (end.done) box.append(h('p', 'isl-gold', t('この荒れ地は掘りきった！（復興は近日）', 'This wasteland is fully dug! (Revival coming soon)')));
+  const acts = h('div', 'isl-row isl-dig-endacts');
+  box.append(acts);
+  card.append(box);
+  p.el.append(card);
+  p.ctx.sfx?.('check');
+  refreshDig();
+  refreshTimer();
+  window.setTimeout(() => {
+    if (P !== p || !p.el.isConnected) return;
+    if (end.crossed && o.then) {
+      closeDig();
+      o.then();
+      return;
+    }
+    if (o.again && !end.done) acts.append(btn(t('⛏ もう一度（15 秒）', '⛏ Again (15 s)'), () => o.again?.(), 'is-on'));
+    acts.append(btn(t('町に戻る', 'Back to town'), () => closeDig()));
+    o.after?.();
+    window.setTimeout(() => {
+      if (P === p && p.over && p.el.isConnected) closeDig();
+    }, 6000);
+  }, 1200);
 }
 
 function paintCells() {
@@ -285,8 +377,8 @@ function bindHold(b: HTMLButtonElement, x: number, y: number) {
       if (!hold) return;
       hold.repeating = true;
       const r = strike(hold.x, hold.y);
-      if (r !== 'more') return stopHold();
-      hold.timer = window.setTimeout(loop, 170);
+      if (r !== 'more' || !P) return stopHold();
+      hold.timer = window.setTimeout(loop, digRepeatMs(P.ctx.s()));
     };
     hold.timer = window.setTimeout(loop, 380);
   });
@@ -312,8 +404,10 @@ function bindHold(b: HTMLButtonElement, x: number, y: number) {
 /** 打つ：'more'（まだ崩れていない）／'broke'／'err' */
 function strike(x: number, y: number): 'more' | 'broke' | 'err' {
   const p = P;
-  if (!p) return 'err';
+  if (!p || p.over) return 'err';
   const s = p.ctx.s();
+  // 作業が終わった（時間切れの直後）：何もしない
+  if (!s.digRun) return 'err';
   const useBlast = p.blastArm;
   const r = useBlast ? blast(s, x, y) : dig(s, x, y);
   if (typeof r === 'string') {
@@ -492,17 +586,17 @@ function pickDigger() {
   const s = p.ctx.s();
   const cur = s.staff.find((x) => x.task === 'dig')?.hero ?? null;
   pickHero(p.ctx.root, s, {
-    title: t('自動発掘の担当', 'Auto digger'),
+    title: t('発掘隊の担当', 'Dig crew'),
     task: 'dig',
     current: cur,
-    note: t('数字は「発掘」の適性（PHY 重視）。たまったツルハシの回数を、1 日に数回ぶんゆっくり使って掘ります（手で掘るほうが速い）。', 'Numbers are Digging aptitude (mostly PHY). They slowly spend saved swings a few times a day (digging by hand is faster).'),
+    note: t('数字は「発掘」の適性（PHY 重視）。発掘作業のあいだだけ、同じ荒れ地を 1 日に数回ぶん手伝って掘ります（手で掘るほうが速い。作業していないときは働かず、疲れない）。', 'Numbers are Digging aptitude (mostly PHY). They help on the same wasteland a few times a day, only while you dig (by hand is faster; idle otherwise, no fatigue).'),
     onPick: (hero) => {
       if (hero == null) {
         if (cur != null) assign(s, cur, null);
       } else {
         const e = assign(s, hero, 'dig', null);
         if (e) p.ctx.toast(t('この人は、いまは発掘の担当にできません', 'This hero can’t dig right now'));
-        else p.ctx.toast(t(`${heroName(hero)}が発掘の担当になりました`, `${heroName(hero)} is now digging`));
+        else p.ctx.toast(t(`${heroName(hero)}が発掘隊になりました`, `${heroName(hero)} joined the dig crew`));
       }
       p.ctx.save();
       p.ctx.refresh();
@@ -538,7 +632,7 @@ export function openNotes(ctx: Ctx, o: { fromDig?: DigHooks; sector?: string } =
           ctx.sfx?.('tap');
           refreshSheet();
         }, `isl-note-tab ${x.id === noteTab ? 'is-on' : ''} ${x.visited ? '' : 'is-far'}`);
-        if (!x.visited) b.title = t('まだ出店していないセクタ（出店すると、ここの地層を掘れる）', 'Not opened yet (open a shop there to dig)');
+        if (!x.visited) b.title = t('まだ出店していないセクタ（出店すると、ここの荒れ地を掘れる）', 'Not opened yet (open a shop there to dig)');
         row.append(b);
       }
       body.append(row);
@@ -569,13 +663,13 @@ export function openNotes(ctx: Ctx, o: { fromDig?: DigHooks; sector?: string } =
             txt.hidden = !txt.hidden;
             b.classList.toggle('is-open', !txt.hidden);
           });
-        } else b.append(h('small', 'isl-dim', t('この町の地層のどこかに眠っている', 'Somewhere in this town’s strata')));
+        } else b.append(h('small', 'isl-dim', t('この町の荒れ地のどこかに眠っている', 'Somewhere under this town’s wastelands')));
         tl.append(b);
       }
       body.append(tl);
       const foot = h('div', 'isl-row');
-      if (tabsHere?.here && s.dig && o.fromDig) foot.append(btn(t('⛏ 発掘場に戻る', '⛏ Back to the dig site'), () => closeNotes(), 'is-on'));
-      else if (tabsHere && !tabsHere.visited) foot.append(h('small', 'isl-dim', t('このセクタに出店すると、ここの地層を掘れます。', 'Open a shop in this sector to dig here.')));
+      if (tabsHere?.here && s.dig && o.fromDig && s.digRun) foot.append(btn(t('⛏ 発掘に戻る', '⛏ Back to digging'), () => closeNotes(), 'is-on'));
+      else if (tabsHere && !tabsHere.visited) foot.append(h('small', 'isl-dim', t('このセクタに出店すると、ここの荒れ地を掘れます。', 'Open a shop in this sector to dig here.')));
       body.append(foot);
     },
     () => {
@@ -584,7 +678,7 @@ export function openNotes(ctx: Ctx, o: { fromDig?: DigHooks; sector?: string } =
       if (o.fromDig) {
         const back = o.fromDig;
         window.setTimeout(() => {
-          if (!sheetOpen() && !P && ctx.s().dig) openDig(ctx, back);
+          if (!sheetOpen() && !P && ctx.s().dig && ctx.s().digRun) openDig(ctx, back);
         }, 0);
       }
     },
@@ -605,10 +699,4 @@ function noteCard(e: ReturnType<typeof noteEntries>[number]): HTMLElement {
   c.append(pic, h('b', 'isl-note-name', e.n ? e.name : t('？？？', '???')), h('span', `isl-note-stars ${e.lv >= 5 ? 'is-max' : ''}`, stars(e.lv)), h('small', 'isl-dim', nextLvText(e)));
   if (e.n) c.title = t(`研究 Lv${e.lv}（掘った数 ${e.n}）`, `Research Lv${e.lv} (dug ${e.n})`);
   return c;
-}
-
-/** 吹き出し・助言で使う：いまのツルハシの回数（無ければ null） */
-export function picksLine(s: ReturnType<Ctx['s']>): string | null {
-  if (!s.dig || !digSite(s)) return null;
-  return `${s.dig.picks} / ${picksCap(s)}`;
 }
