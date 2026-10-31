@@ -252,6 +252,11 @@ export interface Flags {
   dataSeen?: string[];
   /** スキルツリーの開いた外周（U・R・E・L）。そのランクのセクタに出店したあと、ツリーを開いたときの演出で開く */
   rings?: Tier[];
+  /**
+   * 発掘との出会い（2 か月目の途中、初めて手が空いたとき。digmeet.ts）：会話のあと 'tap'（工房をタップ → 吹き出しの「⛏ 発掘場」）→
+   * 'open'（開いた。最初の出土を待つ）→ 'skill'（研究ポイントの説明のあと、スキルツリーを開くまで）→ 'done'。無ければまだ出会っていない
+   */
+  digMeet?: 'tap' | 'open' | 'skill' | 'done';
 }
 
 export interface P1State {
@@ -1635,7 +1640,7 @@ export function runAd(s: P1State, id: string): string | null {
 /** 調査の段（0〜3） */
 export const intelLv = (s: P1State, rid: string) => INTEL.filter((d) => (s.intel[rid] ?? 0) >= d).length;
 
-function missionMet(s: P1State, id: string): boolean {
+export function missionMet(s: P1State, id: string): boolean {
   switch (id) {
     case 'first_sale':
       return Object.values(s.monthUnits).some((n) => (n ?? 0) > 0) || s.reports.some((r) => r.revenue > 0);
@@ -1658,6 +1663,8 @@ function missionMet(s: P1State, id: string): boolean {
   const m = MISSIONS.find((x) => x.id === id);
   if (m?.sector && m.sector !== s.sector) return false;
   const last = s.reports[s.reports.length - 1];
+  // 発掘の依頼：そのエクステを掘り出した（研究ノートに 1 つ以上。研究は会社で共有なので、前に掘っていれば受けたときに達成）
+  if (m?.dig != null) return (s.research?.[m.dig] ?? 0) >= 1;
   switch (id) {
     case 'c3_knife':
       return (s.monthUnits.Knife ?? 0) >= 10;

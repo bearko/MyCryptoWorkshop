@@ -4,8 +4,8 @@
  */
 import { assetUrl } from '../../render/images';
 
-export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win' | 'check' | 'clear' | 'drum' | 'dig' | 'treasure' | 'mining';
-const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win', 'check', 'clear', 'drum', 'dig', 'treasure', 'mining'];
+export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win' | 'check' | 'clear' | 'drum' | 'dig' | 'treasure' | 'mining' | 'katsun';
+const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win', 'check', 'clear', 'drum', 'dig', 'treasure', 'mining', 'katsun'];
 /** MCH の効果音を使うもの（sync-assets で public/mch/ に入っているもの）。ほかは island/sfx/<名前>.mp3 */
 const MCH: Partial<Record<Sfx, string>> = {
   // エクステの出土（新発見・研究 Lv が上がった・石板）
@@ -15,7 +15,7 @@ const MCH: Partial<Record<Sfx, string>> = {
 };
 
 /** 音ごとの大きさ（設定 100% のとき） */
-const GAIN: Partial<Record<Sfx, number>> = { tap: 0.35, page: 0.4, move: 0.5, sale: 0.45, craft: 0.5, drum: 0.5, dig: 0.45, treasure: 0.55, mining: 0.6 };
+const GAIN: Partial<Record<Sfx, number>> = { tap: 0.35, page: 0.4, move: 0.5, sale: 0.45, craft: 0.5, drum: 0.5, dig: 0.45, treasure: 0.55, mining: 0.6, katsun: 0.5 };
 
 export class IslandSfx {
   private ctx: AudioContext | null = null;

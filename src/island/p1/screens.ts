@@ -19,6 +19,7 @@ import {
   LAND_COMPANIES,
   MARKET,
   MISSIONS,
+  rewardText,
   PAY,
   MAT_KEYS,
   MATS,
@@ -1760,11 +1761,11 @@ export function openMissions(ctx: Ctx) {
         c.append(f);
       }
       const row = h('div', 'isl-row');
-      row.append(h('b', 'isl-gold', m.rp ? t(`報酬 ${money(m.reward)}・研究 ${m.rp} RP`, `Reward ${money(m.reward)} + ${m.rp} RP`) : t(`報酬 ${money(m.reward)}`, `Reward ${money(m.reward)}`)));
+      row.append(h('b', 'isl-gold', rewardText(m)));
       if (st === 'done')
         row.append(
           btn(t('報酬を受け取る', 'Claim'), () => {
-            if (!claim(s, m.id)) ctx.toast(t(`報酬 ${money(m.reward)} を受け取りました`, `Received ${money(m.reward)}`));
+            if (!claim(s, m.id)) ctx.toast(t(`${rewardText(m)} を受け取りました`, `Received: ${rewardText(m)}`));
             after(ctx);
           }, 'is-on'),
         );

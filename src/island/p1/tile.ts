@@ -5,10 +5,12 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { digSite, picksCap, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { digSite, picksCap, presentLock, topicProgress, topicsOf, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
-import { bar, btn, h, heroName, money, skuIcon, skuName } from './ui';
+import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
+import { canPresent, chiefOf, digMet, isChiefHome } from './digmeet';
+import { extIcon } from './digui';
 
 export interface TileHooks {
   /** 移転先を選ぶモードへ */
@@ -24,6 +26,8 @@ export interface TileHooks {
   land: () => void;
   /** 工房の裏の発掘場を開く */
   dig?: () => void;
+  /** 町の長に研究成果を発表する */
+  present?: () => void;
 }
 
 const DESC: Record<string, string> = {
@@ -71,6 +75,7 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
   if (b.owner === 'town') {
     const isHome = DEF[b.id].cat === 'home';
     if (isGate(b)) return { title: t('関所', 'Gate'), body: gate(s, body, hooks) };
+    if (digMet(s) && isChiefHome(s, b)) return { title: t('町の長の家', 'Town head’s house'), body: chiefPop(s, body, hooks) };
     if (b.id === 'wholesale') {
       body.append(meta([[t('建築者', 'Builder'), t('地元の工務店', 'Local builders')], [t('所有者', 'Owner'), t('卸問屋', 'Wholesaler')]]), h('p', '', DESC.wholesale));
       const trip = s.buyTrip;
@@ -86,6 +91,32 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
     return { title: name, body };
   }
   return { title: name, body: rival(ctx, b, body, hooks) };
+}
+
+/** 町の長（セクター長）の家：お題の進み・研究成果の発表（そろっていなければ押せず、理由） */
+function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
+  const chief = chiefOf(s.dig!.sector)!;
+  const who = h('div', 'isl-row isl-chief-who');
+  who.append(heroIcon(chief, 64), h('b', '', t(`町の長 ${heroName(chief)}`, `Town head ${heroName(chief)}`)));
+  body.append(who, h('p', '', t('この町の長が住む家。町の地層から「お題」の出土品を全部掘り出したら、ここで研究成果を発表しよう。上のランクの調査依頼状がもらえる。', 'Home of the town head. Dig up every target in this town’s strata, then present your findings here for a higher-rank survey request.')));
+  const [a, n] = topicProgress(s);
+  const row = h('div', 'isl-stock');
+  for (const id of topicsOf(s.dig!.sector)) {
+    const got = s.dig!.topics.includes(id);
+    const c = h('span', `isl-chip isl-chief-topic ${got ? '' : 'is-unknown'}`);
+    c.append(extIcon(id, 32), h('small', '', got ? extName(id) : t('？？？', '???')));
+    row.append(c);
+  }
+  body.append(h('h4', '', t(`お題 ${a} / ${n}`, `Targets ${a} / ${n}`)), row);
+  const acts = h('div', 'isl-row isl-pop-acts');
+  const lock = presentLock(s);
+  const go = btn(lock === 'done' ? t('発表済み', 'Presented') : t('📜 研究成果を発表する', '📜 Present findings'), () => hooks.present?.(), canPresent(s) ? 'is-on is-guide' : '');
+  go.disabled = !canPresent(s);
+  acts.append(go);
+  body.append(acts);
+  if (lock === 'not-yet') body.append(h('small', 'isl-warn', t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
+  else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み（調査依頼状を受け取った）。', 'Already presented here (survey request received).')));
+  return body;
 }
 
 /** 関所：通行料を払うと開通して、次のランドセクタへ行ける */
@@ -215,10 +246,11 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     const step = ctx.step?.();
     const guide = step === 'craft' && kind === 'workshop';
     acts.append(btn(kind === 'workshop' ? t('工房を開く', 'Open workshop') : t('お店を開く', 'Open shop'), () => (kind === 'workshop' ? openWorkshop(ctx) : openShop(ctx, b.uid)), guide ? 'is-on is-guide' : 'is-on'));
-    // 工房の裏の発掘場（見習い期間のあと。発掘場のあるセクタだけ）
-    if (kind === 'workshop' && hooks.dig && s.dig && digSite(s) && step == null) {
+    // 工房の裏の発掘場（2 か月目の途中の「発掘との出会い」のあと。発掘場のあるセクタだけ）。出会いの途中は金色に光らせて 👆
+    if (kind === 'workshop' && hooks.dig && s.dig && digSite(s) && step == null && digMet(s)) {
       const full = s.dig.picks >= picksCap(s);
-      acts.append(btn(t(`⛏ 発掘場（ツルハシ ${s.dig.picks} / ${picksCap(s)}）`, `⛏ Dig site (swings ${s.dig.picks} / ${picksCap(s)})`), () => hooks.dig?.(), `isl-pop-dig ${full ? 'is-full' : ''}`));
+      const meet = s.flags.digMeet === 'tap';
+      acts.append(btn(t(`⛏ 発掘場（ツルハシ ${s.dig.picks} / ${picksCap(s)}）`, `⛏ Dig site (swings ${s.dig.picks} / ${picksCap(s)})`), () => hooks.dig?.(), `isl-pop-dig ${full ? 'is-full' : ''} ${meet ? 'is-on is-guide' : ''}`));
     }
   }
   const mv = btn(t(`移転 ${money(moveCost(b))}`, `Move ${money(moveCost(b))}`), () => hooks.move(b.uid));

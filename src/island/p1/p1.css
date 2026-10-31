@@ -7928,3 +7928,294 @@ button.isl-mis {
   font-size: 14px;
   line-height: 1.55;
 }
+
+/* ================================================================ 発掘との出会い・町の長・研究成果の発表（digmeet.ts） */
+/* 工房の上の ⛏ の吹き出し（「カツン！」）。会話のあと、工房をタップするまで出したまま */
+.isl-meet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  padding: 4px 10px 6px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  animation: isl-meet-bob 0.9s ease-in-out infinite alternate;
+}
+.isl-meet[hidden] {
+  display: none;
+}
+.isl-meet::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  margin-left: -8px;
+  border: 8px solid transparent;
+  border-bottom: 0;
+  border-top-color: var(--isl-gold);
+}
+.isl-meet-pick {
+  font-size: 26px;
+  line-height: 1.1;
+  animation: isl-meet-swing 0.42s ease-in-out infinite alternate;
+}
+.isl-meet-say {
+  font-size: 12px;
+}
+@keyframes isl-meet-bob {
+  to {
+    margin-top: -6px;
+  }
+}
+@keyframes isl-meet-swing {
+  from {
+    transform: rotate(-25deg);
+  }
+  to {
+    transform: rotate(15deg);
+  }
+}
+/* 町の長の家の上の顔（発表できるときは「研究成果を発表する」） */
+.isl-chief {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.isl-chief[hidden] {
+  display: none;
+}
+.isl-chief > * {
+  pointer-events: auto;
+}
+.isl-chief-face {
+  display: grid;
+  justify-items: center;
+  padding: 2px 4px 1px;
+  border: 2px solid #9b7bd4;
+  border-radius: 10px;
+  background: rgba(15, 22, 38, 0.85);
+  color: #e6dcff;
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-chief-face small {
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.isl-btn.isl-chief-go {
+  position: relative;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.isl-btn.isl-chief-go::after {
+  content: '👇';
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  font-size: 22px;
+  pointer-events: none;
+  animation: isl-point 0.6s ease-in-out infinite alternate;
+}
+.isl-chief-who {
+  align-items: center;
+  gap: 8px;
+}
+.isl-chief-topic.is-unknown .isl-ext {
+  filter: brightness(0) opacity(0.4);
+}
+/* 工房の吹き出しの「⛏ 発掘場」：出会いの途中は金色に光らせて 👆 */
+.isl-btn.isl-pop-dig.is-guide {
+  position: relative;
+  background: var(--isl-gold);
+  color: var(--isl-ink);
+}
+.isl-btn.isl-pop-dig.is-guide::after {
+  content: '👆';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  font-size: 26px;
+  pointer-events: none;
+  animation: isl-tree-tap 0.7s ease-in-out infinite alternate;
+}
+/* 会話の話す人がヒーロー（町の長）のとき */
+.isl-talk-who {
+  grid-row: 1 / 4;
+  align-self: center;
+  justify-self: center;
+}
+.isl-talk-who[hidden],
+.isl-talk-mine[hidden] {
+  display: none;
+}
+.isl-talk-who .isl-hero {
+  border: 3px solid #9b7bd4;
+  border-radius: 14px;
+  background: #2b3b5e;
+}
+.isl-modal.isl-talk > .isl-talk-box.is-who .isl-talk-name {
+  background: #9b7bd4;
+  color: #fff;
+}
+/* 到着の案内・発表のお題の並び（未発見はシルエット） */
+.isl-topics {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--isl-panel);
+}
+.isl-topics-one {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 78px;
+  padding: 6px 2px 4px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 12px;
+  background: #2b3b5e;
+  text-align: center;
+}
+.isl-topics-one small {
+  font-size: 11px;
+  line-height: 1.2;
+}
+.isl-topics-one.is-unknown .isl-topics-pic {
+  filter: brightness(0) opacity(0.45);
+}
+.isl-topics-one.is-unknown small {
+  color: var(--isl-dim);
+}
+@media (max-width: 599px) {
+  .isl-topics {
+    gap: 4px;
+    padding: 6px;
+  }
+  .isl-topics-one {
+    width: 72px;
+  }
+}
+/* 調査依頼状を受け取る演出 */
+.isl-modal.is-letter > div {
+  border-color: var(--isl-gold);
+}
+.isl-letter {
+  display: grid;
+  gap: 10px;
+}
+.isl-letter-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 14px 10px 12px;
+  border: 3px solid var(--isl-gold);
+  border-radius: 16px;
+  background: #1d2a44;
+  text-align: center;
+  overflow: hidden;
+  animation: isl-dig-pop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.isl-letter-card > * {
+  position: relative;
+}
+.isl-letter-rays {
+  position: absolute !important;
+  left: 50%;
+  top: 40%;
+  width: 520px;
+  height: 520px;
+  margin: -260px 0 0 -260px;
+  background: repeating-conic-gradient(rgba(242, 181, 68, 0.22) 0 10deg, transparent 10deg 20deg);
+  animation: isl-dig-spin 8s linear infinite;
+}
+.isl-letter-card .isl-ext {
+  filter: drop-shadow(0 0 10px rgba(255, 226, 150, 0.9));
+}
+.isl-letter-name {
+  font-size: 18px;
+  color: var(--isl-gold);
+}
+.isl-letter-rp {
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: #7fe0d0;
+  color: var(--isl-ink);
+  font-weight: 800;
+}
+.isl-letter-say {
+  margin: 0;
+  line-height: 1.55;
+}
+/* 月次報告の KPI ③ の下：今月の出土品の 1 行 */
+.isl-rp-dig {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(127, 224, 208, 0.1);
+  font-size: 13px;
+}
+.isl-rp-dig-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  flex: 1;
+  min-width: 0;
+}
+.isl-rp-dig-text b {
+  color: #7fe0d0;
+}
+.isl-rp-dig-text .is-short {
+  display: none;
+}
+@media (max-width: 599px) {
+  .isl-rp-dig {
+    margin-top: 3px;
+    padding: 2px 6px;
+    font-size: 11.5px;
+    gap: 4px;
+  }
+  .isl-rp-dig-text {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow: hidden;
+    gap: 6px;
+  }
+  .isl-rp-dig-text .is-long {
+    display: none;
+  }
+  .isl-rp-dig-text .is-short {
+    display: inline;
+  }
+  .isl-rp-dig .isl-btn.isl-rp-go {
+    min-height: 22px;
+  }
+  /* 今月の出土品の 1 行のぶん、推移のグラフと SCM の棒を少し低く（報告を 1 画面に） */
+  .is-report.has-dig .isl-rp-chart {
+    max-height: 98px;
+  }
+  .is-report.has-dig.has-say .isl-rp-chart {
+    max-height: 84px;
+  }
+  .is-report.has-dig .isl-rp-sbar {
+    height: 24px;
+  }
+  .is-report.has-dig .isl-rp-stage {
+    gap: 0;
+  }
+}

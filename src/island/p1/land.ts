@@ -83,6 +83,11 @@ export function townSeed(s: P1State, id: string): number {
 /** 出店許可申請（入国料） */
 export const feeOf = (id: string) => sectorDef(id).fee;
 
+/** 調査依頼状が無いので出店できない理由（ランドマップ・隣のセクタの札・進出のボタンで同じ文） */
+export const LETTER_LOCK = t('🔒 調査依頼状が要る（Common のセクタのお題をそろえよう）', '🔒 Needs a survey request (complete a Common sector’s finds)');
+/** まだ出店していない開いたセクタで、そのランクの調査依頼状が無い（Uncommon 以上。押せないボタンに LETTER_LOCK を出す） */
+export const letterLocked = (s: P1State, id: string) => !!s.land && sectorState(s.land, id) === 'open' && !hasLetter(s, sectorDef(id).tier);
+
 export type MoveErr = 'no-land' | 'here' | 'cloud' | 'locked' | 'soon' | 'letter' | 'money' | 'manager' | 'busy';
 
 /**
