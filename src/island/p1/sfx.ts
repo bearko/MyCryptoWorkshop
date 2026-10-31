@@ -1,14 +1,21 @@
 /**
- * アイランドの効果音（scripts/island/sfx.py で作った public/island/sfx/*.mp3）。
+ * アイランドの効果音（scripts/island/sfx.py で作った public/island/sfx/*.mp3。発掘の出土は MCH の効果音 mch/Audio/SE/Actions/）。
  * Web Audio で先に読み込んでおき、押したその場で鳴らす（スマホでも遅れない）。BGM は audio.ts の Sound のまま。
  */
 import { assetUrl } from '../../render/images';
 
-export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win' | 'check' | 'clear' | 'drum';
-const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win', 'check', 'clear', 'drum'];
+export type Sfx = 'tap' | 'page' | 'move' | 'place' | 'spend' | 'error' | 'done' | 'craft' | 'sale' | 'levelup' | 'mission' | 'report' | 'win' | 'check' | 'clear' | 'drum' | 'dig' | 'treasure' | 'mining';
+const ALL: Sfx[] = ['tap', 'page', 'move', 'place', 'spend', 'error', 'done', 'craft', 'sale', 'levelup', 'mission', 'report', 'win', 'check', 'clear', 'drum', 'dig', 'treasure', 'mining'];
+/** MCH の効果音を使うもの（sync-assets で public/mch/ に入っているもの）。ほかは island/sfx/<名前>.mp3 */
+const MCH: Partial<Record<Sfx, string>> = {
+  // エクステの出土（新発見・研究 Lv が上がった・石板）
+  treasure: 'mch/Audio/SE/Actions/open_treasure.mp3',
+  // お題の出土（大きい演出）
+  mining: 'mch/Audio/SE/Actions/cp-mining-complete.mp3',
+};
 
 /** 音ごとの大きさ（設定 100% のとき） */
-const GAIN: Partial<Record<Sfx, number>> = { tap: 0.35, page: 0.4, move: 0.5, sale: 0.45, craft: 0.5, drum: 0.5 };
+const GAIN: Partial<Record<Sfx, number>> = { tap: 0.35, page: 0.4, move: 0.5, sale: 0.45, craft: 0.5, drum: 0.5, dig: 0.45, treasure: 0.55, mining: 0.6 };
 
 export class IslandSfx {
   private ctx: AudioContext | null = null;
@@ -34,7 +41,7 @@ export class IslandSfx {
 
   private async load(k: Sfx) {
     try {
-      const res = await fetch(assetUrl(`island/sfx/${k}.mp3`));
+      const res = await fetch(assetUrl(MCH[k] ?? `island/sfx/${k}.mp3`));
       const data = await res.arrayBuffer();
       const b = await this.ctx!.decodeAudioData(data);
       this.buf.set(k, b);
