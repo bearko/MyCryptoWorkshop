@@ -54,6 +54,8 @@ interface Block {
   list: P[];
   /** 大きめの研究パネル（以前の ✨） */
   big: P;
+  /** 大きめの研究パネルの「先に要る」（無ければ並びの先頭）。先頭が準備中のパネルのときに、同じランクで取れるパネルを指す */
+  bigReq?: string;
 }
 
 const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
@@ -155,6 +157,8 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('職人の工具箱', 'Crafter toolkits'), 'craftDays'],
       ],
       big: [t('技能の大会', 'Skills contest'), 'apt:1.5'],
+      // 先頭の「レアの技」（t_rare）は準備中なので、Uncommon で取れる技の先頭「伝統工芸の継承」を先に要るものにする
+      bigReq: 'u_tech_1',
     },
   },
   // ---------------------------------------------------------------- Rare（全国チェーン）
@@ -537,7 +541,7 @@ function build(): Skill[] {
       });
       const [dname, dspec] = b.big;
       const fx = fxOf(dspec, tier);
-      out.push({ id: `${tier.toLowerCase()}_${branch}_d`, branch, name: dname, note: '', cost: 0, big: true, tier, requires: [ids[0]], fx });
+      out.push({ id: `${tier.toLowerCase()}_${branch}_d`, branch, name: dname, note: '', cost: 0, big: true, tier, requires: [b.bigReq ?? ids[0]], fx });
     }
   }
   return out;

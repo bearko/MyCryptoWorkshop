@@ -162,3 +162,32 @@ describe('外周のボリューム（Uncommon 以降）', () => {
     }
   });
 });
+
+describe('先に要るパネル：Common・Uncommon は Common・Uncommon だけで条件がそろう', () => {
+  it('取れる C・U のパネルは、先に要るもの（requires・anyOf）を辿っても、準備中・Rare 以降のパネルに当たらない', async () => {
+    const { LEARNABLE, skillSoon, skillTier } = await import('../src/island/p1/model');
+    const { anyOfMet } = await import('../src/island/p1/data');
+    const low = (id: string) => !!SKILL[id] && ['C', 'U'].includes(skillTier(SKILL[id])) && !skillSoon(SKILL[id]);
+    // C・U で取れるパネルだけを使って、取れるものを広げていく（requires・anyOf がそろうまで）
+    const got = new Set<string>();
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const k of SKILLS) {
+        if (got.has(k.id) || !low(k.id)) continue;
+        if ((k.requires ?? []).every((r) => got.has(r)) && anyOfMet(k, (r) => got.has(r))) {
+          got.add(k.id);
+          changed = true;
+        }
+      }
+    }
+    const stuck = LEARNABLE()
+      .filter((k) => ['C', 'U'].includes(skillTier(k)) && !got.has(k.id))
+      .map((k) => `${k.id}（${k.name}）← ${[...(k.requires ?? []), ...(k.anyOf?.ids ?? [])].join('・')}`);
+    expect(stuck).toEqual([]);
+  });
+
+  it('Uncommon の技の大きめの研究パネル「技能の大会」は、Uncommon の技「伝統工芸の継承」が先に要る（準備中のレアの技ではない）', () => {
+    expect(SKILL.u_tech_d.requires).toEqual(['u_tech_1']);
+    expect(SKILL.u_tech_1.tier).toBe('U');
+  });
+});

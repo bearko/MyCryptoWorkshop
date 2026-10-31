@@ -809,6 +809,59 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
   return null;
 }
 
+/**
+ * 休憩中のヒーローが仕事に戻るまでの日数（スタミナが STAMINA.back まで戻る日。休憩中でなければ 0）。
+ * ヒーロー選びで休憩中のカードを押したときの「休憩中（あと N 日）」
+ */
+export function restDaysLeft(s: P1State, st: Staff): number {
+  if (!st.resting) return 0;
+  const need = st.stats.hp * STAMINA.back - st.stamina;
+  return Math.max(1, Math.ceil(need / Math.max(0.01, restRateOf(s))));
+}
+
+/**
+ * ヒーローを付け替える（ヒーロー選びで、ほかの担当についている人を押したとき）：いまの担当から外せるか。
+ * 修行中・セクタマネージャー・休憩中・待機中は付け替えない（docs/ISLAND_PHASE1.md「ヒーロー選びの見分け」）
+ */
+export const canSwap = (st: Staff) => st.task != null && st.task !== 'train' && st.task !== 'manager' && !st.resting;
+
+/**
+ * 付け替えで元の場所が無人になって止まるか（確認の赤字「△△ は担当がいなくなり、止まります」）。
+ * toTask：付け替え先の仕事（運搬係 → 運搬係のように同じ仕事へ移すときは、止まらない）。
+ * 運搬・調達：ほかに同じ係がいない／製造：その作業台に作るものがある／販売：アルバイトがいない／開拓・調査・発掘：その仕事が止まる。
+ * バイト（他店）は自社の仕事ではないので止まらない扱い
+ */
+export function swapStops(s: P1State, hero: number, toTask: Task | null): boolean {
+  const st = staffOf(s, hero);
+  if (!st || !canSwap(st)) return false;
+  switch (st.task) {
+    case 'transport':
+      return toTask !== 'transport' && !s.staff.some((x) => x.hero !== hero && x.task === 'transport');
+    case 'buy':
+      return toTask !== 'buy' && !s.staff.some((x) => x.hero !== hero && x.task === 'buy');
+    case 'craft':
+      return !!s.slots.find((sl) => sl.worker === hero)?.sku;
+    case 'shop': {
+      const sh = Object.values(s.shops).find((x) => x.staff === hero);
+      return !!sh && sh.part === 0;
+    }
+    case 'explore':
+    case 'intel':
+    case 'dig':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** 付け替えの前半：いまの担当から外す（「担当を外す」と同じ扱い）。外せたら元の仕事（task・target）を返す */
+export function releaseForSwap(s: P1State, hero: number): { task: Task; target: number | string | null } | null {
+  const st = staffOf(s, hero);
+  if (!st || !canSwap(st)) return null;
+  const from = { task: st.task as Task, target: st.target };
+  return assign(s, hero, null) == null ? from : null;
+}
+
 function unassign(s: P1State, st: Staff) {
   for (const sl of s.slots) if (sl.worker === st.hero) sl.worker = null;
   for (const sh of Object.values(s.shops)) if (sh.staff === st.hero) sh.staff = null;
