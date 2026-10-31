@@ -1107,6 +1107,62 @@ for (const k of SKILLS) Object.assign(k, LEVELS[k.id] ?? {});
 // 外周（U・R・E・L）のパネル：汎用の効き目（fx）で書いた追加のパネル
 SKILLS.push(...OUTER_SKILLS);
 
+// ---------------------------------------------------------------- 発掘と研究ポイントの調整値（ここ 1 か所）
+
+/**
+ * 地層の発掘と研究ポイントの、自動プレイ（`npm run island:sim`）で直す数字はここにまとめる（docs/ISLAND_BALANCE.md「v8」）。
+ * 使う所：研究パネルの値段（RP_PRICE）・RP の入り方（RP_GAIN）・地層の硬さとツルハシの上限（DIG）・自動発掘の速さ（DIG_AUTO）・
+ * 発掘の道具の値段（INVESTS の pick・lantern・blast）・発破の火薬代（BLAST）。
+ * v8 で直したもの（前 → 後）：Common の粘土層の硬さ 1〜2 → 1〜3・岩盤 2〜3 → 3（掘り尽くすのを Common の 1 か所目の滞在に合わせる）／
+ * Common の RP「初めて掘る」10 → 15・「研究 Lv」5・10・15・20 → 8・15・20・25（1 か所目で RP が尽きて止まらない）／
+ * ツルハシの新調 5,000・15,000 → 10,000・30,000 G（1 か所目のはじめに買って、すぐ掘り尽くさない）／発破の火薬代 1,000 → 2,000 G（余ったお金の使い道）
+ */
+export const DIG_BALANCE: {
+  rpPrice: Record<Tier, { lo: number; hi: number; big: number; step: number }>;
+  rpGain: Record<'C' | 'U', { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
+  hard: Record<'C' | 'U', [number, number][]>;
+  picks: Record<'C' | 'U', number>;
+  autoPerDay: number;
+  tools: { pick: number[]; lantern: number[]; blast: number[] };
+  blastCost: number;
+} = {
+  // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
+  rpPrice: {
+    C: { lo: 20, hi: 80, big: 125, step: 5 },
+    U: { lo: 60, hi: 180, big: 300, step: 5 },
+    R: { lo: 150, hi: 450, big: 750, step: 10 },
+    E: { lo: 375, hi: 1125, big: 1875, step: 25 },
+    L: { lo: 940, hi: 2810, big: 4700, step: 50 },
+  },
+  // RP の入り方：初めて掘る・研究 Lv2〜5・お題・石板・発表
+  rpGain: {
+    C: { first: 15, lv: [8, 15, 20, 25], topic: 40, tablet: 20, present: 60 },
+    U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
+  },
+  // 地層の硬さ（層ごと。1 打の強さ 1 のときに打つ回数の範囲）
+  hard: {
+    C: [
+      [1, 1],
+      [1, 3],
+      [3, 3],
+    ],
+    U: [
+      [3, 3],
+      [3, 4],
+      [4, 4],
+      [4, 5],
+    ],
+  },
+  // ツルハシの回数の上限
+  picks: { C: 30, U: 60 },
+  // 自動発掘：適性の速さ 1.0 で 1 日に打つ回数
+  autoPerDay: 3,
+  // 発掘の道具（工房の設備投資。G）：ツルハシの新調（2 段）・ランタン・発破の道具
+  tools: { pick: [10000, 30000], lantern: [3000], blast: [6000] },
+  // 発破の火薬代（1 回ごと。G）
+  blastCost: 2000,
+};
+
 // ---------------------------------------------------------------- スキルツリーの 2 区分（研究パネル・お金パネル）
 
 /**
@@ -1127,13 +1183,7 @@ export const MONEY_PANELS: Record<Tier, Partial<Record<Branch, string>>> = {
  * Common 20〜80（平均 50）・Uncommon 60〜180（平均 120）・Rare 以降は Uncommon の 2.5 倍ずつ。大きめの研究パネル（以前の ✨）は big。
  * 人材の募集はチュートリアルで最初の 30 RP で開くので 30（START_RP）。
  */
-export const RP_PRICE: Record<Tier, { lo: number; hi: number; big: number; step: number }> = {
-  C: { lo: 20, hi: 80, big: 125, step: 5 },
-  U: { lo: 60, hi: 180, big: 300, step: 5 },
-  R: { lo: 150, hi: 450, big: 750, step: 10 },
-  E: { lo: 375, hi: 1125, big: 1875, step: 25 },
-  L: { lo: 940, hi: 2810, big: 4700, step: 50 },
-};
+export const RP_PRICE = DIG_BALANCE.rpPrice;
 /** 開始時に持っている研究ポイント（マインちゃんの「前の世界の研究ノート」。新しいゲームだけ） */
 export const START_RP = 30;
 /** 以前のゴールドダスト 1 つ ＝ RP（古いセーブの移し替え・依頼の報酬の置き換え） */
@@ -1259,9 +1309,9 @@ export const INVESTS: Invest[] = [
   { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
   { id: 'rack', kind: 'warehouse', name: t('倉庫の高い棚', 'Tall racks'), note: t('この倉庫の置き場所 +100 個', 'This warehouse holds 100 more'), cost: [6000] },
   // 発掘の道具（工房の裏の発掘場。docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」。値段は仮）
-  { id: 'pick', kind: 'workshop', name: t('ツルハシの新調', 'New pickaxe'), note: t('発掘の 1 打の強さ +1（1 段ごと）', 'Each strike digs 1 harder (per level)'), cost: [5000, 15000] },
-  { id: 'lantern', kind: 'workshop', name: t('発掘のランタン', 'Dig lantern'), note: t('掘れるマスの 1 段下の出土品が薄く見える', 'Faintly shows finds one row below the open cells'), cost: [3000] },
-  { id: 'blast', kind: 'workshop', name: t('発破の道具', 'Blasting kit'), note: t('ツルハシ 1 回で 3 × 3 マスを崩せる（1 回ごとに火薬代がかかる）', 'Clear 3 × 3 cells with one pick use (each blast costs powder)'), cost: [6000] },
+  { id: 'pick', kind: 'workshop', name: t('ツルハシの新調', 'New pickaxe'), note: t('発掘の 1 打の強さ +1（1 段ごと）', 'Each strike digs 1 harder (per level)'), cost: DIG_BALANCE.tools.pick },
+  { id: 'lantern', kind: 'workshop', name: t('発掘のランタン', 'Dig lantern'), note: t('掘れるマスの 1 段下の出土品が薄く見える', 'Faintly shows finds one row below the open cells'), cost: DIG_BALANCE.tools.lantern },
+  { id: 'blast', kind: 'workshop', name: t('発破の道具', 'Blasting kit'), note: t('ツルハシ 1 回で 3 × 3 マスを崩せる（1 回ごとに火薬代がかかる）', 'Clear 3 × 3 cells with one pick use (each blast costs powder)'), cost: DIG_BALANCE.tools.blast },
 ];
 /**
  * 以前のスキル → 設備投資（古いセーブの移し替え。deserializeP1）。
@@ -1305,25 +1355,25 @@ export interface Stratum {
 export const DIG: Record<DigTier, { w: number; layers: Stratum[]; picks: number; mat: number; mats: Mat[] }> = {
   C: {
     w: 7,
-    picks: 30,
+    picks: DIG_BALANCE.picks.C,
     mat: 3,
     mats: ['iron', 'wood', 'clay', 'glass'],
     layers: [
-      { name: t('表土', 'Topsoil'), rows: 10, hard: [1, 1], color: '#8a6a44' },
-      { name: t('粘土層', 'Clay layer'), rows: 10, hard: [1, 2], color: '#a0704a' },
-      { name: t('岩盤', 'Bedrock'), rows: 10, hard: [2, 3], color: '#6f6a66' },
+      { name: t('表土', 'Topsoil'), rows: 10, hard: DIG_BALANCE.hard.C[0], color: '#8a6a44' },
+      { name: t('粘土層', 'Clay layer'), rows: 10, hard: DIG_BALANCE.hard.C[1], color: '#a0704a' },
+      { name: t('岩盤', 'Bedrock'), rows: 10, hard: DIG_BALANCE.hard.C[2], color: '#6f6a66' },
     ],
   },
   U: {
     w: 7,
-    picks: 60,
+    picks: DIG_BALANCE.picks.U,
     mat: 2,
     mats: ['cloth', 'paper', 'gem'],
     layers: [
-      { name: t('岩盤', 'Bedrock'), rows: 10, hard: [3, 3], color: '#6f6a66' },
-      { name: t('古い港の跡', 'Old harbor ruins'), rows: 10, hard: [3, 4], color: '#5a6e7a' },
-      { name: t('古い街道の跡', 'Old highway ruins'), rows: 10, hard: [4, 4], color: '#6b5d74' },
-      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: 10, hard: [4, 5], color: '#4c4a5e' },
+      { name: t('岩盤', 'Bedrock'), rows: 10, hard: DIG_BALANCE.hard.U[0], color: '#6f6a66' },
+      { name: t('古い港の跡', 'Old harbor ruins'), rows: 10, hard: DIG_BALANCE.hard.U[1], color: '#5a6e7a' },
+      { name: t('古い街道の跡', 'Old highway ruins'), rows: 10, hard: DIG_BALANCE.hard.U[2], color: '#6b5d74' },
+      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: 10, hard: DIG_BALANCE.hard.U[3], color: '#4c4a5e' },
     ],
   },
 };
@@ -1332,18 +1382,15 @@ export const DIG_ODDS = { ext: 0.24, mat: 0.14 };
 /** 石板を置く層（Common 1 枚・Uncommon 2 枚） */
 export const TABLET_LAYERS: Record<DigTier, number[]> = { C: [2], U: [1, 3] };
 /** 自動発掘（仕事「発掘」）：適性の速さ 1.0 で 1 日に打つ回数（手で掘るほうが速い） */
-export const DIG_AUTO = { perDay: 3 };
+export const DIG_AUTO = { perDay: DIG_BALANCE.autoPerDay };
 /** 発破：1 回ごとの火薬代（G。仮） */
-export const BLAST = { cost: 1000 };
+export const BLAST = { cost: DIG_BALANCE.blastCost };
 
 /**
  * 研究ポイント（RP）の入り方（数字は仮）。研究レベルは Lv1〜5：Lv2・3・4・5 に上がるのに、重なりがそれぞれ 1・2・3・4 個要る。
  * first：新しいエクステを初めて掘る／lv：Lv2〜5 に上がる／topic：お題を掘る（その場で Lv5）／tablet：石板／present：お題をそろえて発表する
  */
-export const RP_GAIN: Record<DigTier, { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }> = {
-  C: { first: 10, lv: [5, 10, 15, 20], topic: 40, tablet: 20, present: 60 },
-  U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
-};
+export const RP_GAIN = DIG_BALANCE.rpGain;
 /** 研究レベルに要る、掘った数の合計（Lv1〜5）：1・2・4・7・11 */
 export const RESEARCH_NEED = [1, 2, 4, 7, 11];
 /** 掘った数 → 研究レベル（0〜5） */

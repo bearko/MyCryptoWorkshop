@@ -3,7 +3,7 @@
  * 配置・お題・ツルハシの回数・硬さ・研究レベルと RP・石板・道具・自動発掘・研究／お金パネル・✨ → RP・調査依頼状・古いセーブの移し替え。
  */
 import { describe, expect, it } from 'vitest';
-import { DIG, DIG_SITES, MISSIONS, MONEY_PANELS, RESEARCH_NEED, RP_GAIN, RP_PER_DUST, SKILL, SKILLS, START_RP, TABLETS, aptitude, isResearch, levelCost, maxLv, rpCost, researchLv } from '../src/island/p1/data';
+import { BLAST, DIG, DIG_SITES, MISSIONS, MONEY_PANELS, RESEARCH_NEED, RP_GAIN, RP_PER_DUST, SKILL, SKILLS, START_RP, TABLETS, aptitude, isResearch, levelCost, maxLv, rpCost, researchLv } from '../src/island/p1/data';
 import { moveTo } from '../src/island/p1/land';
 import {
   addPicks,
@@ -335,7 +335,7 @@ describe('道具（工房の設備投資）', () => {
     expect(r).toHaveLength(6);
     expect(r.every((x) => x.broke)).toBe(true);
     expect(s.dig!.picks).toBe(4);
-    expect(s.money).toBe(m0 - 1000);
+    expect(s.money).toBe(m0 - BLAST.cost);
   });
 });
 

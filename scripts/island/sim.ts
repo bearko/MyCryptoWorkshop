@@ -5,9 +5,10 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, isResearch, maxLv, rpCost, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { aptitude, anyOfMet, ADS, BLAST, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, isResearch, maxLv, rpCost, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
 import { managerApt, sectorDef } from '../../src/island/p1/company';
 import { crowned, moveTo } from '../../src/island/p1/land';
+import { MEET_IDLE_DAYS } from '../../src/island/p1/digmeet';
 import {
   accept,
   allowedDirs,
@@ -19,6 +20,16 @@ import {
   craftDays,
   dig,
   digNext,
+  digPower,
+  digSite,
+  blast,
+  hasBlast,
+  hasLetter,
+  peek,
+  picksCap,
+  presentLock,
+  reachable,
+  topicProgress,
   present,
   batchOf,
   develop,
@@ -88,10 +99,31 @@ import {
  * normal は ×1 でひと月 36 秒、行動 1 回 4 秒、月末ポーズ 60 秒、チュートリアル 10 分。full は normal と同じ単価。
  */
 export const SIM_TIME = {
-  rta: { month: 9, action: 2, pause: 10, tutorial: 0 },
-  normal: { month: 36, action: 4, pause: 60, tutorial: 600 },
-  full: { month: 36, action: 4, pause: 60, tutorial: 600 },
+  rta: { month: 9, action: 2, pause: 10, tutorial: 0, strike: 0.2, talk: 3 },
+  normal: { month: 36, action: 4, pause: 60, tutorial: 600, strike: 0.35, talk: 20 },
+  full: { month: 36, action: 4, pause: 60, tutorial: 600, strike: 0.35, talk: 20 },
 } as const;
+
+/**
+ * v8：手で掘る量の仮定（docs/ISLAND_BALANCE.md「v8 の計算・方針の変更」）。
+ * - strike（SIM_TIME）：1 打の秒数。rta は長押しの連打（0.17 秒ごと）に近い 0.2 秒、normal・full はタップ 0.35 秒。
+ * - 発掘場は時間を止めない（憲章 1-2 の例外）ので、**月の途中に掘る時間は、ひと月の時間に重なる**（実時間に足さない）。
+ *   そのかわり、月の途中に手で打てる数は「1 日の秒数 ÷ 1 打の秒数 × focus」までに抑える（rate の方針）。
+ *   月末ポーズのあいだに掘るぶん（pause）は時間が止まっているので、1 打の秒数をそのまま実時間に足す。
+ * - midDays：月の途中に発掘場を開く日（月の締めからの日数）。開いたらたまった回数をぜんぶ使う（上限 30／60 なので数十秒）。
+ * - rate：月の途中も発掘場を開いたまま、手の速さの上限まで掘り続ける（rta・full）。
+ * - target：打つマスの選び方。know＝配置を知っている（同じセクタはいつも同じ配置なので、走る人は覚えている）→ お題への最短の道。
+ *   sweep＝上から順に（ランタンがあれば、薄く見えたお題・石板・エクステへ寄せる）。
+ * - digger：自動発掘の担当（0＝置かない／'waste'＝先月、上限であふれた回数が上限より多ければ 1 人／1＝いつも 1 人、あふれが多ければ 2 人）。
+ * - tools：道具を買う目安（その値段の何倍の資金があれば買うか。null は買わない。full は残りの設備投資と同じく安い順にまとめて買う）。
+ */
+export const SIM_DIG = {
+  rta: { pause: true, midDays: [] as number[], rate: true, focus: 1, target: 'know', digger: 0, tools: null, blastWhenWaiting: true },
+  normal: { pause: true, midDays: [10, 20], rate: false, focus: 0, target: 'sweep', digger: 'waste', tools: 4, blastWhenWaiting: true },
+  full: { pause: true, midDays: [] as number[], rate: true, focus: 1, target: 'sweep', digger: 1, tools: null, blastWhenWaiting: true },
+} as const;
+/** 100%：セクタの発掘場をぜんぶ掘り終えるまで次へ移らない（制覇のあと、この月数まで待つ） */
+export const FULL_DIG_WAIT = 24;
 
 /** 1 セクタの打ち切り（か月） */
 export const MONTH_CAP = 120;
@@ -122,10 +154,34 @@ export interface SectorRun {
   pauseTop: number;
   act: number;
   pause: number;
+  /** v8：発掘（打った数：月の途中の手・月末ポーズの手・自動・発破、入った RP、研究パネルを開けた枚数、RP が足りなくて止まった月、あふれた回数） */
+  dig: DigRec;
   /** 月ごとの締め（順位・売上・資金・ボトルネック） */
   /** bn：ゲームの bottleneck()（月の締め）、read：人が読むボトルネック（readBn） */
   log: { m: number; rank: number; rev: number; top: number; money: number; bn: Stage | undefined; read: Stage }[];
 }
+
+export interface DigRec {
+  mid: number;
+  pause: number;
+  /** 制覇までの月末ポーズの手の打った数・会話の数（実時間） */
+  pauseTop: number;
+  auto: number;
+  blast: number;
+  rp: number;
+  research: number;
+  rpBlocked: number;
+  waste: number;
+  /** 会話（発掘との出会い・研究成果の発表）の数 */
+  talks: number;
+  talksTop: number;
+  /** お題がそろった月（着いてからの月の締めの回数）・依頼状を待った月（制覇のあと、依頼状が無くて移れなかった月） */
+  topicsAt: number | null;
+  letterWait: number;
+  /** 掘り残したマス（離れたとき） */
+  left: number;
+}
+const newDigRec = (): DigRec => ({ mid: 0, pause: 0, pauseTop: 0, auto: 0, blast: 0, rp: 0, research: 0, rpBlocked: 0, waste: 0, talks: 0, talksTop: 0, topicsAt: null, letterWait: 0, left: 0 });
 
 export interface RunResult {
   policy: PolicyId;
@@ -141,6 +197,10 @@ export interface RunResult {
   skillsAt: { id: string; day: number; sector: string }[];
   /** 100% のゴールの中身 */
   goal?: { crowns: number; skills: number; maxed?: number; levels?: number; missions: number; missing?: string[] };
+  /** v8：お金の使い道（G）：お金パネル（開放・レベル上げ）・発掘の道具（発破の火薬代を含む）・関所と出店許可・最後に残った資金 */
+  spend: { money: number; tools: number; fees: number; end: number };
+  /** v8：研究パネルを開けた枚数（ランクごと）・C の研究パネルがそろったときにいたセクタの番号（1 始まり） */
+  research: { C: number; U: number; allC: number | null };
 }
 
 // ---------------------------------------------------------------- 方針
@@ -156,10 +216,15 @@ const BRANCH_ORDER: Record<Stage, string[]> = {
   haul: ['loading', '@carts:1', 'shortcut', 'timetable', '@backroom:1', 'route_opt', '@truck:1', '@carts:2', 'hub', 'joint', 'crossdock', 'fleet'],
   sell: ['@shelves:1', 'host', '@staffroom:1', 'display', 'vmd', 'hours', 'shop2', 'golden', 'pop', '@shelves:2', 'set', 'point', 'shop3', 'b_sign', 'order', 'fair', 'concierge', 'b_premium'],
 };
+/** 詰まりの段 → スキルツリーの枝 */
+const STAGE_BRANCH: Record<Stage, string> = { buy: 'buy', craft: 'craft', haul: 'logi', sell: 'shop' };
 /** 詰まりの段 → その段の大きめの研究パネル（以前の ✨）。通常の方針は、RP がたまったら詰まりの段のものを取る */
 const DUST_OF: Record<Stage, string> = { buy: 'd_buy', craft: 'd_craft', haul: 'd_logi', sell: 'd_shop' };
-/** 100% のゴール：Common・Uncommon の外周までの取れるパネル（Rare 以降のセクタはまだ遊べないので外周が開かない） */
-export const fullSkills = () => LEARNABLE().filter((k) => ['C', 'U'].includes(skillTier(k)));
+/**
+ * 100% のゴール：Common・Uncommon の外周までの取れるパネル（Rare 以降のセクタはまだ遊べないので外周が開かない）。
+ * v8：先に要るパネルが準備中のもの（Uncommon の技の大きめの研究パネル「技能の大会」← レアの技）は、いまは取れないので数えない
+ */
+export const fullSkills = () => LEARNABLE().filter((k) => ['C', 'U'].includes(skillTier(k)) && !(k.requires ?? []).some((r) => SKILL[r] && skillSoon(SKILL[r])));
 
 /** 最短：知っている人の取り方（アンコモンへ一直線、そのあと売り場と運搬）。「@id:段」は設備投資 */
 const RTA_SKILLS = [
@@ -168,6 +233,8 @@ const RTA_SKILLS = [
   'vmd', 'golden', 'pos', 'point', 'set', 'd_shop', 'order', 'fair', 'flow', 'dyn', 'five_s', 'kaizen', 'lot', 'night', 'mold', 'timetable', 'route_opt', 'joint', 'abc', 'auto_order', 'inventory', 'erp', 'manual', 'incentive',
 ];
 
+/** 発掘の道具（設備投資のうち） */
+const DIG_TOOLS = ['pick', 'lantern', 'blast'];
 /** 「@id:段」→ 設備投資の id と段 */
 const invOf = (x: string): { id: string; lv: number } | null => {
   if (!x.startsWith('@')) return null;
@@ -196,6 +263,14 @@ interface Ctx {
   onlyFirst: boolean;
   /** 打ち切り */
   stop?: string;
+  /** v8：発掘（月の締めからの日数・手の速さの端数・最短の道・先月あふれた回数） */
+  dayInMonth: number;
+  handCarry: number;
+  /** v8：今月の月末に開けた研究パネルの数 */
+  rpMoves: number;
+  digPath?: number[];
+  wasteLast: number;
+  wasteNow: number;
 }
 
 const DIRS = ['rd', 'ld', 'lu', 'ru'] as const;
@@ -307,6 +382,8 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
 export interface Action {
   kind: string;
   run: () => unknown;
+  /** v8：お金パネル（開放・レベル上げ）・発掘の道具の支出を数える */
+  tag?: 'money' | 'tool';
 }
 /** 成功した（null・true・建物） */
 const ok = (r: unknown) => r === null || r === true || (typeof r === 'object' && r !== undefined);
@@ -370,7 +447,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
     spend(cost);
     pending.add(x);
     const iv = invOf(x)!;
-    for (const b of bs) acts.push({ kind: 'invest', run: () => invest(s, b.uid, iv.id) });
+    for (const b of bs) acts.push({ kind: 'invest', run: () => invest(s, b.uid, iv.id), tag: DIG_TOOLS.includes(iv.id) ? 'tool' : undefined });
     return true;
   };
   /** レベル上げ「lv:id」（v7）：次のレベル（v8：お金パネルだけ） */
@@ -388,7 +465,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
       if (!lvCan(lk) || budget < cost + keep) return false;
       spend(cost);
       pending.add(id);
-      acts.push({ kind: 'skill', run: () => levelUp(s, lk.id) });
+      acts.push({ kind: 'skill', run: () => levelUp(s, lk.id), tag: 'money' });
       return true;
     }
     const research = isResearch(SKILL[id] ?? ({} as Skill));
@@ -396,7 +473,7 @@ export function policy(s: P1State, c: Ctx): Action[] {
     if (research) rpUsed += rpCost(SKILL[id]);
     else spend(SKILL[id].cost);
     pending.add(id);
-    acts.push({ kind: 'skill', run: () => learn(s, id) });
+    acts.push({ kind: 'skill', run: () => learn(s, id), tag: research ? undefined : 'money' });
     return true;
   };
   /** 取れる（スキル：条件を満たしている／設備投資：その段に届いていない建物がある） */
@@ -705,6 +782,14 @@ export function policy(s: P1State, c: Ctx): Action[] {
         }
         if (n > 0) break;
       }
+      // v8：RP が残っていれば、詰まりの段の枝の研究パネルを説明の順（BRANCH_ORDER）→ 同じ枝の安い順に（見込みの手と合わせて RP_MOVES まで）
+      if (c.policy === 'normal') {
+        const ids = [...BRANCH_ORDER[bn].filter((id) => !invOf(id)), ...SKILLS.filter((k) => k.branch === STAGE_BRANCH[bn] && isResearch(k) && !k.big).sort((a, b) => rpCost(a) - rpCost(b)).map((k) => k.id)];
+        for (const id of ids) {
+          if (c.rpMoves >= RP_MOVES) break;
+          if (SKILL[id] && isResearch(SKILL[id]) && can(id) && take(id, 0)) c.rpMoves++;
+        }
+      }
       // RP がたまったら、詰まりの段の大きめの研究パネル（どこを重点的に伸ばすか）。100% は下でまとめて取る
       if (c.policy === 'normal') take(DUST_OF[bn] ?? 'd_logi', 0) || take('d_logi', 0);
       // 売り場が細いのに枝で取れるものが無ければ、お店（月 1 軒まで）・チラシ・看板
@@ -771,6 +856,8 @@ interface WhatIfHooks {
   setHired: () => void;
   buildShop: () => boolean;
 }
+/** v8：月末に開ける研究パネルの数の上限（見込みの大きい順） */
+const RP_MOVES = 2;
 function byWhatIf(s: P1State, c: Ctx, bn: Stage, cap: number, k: WhatIfHooks): number {
   let n = 0;
   // 1 個あたりの粗利（先月の売上 ÷ 売れた数 − 素材代）。月々の費用（維持費・給料・アルバイト代）が、増える粗利より大きい手は取らない
@@ -787,10 +874,17 @@ function byWhatIf(s: P1State, c: Ctx, bn: Stage, cap: number, k: WhatIfHooks): n
     return 0;
   };
   const list = whatIf(s, bn);
+  // v8：研究パネル（RP で開く）は資金の手（2 つまで）と別に数える。見込みの大きい順に、RP があるだけ（RP_MOVES まで）
+  c.rpMoves = 0;
   for (const w of list) {
-    if (n >= 2) break;
+    if (n >= 2 && c.rpMoves >= RP_MOVES) break;
     if (!w.ok || w.units * margin <= monthly(w)) continue;
     const m = w.move;
+    if (m.kind === 'skill' && isResearch(SKILL[m.id])) {
+      if (c.rpMoves < RP_MOVES && k.take(m.id, 0)) c.rpMoves++;
+      continue;
+    }
+    if (n >= 2) continue;
     if (m.kind === 'invest') {
       if (c.ban.has(`@${m.id}`) || m.cost > cap || k.budget() < m.cost + k.reserve / 2) continue;
       k.spend(m.cost);
@@ -809,7 +903,7 @@ function byWhatIf(s: P1State, c: Ctx, bn: Stage, cap: number, k: WhatIfHooks): n
       k.spend(m.cost);
       cap -= m.cost;
       const id = m.id;
-      k.acts.push({ kind: 'skill', run: () => levelUp(s, id) });
+      k.acts.push({ kind: 'skill', run: () => levelUp(s, id), tag: 'money' });
       n++;
     } else if (m.kind === 'person') {
       if (m.hire && (k.hired() || k.budget() < 3000 + k.reserve / 2)) continue;
@@ -914,6 +1008,114 @@ function uValue(s: P1State, key: string) {
   return units * (priceOf(s, x) - unitCost(s, x));
 }
 
+
+// ---------------------------------------------------------------- 発掘（v8）
+
+/** 掘り残したマスの数 */
+export const digLeft = (s: P1State) => (s.dig ? s.dig.hp.filter((v) => v > 0).length : 0);
+
+/**
+ * 配置を知っている人（最短）：まだのお題（なければ石板・エクステ）への、打つ回数がいちばん少ない道（1 段目から）を作り、
+ * 道の上のまだ崩れていないマスを上から打つ。道は c.digPath にとっておき、行き着いたら作り直す
+ */
+function knowTarget(s: P1State, c: Ctx): [number, number] | null {
+  const L = digSite(s);
+  if (!L || !s.dig) return null;
+  const hp = s.dig.hp;
+  const W = L.w;
+  const path = (c.digPath ?? []).filter((k) => hp[k] > 0);
+  if (!path.length) {
+    const goalsOf = (f: (k: number) => boolean) => L.cells.map((_, k) => k).filter((k) => hp[k] > 0 && f(k));
+    let goals = goalsOf((k) => L.cells[k].item?.kind === 'ext' && !!(L.cells[k].item as { topic?: boolean }).topic);
+    if (!goals.length) goals = goalsOf((k) => L.cells[k].item?.kind === 'tablet');
+    if (!goals.length) goals = goalsOf((k) => L.cells[k].item?.kind === 'ext');
+    if (!goals.length) return digNext(s);
+    // ダイクストラ（マスの重み＝崩すまでの打つ回数。崩れたマスは 0）。280 マスなので素直に
+    const pw = digPower(s);
+    const n = hp.length;
+    const cost = (k: number) => (hp[k] > 0 ? Math.ceil(hp[k] / pw) : 0);
+    const dist = new Array<number>(n).fill(Infinity);
+    const prev = new Array<number>(n).fill(-1);
+    const done = new Array<boolean>(n).fill(false);
+    for (let x = 0; x < W; x++) dist[x] = cost(x);
+    for (let k = 0; k < n; k++) if (hp[k] <= 0) dist[k] = 0;
+    for (;;) {
+      let u = -1;
+      for (let k = 0; k < n; k++) if (!done[k] && dist[k] < Infinity && (u < 0 || dist[k] < dist[u])) u = k;
+      if (u < 0) break;
+      done[u] = true;
+      const x = u % W;
+      const nb = [u - W, u + W, x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1].filter((v) => v >= 0 && v < n);
+      for (const v of nb) {
+        const d = dist[u] + cost(v);
+        if (d < dist[v]) {
+          dist[v] = d;
+          prev[v] = u;
+        }
+      }
+    }
+    const goal = goals.sort((a, b) => dist[a] - dist[b])[0];
+    const out: number[] = [];
+    for (let k = goal; k >= 0; k = prev[k]) if (hp[k] > 0) out.unshift(k);
+    c.digPath = out;
+    path.push(...out);
+  }
+  const k = path.find((v) => reachable(s, v % W, Math.floor(v / W)));
+  return k == null ? digNext(s) : [k % W, Math.floor(k / W)];
+}
+
+/** 上から順に（ランタンがあれば、薄く見えたお題 → 石板 → エクステへ寄せる） */
+function sweepTarget(s: P1State): [number, number] | null {
+  const L = digSite(s);
+  if (!L || !s.dig) return null;
+  if (invLv(myWorkshop(s), 'lantern') > 0) {
+    const rank = (k: number) => {
+      const it = L.cells[k].item;
+      if (!it) return 0;
+      return it.kind === 'ext' && it.topic ? 3 : it.kind === 'tablet' ? 2 : it.kind === 'ext' ? 1 : 0;
+    };
+    let best: [number, number] | null = null;
+    let score = 0;
+    for (let k = 0; k < s.dig.hp.length; k++) {
+      if (s.dig.hp[k] <= 0 || !rank(k)) continue;
+      const x = k % L.w;
+      const y = Math.floor(k / L.w);
+      if (!peek(s, x, y)) continue;
+      const at: [number, number] | null = reachable(s, x, y) ? [x, y] : y > 0 && reachable(s, x, y - 1) ? [x, y - 1] : null;
+      const v = rank(k) * 1000 - y;
+      if (at && v > score) {
+        score = v;
+        best = at;
+      }
+    }
+    if (best) return best;
+  }
+  return digNext(s);
+}
+
+const digTarget = (s: P1State, c: Ctx) => (SIM_DIG[c.policy].target === 'know' ? knowTarget(s, c) : sweepTarget(s));
+
+/** 手で n 回まで打つ（発破が使えれば、条件のときは発破）。打った数を返す */
+function handDig(s: P1State, c: Ctx, n: number, rec: DigRec, useBlast: () => boolean, spendTools: (v: number) => void): number {
+  let k = 0;
+  while (k < n && (s.dig?.picks ?? 0) > 0) {
+    const at = digTarget(s, c);
+    if (!at) break;
+    if (hasBlast(s) && s.money >= BLAST.cost && useBlast()) {
+      const r = blast(s, at[0], at[1]);
+      if (typeof r !== 'string') {
+        rec.blast++;
+        spendTools(BLAST.cost);
+        k++;
+        continue;
+      }
+    }
+    if (typeof dig(s, at[0], at[1]) === 'string') break;
+    k++;
+  }
+  return k;
+}
+
 // ---------------------------------------------------------------- ルート
 
 const byFee = (tier: Tier) => SECTORS.filter((x) => x.tier === tier && !x.cloud && !x.soon && x.id !== 'c1').sort((a, b) => a.fee - b.fee || a.id.localeCompare(b.id)).map((x) => x.id);
@@ -935,9 +1137,12 @@ export interface RunOpts {
 
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
-  const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst };
-  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [] };
-  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, log: [] });
+  const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, wasteLast: 0, wasteNow: 0 };
+  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null } };
+  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, dig: newDigRec(), log: [] });
+  const D = SIM_DIG[p];
+  const cResearch = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && !skillSoon(k)).map((k) => k.id);
+  let progress = { got: -1, claimed: -1, day: 0 };
   let cur = newRun('c1');
   res.sectors.push(cur);
   let skillsSeen = 0;
@@ -946,18 +1151,30 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const fullMissions = MISSIONS.length;
 
   for (let guard = 0; guard < 30 * 600; guard++) {
-    // ---- 判断と行動
+    // ---- 判断と行動（v8：この日が月末ポーズか。RP の支出は、入った RP を数えるのに使う）
+    const atPause = c.monthEnd != null;
+    const rpStart = s.rp ?? 0;
+    let rpSpent = 0;
     const acts = policy(s, c);
     c.monthEnd = null;
     for (const a of acts) {
+      const m0 = s.money;
+      const rp0 = s.rp ?? 0;
       const r = a.run();
+      rpSpent += Math.max(0, rp0 - (s.rp ?? 0));
       if (!ok(r)) continue;
+      if (a.tag === 'money') res.spend.money += m0 - s.money;
+      if (a.tag === 'tool') res.spend.tools += m0 - s.money;
       res.actions[a.kind] = (res.actions[a.kind] ?? 0) + 1;
       cur.act++;
       if (cur.topDay == null) cur.actTop++;
     }
     if (s.skills.length > skillsSeen) {
-      for (const id of s.skills.slice(skillsSeen)) res.skillsAt.push({ id, day: s.day, sector: s.sector ?? 'c1' });
+      for (const id of s.skills.slice(skillsSeen)) {
+        res.skillsAt.push({ id, day: s.day, sector: s.sector ?? 'c1' });
+        if (SKILL[id] && isResearch(SKILL[id])) cur.dig.research++;
+      }
+      if (res.research.allC == null && cResearch.every((id) => has(s, id))) res.research.allC = c.at + 1;
       skillsSeen = s.skills.length;
       c.lineupDirty = true;
     }
@@ -977,15 +1194,109 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       invSeen.sector = s.sector;
     }
 
-    // ---- 発掘（v8 の仮：たまったツルハシの回数を毎日ぜんぶ手で使う。そろったら発表する。計測は docs/ISLAND_BALANCE.md v8 で）
-    while ((s.dig?.picks ?? 0) > 0 && s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0)) {
-      const at = digNext(s);
-      if (!at || typeof dig(s, at[0], at[1]) === 'string') break;
+    // ---- 発掘（v8。SIM_DIG：手で掘る量・道具・自動発掘の担当・発表）
+    const wsReady = s.buildings.some((b) => b.owner === 'me' && b.id === 'workshop' && b.left <= 0);
+    // 発掘との出会い：最初の月の締めのあと、操作がないまま 5 日（月の途中はふつう手が空く）
+    if (!s.flags.digMeet && s.reports.length >= 1 && c.dayInMonth >= MEET_IDLE_DAYS && s.dig && wsReady && !atPause) {
+      s.flags.digMeet = 'done';
+      cur.dig.talks++;
+      if (cur.topDay == null) cur.dig.talksTop++;
     }
-    if (typeof present(s) !== 'string') res.actions.present = (res.actions.present ?? 0) + 1;
+    if (s.flags.digMeet && s.dig && wsReady) {
+      const [got, all] = topicProgress(s);
+      const nextId = c.route[c.at + 1];
+      const needLetter = !!nextId && sectorDef(nextId).tier === 'U' && !hasLetter(s, 'U');
+      const waiting = !!s.cleared && needLetter && got < all;
+      const ws = myWorkshop(s)!;
+      const spendTools = (v: number) => (res.spend.tools += v);
+      const buyTool = (id: string) => {
+        const cost = investCost(ws, id);
+        if (cost == null) return;
+        const m0 = s.money;
+        if (invest(s, ws.uid, id) == null) {
+          spendTools(m0 - s.money);
+          res.actions.invest = (res.actions.invest ?? 0) + 1;
+          cur.act++;
+          if (cur.topDay == null) cur.actTop++;
+        }
+      };
+      // 道具：最短は、依頼状を待っているあいだだけ発破。通常は月末に、値段の tools 倍の資金があれば ランタン → ツルハシ、依頼状を待っていれば発破（100% は方針の設備投資でまとめて買う）
+      if (waiting && D.blastWhenWaiting && !hasBlast(s) && s.money > (investCost(ws, 'blast') ?? Infinity) + (p === 'rta' ? 3000 : 10000)) buyTool('blast');
+      if (D.tools != null && atPause)
+        for (const id of ['lantern', 'pick']) {
+          const cost = investCost(ws, id);
+          if (cost != null && s.money > cost * D.tools + 10000) buyTool(id);
+        }
+      // 自動発掘の担当
+      const want = D.digger === 0 ? 0 : D.digger === 'waste' ? (c.wasteLast > picksCap(s) ? 1 : 0) : 1 + (c.wasteLast > picksCap(s) * 2 ? 1 : 0);
+      const diggers = s.staff.filter((x) => x.task === 'dig').length;
+      if (diggers < want && s.money > 20000) {
+        const idle = crew(s).filter((x) => x.task == null).sort((a, b) => aptitude(b.stats, 'dig') - aptitude(a.stats, 'dig'))[0];
+        let hero = idle?.hero ?? null;
+        if (hero == null) {
+          const pick = [...s.hirePool].sort((a, b) => aptitude(heroStatsOf(b), 'dig') - aptitude(heroStatsOf(a), 'dig'))[0];
+          if (pick != null && has(s, 'hire') && hire(s, pick) == null) {
+            hero = pick;
+            res.actions.hire = (res.actions.hire ?? 0) + 1;
+            cur.act++;
+          }
+        }
+        if (hero != null && assign(s, hero, 'dig') == null) {
+          res.actions.assign = (res.actions.assign ?? 0) + 1;
+          cur.act++;
+        }
+      }
+      // 発破を使う：依頼状を待っていてお題が残っている（最短・通常）／資金に余裕がある（100%）
+      const useBlast = () => (p === 'full' ? s.money > 50000 : waiting && s.money > BLAST.cost + (p === 'rta' ? 3000 : 10000));
+      if (atPause && D.pause) {
+        const n = handDig(s, c, Infinity, cur.dig, useBlast, spendTools);
+        cur.dig.pause += n;
+        if (cur.topDay == null) cur.dig.pauseTop += n;
+        if (n) {
+          res.actions.dig = (res.actions.dig ?? 0) + 1;
+          cur.act++;
+          if (cur.topDay == null) cur.actTop++;
+        }
+      } else if (D.rate) {
+        c.handCarry += (SIM_TIME[p].month / 30 / SIM_TIME[p].strike) * D.focus;
+        const m = Math.floor(c.handCarry);
+        c.handCarry -= m;
+        cur.dig.mid += handDig(s, c, m, cur.dig, useBlast, spendTools);
+      } else if ((D.midDays as readonly number[]).includes(c.dayInMonth)) {
+        const n = handDig(s, c, Infinity, cur.dig, useBlast, spendTools);
+        cur.dig.mid += n;
+        if (n) {
+          res.actions.dig = (res.actions.dig ?? 0) + 1;
+          cur.act++;
+          if (cur.topDay == null) cur.actTop++;
+        }
+      }
+      if (cur.dig.topicsAt == null && topicProgress(s)[0] >= all && all > 0) cur.dig.topicsAt = cur.log.length;
+      // お題がそろったら、町の長に発表する（会話）
+      if (presentLock(s) === null && typeof present(s) !== 'string') {
+        res.actions.present = (res.actions.present ?? 0) + 1;
+        cur.act++;
+        cur.dig.talks++;
+        if (cur.topDay == null) {
+          cur.actTop++;
+          cur.dig.talksTop++;
+        }
+      }
+    }
 
-    // ---- 1 日
+    // ---- 1 日（v8：ツルハシのあふれ＝売れた数のうち、上限で入らなかった回数）
+    const picks0 = s.dig?.picks ?? 0;
     const d = step(s);
+    if (s.dig && s.flags.digMeet) {
+      const sold = Object.values(s.yday ?? {}).reduce<number>((a, v) => a + (v ?? 0), 0);
+      const auto = d.dug?.length ?? 0;
+      const w = Math.max(0, picks0 - auto + sold - s.dig.picks);
+      c.wasteNow += w;
+      cur.dig.waste += w;
+      cur.dig.auto += auto;
+    }
+    cur.dig.rp += (s.rp ?? 0) - rpStart + rpSpent;
+    c.dayInMonth++;
     if (d.developed.length || d.finished.length) c.lineupDirty = true;
     if (cur.open == null && s.open != null) cur.open = s.open;
     // 日々の詰まり（最短は毎日見る）
@@ -998,6 +1309,18 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       }
       cur.pause++;
       if (cur.topDay == null) cur.pauseTop++;
+      // v8：月の締め。RP が足りなくて止まった月＝詰まりの段に効く研究パネルがあるのに、どれも RP が足りない
+      c.dayInMonth = 0;
+      c.wasteLast = c.wasteNow;
+      c.wasteNow = 0;
+      {
+        const useful = whatIf(s, readBn(s)).filter((w) => w.ok && w.move.kind === 'skill' && isResearch(SKILL[w.move.id]));
+        if (useful.length && useful.every((w) => w.move.kind === 'skill' && rpCost(SKILL[w.move.id]) > (s.rp ?? 0))) cur.dig.rpBlocked++;
+      }
+      {
+        const nextId = c.route[c.at + 1];
+        if (s.cleared && cur.topDay != null && nextId && sectorDef(nextId).tier === 'U' && !hasLetter(s, 'U')) cur.dig.letterWait++;
+      }
       cur.log.push({ m: r.month, rank: r.rank, rev: r.revenue, top: Math.max(...r.area.filter((x) => !x.me).map((x) => x.sales)), money: Math.round(s.money), bn: r.bottleneck, read: readBn(s) });
       o.onMonth?.(s, cur.id, r.month);
       c.monthEnd = r;
@@ -1040,19 +1363,27 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
           res.done = true;
           break;
         }
-        if (s.day - (cur.topDay ?? 0) > 30 * MONTH_CAP) {
-          res.stop = '全スキル・全依頼に届かない';
+        // v8：12 か月、パネルも依頼も進まなければ打ち切る（RP が足りない・掘る所が無い）
+        if (got !== progress.got || claimed !== progress.claimed) progress = { got, claimed, day: s.day };
+        if (s.day - progress.day > 30 * 12 || s.day - (cur.topDay ?? 0) > 30 * MONTH_CAP) {
+          const rest = fullSkills().filter((k) => lvOf(s, k.id) < maxLv(k));
+          res.stop = `全スキル・全依頼に届かない（残り ${rest.length} 枚：研究パネル ${rest.filter(isResearch).length} 枚・RP ${rest.filter(isResearch).reduce((a, k) => a + rpCost(k), 0)} が要る・いま ${Math.round(s.rp ?? 0)} RP）`;
           break;
         }
         continue;
       }
       if (p === 'full' && sectorMissionsLeft && s.day - cur.topDay < 30 * 12) continue;
+      // v8：100% は発掘場をぜんぶ掘ってから。Uncommon へは調査依頼状が要る（Common のセクタのお題をそろえて発表する）
+      if (p === 'full' && digLeft(s) > 0 && s.day - cur.topDay < 30 * FULL_DIG_WAIT) continue;
+      if (sectorDef(next).tier === 'U' && !hasLetter(s, 'U')) continue;
       // 関所 → 出店許可（費用 ＋ 立ち上げの資金）
       const fee = sectorDef(next).fee;
       const start = p === 'rta' ? 8000 : 12000;
       if (!s.land) {
         if (s.money < gateToll(s) + fee + start) continue;
+        const g0 = s.money;
         if (!openGate(s)) continue;
+        res.spend.fees += g0 - s.money;
         res.actions.gate = (res.actions.gate ?? 0) + 1;
         cur.act++;
       }
@@ -1064,7 +1395,10 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         const keep = cands.filter((x) => aptitude(x.stats, 'craft') >= UNCOMMON.minCraft);
         if (keep.length === 1) mgr = cands.find((x) => x !== keep[0]) ?? mgr;
       }
+      cur.dig.left = digLeft(s);
+      const f0 = s.money;
       const e = moveTo(s, next, mgr?.hero ?? null);
+      res.spend.fees += Math.max(0, f0 - s.money);
       if (e) {
         res.stop = `${next} へ移れない（${e}）`;
         break;
@@ -1079,11 +1413,19 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       c.lineupDirty = true;
       c.lastBn = null;
       c.shopsThisMonth = 0;
+      c.digPath = undefined;
+      c.dayInMonth = 0;
     }
   }
   if (!res.done && !res.stop) res.stop = '日数の上限';
-  if (cur.left == null) cur.left = s.day;
+  if (cur.left == null) {
+    cur.left = s.day;
+    cur.dig.left = digLeft(s);
+  }
   res.days = s.day;
+  res.spend.end = Math.round(s.money);
+  res.research.C = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && has(s, k.id)).length;
+  res.research.U = SKILLS.filter((k) => skillTier(k) === 'U' && isResearch(k) && has(s, k.id)).length;
   if (p === 'full') {
     const crowns = SECTORS.filter((x) => (x.tier === 'C' || x.tier === 'U') && !x.cloud && !x.soon).filter((x) => crowned(s, x.id)).length;
     res.goal = { crowns, skills: fullSkills().filter((k) => has(s, k.id)).length, maxed: fullSkills().filter((k) => lvOf(s, k.id) >= maxLv(k)).length, levels: fullSkills().reduce((a, k) => a + lvOf(s, k.id), 0), missions: MISSIONS.filter((m) => s.missions[m.id] === 'claimed').length, missing: MISSIONS.filter((m) => s.missions[m.id] !== 'claimed').map((m) => m.id) };
@@ -1099,7 +1441,9 @@ export function secOf(p: PolicyId, r: SectorRun, until: 'top' | 'left'): number 
   const end = until === 'top' ? r.topDay : r.left;
   if (end == null) return null;
   const days = end - r.arrived;
-  return (days / 30) * T.month + (until === 'top' ? r.actTop : r.act) * T.action + (until === 'top' ? r.pauseTop : r.pause) * T.pause;
+  // v8：月末ポーズのあいだに掘った打つ数（時間が止まっているので足す）と会話。月の途中に掘るぶんは、ひと月の時間に重なる
+  const dig = (until === 'top' ? r.dig.pauseTop : r.dig.pause) * T.strike + (until === 'top' ? r.dig.talksTop : r.dig.talks) * T.talk;
+  return (days / 30) * T.month + (until === 'top' ? r.actTop : r.act) * T.action + (until === 'top' ? r.pauseTop : r.pause) * T.pause + dig;
 }
 export const totalSec = (x: RunResult) => SIM_TIME[x.policy].tutorial + x.sectors.reduce((a, r) => a + (secOf(x.policy, r, 'left') ?? 0), 0);
 
@@ -1178,9 +1522,21 @@ export function tables(rep: Report2): string {
   out.push('');
   out.push('実時間の単価（`SIM_TIME`）：');
   out.push('');
-  out.push('| 方針 | ひと月 | 行動 1 回 | 月末ポーズ | チュートリアル |');
-  out.push('|---|---|---|---|---|');
-  for (const p of pols) out.push(`| ${POLICY_NAME[p]} | ${SIM_TIME[p].month} 秒 | ${SIM_TIME[p].action} 秒 | ${SIM_TIME[p].pause} 秒 | ${SIM_TIME[p].tutorial / 60} 分 |`);
+  out.push('| 方針 | ひと月 | 行動 1 回 | 月末ポーズ | チュートリアル | 1 打（v8） | 会話 1 回（v8） |');
+  out.push('|---|---|---|---|---|---|---|');
+  for (const p of pols) out.push(`| ${POLICY_NAME[p]} | ${SIM_TIME[p].month} 秒 | ${SIM_TIME[p].action} 秒 | ${SIM_TIME[p].pause} 秒 | ${SIM_TIME[p].tutorial / 60} 分 | ${SIM_TIME[p].strike} 秒 | ${SIM_TIME[p].talk} 秒 |`);
+  out.push('');
+  out.push('1 打の秒数は、月末ポーズのあいだに掘ったぶんだけ実時間に足す（発掘場は時間を止めないので、月の途中に掘るぶんはひと月の時間に重なる）。会話は発掘との出会いと研究成果の発表。');
+  out.push('');
+  out.push('手で掘る量の仮定（`SIM_DIG`）：');
+  out.push('');
+  out.push('| 方針 | 月末ポーズ | 月の途中 | 打つマス | 自動発掘の担当 | 道具 |');
+  out.push('|---|---|---|---|---|---|');
+  const mid = (p: PolicyId) => (SIM_DIG[p].rate ? `開いたまま掘り続ける（1 日 ${((SIM_TIME[p].month / 30 / SIM_TIME[p].strike) * SIM_DIG[p].focus).toFixed(1)} 打まで）` : `${SIM_DIG[p].midDays.map((d) => `${d} 日目`).join('・')}に開いて、たまった回数をぜんぶ`);
+  const tgt = (p: PolicyId) => (SIM_DIG[p].target === 'know' ? '配置を知っている：お題への最短の道 → 石板 → エクステ' : '上から順に（ランタンがあれば、薄く見えたお題・石板・エクステへ）');
+  const dg = (p: PolicyId) => (SIM_DIG[p].digger === 0 ? '置かない' : SIM_DIG[p].digger === 'waste' ? '先月あふれた回数が上限より多ければ 1 人' : 'いつも 1 人（あふれが上限の 2 倍より多ければ 2 人）');
+  const tl = (p: PolicyId) => (p === 'rta' ? '依頼状を待っていてお題が残っていれば発破' : p === 'normal' ? `月末に、値段の ${SIM_DIG[p].tools} 倍＋1 万 G あればランタン → ツルハシ。依頼状を待っていれば発破` : '残りの設備投資と同じく安い順にまとめて。資金 5 万 G 以上なら発破');
+  for (const p of pols) out.push(`| ${POLICY_NAME[p]} | たまった回数をぜんぶ | ${mid(p)} | ${tgt(p)} | ${dg(p)} | ${tl(p)} |`);
   return out.join('\n');
 }
 
@@ -1247,13 +1603,15 @@ export function observations(rep: Report2): string {
     }
     out.push('');
   }
-  out.push('行動の内訳（3 シードの平均）：');
+  out.push(digObservations(rep));
+  const KINDS = ['build', 'assign', 'hire', 'skill', 'craft', 'proc', 'buy', 'shelf', 'part', 'ad', 'invest', 'dev', 'accept', 'claim', 'gate', 'move', 'dig', 'present'];
+  out.push('行動の内訳（3 シードの平均。v8：dig＝発掘場を開いて掘った回、present＝研究成果の発表）：');
   out.push('');
-  out.push('| 方針 | ' + ['build', 'assign', 'hire', 'skill', 'craft', 'proc', 'buy', 'shelf', 'part', 'ad', 'invest', 'dev', 'accept', 'claim', 'gate', 'move'].join(' | ') + ' |');
-  out.push('|---|' + '---|'.repeat(16));
+  out.push('| 方針 | ' + KINDS.join(' | ') + ' |');
+  out.push('|---|' + '---|'.repeat(KINDS.length));
   for (const p of ['rta', 'normal', 'full'] as PolicyId[]) {
     const runs = rep.runs.filter((x) => x.policy === p);
-    out.push(`| ${POLICY_NAME[p]} | ` + ['build', 'assign', 'hire', 'skill', 'craft', 'proc', 'buy', 'shelf', 'part', 'ad', 'invest', 'dev', 'accept', 'claim', 'gate', 'move'].map((k) => Math.round(mean(runs.map((r) => r.actions[k] ?? 0)))).join(' | ') + ' |');
+    out.push(`| ${POLICY_NAME[p]} | ` + KINDS.map((k) => Math.round(mean(runs.map((r) => r.actions[k] ?? 0)))).join(' | ') + ' |');
   }
   out.push('');
   const fulls = rep.runs.filter((x) => x.policy === 'full');
@@ -1266,6 +1624,45 @@ export function observations(rep: Report2): string {
     out.push('打ち切り：' + stops.map((r) => `${POLICY_NAME[r.policy]} seed ${r.seed}：${r.stop}`).join('／'));
     out.push('');
   }
+  return out.join('\n');
+}
+
+/** v8：発掘と研究ポイント・お金の使い道の表（数字だけ） */
+export function digObservations(rep: Report2): string {
+  const out: string[] = [];
+  const pols: PolicyId[] = ['rta', 'normal', 'full'];
+  out.push('発掘と研究ポイント（v8。セクタごと・3 シードの平均。打った数は着いてから離れるまで。研究パネルは、そのセクタにいるあいだに開けた枚数。「RP 不足」は、詰まりの段に効く研究パネルがあるのにどれも RP が足りなかった月の締め。「あふれ」は上限で入らなかったツルハシの回数。「お題」はお題がそろった月（着いてからの月の締め）、「依頼状待ち」は制覇のあと依頼状が無くて Uncommon へ移れなかった月）：');
+  out.push('');
+  out.push('| 方針 | セクタ | 手（月の途中） | 手（月末ポーズ） | 自動 | 発破 | 月末ポーズで掘った時間 | 入った RP | 研究パネル | RP 不足の月 | あふれ | お題 | 依頼状待ち | 掘り残し（マス） |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    for (const id of routeOf(p)) {
+      const rs = runs.map((r) => r.sectors.find((x) => x.id === id)).filter((x): x is SectorRun => !!x);
+      if (!rs.length) continue;
+      const m = (f: (d: DigRec) => number) => Math.round(mean(rs.map((x) => f(x.dig))));
+      const tops = rs.map((x) => x.dig.topicsAt).filter((v): v is number => v != null);
+      out.push(
+        `| ${POLICY_NAME[p]} | ${sectorName(id)} | ${m((d) => d.mid)} | ${m((d) => d.pause)} | ${m((d) => d.auto)} | ${m((d) => d.blast)} | ${fmtMin(mean(rs.map((x) => x.dig.pause * SIM_TIME[p].strike)))} | ${m((d) => d.rp)} | ${m((d) => d.research)} | ${m((d) => d.rpBlocked)} | ${m((d) => d.waste)} | ${tops.length ? `${mean(tops).toFixed(1)}（${tops.length}/${rs.length}）` : '—'} | ${m((d) => d.letterWait)} | ${m((d) => d.left)} |`,
+      );
+    }
+  }
+  out.push('');
+  const cN = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && !skillSoon(k)).length;
+  const uN = fullSkills().filter((k) => skillTier(k) === 'U' && isResearch(k)).length;
+  out.push(`研究パネルを開けた枚数（最後に）と、お金の使い道（G。3 シードの平均）。C の研究パネル ${cN} 枚・U の研究パネル ${uN} 枚（いま取れるもの）。「C がそろったセクタ」は Common の研究パネルを全部開けたときにいたセクタの番号（回った順。1 か所目＝1）：`);
+  out.push('');
+  out.push('| 方針 | C の研究パネル | U の研究パネル | C がそろったセクタ | お金パネル（開放・レベル上げ） | 発掘の道具（火薬代を含む） | 関所・出店許可 | 最後に残った資金 |');
+  out.push('|---|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    if (!runs.length) continue;
+    const all = runs.map((r) => r.research.allC).filter((v): v is number => v != null);
+    out.push(
+      `| ${POLICY_NAME[p]} | ${mean(runs.map((r) => r.research.C)).toFixed(0)} / ${cN} | ${mean(runs.map((r) => r.research.U)).toFixed(0)} / ${uN} | ${all.length ? `${mean(all).toFixed(1)}（${all.length}/${runs.length}）` : 'そろわない'} | ${fmtG(mean(runs.map((r) => r.spend.money)))} | ${fmtG(mean(runs.map((r) => r.spend.tools)))} | ${fmtG(mean(runs.map((r) => r.spend.fees)))} | ${fmtG(mean(runs.map((r) => r.spend.end)))} |`,
+    );
+  }
+  out.push('');
   return out.join('\n');
 }
 
