@@ -136,10 +136,12 @@ describe('関所の先：ランドセクタ', () => {
     expect(recOf(s, 'c2').snap).toBeTruthy();
   });
 
-  it('Uncommon は地図が広く、他社が強い。お金が足りなければ入れない', () => {
+  it('Uncommon は地図が広く、他社が強い。調査依頼状・お金が足りなければ入れない', () => {
     const s = newP1(9);
     s.money = 1e6;
     openGate(s);
+    expect(moveTo(s, 'u1', null)).toBe('letter');
+    s.letters = ['U'];
     s.money = 1000;
     expect(moveTo(s, 'u1', null)).toBe('money');
     s.money = 1e6;

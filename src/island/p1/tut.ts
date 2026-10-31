@@ -8,7 +8,7 @@
  * 進み具合は P1State.tut（段の番号、TUT_DONE で終わり）。各段は done() が真になったら次へ進む。
  */
 import { t } from '../../i18n';
-import { SKILL } from './data';
+import { SKILL, rpCost } from './data';
 import { DAYS, has, hqOpen, myShops, type P1State } from './model';
 
 export const TUT_DONE = 99;
@@ -62,8 +62,11 @@ export interface TutStep {
   autoGo?: boolean;
   /** この画面を開いているあいだ、右上の ✕ を光らせる（見終わったら閉じて次へ、の画面） */
   closeOn?: string[];
-  /** この段に入るときに、マインちゃんが援助する資金（足りないときだけ。0 なら無し） */
-  grant?: (s: P1State) => number;
+  /**
+   * この段に入るときに、マインちゃんが研究ポイント（RP）の説明をする（「前の世界の研究ノート」）。
+   * 数を返すと、足りないぶんの RP を足す（開始時の 30 RP を持っていない古いセーブだけ。0 なら足さない）
+   */
+  rpTalk?: (s: P1State) => number;
   /** 次の段へ進む条件。seen：この段に入ってから開いて閉じた画面 */
   done: (s: P1State, seen: Set<string>) => boolean;
 }
@@ -282,10 +285,7 @@ export const TUT: TutStep[] = [
       ],
       ok: t('スキルツリーへ', 'To the skill tree'),
     },
-    grant: (s) => {
-      const need = (SKILL.hire?.cost ?? 0) - s.money;
-      return need > 0 ? Math.ceil(need / 1000) * 1000 : 0;
-    },
+    rpTalk: (s) => Math.max(0, rpCost(SKILL.hire) - (s.rp ?? 0)),
     say: (s) =>
       has(s, 'hire')
         ? t('開放できた！ スキルツリーの ✕ で、元の画面に戻ろう。', 'Unlocked! Close the skill tree with ✕.')

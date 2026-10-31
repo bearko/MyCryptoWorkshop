@@ -9,7 +9,7 @@
  * docs/ISLAND_PHASE1.md「投資の効き目の監査」
  */
 import { writeFileSync } from 'node:fs';
-import { ADS, HIRE_POOL, INVEST, INVESTS, P1B, PRODUCT, SKILL, aptitude, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
+import { ADS, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, SKILL, aptitude, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
 import {
   LEARNABLE,
   allowedDirs,
@@ -560,12 +560,13 @@ export function specOf(k: Skill): SkillSpec | undefined {
   return { ...base, setup: (s) => (rings(s), base.setup?.(s)), note: [`汎用の効き目（${f.kind}）`, base.note].filter(Boolean).join('：') };
 }
 /**
- * レベル上げの監査：枝ごとに 2 枚＋✨ の Lv1 → Lv2（全部は重いので代表）。基準は Lv1 の行と同じ（前も後も Lv1 を取ってある）
+ * レベル上げの監査：お金パネル（レベルがあるのはお金パネルだけ。研究パネルは Lv1 の行で確かめる）の Lv1 → Lv2。
+ * 基準は Lv1 の行と同じ（前も後も Lv1 を取ってある）。Epic・Legendary は対象外（まだ遊べない）
  */
-export const LEVEL_AUDIT = ['host', 'golden', 'd_shop', 'jig', 'chair', 'd_craft', 'shortcut', 'loading', 'd_logi', 'stock1', 'bulk', 'd_buy', 'manual', 'lounge', 'd_people', 'budget', 'b_ads', 'd_ops', 'pos', 'erp', 'd_sys', 't_master', 'u_tech_1', 'u_tech_d'];
+export const LEVEL_AUDIT = (['C', 'U', 'R'] as const).flatMap((tier) => Object.values(MONEY_PANELS[tier]));
 
 /** 設備投資の表：効くはずの段と前提（INVESTS の全部が入っていること） */
-export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base']; setup?: Setup; after?: Setup; note?: string }> = {
+export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base']; setup?: Setup; after?: Setup; note?: string; out?: string }> = {
   shelves: { expect: ['sell'], after: (s) => second(recommendable(s))(s), note: '空いた棚に別の商品（市場データのおすすめ）を並べる（2 段目は、1 段目の棚にも別の商品を並べた状態から）' },
   sign: { expect: ['sell'] },
   staffroom: { expect: ['sell'], after: (s) => void setPart(s, shopOf(s).uid, 3), note: 'アルバイトを上限まで（3 人）' },
@@ -578,6 +579,10 @@ export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base'];
   tools: { expect: ['craft'] },
   breakroom: { expect: ['craft'], note: 'スタミナ → 稼働率' },
   rack: { expect: ['buy'], base: 'j_trip', setup: (s) => (warehouse(s), void (s.mats.clay = (s.mats.clay ?? 0) + 190)), note: '倉庫があって、置き場所がいっぱいに近いとき（使わない素材 190）' },
+  // 発掘の道具：SCM の段ではなく、発掘の速さ（研究ポイントの入り方）に効く。tests/island-p1-dig.test.ts で確かめる
+  pick: { expect: [], out: '発掘の道具（1 打の強さ +1）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
+  lantern: { expect: [], out: '発掘の道具（1 段下の出土品が見える）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
+  blast: { expect: [], out: '発掘の道具（3 × 3 を一度に）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
 };
 /** 空いた棚に並べる商品：マインちゃんのおすすめ（いま作れるもの） */
 function recommendable(s: P1State): Sku {
@@ -622,7 +627,7 @@ export function items(): Item[] {
           if (x.id === 'bench') setCraft(s, s.slots.length - 1, mainSku(s));
         },
         note: spec?.note,
-        out: spec ? undefined : '表に無い（scripts/island/audit.ts の INVEST_SPEC に足す）',
+        out: spec ? spec.out : '表に無い（scripts/island/audit.ts の INVEST_SPEC に足す）',
       });
     }
   }

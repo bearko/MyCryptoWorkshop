@@ -3,7 +3,7 @@
  * そのランクの規模の経営にふさわしい実在の工夫をパネルにし、効き目はすべて汎用の効き目（fx。model.ts の fxSum）で書く。
  * 数値は「Common 相当の基準値（FX_BASE）× ランクの倍率（TIER_F）× 重み」。値段はランクの範囲で、並びの順に上がる。
  * 枝ごとの並びは、既存の外周のパネルのあとに続け、ひとつ内側の段（ROW_CAP 枚前）が「先に要る」。
- * 各ランク・各枝の最初の 2 枚に 🏅 エンブレム、最後に ✨（ゴールドダスト）を 1 枚。
+ * 各ランク・各枝の最初の 2 枚に 🏅 エンブレム、最後に大きめの研究パネル（以前の ✨）を 1 枚。
  * このファイルは data.ts から読む（data.ts の値は使わない。型だけ）。
  */
 import { t } from '../../i18n';
@@ -41,8 +41,6 @@ const TIER_F: Record<OuterTier, number> = { U: 1.3, R: 1.8, E: 2.5, L: 3.5 };
 const COST: Record<OuterTier, [number, number, number]> = { U: [15000, 60000, 1000], R: [60000, 250000, 5000], E: [250000, 1000000, 10000], L: [1000000, 4000000, 50000] };
 /** 🏅 エンブレム（各ランク・各枝の最初の 2 枚） */
 const EMBLEM: Record<OuterTier, [number, number]> = { U: [1, 2], R: [3, 4], E: [6, 6], L: [9, 9] };
-/** ✨ のパネルのダスト（✨5 から） */
-const DUST: Record<OuterTier, number> = { U: 5, R: 6, E: 8, L: 10 };
 /** 外周の 1 段に並べる枚数（treelayout.ts と同じ。ひとつ内側の段の同じ列が「先に要る」） */
 export const ROW_CAP: Record<OuterTier, number> = { U: 6, R: 8, E: 10, L: 12 };
 
@@ -54,7 +52,8 @@ interface Block {
   /** はじめの段のパネルが要る、ひとつ内側のパネル */
   anchor: string;
   list: P[];
-  dust: P;
+  /** 大きめの研究パネル（以前の ✨） */
+  big: P;
 }
 
 const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
@@ -72,7 +71,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('PB（自社ブランド）商品', 'Private-label goods'), 'price'],
         [t('SV（巡回指導）', 'Field supervisors'), 'display'],
       ],
-      dust: [t('地域一番店', 'Top store in town'), 'pull:1.5'],
+      big: [t('地域一番店', 'Top store in town'), 'pull:1.5'],
     },
     craft: {
       have: ['night', 'mold'],
@@ -85,7 +84,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('作業標準書', 'Standard work sheets'), 'stamina'],
         [t('工房のレイアウト改善', 'Workshop layout redesign'), 'craftDays'],
       ],
-      dust: [t('改善の師範', 'Kaizen sensei'), 'craftDays:1.5'],
+      big: [t('改善の師範', 'Kaizen sensei'), 'craftDays:1.5'],
     },
     logi: {
       have: ['crossdock', 'joint'],
@@ -97,7 +96,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('地域の配送センター', 'Regional delivery center'), 'haulDays'],
         [t('配車係', 'Dispatch desk'), 'haulDays'],
       ],
-      dust: [t('地域配送の網', 'Regional delivery grid'), 'haulDays:1.5'],
+      big: [t('地域配送の網', 'Regional delivery grid'), 'haulDays:1.5'],
     },
     buy: {
       have: ['contract', 'b_partner'],
@@ -112,7 +111,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('運賃込みの値段交渉', 'Delivered-price deals'), 'matPrice'],
         [t('調達の専任チーム', 'Dedicated buying team'), 'buyDays'],
       ],
-      dust: [t('共同購買の組合', 'Buying cooperative'), 'procCap:1.5'],
+      big: [t('共同購買の組合', 'Buying cooperative'), 'procCap:1.5'],
     },
     people: {
       have: ['b_scout', 'training', 'mgr'],
@@ -124,7 +123,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('パートの戦力化', 'Empowered part-timers'), 'display'],
         [t('健康経営', 'Workplace wellness'), 'rest'],
       ],
-      dust: [t('人を育てる名門', 'Talent academy'), 'apt:1.5'],
+      big: [t('人を育てる名門', 'Talent academy'), 'apt:1.5'],
     },
     ops: {
       have: ['b_ads', 'pr'],
@@ -134,7 +133,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('資金繰り表', 'Cash-flow planning'), 'wage'],
         [t('KPI 会議', 'KPI reviews'), 'flow'],
       ],
-      dust: [t('経営計画の発表会', 'Business plan rally'), 'brand'],
+      big: [t('経営計画の発表会', 'Business plan rally'), 'brand'],
     },
     sys: {
       have: ['erp', 'dyn', 'flow'],
@@ -145,7 +144,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('シフト管理システム', 'Shift scheduling system'), 'stamina'],
         [t('CRM（顧客管理）', 'CRM'), 'demand'],
       ],
-      dust: [t('本部の情報システム', 'HQ information system'), 'flow:1.5'],
+      big: [t('本部の情報システム', 'HQ information system'), 'flow:1.5'],
     },
     tech: {
       have: ['t_rare'],
@@ -155,7 +154,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('意匠登録', 'Registered designs'), 'price'],
         [t('職人の工具箱', 'Crafter toolkits'), 'craftDays'],
       ],
-      dust: [t('技能の大会', 'Skills contest'), 'apt:1.5'],
+      big: [t('技能の大会', 'Skills contest'), 'apt:1.5'],
     },
   },
   // ---------------------------------------------------------------- Rare（全国チェーン）
@@ -173,7 +172,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('接客のロールプレイ大会', 'Service role-play contest'), 'pull'],
         [t('価格の戦略室', 'Pricing office'), 'price'],
       ],
-      dust: [t('百貨店の常設売り場', 'Department-store corner'), 'pull:1.5'],
+      big: [t('百貨店の常設売り場', 'Department-store corner'), 'pull:1.5'],
     },
     craft: {
       have: ['line'],
@@ -187,7 +186,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('職場の安全衛生', 'Workplace safety'), 'stamina'],
         [t('設計の標準化', 'Design standardization'), 'craftDays'],
       ],
-      dust: [t('マザー工場', 'Mother factory'), 'craftDays:1.5'],
+      big: [t('マザー工場', 'Mother factory'), 'craftDays:1.5'],
     },
     logi: {
       have: ['fleet'],
@@ -200,7 +199,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('定温物流', 'Temperature-controlled logistics'), 'cartCap'],
         [t('輸送の見える化', 'Shipment tracking'), 'haulDays'],
       ],
-      dust: [t('物流の子会社', 'Logistics subsidiary'), 'haulDays:1.5'],
+      big: [t('物流の子会社', 'Logistics subsidiary'), 'haulDays:1.5'],
     },
     buy: {
       have: ['direct'],
@@ -216,7 +215,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('電子調達', 'e-Procurement'), 'buyDays'],
         [t('原料の産地指定', 'Origin-specified materials'), 'procCap'],
       ],
-      dust: [t('商社との合弁', 'Trading joint venture'), 'matPrice:1.5'],
+      big: [t('商社との合弁', 'Trading joint venture'), 'matPrice:1.5'],
     },
     people: {
       have: ['headhunt'],
@@ -230,7 +229,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('社内大学', 'Corporate university'), 'apt'],
         [t('メンター制度', 'Mentoring'), 'stamina'],
       ],
-      dust: [t('全国採用', 'Nationwide hiring'), 'apt:1.5'],
+      big: [t('全国採用', 'Nationwide hiring'), 'apt:1.5'],
     },
     ops: {
       have: ['holding'],
@@ -241,7 +240,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('IR（投資家向け広報）', 'Investor relations'), 'brand'],
         [t('全社の原価低減', 'Company-wide cost cuts'), 'upkeep'],
       ],
-      dust: [t('株式上場', 'Stock listing'), 'brand'],
+      big: [t('株式上場', 'Stock listing'), 'brand'],
     },
     sys: {
       have: ['forecast', 'ec'],
@@ -251,7 +250,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('BI ダッシュボード', 'BI dashboards'), 'flow'],
         [t('RPA（定型業務の自動化）', 'RPA'), 'wage'],
       ],
-      dust: [t('全社 ERP の統合', 'Unified ERP'), 'flow:1.5'],
+      big: [t('全社 ERP の統合', 'Unified ERP'), 'flow:1.5'],
     },
     tech: {
       have: [],
@@ -262,7 +261,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('試作室', 'Prototype room'), 'craftDays'],
         [t('素材の研究所', 'Materials lab'), 'matPrice'],
       ],
-      dust: [t('伝統工芸士', 'Certified master artisans'), 'price:1.5'],
+      big: [t('伝統工芸士', 'Certified master artisans'), 'price:1.5'],
     },
   },
   // ---------------------------------------------------------------- Epic（世界企業）
@@ -282,7 +281,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('多言語の接客', 'Multilingual service'), 'pull'],
         [t('顧客体験の設計', 'Customer experience design'), 'pull'],
       ],
-      dust: [t('世界一の旗艦店', 'World’s top flagship'), 'pull:1.5'],
+      big: [t('世界一の旗艦店', 'World’s top flagship'), 'pull:1.5'],
     },
     craft: {
       have: [],
@@ -297,7 +296,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('大量生産のライン', 'Mass-production lines'), 'lot'],
         [t('省エネの工場', 'Energy-efficient plants'), 'upkeep'],
       ],
-      dust: [t('スマート工場', 'Smart factory'), 'craftDays:1.5'],
+      big: [t('スマート工場', 'Smart factory'), 'craftDays:1.5'],
     },
     logi: {
       have: [],
@@ -311,7 +310,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('輸送の共同化', 'Freight sharing'), 'cartCap'],
         [t('通関の専門部署', 'Customs desk'), 'haulDays'],
       ],
-      dust: [t('世界物流網', 'Worldwide logistics web'), 'haulDays:1.5'],
+      big: [t('世界物流網', 'Worldwide logistics web'), 'haulDays:1.5'],
     },
     buy: {
       have: [],
@@ -328,7 +327,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('グリーン調達', 'Green procurement'), 'price'],
         [t('サプライチェーンの可視化', 'Supply-chain visibility'), 'procCap'],
       ],
-      dust: [t('資源メジャーとの提携', 'Resource-major alliance'), 'matPrice:1.5'],
+      big: [t('資源メジャーとの提携', 'Resource-major alliance'), 'matPrice:1.5'],
     },
     people: {
       have: [],
@@ -343,7 +342,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('ウェルビーイング', 'Well-being'), 'rest'],
         [t('後継者計画', 'Succession planning'), 'manager'],
       ],
-      dust: [t('世界のトップ人材', 'World-class talent'), 'apt:1.5'],
+      big: [t('世界のトップ人材', 'World-class talent'), 'apt:1.5'],
     },
     ops: {
       have: [],
@@ -355,7 +354,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('世界の経営会議', 'Global executive board'), 'flow'],
         [t('内部統制', 'Internal controls'), 'upkeep'],
       ],
-      dust: [t('世界的なブランド', 'Global brand icon'), 'brand'],
+      big: [t('世界的なブランド', 'Global brand icon'), 'brand'],
     },
     sys: {
       have: [],
@@ -367,7 +366,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('顧客データ基盤（CDP）', 'Customer data platform'), 'demand'],
         [t('生成 AI の業務活用', 'Generative AI at work'), 'wage'],
       ],
-      dust: [t('AI の経営基盤', 'AI management platform'), 'flow:1.5'],
+      big: [t('AI の経営基盤', 'AI management platform'), 'flow:1.5'],
     },
     tech: {
       have: [],
@@ -378,7 +377,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('特許の網', 'Patent portfolio'), 'price'],
         [t('新素材の開発', 'New materials R&D'), 'matPrice'],
       ],
-      dust: [t('人間国宝', 'Living national treasure'), 'price:1.5'],
+      big: [t('人間国宝', 'Living national treasure'), 'price:1.5'],
     },
   },
   // ---------------------------------------------------------------- Legendary（コングロマリット）
@@ -398,7 +397,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('生涯顧客', 'Lifetime customers'), 'rally'],
         [t('街ごとの体験', 'Citywide experiences'), 'pull'],
       ],
-      dust: [t('世界の商都', 'World trade capital'), 'pull:1.5'],
+      big: [t('世界の商都', 'World trade capital'), 'pull:1.5'],
     },
     craft: {
       have: [],
@@ -413,7 +412,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('職人の殿堂', 'Crafters’ hall of fame'), 'apt'],
         [t('工場の再生エネルギー', 'Renewable-powered plants'), 'upkeep'],
       ],
-      dust: [t('未来の工場', 'Factory of the future'), 'craftDays:1.5'],
+      big: [t('未来の工場', 'Factory of the future'), 'craftDays:1.5'],
     },
     logi: {
       have: [],
@@ -427,7 +426,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('地下の物流網', 'Underground freight'), 'haulDays'],
         [t('衛星の運行管理', 'Satellite fleet tracking'), 'haulDays'],
       ],
-      dust: [t('地球規模の物流', 'Planet-scale logistics'), 'haulDays:1.5'],
+      big: [t('地球規模の物流', 'Planet-scale logistics'), 'haulDays:1.5'],
     },
     buy: {
       have: [],
@@ -444,7 +443,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('自社の森林', 'Own forests'), 'matPrice'],
         [t('循環型の調達', 'Circular sourcing'), 'procCap'],
       ],
-      dust: [t('資源の帝国', 'Resource empire'), 'matPrice:1.5'],
+      big: [t('資源の帝国', 'Resource empire'), 'matPrice:1.5'],
     },
     people: {
       have: [],
@@ -459,7 +458,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('社内起業制度', 'Intrapreneurship'), 'manager'],
         [t('人材の総合商社', 'Talent conglomerate'), 'apt'],
       ],
-      dust: [t('伝説の人材', 'Legendary talent'), 'apt:1.5'],
+      big: [t('伝説の人材', 'Legendary talent'), 'apt:1.5'],
     },
     ops: {
       have: [],
@@ -471,7 +470,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('グループの経営理念', 'Group philosophy'), 'brand'],
         [t('財団の設立', 'Corporate foundation'), 'brand'],
       ],
-      dust: [t('伝説のブランド', 'Legendary brand'), 'brand'],
+      big: [t('伝説のブランド', 'Legendary brand'), 'brand'],
     },
     sys: {
       have: [],
@@ -483,7 +482,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('自社の決済サービス', 'Own payment service'), 'demand'],
         [t('量子計算の研究', 'Quantum computing research'), 'flow'],
       ],
-      dust: [t('グループの頭脳', 'Group brain'), 'flow:1.5'],
+      big: [t('グループの頭脳', 'Group brain'), 'flow:1.5'],
     },
     tech: {
       have: [],
@@ -494,7 +493,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
         [t('匠の大学', 'University of crafts'), 'apt'],
         [t('永久保証', 'Lifetime warranty'), 'price'],
       ],
-      dust: [t('工芸の伝説', 'Crafts legend'), 'price:1.5'],
+      big: [t('工芸の伝説', 'Crafts legend'), 'price:1.5'],
     },
   },
 };
@@ -536,9 +535,9 @@ function build(): Skill[] {
         });
         ids.push(id);
       });
-      const [dname, dspec] = b.dust;
+      const [dname, dspec] = b.big;
       const fx = fxOf(dspec, tier);
-      out.push({ id: `${tier.toLowerCase()}_${branch}_d`, branch, name: dname, note: '', cost: 0, dust: DUST[tier], tier, requires: [ids[0]], fx });
+      out.push({ id: `${tier.toLowerCase()}_${branch}_d`, branch, name: dname, note: '', cost: 0, big: true, tier, requires: [ids[0]], fx });
     }
   }
   return out;

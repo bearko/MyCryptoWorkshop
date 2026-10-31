@@ -25,6 +25,7 @@ describe('商品 17 と技の枝', () => {
   it('技が無いと作れない（craftCheck が tech）。技を取って修行が終わると作れる', () => {
     const s = newP1(1);
     s.money = 1e6;
+    s.rp = 1000;
     s.mats = { glass: 10, iron: 10, wood: 10 };
     expect(craftCheck(s, sku('Goblet', 'C'), null)).toBe('tech');
     expect(craftCheck(s, sku('Sensu', 'C'), null)).toBeNull();
@@ -38,6 +39,7 @@ describe('商品 17 と技の枝', () => {
   it('宝飾の技は金工の技のあと。匠の技は技を 3 つ取ってから', () => {
     const s = newP1(2);
     s.money = 1e6;
+    s.rp = 1000;
     expect(learn(s, 't_jewel')).toBe('requires');
     expect(learn(s, 't_master')).toBe('requires');
     learn(s, 't_metal');

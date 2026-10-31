@@ -64,15 +64,17 @@ describe('技の修行', () => {
     expect(trainDays(s, 't_master', st)).toBe(0);
   });
 
-  it('技を取ると、お金は払うが修行中。職人は作業台を離れ、終わったら身につけて元の作業台へ戻る', () => {
+  it('技（研究パネル）を取ると、RP は払うが修行中。職人は作業台を離れ、終わったら身につけて元の作業台へ戻る', () => {
     const s = newP1(2);
     shopWith(s, 'Sensu:C');
     assign(s, 10003, 'craft', 0);
     const best = trainees(s)[0];
     expect(best.hero).toBe([...s.staff].sort((a, b) => aptitude(b.stats, 'craft') - aptitude(a.stats, 'craft'))[0].hero);
     const money = s.money;
+    s.rp = 1000;
     expect(learn(s, 't_glass', 10003)).toBeNull();
-    expect(s.money).toBe(money - SKILL.t_glass.cost);
+    expect(s.money).toBe(money);
+    expect(s.rp).toBe(1000 - SKILL.t_glass.rp!);
     expect(has(s, 't_glass')).toBe(false);
     const days = trainDays(s, 't_glass', 10003);
     expect(s.training).toMatchObject({ id: 't_glass', hero: 10003, left: days });
@@ -96,6 +98,7 @@ describe('技の修行', () => {
     const s = newP1(3);
     shopWith(s, 'Sensu:C');
     assign(s, 10003, 'craft', 0);
+    s.rp = 1000;
     learn(s, 't_wood', 10003);
     assign(s, 10001, 'craft', 0);
     for (let k = 0; k < 10 && s.training; k++) step(s);

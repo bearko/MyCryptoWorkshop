@@ -102,7 +102,7 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { openBooks, openBrand, openLand, startMove } from './landui';
-import { book, brandAdd, sectorDef, sectorState, tierLabel } from './company';
+import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
 import { STRIP, corners, overviewScale, worldOf } from './worldrender';
 import { landCleared, playable } from './land';
@@ -369,19 +369,19 @@ function brandNews() {
   if (fresh.some((e) => e.d > 0)) sfx.play('levelup');
 }
 
-/** エンブレム・ゴールドダストが増えたら知らせる（上の帯には出さない。スキルツリーの通貨の帯に出す） */
+/** エンブレム・研究ポイントが増えたら知らせる（上の帯には出さない。スキルツリーの通貨の帯に出す） */
 let emblemSeen = s.emblem ?? 0;
-let dustSeen = s.dust ?? 0;
+let rpSeen = s.rp ?? 0;
 function currencyNews() {
   const e = s.emblem ?? 0;
-  const d = s.dust ?? 0;
+  const d = s.rp ?? 0;
   if (e > emblemSeen) {
     toast(t(`🏅 エンブレムを獲得！（いま ${e}）`, `🏅 Emblem earned! (now ${e})`), 'mch/Image/Icons/emblem.webp');
     sfx.play('levelup');
   }
-  if (d > dustSeen) toast(t(`✨ ゴールドダスト +${d - dustSeen}（いま ${d}）`, `✨ Gold dust +${d - dustSeen} (now ${d})`), 'mch/Image/Icons/gold_dust.webp');
+  if (d > rpSeen) toast(t(`研究ポイント +${d - rpSeen}（いま ${d}）`, `Research points +${d - rpSeen} (now ${d})`));
   emblemSeen = e;
-  dustSeen = d;
+  rpSeen = d;
 }
 
 function renderHud() {
@@ -1609,14 +1609,16 @@ function tutTick() {
   }
   if (st.intro && tutIntro !== k && tutFree() && performance.now() >= tutIntroAfter) {
     tutIntro = k;
-    // 資金が足りないときは、マインちゃんが特別に援助する
-    const grant = st.grant?.(s) ?? 0;
+    // 研究ポイントの説明：最初に持っている RP（マインちゃんの「前の世界の研究ノート」）で、研究パネルを開く
     const pages = [...st.intro.pages];
-    if (grant > 0) {
-      s.money += grant;
-      book(s, 'other', grant);
-      save();
-      pages.push({ text: t(`あれ、資金が足りないね……。今回は特別に、私から [[${money(grant)}]] を援助するよ！`, `Hmm, we’re short on funds… Just this once, I’ll chip in [[${money(grant)}]]!`), show: 'gift', gift: { icon: '💰', title: money(grant), note: t('マインちゃんからの援助', 'A gift from Mine-chan') } });
+    if (st.rpTalk) {
+      const add = st.rpTalk(s);
+      if (add > 0) {
+        s.rp = (s.rp ?? 0) + add;
+        save();
+      }
+      const rp = s.rp ?? 0;
+      pages.push({ text: t(`人材の募集は[[研究ポイント]]で開くパネルだよ。私の前の世界の研究ノートから、[[${rp} RP]] を持ってきたんだ！`, `Recruiting is unlocked with [[research points]]. I brought [[${rp} RP]] from my research notes from my old world!`), show: 'gift', gift: { icon: '📜', title: `${rp} RP`, note: t('マインちゃんの研究ノート', 'Mine-chan’s research notes') } });
     }
     talk(pages, st.intro.ok, () => {
       const a = actOf(st, s);
