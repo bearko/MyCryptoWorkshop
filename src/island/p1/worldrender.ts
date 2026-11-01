@@ -220,6 +220,14 @@ function drawRegion(ctx: CanvasRenderingContext2D, s: P1State, w: World, r: Regi
   for (const { b } of items) {
     const def = DEF[b.id];
     const at = { ...b, i: b.i + r.oi, j: b.j + r.oj };
+    // 廃墟（ランクアップの災害。発掘 v2 の 7 段目）：となりの町からも、暗く色あせて見える（仮の絵）
+    if (b.owner === 'ruin') {
+      ctx.save();
+      ctx.filter = 'grayscale(0.75) brightness(0.5) sepia(0.35)';
+      drawBuilding(ctx, { ...at, left: 0 }, def, now);
+      ctx.restore();
+      continue;
+    }
     if (b.owner !== 'town') for (const [x, y] of cells(def, at.i, at.j, at.dir)) outline(ctx, x, y, b.owner === 'me' ? '#3fd6c4' : '#f0565a');
     drawBuilding(ctx, at, def, now);
   }

@@ -9394,3 +9394,568 @@ button.isl-mis {
   border-color: var(--isl-good);
   box-shadow: 0 0 0 1px var(--isl-good);
 }
+
+/* ---------------------------------------------------------------- ランクアップの災害と復興（発掘 v2 の 7 段目。仮の絵：CSS。docs/ISLAND_ART_TODO.md） */
+/* ランドマップの札：被災 */
+.isl-land-ruin {
+  padding: 1px 6px;
+  border: 1px solid #b07a4a;
+  border-radius: 8px;
+  background: #3a2418;
+  color: #ffd9a8;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.isl-revive-box > p {
+  margin: 2px 0 6px;
+  font-weight: 700;
+}
+.isl-revive-bar {
+  height: 8px;
+  margin-bottom: 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #3a2418;
+}
+.isl-revive-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #7ee08f, #c8f07a);
+  transition: width 0.5s;
+}
+/* 進出の確認 */
+.isl-rankup-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 2px solid #e05a4a;
+  border-radius: 12px;
+  background: #3b1f22;
+}
+.isl-rankup-head b {
+  color: #ffd2c8;
+  font-size: 15px;
+}
+.isl-rankup-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.isl-rankup-cols ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.isl-rankup-lose {
+  border-color: #c0504a;
+  background: #3a2326;
+}
+.isl-rankup-lose h3 {
+  color: #ff9a8c;
+}
+.isl-rankup-keep {
+  border-color: #4aa878;
+  background: #1f3a2e;
+}
+.isl-rankup-keep h3 {
+  color: #8ff0b4;
+}
+.isl-rankup-say {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: #24324f;
+}
+.isl-rankup-say .isl-dock-mine {
+  grid-row: span 2;
+  width: 56px;
+  height: auto;
+}
+.isl-rankup-say p {
+  margin: 0;
+  font-size: 14px;
+}
+.isl-rankup-say .isl-btn {
+  justify-self: start;
+}
+.isl-rankup-acts {
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+@media (max-width: 599px) {
+  .isl-rankup-cols ul {
+    font-size: 12px;
+  }
+}
+/* 復興を任せる */
+.isl-delegate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+.isl-btn.isl-delegate-amt {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 8px 4px;
+}
+.isl-delegate-amt b {
+  font-size: 15px;
+}
+.isl-delegate-amt small {
+  font-size: 11px;
+}
+.isl-delegate-who,
+.isl-delegate-fund {
+  margin-top: 8px;
+}
+
+/* 災害の演出（全画面） */
+.isl-disaster {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 30%, #3b4458 0%, #1a1f2b 60%, #0b0e14 100%);
+  color: #f4ecd8;
+  cursor: pointer;
+  animation: isl-dis-in 0.4s ease-out;
+}
+.isl-disaster.is-out {
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+@keyframes isl-dis-in {
+  from {
+    opacity: 0;
+  }
+}
+.isl-disaster.is-storm .isl-disaster-stage {
+  animation: isl-dis-shake 0.18s linear infinite;
+}
+@keyframes isl-dis-shake {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-6px, 3px) rotate(-0.4deg);
+  }
+  50% {
+    transform: translate(5px, -3px) rotate(0.3deg);
+  }
+  75% {
+    transform: translate(-3px, -4px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+.isl-disaster-sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.isl-disaster-cloud {
+  position: absolute;
+  top: calc(-4% + var(--k) * 3%);
+  left: calc(-30% + var(--k) * 22%);
+  width: 60%;
+  height: 28%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 60%, rgba(70, 76, 92, 0.95), rgba(40, 44, 56, 0) 70%);
+  filter: blur(4px);
+  animation: isl-dis-cloud calc(5s + var(--k) * 1s) linear infinite alternate;
+}
+@keyframes isl-dis-cloud {
+  to {
+    transform: translateX(18%);
+  }
+}
+.isl-disaster.is-calm .isl-disaster-cloud {
+  opacity: 0.35;
+}
+.isl-disaster-rain {
+  position: absolute;
+  inset: -20% 0 0;
+  background: repeating-linear-gradient(105deg, rgba(180, 200, 230, 0) 0 14px, rgba(180, 200, 230, 0.35) 14px 15px);
+  background-size: 120px 120px;
+  animation: isl-dis-rain 0.35s linear infinite;
+}
+@keyframes isl-dis-rain {
+  to {
+    background-position: -40px 120px;
+  }
+}
+.isl-disaster.is-calm .isl-disaster-rain {
+  opacity: 0.25;
+  animation-duration: 1.4s;
+}
+.isl-disaster-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+}
+.isl-disaster.is-storm .isl-disaster-flash {
+  animation: isl-dis-flash 2.6s steps(1) infinite;
+}
+@keyframes isl-dis-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  14% {
+    opacity: 0;
+  }
+  17% {
+    opacity: 0.35;
+  }
+  19% {
+    opacity: 0;
+  }
+}
+.isl-disaster-stage {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  place-content: center;
+  justify-items: center;
+  padding: 16px;
+}
+.isl-disaster-title {
+  margin: 0;
+  font-size: clamp(20px, 5vw, 30px);
+  text-align: center;
+  text-shadow: 0 2px 8px #000;
+}
+.isl-disaster-sub {
+  max-width: 520px;
+  margin: 0;
+  font-size: 15px;
+  text-align: center;
+}
+.isl-disaster-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  max-width: 640px;
+}
+.isl-disaster-town {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  width: 104px;
+  padding: 8px 4px;
+  overflow: hidden;
+  border: 2px solid #b8c0d4;
+  border-radius: 12px;
+  background: #22304c;
+  transition: background 0.3s, border-color 0.3s;
+}
+.isl-disaster-town img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  transition: filter 0.3s;
+}
+.isl-disaster-town b {
+  font-size: 13px;
+}
+.isl-disaster-tag {
+  font-size: 11px;
+}
+.isl-disaster-town.is-hit {
+  border-color: #b07a4a;
+  background: #3a2418;
+  animation: isl-dis-hit 0.4s;
+}
+.isl-disaster-town.is-hit img {
+  filter: grayscale(0.8) brightness(0.55) sepia(0.4);
+}
+.isl-disaster-town.is-hit .isl-disaster-tag {
+  color: #ffd9a8;
+  font-weight: 700;
+}
+@keyframes isl-dis-hit {
+  30% {
+    transform: scale(1.08) rotate(-2deg);
+  }
+}
+/* ひび（仮の絵：細い線の重ね） */
+.isl-disaster-crack {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background:
+    linear-gradient(62deg, transparent 47%, rgba(20, 12, 8, 0.9) 48%, rgba(20, 12, 8, 0.9) 50%, transparent 51%) 0 0 / 100% 100%,
+    linear-gradient(-38deg, transparent 58%, rgba(20, 12, 8, 0.85) 59%, rgba(20, 12, 8, 0.85) 60.5%, transparent 61.5%) 0 0 / 100% 100%,
+    linear-gradient(15deg, transparent 30%, rgba(20, 12, 8, 0.8) 31%, rgba(20, 12, 8, 0.8) 32%, transparent 33%) 0 0 / 100% 100%;
+  pointer-events: none;
+}
+.isl-disaster-town.is-hit .isl-disaster-crack {
+  opacity: 1;
+  transition: opacity 0.2s;
+}
+.isl-disaster-notice,
+.isl-disaster-grant {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 460px;
+  padding: 18px 20px;
+  border: 3px solid #c9a34a;
+  border-radius: 14px;
+  background: #f4ecd8;
+  color: #2a2018;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: isl-dis-pop 0.35s ease-out;
+}
+.isl-disaster-notice p {
+  margin: 0;
+  font-size: 15px;
+}
+.isl-disaster-notice small,
+.isl-disaster-grant small {
+  color: #5a4a38;
+}
+.isl-disaster-office {
+  font-size: 40px;
+  line-height: 1;
+}
+.isl-disaster-levy {
+  padding: 4px 14px;
+  border-radius: 10px;
+  background: #8a1f1a;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+}
+.isl-disaster-levy.is-gain {
+  background: #1f6a3a;
+}
+@keyframes isl-dis-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+/* 復興協定書（紙）・サイン・ハンコ */
+.isl-disaster-paper {
+  position: relative;
+  width: min(92vw, 480px);
+  padding: 18px 22px 22px;
+  border-radius: 6px;
+  background: linear-gradient(#faf4e4, #efe4c8);
+  color: #2a2018;
+  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  animation: isl-dis-pop 0.35s ease-out;
+}
+.isl-disaster-paper.is-bump {
+  animation: isl-dis-bump 0.3s;
+}
+@keyframes isl-dis-bump {
+  30% {
+    transform: translate(2px, 3px) rotate(0.6deg);
+  }
+  60% {
+    transform: translate(-2px, -1px);
+  }
+}
+.isl-disaster-paper h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  text-align: center;
+  letter-spacing: 0.3em;
+}
+.isl-disaster-paper p {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.isl-disaster-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 64px;
+  gap: 8px;
+  align-items: end;
+  margin-top: 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #6b5a40;
+}
+.isl-disaster-line small {
+  font-size: 12px;
+}
+.isl-disaster-sig {
+  --n: 4;
+  display: inline-block;
+  min-height: 36px;
+  overflow: hidden;
+  color: #1a2a5a;
+  font-family: 'Klee One', 'Hiragino Maru Gothic ProN', 'Comic Sans MS', cursive;
+  font-size: clamp(16px, 5vw, 26px);
+  font-style: italic;
+  white-space: nowrap;
+  clip-path: inset(0 100% 0 0);
+}
+.isl-disaster-sig.is-writing {
+  animation: isl-dis-write calc(var(--n) * 0.22s) steps(var(--n)) forwards;
+}
+@keyframes isl-dis-write {
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.isl-disaster-stampat {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  color: #b9a888;
+  font-size: 12px;
+}
+.isl-disaster-stamp {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  overflow: hidden;
+  border: 3px solid #c8202a;
+  border-radius: 50%;
+  color: #c8202a;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.05;
+  text-align: center;
+  word-break: break-all;
+  opacity: 0;
+  transform: scale(2.2) rotate(-14deg);
+  mix-blend-mode: multiply;
+}
+.isl-disaster-stamp.is-long {
+  font-size: 11px;
+}
+.isl-disaster-stamp.is-down {
+  animation: isl-dis-stamp 0.3s 0.05s ease-in forwards;
+}
+@keyframes isl-dis-stamp {
+  70% {
+    opacity: 0.9;
+    transform: scale(0.92) rotate(-8deg);
+  }
+  to {
+    opacity: 0.88;
+    transform: scale(1) rotate(-8deg);
+  }
+}
+.isl-disaster-name {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 12px 14px;
+  border: 2px solid var(--isl-line);
+  border-radius: 12px;
+  background: #24324f;
+  cursor: default;
+}
+.isl-disaster-input {
+  width: min(80vw, 280px);
+  padding: 8px 10px;
+  border: 2px solid #c9a34a;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #2a2018;
+  font: inherit;
+  font-size: 18px;
+  text-align: center;
+}
+.isl-disaster-grant b {
+  font-size: 16px;
+}
+.isl-disaster-mine {
+  width: 72px;
+  height: auto;
+}
+.isl-disaster-coins {
+  position: relative;
+  width: 200px;
+  height: 40px;
+}
+.isl-disaster-coins span {
+  position: absolute;
+  left: calc(var(--k) * 24px);
+  font-size: 22px;
+  animation: isl-dis-coin 0.9s calc(var(--k) * 0.08s) ease-in both;
+}
+@keyframes isl-dis-coin {
+  from {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+  60% {
+    opacity: 1;
+  }
+}
+.isl-disaster-foot {
+  position: relative;
+  padding: 10px 14px 16px;
+  text-align: right;
+}
+.isl-disaster-next {
+  color: #d8cfb8;
+  font-size: 13px;
+}
+/* 災害の演出は .isl-modal（時間を止める）の形を使わない */
+#isl-ui .isl-modal.isl-disaster {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: stretch;
+  background: radial-gradient(ellipse at 50% 30%, #3b4458 0%, #1a1f2b 60%, #0b0e14 100%);
+}
+.isl-modal.isl-disaster > div {
+  width: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.isl-modal.isl-disaster > .isl-disaster-sky {
+  position: absolute;
+  display: block;
+}
+.isl-modal.isl-disaster > .isl-disaster-stage {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+.isl-modal.isl-disaster > .isl-disaster-foot {
+  display: block;
+  padding: 10px 14px 16px;
+}
+.isl-modal.isl-disaster p {
+  line-height: 1.6;
+}
+.isl-btn.isl-delegate-amt {
+  border-radius: 12px;
+}

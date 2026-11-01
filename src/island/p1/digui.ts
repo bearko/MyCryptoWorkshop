@@ -19,7 +19,7 @@ import { PRODUCT, TABLET, type Mat } from './data';
 import { RARITY_JA } from '../../game/catalog';
 import { assign, blast, blastCost, blastSize, dig, digRepeatMs, digSite, drill, drillLen, DRILL_FUEL, extName, extRank, extRarity, hasBlast, hasDrill, layersOf, sessionSec, type DigErr, type DigHit, type DigItem, type DigLayout, type RunEnd } from './model';
 import { DEEP_LOCK, DUNGEON_TAB, RARE_RELIC_NOTE, anyPeek, autoDiggers, biggestFx, cellView, crewCount, digBlock, digErrText, digRec, digSpec, digSpecText, digStatus, dungeonNotes, findLabel, fxOf, gotLines, lockedLayer, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars, type CellView } from './digview';
-import { DEEP_TIP, MEET_WALL, PEEK_TIP } from './digmeet';
+import { AGAIN_TIP, DEEP_TIP, MEET_WALL, PEEK_TIP } from './digmeet';
 import { pickHero } from './heroui';
 import { open, refreshSheet, sheetOpen, type Ctx } from './screens';
 import { btn, extImage, h, heroIcon, heroName, matIcon, money, rich } from './ui';
@@ -44,6 +44,8 @@ export interface DigHooks {
   peekTip?: () => boolean;
   /** 発掘との出会いの最初の作業（壁の掘り方の一言を出す） */
   meetFirst?: () => boolean;
+  /** 再発掘（ランクアップの災害のあと）で初めて RP が入った（マインちゃんの一言を出したら true。main.ts が flags に記録） */
+  againTip?: () => boolean;
 }
 
 /** ランク → カタログのレアリティ */
@@ -673,6 +675,8 @@ function strike(x: number, y: number): 'more' | 'broke' | 'err' {
   soonSave();
   showHits(hits, useBlast, useDrill);
   p.hooks.hit?.(hits);
+  // 再発掘で初めて RP が入った（この周回で初めて掘り出した出土品・石板）：1 回だけ
+  if (hits.some((x) => x.again && x.rp > 0) && p.hooks.againTip?.()) mineSay(AGAIN_TIP(), 6000);
   // 資金・RP の帯と吹き出しを描き直す
   p.ctx.refresh();
   refreshDig();

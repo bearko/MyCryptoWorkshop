@@ -1294,8 +1294,11 @@ export const DIG_BALANCE: {
   infinite: { cost: number; grow: number; step: number; curve: number; speed: number; minMs: number; power: number; reach: number };
   /** 研究への寄付（お金で RP を買う・回数の上限なし）：はじめの値段（G）・押すごとの倍率・丸める単位・受け取る RP（一定） */
   buyRp: { cost: number; grow: number; step: number; rp: number };
-  /** Uncommon の研究成果の発表の条件（お題に加えて）：そのセクタの出土品（finds）のうち n 種を研究 Lv lv 以上に */
-  presentRes: Partial<Record<'C' | 'U', { n: number; lv: number }>>;
+  /**
+   * Uncommon の研究成果の発表の条件（お題に加えて）：そのセクタの出土品（finds）のうち n 種を、その町の荒れ地（ダンジョンを除く）で
+   * この周回に dug 個ずつ掘り出す（発掘 v2 の 7 段目。6 段目の「研究 Lv」は会社で共有のため、着いた時点でそろっていて縛りにならなかった）
+   */
+  presentRes: Partial<Record<'C' | 'U', { n: number; dug: number }>>;
 } = {
   // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
   rpPrice: {
@@ -1462,8 +1465,26 @@ export const DIG_BALANCE: {
   infinite: { cost: 2000, grow: 1.25, step: 50, curve: 0.85, speed: 0.02, minMs: 40, power: 0.05, reach: 0.03 },
   // 研究への寄付：はじめ 20,000 G で 100 RP・押すごとに ×1.15（100 G 単位）
   buyRp: { cost: 20000, grow: 1.15, step: 100, rp: 100 },
-  // Uncommon の発表：お題に加えて、そのセクタの出土品 2 種を研究 Lv3 に（復刻品のレシピも Lv3 で開く）。Common は お題だけ
-  presentRes: { U: { n: 2, lv: 3 } },
+  // Uncommon の発表：お題に加えて、そのセクタの出土品 2 種を、この町の荒れ地で 10 個ずつ掘り出す（v14：研究 Lv3 → この町で掘った数。町の荒れ地に埋まっている数は、多い 2 種で 18〜27 個）。Common は お題だけ
+  presentRes: { U: { n: 2, dug: 10 } },
+};
+
+/**
+ * ランクアップの災害と徴収・被災した町の復興（発掘 v2 の 7 段目。docs/ISLAND_PHASE1.md「ランクアップの災害と復興」）。
+ * 自動プレイ（npm run island:sim）で直す数字はここの 1 か所。必要金額（建物・投資・パネル・入国料・出店許可）は上げない
+ */
+export const RESET = {
+  /** ランドからの復興の支度金（タオックスの開始資金と同じ） */
+  grant: 30000,
+  /** 手で直す：元の建物の値段の rate（最低 min G）・元の工期の days 倍（最低 1 日） */
+  repair: { rate: 0.4, min: 1000, days: 0.4 },
+  /**
+   * ヒーローに任せる（復興支援金）：修繕の値段 × costMul（割高）・1 か月に直せる数（担当の能力値の平均 apt が lo 未満で 1・hi 未満で 2・それ以上で 3）・
+   * 送る額の選択肢（G）
+   */
+  delegate: { costMul: 1.5, lo: 35, hi: 55, perMonth: [1, 2, 3] as [number, number, number], funds: [10000, 30000, 80000] as [number, number, number] },
+  /** 復興の担当の伸び：毎月、能力値の低い順に stats 個を +lo〜hi（上限 100。OJT の 3 倍くらい） */
+  grow: { stats: 2, lo: 2, hi: 3 },
 };
 
 // ---------------------------------------------------------------- 発掘の枝（9 本目。発掘 v2 の 2 段目）

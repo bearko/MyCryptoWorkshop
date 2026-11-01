@@ -8,7 +8,7 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
-import { clearCondText, digMet, digReportLine, digReportText, presentNeedText, presentReady, reviveReportText, type DigSummary } from './digmeet';
+import { clearCondText, digMet, digReportLine, digReportText, presentNeedText, presentReady, rebuildText, reviveReportText, type DigSummary } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
@@ -569,6 +569,16 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
         if (hooks.openNotes) line.append(btn(t('研究ノート', 'Notebook'), () => hooks.openNotes?.(), 'isl-rp-go'));
         c4.append(line);
         body.classList.add('has-dig');
+      } else {
+        // 発掘場の無いセクタ・出会いの前でも、被災した町の復興の行は出す（発掘 v2 の 7 段目）
+        const rb = rebuildText(r.rebuild);
+        if (rb) {
+          const line = h('div', 'isl-rp-dig');
+          const txt = h('span', 'isl-rp-dig-text has-revive');
+          txt.append(h('span', 'is-long isl-rp-revive', rb[0]), h('span', 'is-short isl-rp-revive', rb[1]));
+          line.append(txt);
+          c4.append(line);
+        }
       }
       cards.push(c4);
 

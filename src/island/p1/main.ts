@@ -111,6 +111,7 @@ import {
   sheetOpen,
   type Ctx,
   mineTip,
+  mineSay,
   shopScene,
   shopSceneSale,
   open as openSheet,
@@ -126,7 +127,9 @@ import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig, refreshTimer, showEndCard } from './digui';
 import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, clearWaitTip, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, lettersLeft, meetReady, meetTip, presentAfter, presentNeedText, presentPages, topicsPage, type DigTip } from './digmeet';
-import { openBooks, openBrand, openLand, startMove } from './landui';
+import { openBooks, openBrand, openLand, openRankUp, startMove } from './landui';
+import { pendingReset, rankUpTier, repairAllCost, ruinsOf } from './reset';
+import { playDisaster } from './disaster';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
 import { STRIP, corners, overviewScale, worldOf } from './worldrender';
@@ -283,6 +286,13 @@ const ctx: Ctx = {
   closeGlow: (screen) => !!tutStep()?.closeOn?.includes(screen),
   sfx: (k, gain, rate) => sfx.play(k, gain, rate),
   moved: (target, fresh, manager) => afterMove(target, fresh, manager),
+  // 初めて復興を任せた（1 回だけ。発掘 v2 の 7 段目）
+  delegated: () => {
+    if (s.flags.delegateTalk) return;
+    s.flags.delegateTalk = true;
+    save();
+    mineSay(ctx, t('任せた町は、支援金のぶんだけ毎月直していってくれるよ。[[お題]]と[[出土品]]は自分で掘りに行こう。', 'The town you left in charge gets rebuilt each month as far as the funds go. Go dig the [[targets]] and [[finds]] yourself.'));
+  },
   skills: (focus) => openSkills(ctx, focus),
   rpNoted: () => (rpSeen = s.rp ?? 0),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
@@ -1273,6 +1283,13 @@ function openDigPanel(note?: string) {
         save();
         return true;
       },
+      // 再発掘で初めて RP が入った（1 回だけ。発掘 v2 の 7 段目）
+      againTip: () => {
+        if (s.flags.redigTalk) return false;
+        s.flags.redigTalk = true;
+        save();
+        return true;
+      },
     },
     note,
   );
@@ -1656,11 +1673,31 @@ function afterMove(target: string, fresh: boolean, manager: number | null) {
   cam.zoom = innerWidth < 600 ? 0.3 : 0.5;
   speed = 1;
   save();
+  // ランクアップの災害と徴収（発掘 v2 の 7 段目）：演出（災害 → 被害 → 通知 → サインとハンコ → 支度金）のあと、行き先の町の案内へ
+  const rs = pendingReset(s);
+  if (rs) {
+    // 演出のあいだは moving のまま（到着の案内を先に出さない）
+    renderAll();
+    playDisaster(root, s, rs, { sfx: (k, g, r) => sfx.play(k, g, r), toast: (x) => toast(x), save }, () => {
+      moving = false;
+      arrive(target, fresh, manager, true);
+    });
+    return;
+  }
   sfx.play('win');
+  moving = false;
+  arrive(target, fresh, manager, false);
+}
+/** 移ったあとの案内（到着の案内・戻ってきた・マネージャー）。reset：ランクアップの災害のあと（最初の 1 枚に「ここからまた一から！」） */
+function arrive(target: string, fresh: boolean, manager: number | null, reset: boolean) {
   const d = sectorDef(target);
+  const resetPage: TutPage[] = reset ? [{ text: t('ここからまた一から！ でも[[研究ポイント]]とヒーローはそのまま。被災した町は、ヒーローに[[復興]]を任せることもできるよ。', 'Starting over from here! But your [[research points]] and heroes are still with you. You can leave the ruined towns’ [[recovery]] to a hero.') }] : [];
+  // 被災した町に初めて戻ったとき（1 回だけ）
+  const ruinPage: TutPage[] = !fresh && ruinsOf(s).length && !s.flags.ruinTalk ? [{ text: t('[[廃墟]]をタップすると修繕できるよ。手で直すほうが安上がり！', 'Tap a [[ruin]] to repair it. Fixing it by hand is cheaper!') }] : [];
+  if (ruinPage.length) s.flags.ruinTalk = true;
   // はじめてのセクタ（最初のタオックスのほか）：到着の案内（目標 → 違い → 最初の一手）
   if (needsIntro()) {
-    const pages = introPages();
+    const pages = [...resetPage, ...introPages()];
     if (manager != null) pages.splice(pages.length - 1, 0, managerPage(manager));
     moving = false;
     showIntro(pages);
@@ -1674,7 +1711,10 @@ function afterMove(target: string, fresh: boolean, manager: number | null) {
     pages.push({ text: t(`[[${d.name}]]の出店許可がおりたよ！ ここは${tierLabel(d.tier)}。`, `We got the permit for [[${d.name}]]! It is a ${tierLabel(d.tier)}.`) });
     if (d.tier !== 'C') pages.push({ text: t('ここは商売敵が大きくて、Common の商品はあまり相手にされないんだ。アンコモンを並べられるように、エクステのランクアップを急ごう！', 'Rivals are big here and Common goods barely sell. Rank up your extensions to Uncommon!') });
     pages.push({ text: t('建物はセクタごと。まずはここに[[工房]]を建てて、お店を開こう。資金・ヒーロー・スキルは会社でいっしょだよ。', 'Buildings belong to each sector. Build a [[workshop]] and a shop here first. Funds, heroes and skills are shared.') });
-  } else pages.push({ text: t(`[[${d.name}]]に戻ってきたよ。建物も担当も、離れたときのままだよ。`, `Back in [[${d.name}]]. Buildings and jobs are as you left them.`) });
+  } else if (ruinsOf(s).length) pages.push({ text: t(`[[${d.name}]]に戻ってきたよ。災害で壊れた建物が[[廃墟]]のまま残っている…（${ruinsOf(s).length} 軒）`, `Back in [[${d.name}]]. The buildings wrecked by the disaster still stand as [[ruins]]… (${ruinsOf(s).length})`) });
+  else pages.push({ text: t(`[[${d.name}]]に戻ってきたよ。建物も担当も、離れたときのままだよ。`, `Back in [[${d.name}]]. Buildings and jobs are as you left them.`) });
+  pages.unshift(...resetPage);
+  pages.push(...ruinPage);
   if (manager != null) pages.push(managerPage(manager));
   talk(pages, t('はじめよう！', 'Let’s go!'), () => renderAll());
 }
@@ -2690,6 +2730,16 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const ws = s.buildings.find((b) => b.owner === 'me' && b.id === 'workshop');
   const shops = s.buildings.filter((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
   const rec = PRODUCT[recommend(s)].name;
+  // 被災した町（発掘 v2 の 7 段目）：工房かお店がまだ廃墟のまま → 廃墟をタップして修繕（建て直すより安い）
+  const ruins = ruinsOf(s);
+  if (ruins.length && (!ws || !shops.length)) {
+    const first = ruins.find((b) => b.id === 'workshop' && !ws) ?? ruins.find((b) => P1B[b.id]?.kind === 'shop') ?? ruins[0];
+    const all = repairAllCost(s);
+    return {
+      text: t(`災害で壊れた[[廃墟]]が ${ruins.length} 軒あるよ。タップして修繕すれば、建て直すより安く元に戻せる（全部で ${money(all.cost)}）。`, `${ruins.length} buildings lie in [[ruins]] after the disaster. Tap one to repair it — cheaper than rebuilding (${money(all.cost)} for all).`),
+      action: [t('廃墟を見る', 'See the ruins'), () => openPop(first.i, first.j)],
+    };
+  }
   if (!ws && s.land && s.land.mine.length > 1 && s.sector !== s.land.mine[0]) return { text: t('このセクタにも[[工房]]を建てましょう。建物はセクタごとです。「営業企画」→「建築」から、道路に面した空き地へ。', 'Build a [[workshop]] in this sector too — buildings belong to each sector. Planning → Build, then a lot facing a road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (!ws) return { text: t('新天地へようこそ！まずは Workshop から引き継いだ「工房」を建てましょう。下の「営業企画」→「建築」から工房を選び、道路に面した空き地へ。入口は道路の方にしか向けられません。', 'Welcome to the new land! First, build the Workshop you brought from home: Planning → Build, then place it on a lot facing a road — the entrance can only face the road.'), action: [t('建築を開く', 'Open Build'), openBuildTab] };
   if (ws.left > 0) return { text: t('工房の工事中です。⏩ で時間を早められます。地図のマスを押すと、建物の詳しい情報が見られます。', 'The workshop is under construction. ⏩ speeds things up. Tap any tile on the map for details.') };
@@ -2765,8 +2815,8 @@ function firstTopTip(): string {
   const g = clearGoal(s);
   const rally = (s.rally ?? 0) > 0;
   if (!g.present && g.res)
-    // Uncommon（発掘 v2 の 6 段目）：発表にはお題と、出土品の研究 Lv も
-    return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（${presentNeedText(g)[0]}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、研究も進めよう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (${presentNeedText(g)[0]}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and keep researching!`);
+    // Uncommon（発掘 v2 の 7 段目）：発表にはお題と、この町で掘った数も
+    return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（${presentNeedText(g)[0]}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、荒れ地も掘ろう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (${presentNeedText(g)[0]}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and keep digging!`);
   if (!g.present)
     return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（お題 ${g.got} / ${g.all}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、お題もそろえよう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (targets ${g.got} / ${g.all}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and find the targets!`);
   return rally
@@ -3198,6 +3248,12 @@ function advanceBtn(id: string): HTMLButtonElement {
     b.disabled = true;
     return b;
   }
+  // 会社として初めて上のランクへ（発掘 v2 の 7 段目）：入国料は取らず、先に確認の画面（災害と徴収）
+  if (rankUpTier(s, id))
+    return btn(t('このセクタに進出（災害と徴収あり）…', 'Expand here (disaster & levy)…'), () => {
+      closePop();
+      openRankUp(ctx, id);
+    }, 'is-on');
   const short = d.fee - s.money;
   const b = btn(short > 0 ? t(`あと ${money(short)}`, `${money(short)} short`) : t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => {
     closePop();
@@ -3234,7 +3290,7 @@ function badgeEl(b: SectorBadge, mini: boolean): HTMLElement {
   el.addEventListener('click', () => {
     if (b.state === 'mine') goSector(b.id);
     else if (b.state === 'open' && letterLocked(s, b.id)) toast(letterLock(s));
-    else if (b.state === 'open') startMove(ctx, b.id);
+    else if (b.state === 'open') (rankUpTier(s, b.id) ? openRankUp(ctx, b.id) : startMove(ctx, b.id));
     else if (b.state === 'here') {
       const c = (s.n - 1) / 2;
       tween = { x0: cam.x, y0: cam.y, x1: 0, y1: c * 110, t0: performance.now(), z0: cam.zoom, z1: innerWidth < 600 ? 0.3 : 0.5, dur: 600 };
@@ -3744,6 +3800,17 @@ function reportNews(rep: NonNullable<ReturnType<typeof step>['report']>) {
 function companyNews(c: NonNullable<ReturnType<typeof step>['company']>) {
   for (const x of c.managed) {
     const name = sectorDef(x.id).name;
+    // 被災した町の復興（発掘 v2 の 7 段目）：直した数・支援金が尽きた・担当の伸び
+    const rv = x.revive;
+    if (rv) {
+      if (rv.fixed) toast(t(`🏗 ${name}：${rv.fixed} 軒を直した（${rv.all - rv.left} / ${rv.all} 軒）`, `🏗 ${name}: rebuilt ${rv.fixed} (${rv.all - rv.left} / ${rv.all})`));
+      if (rv.left === 0 && rv.fixed) toast(t(`🎉 ${name}の復興が終わった！${rv.refund ? `（残りの支援金 ${money(rv.refund)} は本社へ）` : ''}`, `🎉 ${name} is fully rebuilt!${rv.refund ? ` (${money(rv.refund)} of funds returned)` : ''}`));
+      else if (rv.out) toast(t(`🏚 ${name}：支援金が尽きた（ランドマップから追加で送れる）`, `🏚 ${name}: recovery funds ran out (send more from the land map)`));
+      const g = Object.entries(rv.grow);
+      const ups = g.map(([k, v]) => `${k.toUpperCase()} +${v}`).join(t('・', ' · '));
+      if (g.length && x.hero != null) toast(t(`${heroName(x.hero)}が復興の担当で成長！ ${ups}`, `${heroName(x.hero)} grew leading the rebuild! ${ups}`));
+      if (x.rev === 0 && x.profit === 0) continue;
+    }
     toast(
       x.profit >= 0
         ? t(`${name}：利益 ${money(x.profit)}（本社へ ${money(x.toHQ)}・投資 ${money(x.invest)}）`, `${name}: profit ${money(x.profit)} (to HQ ${money(x.toHQ)}, reinvested ${money(x.invest)})`)
@@ -3942,6 +4009,9 @@ requestAnimationFrame(frame);
   /** 撮影スクリプト用：ダンジョンの番号・遺物の展示館の画面・展示館を建てる */
   DUNGEON,
   museum: () => openMuseum(ctx),
+  /** 撮影スクリプト用：ランドマップ・ランクアップの進出の確認（発掘 v2 の 7 段目） */
+  land: () => openLand(ctx),
+  rankUp: (id: string) => openRankUp(ctx, id),
   /** 撮影スクリプト用：スキルツリーを開く（focus のパネルを真ん中に・選んだ状態で） */
   skills: (focus?: string) => openSkills(ctx, focus),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),

@@ -12,6 +12,7 @@ import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, ty
 import { DUNGEON, craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
 import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
 import { standing } from './digview';
+import { RUIN } from './company';
 
 import { extImage } from './ui';
 export interface P1Ghost {
@@ -173,6 +174,11 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
     items.push({
       depth: (fi + fj) * 1000 + fi,
       draw: () => {
+        // 廃墟（ランクアップの災害。発掘 v2 の 7 段目）：元の建物の絵を暗く・傾けて、瓦礫とひびを重ねる（仮の絵。docs/ISLAND_ART_TODO.md）
+        if (b.owner === RUIN) {
+          drawRuin(ctx, b, def, now);
+          return;
+        }
         if (b.owner !== 'town') for (const [x, y] of cells(def, b.i, b.j, b.dir)) outline(ctx, x, y, b.owner === 'me' ? OWN : RIVAL);
         drawBuilding(ctx, b, def, now, eff);
       },
@@ -848,4 +854,84 @@ function wasteFlag(ctx: CanvasRenderingContext2D, i: number, j: number, now: num
   ctx.fill();
   ctx.fillStyle = '#fff3d0';
   ctx.fillRect(Math.round(p.x + 9), Math.round(p.y - 57), 8, 6);
+}
+
+/**
+ * 廃墟（仮の絵）：元の建物の絵を暗く・色あせさせて少し傾け、足もとに瓦礫（石のかけら・折れた板）と地面のひびを重ねる。
+ * 持ち主の縁は灰色の点線。docs/ISLAND_ART_TODO.md「廃墟」
+ */
+export function drawRuin(ctx: CanvasRenderingContext2D, b: { uid: number; id: string; i: number; j: number; dir: Dir; left: number }, def: (typeof DEF)[string], now: number) {
+  const cs = cells(def, b.i, b.j, b.dir);
+  // 縁：灰色の点線
+  ctx.save();
+  ctx.setLineDash([10, 8]);
+  for (const [x, y] of cs) outline(ctx, x, y, 'rgba(170,170,170,0.65)');
+  ctx.restore();
+  const [fi, fj] = frontCell(def, b.i, b.j, b.dir);
+  const c = center(fi, fj);
+  const r = wasteRng(b.uid * 7919 + 13);
+  ctx.save();
+  // 足もとを中心に、少し傾ける（向きで左右）
+  const tilt = (b.uid % 2 ? 1 : -1) * 0.06;
+  ctx.translate(c.x, c.y + 40);
+  ctx.rotate(tilt);
+  ctx.translate(-c.x, -(c.y + 40));
+  ctx.filter = 'grayscale(0.75) brightness(0.5) sepia(0.35)';
+  drawBuilding(ctx, { ...b, left: 0 }, def, now);
+  ctx.restore();
+  // ひび（地面）と瓦礫
+  for (const [x, y] of cs) {
+    const p = center(x, y);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(30,22,16,0.8)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 60, p.y - 4);
+    ctx.lineTo(p.x - 24, p.y + 8);
+    ctx.lineTo(p.x - 4, p.y - 6);
+    ctx.lineTo(p.x + 30, p.y + 10);
+    ctx.lineTo(p.x + 58, p.y + 2);
+    ctx.stroke();
+    // 石のかけら（灰色の小さな多角形）・折れた板（茶色の細い四角）
+    for (let k = 0; k < 9; k++) {
+      const u = r() * 2 - 1;
+      const v = r() * 2 - 1;
+      const x0 = p.x + u * 62;
+      const y0 = p.y + v * 26 + 12;
+      const sz = 6 + r() * 10;
+      ctx.fillStyle = k % 3 === 0 ? '#6b4a2e' : r() < 0.5 ? '#8a8a86' : '#5d5d5a';
+      if (k % 3 === 0) {
+        const a = r() * Math.PI;
+        ctx.save();
+        ctx.translate(x0, y0);
+        ctx.rotate(a);
+        ctx.fillRect(-sz, -2.5, sz * 2, 5);
+        ctx.restore();
+        continue;
+      }
+      ctx.beginPath();
+      {
+        ctx.moveTo(x0 - sz, y0);
+        ctx.lineTo(x0 - sz * 0.3, y0 - sz * 0.7);
+        ctx.lineTo(x0 + sz * 0.8, y0 - sz * 0.4);
+        ctx.lineTo(x0 + sz, y0 + sz * 0.3);
+        ctx.lineTo(x0, y0 + sz * 0.5);
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // 札：「🏚 廃墟」（遠くからでも分かる）
+  ctx.save();
+  ctx.font = 'bold 26px sans-serif';
+  ctx.textAlign = 'center';
+  const label = t('🏚 廃墟', '🏚 Ruin');
+  const w = ctx.measureText(label).width + 20;
+  ctx.fillStyle = 'rgba(30,24,20,0.82)';
+  roundRect(ctx, c.x - w / 2, c.y - 150, w, 38, 10);
+  ctx.fill();
+  ctx.fillStyle = '#f0d6a8';
+  ctx.fillText(label, c.x, c.y - 122);
+  ctx.restore();
 }

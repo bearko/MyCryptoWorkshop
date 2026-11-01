@@ -214,8 +214,8 @@ describe('町の長と研究成果の発表', () => {
   it('到着の案内のお題の 1 枚：「この町の荒れ地には、栄えていた頃の[[〇〇]]が眠っているはず。お題は 3 つ（Uncommon は 4 つ）」', () => {
     expect(Object.keys(DIG_THEME).sort()).toEqual(Object.keys(DIG_SITES).sort());
     expect(topicsPage('c2')).toContain(`荒れ地には、栄えていた頃の[[${DIG_THEME.c2}]]が眠っているはず。お題は 3 つ`);
-    // Uncommon（6 段目）：お題 4 つと、出土品 2 種の研究 Lv3
-    expect(topicsPage('u1')).toContain('お題 4 つと、出土品 2 種の[[研究 Lv3]]');
+    // Uncommon（7 段目）：お題 4 つと、この町の出土品 2 種をこの町で 10 個ずつ
+    expect(topicsPage('u1')).toContain('お題 4 つと、この町の出土品 2 種を[[この町で 10 個ずつ]]');
     expect(topicsPage('r1')).toBeNull();
   });
 });
@@ -274,7 +274,7 @@ describe('マインちゃんの助言（発掘）の優先順', () => {
     s.letters.push('U');
     const low = digTips(s);
     expect(low.map((x) => [x.key, x.tier])).toEqual([['letter', 'low']]);
-    expect(low[0].text).toContain('150,000 G');
+    expect(low[0].text).toContain('[[研究への寄付]]');
     // Uncommon に出店したら、依頼状の助言は消える
     s.land!.mine.push('u1');
     expect(digTips(s)).toEqual([]);
