@@ -125,7 +125,7 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig, refreshTimer, showEndCard } from './digui';
-import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, clearWaitTip, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, lettersLeft, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
+import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, clearWaitTip, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, lettersLeft, meetReady, meetTip, presentAfter, presentNeedText, presentPages, topicsPage, type DigTip } from './digmeet';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
@@ -284,6 +284,7 @@ const ctx: Ctx = {
   sfx: (k, gain, rate) => sfx.play(k, gain, rate),
   moved: (target, fresh, manager) => afterMove(target, fresh, manager),
   skills: (focus) => openSkills(ctx, focus),
+  rpNoted: () => (rpSeen = s.rp ?? 0),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
   dismissed: () => {
     menu = null;
@@ -2763,6 +2764,9 @@ function tutorial(): { text: string; action?: [string, () => void] } {
 function firstTopTip(): string {
   const g = clearGoal(s);
   const rally = (s.rally ?? 0) > 0;
+  if (!g.present && g.res)
+    // Uncommon（発掘 v2 の 6 段目）：発表にはお題と、出土品の研究 Lv も
+    return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（${presentNeedText(g)[0]}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、研究も進めよう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (${presentNeedText(g)[0]}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and keep researching!`);
   if (!g.present)
     return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（お題 ${g.got} / ${g.all}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、お題もそろえよう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (targets ${g.got} / ${g.all}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and find the targets!`);
   return rally
@@ -3938,6 +3942,8 @@ requestAnimationFrame(frame);
   /** 撮影スクリプト用：ダンジョンの番号・遺物の展示館の画面・展示館を建てる */
   DUNGEON,
   museum: () => openMuseum(ctx),
+  /** 撮影スクリプト用：スキルツリーを開く（focus のパネルを真ん中に・選んだ状態で） */
+  skills: (focus?: string) => openSkills(ctx, focus),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),
   /** 発掘との出会い（撮影スクリプト用）：操作がないまま進んだ日数 */
   idle: (v?: number) => (v != null ? (idleDays = v) : idleDays),

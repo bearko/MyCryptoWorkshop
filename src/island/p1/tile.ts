@@ -4,8 +4,8 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { DUNGEON, dungeonDepth, museumMarks, museumOpen, museumSlots, museumValue, revivedSites, permitFee, permitLock, presentLock, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { DIG_SITES, INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
+import { DUNGEON, dungeonDepth, museumMarks, museumOpen, museumSlots, museumValue, revivedSites, permitFee, permitLock, presentLock, presentRes, researchOf, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
@@ -106,7 +106,16 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   const chief = chiefOf(s.dig!.sector)!;
   const who = h('div', 'isl-row isl-chief-who');
   who.append(heroIcon(chief, 64), h('b', '', t(`町の長 ${heroName(chief)}`, `Town head ${heroName(chief)}`)));
-  body.append(who, h('p', '', t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつで、Common の 2 つの町で発表すると Uncommon の調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here. Presenting is one of the conditions to conquer this sector, and presenting in two Common towns earns the Uncommon survey request.')));
+  body.append(
+    who,
+    h(
+      'p',
+      '',
+      presentRes(s)
+        ? t('この町の長が住む家。「お題」の遺物を全部掘り出し、この町の出土品の研究を進めたら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつ。', 'Home of the town head. Dig up every target relic and advance research on this town’s finds, then present your findings here. Presenting is one of the conditions to conquer this sector.')
+        : t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつで、Common の 2 つの町で発表すると Uncommon の調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here. Presenting is one of the conditions to conquer this sector, and presenting in two Common towns earns the Uncommon survey request.'),
+    ),
+  );
   const [a, n] = topicProgress(s);
   const row = h('div', 'isl-stock');
   for (const id of topicsOf(s.dig!.sector)) {
@@ -116,13 +125,29 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
     row.append(c);
   }
   body.append(h('h4', '', t(`お題 ${a} / ${n}`, `Targets ${a} / ${n}`)), row);
+  // Uncommon（発掘 v2 の 6 段目）：発表には、この町の出土品 N 種を研究 Lv M 以上に（研究 Lv の高い順に並べる）
+  const res = presentRes(s);
+  if (res && !s.presented.includes(s.dig!.sector)) {
+    const rrow = h('div', 'isl-stock');
+    const finds = [...(DIG_SITES[s.dig!.sector]?.finds ?? [])].sort((x, y) => researchOf(s, y) - researchOf(s, x));
+    // 研究の進んだ順に 4 つまで（まだ掘っていないものは、知っているものが足りないときだけ ？？？ で）
+    const known = finds.filter((id) => researchOf(s, id) > 0);
+    for (const id of [...known, ...finds.filter((id) => researchOf(s, id) <= 0)].slice(0, Math.max(res.need, Math.min(4, known.length)))) {
+      const lv = researchOf(s, id);
+      const c = h('span', `isl-chip isl-chief-topic ${lv >= res.lv ? 'is-ok' : lv > 0 ? '' : 'is-unknown'}`);
+      c.append(extIcon(id, 32), h('small', '', lv > 0 ? t(`Lv${lv}${lv >= res.lv ? ' ✔' : ''}`, `Lv${lv}${lv >= res.lv ? ' ✔' : ''}`) : t('？？？', '???')));
+      rrow.append(c);
+    }
+    body.append(h('h4', res.have >= res.need ? 'isl-good' : '', t(`研究 Lv${res.lv} の出土品 ${res.have} / ${res.need}`, `Finds at research Lv${res.lv}: ${res.have} / ${res.need}`)), rrow);
+  }
   const acts = h('div', 'isl-row isl-pop-acts');
   const lock = presentLock(s);
   const go = btn(lock === 'done' ? t('発表済み', 'Presented') : t('📜 研究成果を発表する', '📜 Present findings'), () => hooks.present?.(), canPresent(s) ? 'is-on is-guide' : '');
   go.disabled = !canPresent(s);
   acts.append(go);
   body.append(acts);
-  if (lock === 'not-yet') body.append(h('small', 'isl-warn', t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
+  if (lock === 'not-yet') body.append(h('small', 'isl-warn', res ? t(`お題がそろい、出土品 ${res.need} 種が研究 Lv${res.lv} になったら発表できる（お題 あと ${n - a} つ・研究 ${res.have} / ${res.need}）`, `Present once all targets are found and ${res.need} finds reach research Lv${res.lv} (targets ${n - a} to go · research ${res.have} / ${res.need})`) : t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
+  else if (lock === 'research' && res) body.append(h('small', 'isl-warn', t(`🔒 発表には、この町の出土品 ${res.need} 種を研究 Lv${res.lv} に（いま ${res.have} / ${res.need}）。同じ遺物を掘り重ねよう`, `🔒 To present, raise ${res.need} of this town’s finds to research Lv${res.lv} (now ${res.have} / ${res.need}). Dig the same relics again`)));
   else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み。', 'Findings already presented here.')));
   return body;
 }

@@ -214,14 +214,15 @@ describe('町の長と研究成果の発表', () => {
   it('到着の案内のお題の 1 枚：「この町の荒れ地には、栄えていた頃の[[〇〇]]が眠っているはず。お題は 3 つ（Uncommon は 4 つ）」', () => {
     expect(Object.keys(DIG_THEME).sort()).toEqual(Object.keys(DIG_SITES).sort());
     expect(topicsPage('c2')).toContain(`荒れ地には、栄えていた頃の[[${DIG_THEME.c2}]]が眠っているはず。お題は 3 つ`);
-    expect(topicsPage('u1')).toContain('お題は 4 つ');
+    // Uncommon（6 段目）：お題 4 つと、出土品 2 種の研究 Lv3
+    expect(topicsPage('u1')).toContain('お題 4 つと、出土品 2 種の[[研究 Lv3]]');
     expect(topicsPage('r1')).toBeNull();
   });
 });
 
 describe('マインちゃんの助言（発掘）の優先順', () => {
   it('並びは 発表できる（high）→ 復刻品の独占があと 1 か月（mid）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
-    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'copied', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch']);
+    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'copied', 'present-res', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch']);
     expect(DIG_IDLE_DAYS).toBe(10);
     const s = month2(5);
     s.money = 0;

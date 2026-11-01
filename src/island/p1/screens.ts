@@ -146,6 +146,8 @@ export interface Ctx {
   skills?: (focus?: string) => void;
   /** ほかのランドセクタへ移った（land.ts の moveTo のあと） */
   moved?: (target: string, fresh: boolean, manager: number | null) => void;
+  /** 研究ポイントの増えた知らせ（「研究ポイント +N」のトースト）を済みにする（その画面が自分でトーストを出したとき。研究への寄付） */
+  rpNoted?: () => void;
 }
 
 /**

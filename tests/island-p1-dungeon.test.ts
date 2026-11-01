@@ -243,9 +243,9 @@ describe('ダンジョン', () => {
     expect(findSize({ kind: 'ext', id: EPIC })).toEqual([2, 2]);
   });
 
-  it('RP はランクが上ほど大きい：Rare 初発見 +80・Epic +250・Legendary +600（研究 Lv の上がりも同じ倍率）', () => {
-    expect([RP_GAIN.R.first, RP_GAIN.E.first, RP_GAIN.L.first]).toEqual([80, 250, 600]);
-    expect(RP_GAIN.R.lv.map((v, k) => Math.round(v / RP_GAIN.U.lv[k]))).toEqual([3, 3, 3, 3]);
+  it('RP はレアリティで変わらない（v14a）：Rare・Epic・Legendary の初発見も研究 Lv の上がりも Common と同じ', () => {
+    expect([RP_GAIN.R.first, RP_GAIN.E.first, RP_GAIN.L.first]).toEqual([RP_GAIN.C.first, RP_GAIN.C.first, RP_GAIN.C.first]);
+    for (const r of ['U', 'R', 'E', 'L'] as const) expect(RP_GAIN[r].lv, r).toEqual(RP_GAIN.C.lv);
     const s = game();
     for (const k of [0, 1, 2, 3]) digOut(s, k);
     setLevel(s, 'dig_deep', 5);
@@ -258,7 +258,7 @@ describe('ダンジョン', () => {
     let h: DigHit | string = dig(s, 3, 3);
     for (let n = 0; n < 10 && typeof h !== 'string' && !h.broke; n++) h = dig(s, 3, 3);
     expect(typeof h !== 'string' && h.item?.kind === 'ext' && h.first).toBe(true);
-    expect(s.rp - rp0).toBe(80);
+    expect(s.rp - rp0).toBe(RP_GAIN.C.first);
     // Epic：4 マスとも
     const rp1 = s.rp;
     let last: DigHit | null = null;
@@ -270,7 +270,7 @@ describe('ダンジョン', () => {
         if (r.broke || r.wait) break;
       }
     expect(last?.span).toEqual({ x: 0, y: 6, w: 2, h: 2 });
-    expect(s.rp - rp1).toBe(250);
+    expect(s.rp - rp1).toBe(RP_GAIN.C.first);
     expect(s.dig!.dungeon!.found).toEqual(expect.arrayContaining([rare, EPIC]));
   });
 
@@ -413,7 +413,7 @@ describe('セーブの引き継ぎ（版 5 → 6）', () => {
   }
   it('掘りきった荒れ地は復興済みに（家・需要・小道）', () => {
     const s = v5([0, 2]);
-    expect(s.v).toBe(6);
+    expect(s.v).toBe(7);
     expect(s.dig!.sites.map((x) => !!x.revived)).toEqual([true, false, true, false]);
     expect(s.dig!.dungeon).toBeFalsy();
     for (const [x, y] of s.dig!.sites[0].path!) expect(isRoad(s, x, y)).toBe(true);

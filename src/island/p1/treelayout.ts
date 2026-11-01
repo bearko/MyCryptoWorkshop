@@ -52,7 +52,7 @@ export const RING_R = { C: 0 } as Record<Tier, number>;
 export const RING_OUT = { C: R0 + STEP * 3 } as Record<Tier, number>;
 export const RING_EDGE = { C: 0 } as Record<Tier, number>;
 /** 外周のパネルの並び（枝・ランクごと。既存のパネル → 追加のパネル → ✨） */
-const outerList = (br: Branch, tier: Tier) => [...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && !k.big), ...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && k.big)].map((k) => k.id);
+const outerList = (br: Branch, tier: Tier) => [...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && !k.big && !k.donate), ...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && k.big)].map((k) => k.id);
 const capOf = (br: Branch, tier: Tier) => BR_CAP[br] ?? ROW_CAP[tier as Exclude<Tier, 'C'>];
 {
   let r = 9.0;
@@ -85,6 +85,8 @@ for (const [br, L] of Object.entries(LAYOUT) as [Branch, (typeof LAYOUT)[Branch]
     RING_ROWS[tier].forEach((r, k) => row(ids.slice(k * cap, (k + 1) * cap), r));
   }
   for (const k of SKILLS) if (k.branch === br && k.big && tierOf(k) === 'C') POS.set(k.id, polar(a + DUST_A, DUST_R));
+  // 研究への寄付（発掘の枝。発掘 v2 の 6 段目）：大きめの研究パネルと同じ、根もとの近くの横
+  for (const k of SKILLS) if (k.branch === br && k.donate) POS.set(k.id, polar(a + DUST_A, DUST_R));
 }
 // 並べ忘れたスキルは、その枝の根もとの外へ（テストで 0 件を確かめる）
 export const UNPLACED = SKILLS.filter((k) => !POS.has(k.id)).map((k) => k.id);

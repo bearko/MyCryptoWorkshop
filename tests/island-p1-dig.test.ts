@@ -491,13 +491,13 @@ describe('研究レベルと研究ポイント', () => {
     expect(s.dig!.month.found).toBeGreaterThan(0);
   });
 
-  it('Uncommon のセクタでは +25・+12〜+50（表のとおり）', () => {
-    expect(RP_GAIN.U).toEqual({ first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 });
+  it('Uncommon のセクタでも出土品 1 個ぶんは Common と同じ +15・+8〜+25（v14a：レアリティの倍率なし）。お題・石板・発表はセクタのランクで大きい', () => {
+    expect(RP_GAIN.U).toEqual({ first: 15, lv: [8, 15, 20, 25], topic: 100, tablet: 50, present: 150 });
     const s = run(site(4, 'u1', 'U'), 0);
     const L = digLayout('u1', 0)!;
     const f = findIn(L, (it) => it.kind === 'ext' && !it.topic)!;
     const r = digTo(s, f.x, f.y, f.layer);
-    expect(r.rp).toBe(25);
+    expect(r.rp).toBe(15);
   });
 
   it('お題を掘るとその場で研究 Lv5・+40 RP（お題は各 1 つ）。4 か所の荒れ地を掘ってそろえると発表できる', () => {
@@ -631,10 +631,11 @@ describe('発掘隊（仕事「発掘」）', () => {
 });
 
 describe('スキルツリーの 2 区分', () => {
-  it('お金パネルは技を除く 7 本 × 5 ランクの 35 枚と発掘の枝の 17 枚（Lv5 まで）、残りは研究パネル（レベルなし）', () => {
+  it('お金パネルは技を除く 7 本 × 5 ランクの 35 枚と発掘の枝の 17 枚（Lv5 まで）＋研究への寄付、残りは研究パネル（レベルなし。無限の強化パネル 3 枚だけ上限なし）', () => {
     const money = SKILLS.filter((k) => !isResearch(k));
-    expect(money).toHaveLength(35 + 17);
-    expect(money.filter((k) => k.branch === 'dig')).toHaveLength(17);
+    expect(money).toHaveLength(35 + 17 + 1);
+    expect(money.filter((k) => k.branch === 'dig' && !k.donate)).toHaveLength(17);
+    expect(money.filter((k) => k.donate).map((k) => [k.id, maxLv(k)])).toEqual([['dig_donate', 1]]);
     expect(Object.values(MONEY_PANELS.C).sort()).toEqual(['budget', 'bulk', 'host', 'jig', 'manual', 'pos', 'shortcut']);
     for (const tier of ['C', 'U', 'R', 'E', 'L'] as const) {
       const ids = Object.values(MONEY_PANELS[tier]);
@@ -647,15 +648,16 @@ describe('スキルツリーの 2 区分', () => {
       }
     }
     for (const k of SKILLS.filter(isResearch)) {
-      expect(maxLv(k), k.id).toBe(1);
+      expect(maxLv(k), k.id).toBe(k.inf ? Infinity : 1);
       expect(rpCost(k), k.id).toBeGreaterThan(0);
     }
-    expect(SKILLS.filter(isResearch).length).toBe(SKILLS.length - 35 - 17);
+    expect(SKILLS.filter((k) => k.inf).length).toBe(3);
+    expect(SKILLS.filter(isResearch).length).toBe(SKILLS.length - 35 - 17 - 1);
   });
 
   it('RP の値段：Common 平均 50 前後（20〜80）・Uncommon 平均 120 前後・Rare 以降 2.5 倍ずつ・大きめの研究パネルは約 2.5 倍・人材の募集は 30', () => {
     const avg = (tier: string) => {
-      const r = SKILLS.filter((k) => (k.tier ?? 'C') === tier && isResearch(k) && !k.big);
+      const r = SKILLS.filter((k) => (k.tier ?? 'C') === tier && isResearch(k) && !k.big && !k.inf);
       return r.reduce((a, k) => a + rpCost(k), 0) / r.length;
     };
     expect(avg('C')).toBeGreaterThan(45);
@@ -752,7 +754,7 @@ describe('調査依頼状', () => {
 describe('セーブ', () => {
   it('新しいゲームは版 6・30 RP。発掘の進み・許可・研究ノートはセーブに残る', () => {
     const s = run(site());
-    expect([s.v, s.rp]).toEqual([6, 30]);
+    expect([s.v, s.rp]).toEqual([7, 30]);
     breakCell(s, 0, 0);
     endRun(s);
     s.research[1011] = 3;
@@ -784,7 +786,7 @@ describe('セーブ', () => {
     const m0 = o.money;
     const old = deserializeP1(JSON.stringify(o))!;
     // 版 1 → 2 → 3 → 4 → 5 と順に移す
-    expect(old.v).toBe(6);
+    expect(old.v).toBe(7);
     expect(old.dig!.sites).toHaveLength(4);
     expect(old.skills).toEqual(expect.arrayContaining(['host', 'golden', 'jig', 'lounge', 'd_shop']));
     expect([lvOf(old, 'host'), lvOf(old, 'golden'), lvOf(old, 'lounge'), lvOf(old, 'd_shop')]).toEqual([3, 1, 1, 1]);
@@ -824,7 +826,7 @@ describe('セーブ', () => {
     o.tablets = ['tab_c1'];
     o.presented = [];
     const back = deserializeP1(JSON.stringify(o))!;
-    expect(back.v).toBe(6);
+    expect(back.v).toBe(7);
     expect(back.rp).toBe(333);
     expect(back.research).toEqual({ [found]: 11, 1011: 4 });
     expect(back.tablets).toEqual(['tab_c1']);

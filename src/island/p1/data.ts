@@ -811,7 +811,16 @@ export interface Skill {
   show?: Shown[];
   /** 解放型のパネルの Lv2 からの個別の効き目の表示（効き目は model.ts。Lv n で ×(n − 1)） */
   upShow?: Shown[];
+  /**
+   * 無限の強化パネル（発掘 v2 の 6 段目）：研究パネル（RP 払い）なのに Lv の上限が無い。値段は infCost（Lv ごとに上がる）、
+   * 効き目は model.ts の digRepeatMs・digPower・発破とドリルの大きさ（DIG_BALANCE.infinite）。RP 払いなので、のちのリセットでも残る側
+   */
+  inf?: InfKind;
+  /** 研究への寄付（お金で RP を買う）：開放するパネルではなく、押すたびに G を払って RP を受け取る（回数の上限なし。donateCost） */
+  donate?: boolean;
 }
+/** 無限の強化パネルの種類：発掘の速さ・掘る力・掘る範囲 */
+export type InfKind = 'speed' | 'power' | 'reach';
 
 /**
  * 汎用の効き目の種類（docs/ISLAND_PHASE1.md「汎用の効き目」）。新しいパネルは fx を書くだけで効く。
@@ -936,8 +945,8 @@ export const lvMulOf = (lv: number) => (lv <= 0 ? 0 : 1 + 0.25 * (lv - 1));
 export type SkillCat = 'research' | 'money';
 /** 研究パネルか（お金パネルでなければ研究パネル） */
 export const isResearch = (k: Skill) => k.cat !== 'money';
-/** 最大レベル（研究パネル・封印・準備中は 1） */
-export const maxLv = (k: Skill) => (k.sealed || k.soon || isResearch(k) ? 1 : (k.max ?? 5));
+/** 最大レベル（研究パネル・封印・準備中・研究への寄付は 1。無限の強化パネルは上限なし＝Infinity） */
+export const maxLv = (k: Skill) => (k.inf ? Infinity : k.sealed || k.soon || k.donate || isResearch(k) ? 1 : (k.max ?? 5));
 /** そのレベル（lv）にするコスト（GUM）：round(cost × 倍率 / 100) × 100 */
 export const levelCost = (k: Skill, lv: number) => Math.round((k.cost * LV_COST[Math.max(0, Math.min(LV_COST.length, lv) - 1)]) / 100) * 100;
 /** 効き目の表示の行：レベル lv のときの値（up は Lv2 から） */
@@ -1220,7 +1229,10 @@ export interface DigTree {
  */
 export const DIG_BALANCE: {
   rpPrice: Record<Tier, { lo: number; hi: number; big: number; step: number }>;
-  /** RP の入り方。C・U は荒れ地（セクタのランク）、R・E・L はダンジョンの奥で出る上のランクのエクステ（エクステのランクで決まる。お題・石板・発表は無い） */
+  /**
+   * RP の入り方。first・lv（出土品 1 個ぶん）は v14a からどのランクも同じ（レアリティの倍率なし）。
+   * topic・tablet・present はセクタのランク（C・U の荒れ地）で決まる。R・E・L はダンジョンの奥で出る上のランクのエクステ（お題・石板・発表は無い）
+   */
   rpGain: Record<Tier, { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
   /** 地層の硬さ（層ごと。手前 → 奥。奥ほど硬い） */
   hard: Record<'C' | 'U', [number, number][]>;
@@ -1273,6 +1285,17 @@ export const DIG_BALANCE: {
    * 来館者（価値 1 あたりの月の人数）・入館料（1 人）・節目（展示の価値の合計）と、節目ごとの恒久のボーナス（会社全体の新商品の認知の上がり方・ブランド力）
    */
   museum: { slots: number[]; expand: number[]; val: Record<Tier, number>; lvStep: number; visitors: number; fee: number; marks: number[]; known: number; brand: number };
+  /**
+   * 無限の強化パネル（発掘 v2 の 6 段目。RP 払い・Lv の上限なし）：値段（Lv1 の RP）と Lv ごとの倍率・丸める単位。
+   * 効き目は Lv の curve 乗（1 より小さいので、上がるほど少しずつ鈍くなる。上限は無い）：
+   * 速さ＝長押しの間隔 ÷（1 ＋ speed × Lv^curve）（下限 minMs）・力＝1 打の強さ ×（1 ＋ power × Lv^curve）・
+   * 範囲＝発破・ドリルが 1 つ大きくなる確率 reach × Lv^curve（1 を超えたぶんは確実に +1、端数が確率）
+   */
+  infinite: { cost: number; grow: number; step: number; curve: number; speed: number; minMs: number; power: number; reach: number };
+  /** 研究への寄付（お金で RP を買う・回数の上限なし）：はじめの値段（G）・押すごとの倍率・丸める単位・受け取る RP（一定） */
+  buyRp: { cost: number; grow: number; step: number; rp: number };
+  /** Uncommon の研究成果の発表の条件（お題に加えて）：そのセクタの出土品（finds）のうち n 種を研究 Lv lv 以上に */
+  presentRes: Partial<Record<'C' | 'U', { n: number; lv: number }>>;
 } = {
   // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
   rpPrice: {
@@ -1285,11 +1308,13 @@ export const DIG_BALANCE: {
   // RP の入り方：初めて掘る・研究 Lv2〜5・お題・石板・発表
   rpGain: {
     C: { first: 15, lv: [8, 15, 20, 25], topic: 40, tablet: 20, present: 60 },
-    U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
-    // v12（4 段目）：ダンジョンの奥の上のランク。初発見 R 80・E 250・L 600、研究 Lv の上がりは Uncommon の表に同じ倍率（80 / 25 = ×3.2・×10・×24）
-    R: { first: 80, lv: [38, 80, 122, 160], topic: 0, tablet: 0, present: 0 },
-    E: { first: 250, lv: [120, 250, 380, 500], topic: 0, tablet: 0, present: 0 },
-    L: { first: 600, lv: [288, 600, 912, 1200], topic: 0, tablet: 0, present: 0 },
+    // v14a（発掘 v2 の 6 段目）：出土品 1 個ぶんの RP（初発見・研究 Lv の上がり）はレアリティで変わらない（どのランクも Common の表）。
+    // レアリティの差は売上の側（展示館の価値・復刻品の売値）。お題・石板・発表は、セクタのランクの違いとして残す
+    // （前：U 初発見 25・Lv 12・25・38・50／R 80・38〜160／E 250・120〜500／L 600・288〜1,200）
+    U: { first: 15, lv: [8, 15, 20, 25], topic: 100, tablet: 50, present: 150 },
+    R: { first: 15, lv: [8, 15, 20, 25], topic: 0, tablet: 0, present: 0 },
+    E: { first: 15, lv: [8, 15, 20, 25], topic: 0, tablet: 0, present: 0 },
+    L: { first: 15, lv: [8, 15, 20, 25], topic: 0, tablet: 0, present: 0 },
   },
   // 地層の硬さ（層ごと・手前 → 奥。1 打の強さ 1 のときに打つ回数の範囲）。v11：正面の壁を手前から奥へ。奥ほど硬い
   hard: {
@@ -1433,6 +1458,12 @@ export const DIG_BALANCE: {
   },
   // 展示館：枠 4（展示室の増築で 8・12・16）・価値 C 1・U 2・R 5・E 15・L 40 ×（1 + 0.25 ×（研究 Lv − 1））・価値 1 で月 12 人・入館料 15 G
   museum: { slots: [4, 8, 12, 16], expand: [20000, 50000, 120000], val: { C: 1, U: 2, R: 5, E: 15, L: 40 }, lvStep: 0.25, visitors: 12, fee: 15, marks: [20, 50, 100, 200, 400, 800], known: 0.05, brand: 1 },
+  // 無限の強化パネル：Lv1 2,000 RP・×1.25 ずつ（50 RP 単位）。Lv^0.85：速さ −2%・力 +5%・範囲 +3% から（Lv10 で 速さ ÷1.14・力 ×1.35・範囲 21%）
+  infinite: { cost: 2000, grow: 1.25, step: 50, curve: 0.85, speed: 0.02, minMs: 40, power: 0.05, reach: 0.03 },
+  // 研究への寄付：はじめ 20,000 G で 100 RP・押すごとに ×1.15（100 G 単位）
+  buyRp: { cost: 20000, grow: 1.15, step: 100, rp: 100 },
+  // Uncommon の発表：お題に加えて、そのセクタの出土品 2 種を研究 Lv3 に（復刻品のレシピも Lv3 で開く）。Common は お題だけ
+  presentRes: { U: { n: 2, lv: 3 } },
 };
 
 // ---------------------------------------------------------------- 発掘の枝（9 本目。発掘 v2 の 2 段目）
@@ -1513,10 +1544,47 @@ SKILLS.push(...DIG_SKILLS);
 /** 発掘の枝のパネル（すべてお金パネル） */
 export const DIG_PANELS = DIG_SKILLS.map((k) => k.id);
 
+// ---------------------------------------------------------------- 無限の強化パネル・研究への寄付（発掘 v2 の 6 段目）
+
+const DI = DIG_BALANCE.infinite;
+const DB = DIG_BALANCE.buyRp;
+/** 無限の強化パネルの Lv lv の値段（RP）：cost × grow^(lv − 1)（step 単位）。lv ≤ 0 は 0 */
+export const infCost = (lv: number) => (lv <= 0 ? 0 : Math.max(DI.step, Math.round((DI.cost * DI.grow ** (lv - 1)) / DI.step) * DI.step));
+/** 無限の強化パネルの Lv lv の効き目の量：per × lv^curve（上がるほど少しずつ鈍くなる。上限なし） */
+export const infAmt = (per: number, lv: number) => (lv <= 0 ? 0 : per * lv ** DI.curve);
+/** 研究への寄付の n 回目（0 から）の値段（G）：cost × grow^n（step 単位） */
+export const donateCost = (n: number) => Math.max(DB.step, Math.round((DB.cost * DB.grow ** Math.max(0, n)) / DB.step) * DB.step);
+const inf_ = (id: string, kind: InfKind, name: string, note: string, requires: string[]): Skill => ({ id, branch: 'dig', tier: 'U', inf: kind, name, note, cost: 0, requires, reqLv: Object.fromEntries(requires.map((r) => [r, 5])) });
+/**
+ * 無限の強化パネル 3 枚（発掘の枝の Uncommon の外周の、いちばん外の段。研究パネル＝RP 払い・Lv の上限なし）。
+ * 開く条件：対応する発掘のパネルを最大 Lv（速さ＝手早い掘り方 Lv5・力＝重機の貸し出し Lv5・範囲＝発破 Lv5 と掘削ドリル Lv5）
+ */
+export const INF_SKILLS: Skill[] = [
+  inf_('u_dig_speed_inf', 'speed', t('発掘の速さ ∞', 'Dig speed ∞'), t(`長押しで続けて打つ間隔をさらに短く（Lv ごとに約 −${Math.round(DI.speed * 100)}%。上がるほど少しずつ鈍くなる・${DI.minMs} ms まで）。Lv の上限なし・研究ポイントで上げる`, `Hold-strike interval even shorter (about −${Math.round(DI.speed * 100)}% per level, tapering; down to ${DI.minMs} ms). No level cap · paid in RP`), ['dig_speed']),
+  inf_('u_dig_power_inf', 'power', t('掘る力 ∞', 'Dig power ∞'), t(`1 打の強さ ×（1 ＋ 約 ${Math.round(DI.power * 100)}%／Lv。上がるほど少しずつ鈍くなる）。Lv の上限なし・研究ポイントで上げる`, `Strike power × (1 + about ${Math.round(DI.power * 100)}% per level, tapering). No level cap · paid in RP`), ['u_dig_power2']),
+  inf_('u_dig_reach_inf', 'reach', t('掘る範囲 ∞', 'Dig reach ∞'), t(`発破が 1 回り大きく・ドリルが 1 層深くなる確率 +約 ${Math.round(DI.reach * 100)}%／Lv（上がるほど少しずつ鈍くなる。100% を超えたぶんは もう 1 つ）。Lv の上限なし・研究ポイントで上げる`, `Chance for a blast one size bigger and a drill one layer deeper +about ${Math.round(DI.reach * 100)}% per level (tapering; past 100% adds another). No level cap · paid in RP`), ['dig_blast', 'dig_drill']),
+];
+/**
+ * 研究への寄付（お金パネル。発掘の枝の根もとの近く）：押すたびに G を払って RP を受け取る（回数の上限なし。値段は donateCost で上がる）。
+ * 開く時期：Uncommon の調査依頼状を持っている、または Common のセクタを 1 つ制覇したあと（model.ts の donateLock）
+ */
+export const DONATE: Skill = {
+  id: 'dig_donate',
+  branch: 'dig',
+  donate: true,
+  name: t('研究への寄付', 'Research donation'),
+  note: t(`国の研究所に寄付して、研究ポイントを受け取る（1 回 ${DB.rp} RP。押すたびに寄付の額が ×${DB.grow} ずつ上がる・回数の上限なし）`, `Donate to the national institute for research points (${DB.rp} RP each; each donation costs ×${DB.grow} more · no limit)`),
+  cost: DB.cost,
+};
+SKILLS.push(...INF_SKILLS, DONATE);
+/** 無限の強化パネルの id */
+export const INF_PANELS = INF_SKILLS.map((k) => k.id);
+
 // ---------------------------------------------------------------- スキルツリーの 2 区分（研究パネル・お金パネル）
 
 /**
- * お金パネル（資金で開く・Lv1〜5）：技を除く 7 本の枝 × 5 ランクに 1 枚ずつ（35 枚）と、発掘の枝の 17 枚（DIG_PANELS）。それ以外はすべて研究パネル（RP で開く・レベルなし）。
+ * お金パネル（資金で開く・Lv1〜5）：技を除く 7 本の枝 × 5 ランクに 1 枚ずつ（35 枚）と、発掘の枝の 17 枚（DIG_PANELS）・研究への寄付（DONATE。押すたびに RP を買う）。
+ * それ以外はすべて研究パネル（RP で開く・レベルなし。無限の強化パネル INF_SKILLS だけは Lv の上限なし）。
  * Common は仕様の 7 枚。Uncommon〜Legendary は「枝の根もと近く、Lv5 まであり、レベルを上げるほど素直に効く数字のパネル」＝
  * そのランク・その枝の追加のパネルの 1 枚目（`<ランク>_<枝>_1`。ロット・ブランド力のような最大 3 のパネルは無い）。
  * docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」「お金パネル 35 枚」
@@ -1540,7 +1608,7 @@ export const START_RP = 30;
 export const RP_PER_DUST = 40;
 const RP_FIXED: Record<string, number> = { hire: START_RP };
 {
-  const money = new Set([...Object.values(MONEY_PANELS).flatMap((x) => Object.values(x)), ...DIG_PANELS]);
+  const money = new Set([...Object.values(MONEY_PANELS).flatMap((x) => Object.values(x)), ...DIG_PANELS, DONATE.id]);
   const byId = new Map(SKILLS.map((k) => [k.id, k]));
   const tierOf = (k: Skill) => k.tier ?? 'C';
   // 同じランクの中の深さ（先に要るパネルのうち、同じランクのものをたどった最長の数）
@@ -1562,7 +1630,7 @@ const RP_FIXED: Record<string, number> = { hire: START_RP };
     const P = RP_PRICE[tier];
     const round = (v: number) => Math.max(P.step, Math.round(v / P.step) * P.step);
     for (const b of new Set(SKILLS.map((k) => k.branch))) {
-      const list = SKILLS.filter((k) => tierOf(k) === tier && k.branch === b && k.cat === 'research' && !k.big).sort((x, y) => dep(x) - dep(y) || x.cost - y.cost);
+      const list = SKILLS.filter((k) => tierOf(k) === tier && k.branch === b && k.cat === 'research' && !k.big && !k.inf).sort((x, y) => dep(x) - dep(y) || x.cost - y.cost);
       list.forEach((k, i) => (k.rp = round(P.lo + ((P.hi - P.lo) * (list.length > 1 ? i : 0)) / Math.max(1, list.length - 1))));
       // 1 枚だけの枝は真ん中の値段
       if (list.length === 1) list[0].rp = round((P.lo + P.hi) / 2);
@@ -1570,6 +1638,8 @@ const RP_FIXED: Record<string, number> = { hire: START_RP };
     for (const k of SKILLS) if (tierOf(k) === tier && k.big) k.rp = P.big;
   }
   for (const [id, v] of Object.entries(RP_FIXED)) if (byId.get(id)) byId.get(id)!.rp = v;
+  // 無限の強化パネル：Lv1 の値段（Lv2 からは infCost）
+  for (const k of INF_SKILLS) k.rp = infCost(1);
   // 研究パネルはレベルなし（効き目は Lv1 の値）：Lv2 からの効き目は持たない
   for (const k of SKILLS)
     if (k.cat === 'research') {
