@@ -8,7 +8,7 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
-import { digMet, digReportLine, digReportText, reviveReportText, type DigSummary } from './digmeet';
+import { clearCondText, digMet, digReportLine, digReportText, reviveReportText, type DigSummary } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
@@ -445,14 +445,21 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       else head.append(h('span', 'isl-rp-move', t('→ キープ', '→ Held')));
       // ゴール：2 か月続けて 1 位（制覇）。1 位の月は「いま n / 2」
       const streak = r.streak ?? (r.rank === 1 ? 1 : 0);
-      const conquered = streak >= TOP_STREAK;
-      // スマホは短い文（順位の行に収める）
-      const goalK = h('b', `isl-rp-goalk ${conquered ? 'is-done' : ''}`);
+      // 発掘 v2 の 5 段目：制覇は 2 か月続けて 1 位 ＋ そのセクタの研究成果の発表（r.goal。お題の無いセクタ・以前の報告は 1 位だけ）
+      const presented = !r.goal || r.goal.present;
+      const conquered = streak >= TOP_STREAK && presented;
+      const waiting = streak >= TOP_STREAK && !presented;
+      // スマホは短い文（順位の行に収める）。まだ制覇していなければ、条件を 2 つとも（「1 位を 2 か月 ✔／研究成果の発表 1 / 3 お題」）
+      const goalK = h('b', `isl-rp-goalk ${conquered ? 'is-done' : waiting ? 'is-wait' : ''}`);
       const [goalLong, goalShort] = conquered
-        ? [t(`制覇！ ${TOP_STREAK} か月続けて 1 位`, `Conquered! #1 for ${TOP_STREAK} months`), t('👑 制覇！', '👑 Conquered!')]
-        : streak > 0
-          ? [t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`), t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`)]
-          : [t(`ゴール：${TOP_STREAK} か月続けて 1 位`, `Goal: #1 for ${TOP_STREAK} months in a row`), t(`ゴール：${TOP_STREAK} か月連続 1 位`, `Goal: #1 × ${TOP_STREAK} months`)];
+        ? [t(`制覇！ ${TOP_STREAK} か月続けて 1 位${r.goal ? '＋研究成果の発表' : ''}`, `Conquered! #1 for ${TOP_STREAK} months${r.goal ? ' + findings' : ''}`), t('👑 制覇！', '👑 Conquered!')]
+        : waiting
+          ? [t('👑 1 位を守っている（制覇まで：研究成果の発表）', '👑 Holding #1 (to conquer: present findings)'), t('👑 1 位を守っている（あと発表）', '👑 Holding #1 (present next)')]
+          : r.goal
+            ? clearCondText(streak, r.goal)
+            : streak > 0
+              ? [t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`), t(`ゴール：${TOP_STREAK} か月続けて 1 位（いま ${streak} / ${TOP_STREAK}）`, `Goal: #1 for ${TOP_STREAK} months in a row (${streak} / ${TOP_STREAK})`)]
+              : [t(`ゴール：${TOP_STREAK} か月続けて 1 位`, `Goal: #1 for ${TOP_STREAK} months in a row`), t(`ゴール：${TOP_STREAK} か月連続 1 位`, `Goal: #1 × ${TOP_STREAK} months`)];
       goalK.append(h('span', 'is-long', goalLong), h('span', 'is-short', goalShort));
       head.append(goalK);
       c2.append(head);
@@ -468,7 +475,19 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
         mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
         mi.alt = '';
         const p = h('p');
-        p.append(rich(t('来月も守り切れたら[[制覇]]だよ！', 'Hold on next month and the sector is [[yours]]!')));
+        // 発表がまだなら、制覇の 2 つ目の条件（研究成果の発表）を言う
+        const g = r.goal;
+        p.append(
+          rich(
+            waiting && g
+              ? g.got >= g.all
+                ? t('あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ！', 'Present your findings to the [[town head]] and it is [[yours]]!')
+                : t(`あとは研究成果の発表で[[制覇]]！ お題 ${g.got} / ${g.all}`, `Present your findings to [[conquer]]! Targets ${g.got} / ${g.all}`)
+              : g && !g.present
+                ? t(`来月も守って、お題もそろえよう（${g.got} / ${g.all}）！`, `Hold on next month and find the targets (${g.got} / ${g.all})!`)
+                : t('来月も守り切れたら[[制覇]]だよ！', 'Hold on next month and the sector is [[yours]]!'),
+          ),
+        );
         say.append(mi, p);
         if (me === 0 && r.area.length > 1) say.append(h('small', 'isl-rp-lead', t(`2 位との差 ${money(Math.max(0, mySales - r.area[1].sales))}`, `${money(Math.max(0, mySales - r.area[1].sales))} ahead of #2`)));
         c2.append(say);

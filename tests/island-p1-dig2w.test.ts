@@ -87,8 +87,8 @@ describe('正面の壁：手前から 1 枚ずつ', () => {
     expect(st(s).depth[7 * 7 + 5]).toBe(1);
   });
 
-  it('奥の層ほど硬い（Common：表土 1・粘土層 1〜2・岩盤 2〜3／Uncommon：2・2〜3・3・3〜4）。面の色も奥ほど暗い', () => {
-    expect(DIG_BALANCE.hard).toEqual({ C: [[1, 1], [1, 2], [2, 3]], U: [[2, 2], [2, 3], [3, 3], [3, 4]] });
+  it('奥の層ほど硬い（Common：表土 1・粘土層 1〜2・岩盤 2〜3／Uncommon：2〜3・3・3〜4・4〜5。v13）。面の色も奥ほど暗い', () => {
+    expect(DIG_BALANCE.hard).toEqual({ C: [[1, 1], [1, 2], [2, 3]], U: [[2, 3], [3, 3], [3, 4], [4, 5]] });
     for (const t of ['C', 'U'] as const) {
       const lum = (hex: string) => [1, 3, 5].reduce((a, i) => a + parseInt(hex.slice(i, i + 2), 16), 0);
       const ls = DIG[t].layers;

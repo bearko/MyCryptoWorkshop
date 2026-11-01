@@ -237,7 +237,7 @@ describe('独占 → 後追い', () => {
     s.day += DAYS;
     return endMonth(s);
   };
-  it('初めて売った月から 4 か月は、どの他社も真似しない。切れたら 1 社目が真似を始め（ニュース）、ENTRY_AFTER か月で 2 社目（飽和）', () => {
+  it('初めて売った月から monopolyMonths（v13：3）か月は、どの他社も真似しない。切れたら 1 社目が真似を始め（ニュース）、ENTRY_AFTER か月で 2 社目（飽和）', () => {
     const s = newP1(1, 'C', 'c2');
     research(s, EXT);
     expect(monopolyLeft(s, KEY)).toBe(DIG_BALANCE.relic.monopolyMonths);

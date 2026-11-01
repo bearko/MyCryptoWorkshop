@@ -59,6 +59,7 @@ import {
   buildKnown,
   gateOf,
   gateToll,
+  clearGoal,
   openGate,
   has,
   hotCells,
@@ -124,12 +125,12 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig, refreshTimer, showEndCard } from './digui';
-import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
+import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, clearWaitTip, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, lettersLeft, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
 import { STRIP, corners, overviewScale, worldOf } from './worldrender';
-import { LETTER_LOCK, landCleared, letterLocked, playable } from './land';
+import { landCleared, letterLock, letterLocked, playable } from './land';
 import { actOf, hlOf, pointOf, TUT, TUT_DONE, TUT_END, tutFix, tutOf, type TutGo, type TutPage, type TutStep } from './tut';
 import { btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
@@ -1557,24 +1558,34 @@ function startPresent() {
   const home = chiefHome(s);
   if (home) centerOn(home.i, home.j);
   const fresh = letterToGet(s);
+  const left = lettersLeft(s);
   const pages: TutPage[] = presentPages(s).map((pg, k) => ({ text: pg.text, who: pg.who ?? undefined, role: pg.who != null ? t('町の長', 'Town head') : undefined, el: k === 0 ? () => topicsEl(sector) : undefined }));
   talk(pages, t('受け取る', 'Accept'), () => {
     const r = present(s);
     if (typeof r === 'string') return;
     save();
-    showLetter(r.rp, fresh, chief);
+    showLetter(r.rp, r.letter ?? fresh, chief, left, r.conquered);
     renderAll();
   });
 }
 
-/** 調査依頼状（と RP）を受け取る演出 */
-function showLetter(rp: number, letter: Tier | null, chief: number | null) {
+/**
+ * 調査依頼状（と RP）を受け取る演出。left：依頼状まで残りの発表の数（Common の 1 つ目の発表）。
+ * conquered：この発表で制覇した（1 位を 2 か月続けていた）→ 👑 の帯とファンファーレ、閉じたら「フェーズ 1 クリア！」（初めての制覇）
+ */
+function showLetter(rp: number, letter: Tier | null, chief: number | null, left = 0, conquered = false) {
   sfx.play('mining');
-  setTimeout(() => sfx.play('win'), 500);
+  setTimeout(() => sfx.play(conquered ? 'clear' : 'win'), 500);
   const body = h('div', 'isl-letter');
   const card = h('div', 'isl-letter-card');
   const rays = h('div', 'isl-letter-rays');
   card.append(rays);
+  if (conquered) {
+    const name = sectorDef(s.sector ?? 'c1').name;
+    const crown = h('div', 'isl-letter-crown');
+    crown.append(h('b', '', t(`👑 ${name}を制覇！`, `👑 ${name} conquered!`)), h('small', '', t('2 か月続けて 1 位 ✔／研究成果の発表 ✔', '#1 two months running ✔ / findings presented ✔')));
+    card.append(crown);
+  }
   if (letter) {
     // 調査依頼状の仮の絵：MCH のエクステ「スクロール」（Uncommon）・「エリートスクロール」（Rare）。docs/ISLAND_ART_TODO.md
     card.append(extIcon(letter === 'U' ? 1016 : 2016, 128), h('b', 'isl-letter-name', t(`${letter === 'U' ? 'Uncommon' : 'Rare'} の調査依頼状`, `${letter === 'U' ? 'Uncommon' : 'Rare'} survey request`)));
@@ -1582,12 +1593,17 @@ function showLetter(rp: number, letter: Tier | null, chief: number | null) {
   }
   card.append(h('span', 'isl-letter-rp', t(`研究ポイント +${rp}`, `Research points +${rp}`)));
   const say = h('p', 'isl-letter-say');
-  say.append(rich(presentAfter(letter)));
+  say.append(rich(presentAfter(letter, left, conquered)));
   body.append(card, say);
+  // 制覇したら、閉じたあとに初めての制覇のお祝い（フェーズ 1 クリア！）
+  const then = (f: () => void) => () => {
+    if (conquered && s.cleared && !s.flags.clearSeen) clearModal();
+    else f();
+  };
   modal(
-    letter ? t('📜 調査依頼状を受け取った！', '📜 Survey request received!') : t('研究成果を発表した！', 'Findings presented!'),
+    conquered ? t('👑 研究成果を発表して制覇！', '👑 Findings presented — sector conquered!') : letter ? t('📜 調査依頼状を受け取った！', '📜 Survey request received!') : t('研究成果を発表した！', 'Findings presented!'),
     body,
-    letter === 'U' ? [[t('ランドマップを見る', 'Open land map'), () => openLand(ctx), 'is-on'], [t('続ける', 'Keep going'), () => renderAll()]] : [[t('スキルツリーを開く', 'Open skills'), () => openSkills(ctx), 'is-on'], [t('続ける', 'Keep going'), () => renderAll()]],
+    letter === 'U' ? [[t('ランドマップを見る', 'Open land map'), then(() => openLand(ctx)), 'is-on'], [t('続ける', 'Keep going'), then(() => renderAll())]] : [[t('スキルツリーを開く', 'Open skills'), then(() => openSkills(ctx)), 'is-on'], [t('続ける', 'Keep going'), then(() => renderAll())]],
     true,
   );
   root.querySelector('.isl-modal:last-of-type')?.classList.add('is-letter');
@@ -2656,8 +2672,10 @@ function tutorial(): { text: string; action?: [string, () => void] } {
     return { text: st.say(s), action: a ? [a[0], () => tutGo(a[1])] : undefined };
   }
   // 月末ポーズ：まず来月の計画、それから「次の月に進む」。1 回目の 1 位の月は、ゴール（2 か月続けて 1 位）までの距離を先に
-  if (s.monthPause && !s.cleared && (s.topStreak ?? 0) > 0 && s.reports.at(-1)?.rank === 1)
-    return { text: t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`), action: [t('次の月へ進む', 'Next month'), nextMonth] };
+  // 発掘 v2 の 5 段目：1 位を 2 か月続けたのに研究成果の発表がまだ（制覇まで：発表）
+  const waitTip = clearWaitTip(s);
+  if (s.monthPause && waitTip) return { text: waitTip, action: canPresent(s) ? [t('町の長の家へ', 'To the town head'), () => showChief()] : [t('次の月へ進む', 'Next month'), nextMonth] };
+  if (s.monthPause && !s.cleared && (s.topStreak ?? 0) > 0 && s.reports.at(-1)?.rank === 1) return { text: firstTopTip(), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   // 発掘との出会いの途中（工房をタップ → 発掘場／スキルツリーの四角いパネル）
   const meet = meetTip(s);
@@ -2714,12 +2732,10 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   const digMid = digAt('mid');
   if (digMid) return digMid;
   const last = s.reports[s.reports.length - 1];
-  // 1 回目の 1 位：ゴールは 2 か月続けて 1 位（いま 1 / 2）。他社の反撃中
-  if (!s.cleared && (s.topStreak ?? 0) > 0 && last?.rank === 1)
-    return {
-      text: (s.rally ?? 0) > 0 ? t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。他社が反撃中だけど、来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Rivals are fighting back — hold on next month and the sector is yours!`) : t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${s.topStreak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${s.topStreak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`),
-      action: [t('ランキングを見る', 'Open ranking'), () => openRanking(ctx)],
-    };
+  // 1 位を 2 か月続けたのに発表がまだ：お題を集めて町の長に発表すれば制覇
+  if (waitTip) return { text: waitTip, action: canPresent(s) ? [t('町の長の家へ', 'To the town head'), () => showChief()] : digWasteAct() };
+  // 1 回目の 1 位：ゴールは 2 か月続けて 1 位（いま 1 / 2）＋研究成果の発表。他社の反撃中
+  if (!s.cleared && (s.topStreak ?? 0) > 0 && last?.rank === 1) return { text: firstTopTip(), action: [t('ランキングを見る', 'Open ranking'), () => openRanking(ctx)] };
   // タオックスの前半：作業台が 1 台のままなら、2 台にすると作る数が倍（工房の設備投資）。通常のプレイが遅い主因（docs/ISLAND_BALANCE.md）
   const wsB = myWorkshop(s);
   if ((s.sector ?? 'c1') === 'c1' && !s.cleared && wsB && invLv(wsB, 'bench') === 0)
@@ -2740,6 +2756,27 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   return { text: t('いい調子です！', 'Nice work!') };
 }
 
+/**
+ * 1 回目の 1 位の一言（いま 1 / 2）。制覇には研究成果の発表も要る（発掘 v2 の 5 段目）ので、まだなら条件を 2 つとも言う。
+ * 他社の反撃中はそれも
+ */
+function firstTopTip(): string {
+  const g = clearGoal(s);
+  const rally = (s.rally ?? 0) > 0;
+  if (!g.present)
+    return t(`1 位になったね！制覇の条件は[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）と[[研究成果の発表]]（お題 ${g.got} / ${g.all}）。${rally ? '他社の反撃に負けず、' : ''}来月も守って、お題もそろえよう！`, `You are #1! To conquer: [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}) and [[present your findings]] (targets ${g.got} / ${g.all}). ${rally ? 'Beat the rivals’ push, ' : ''}hold on next month and find the targets!`);
+  return rally
+    ? t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）。他社が反撃中だけど、来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}). Rivals are fighting back — hold on next month and the sector is yours!`)
+    : t(`1 位になったね！ゴールは[[2 か月続けて 1 位]]（いま ${g.streak} / ${TOP_STREAK}）。来月も守り切れたら制覇だよ！`, `You are #1! The goal is [[#1 two months in a row]] (${g.streak} / ${TOP_STREAK}). Hold on next month and the sector is yours!`);
+}
+/** 荒れ地を見る（許可のある掘りかけの荒れ地。無ければ 1 か所目） */
+function digWasteAct(): [string, () => void] | undefined {
+  const d = s.dig;
+  if (!d) return undefined;
+  const k = d.sites.findIndex((x) => x.permit && !x.done);
+  return [t('荒れ地を見る', 'View wasteland'), () => showWaste(k >= 0 ? k : d.cur)];
+}
+
 /** 発掘の助言のボタン */
 function digAct(x: DigTip): [string, () => void] {
   if (x.key === 'present') return [t('町の長の家へ', 'To the town head'), () => showChief()];
@@ -2752,7 +2789,8 @@ function digAct(x: DigTip): [string, () => void] {
         openSkills(ctx, 'dig_ext');
       },
     ];
-  if (x.key === 'letter') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
+  if (x.key === 'letter' || x.key === 'letter-need') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
+  if (x.key === 'copied') return [t('販売管理', 'Sales'), () => openSales(ctx)];
   if (x.key === 'permit') return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? 0)];
   if (x.key === 'relic')
     return [
@@ -3141,7 +3179,7 @@ function sectorPop(id: string): { title: string; body: HTMLElement } {
     row.append(btn(t(`${d.name}へ移動`, `Go to ${d.name}`), () => goSector(id), 'is-on'));
   } else if (st === 'open') {
     row.append(advanceBtn(id));
-    if (letterLocked(s, id)) body.append(h('p', 'isl-warn', LETTER_LOCK));
+    if (letterLocked(s, id)) body.append(h('p', 'isl-warn', letterLock(s)));
   } else body.append(h('p', 'isl-warn', `🔒 ${needLine(s, d) ?? ''}`));
   if (row.childElementCount) body.append(row);
   return { title: st === 'cloud' ? '???' : d.name, body };
@@ -3152,7 +3190,7 @@ function advanceBtn(id: string): HTMLButtonElement {
   const d = sectorDef(id);
   // 調査依頼状が無い（Uncommon 以上）：押せず、理由はボタンの下（edgeEl・sectorPop）
   if (letterLocked(s, id)) {
-    const b = btn(t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => toast(LETTER_LOCK));
+    const b = btn(t(`このセクタに進出（入国料 ${money(d.fee)}）`, `Expand here (permit ${money(d.fee)})`), () => toast(letterLock(s)));
     b.disabled = true;
     return b;
   }
@@ -3179,18 +3217,19 @@ function badgeEl(b: SectorBadge, mini: boolean): HTMLElement {
   const row = h('span', 'isl-wbadge-row');
   const sz = mini ? 16 : 26;
   if (b.state === 'here' || b.state === 'mine') {
-    row.append(h('span', `isl-wbadge-rank ${b.crown ? 'is-crown' : ''}`, b.crown ? '👑' : b.rank ? t(`${b.rank} 位`, `#${b.rank}`) : '—'));
+    // 1 位を 2 か月続けたのに発表がまだ：「👑 発表待ち」（縮小の札は 📜）
+    row.append(h('span', `isl-wbadge-rank ${b.crown ? 'is-crown' : ''}`, b.crown ? '👑' : b.wait ? (mini ? '👑📜' : t('👑 発表待ち', '👑 Present')) : b.rank ? t(`${b.rank} 位`, `#${b.rank}`) : '—'));
     for (const x of b.items.slice(0, mini ? 1 : 3)) row.append(skuIcon(x, sz));
     if (b.state === 'here') row.append(h('span', 'isl-wbadge-here', mini ? '📍' : t('📍 いまここ', '📍 Here')));
     else if (b.manager != null) row.append(heroIcon(b.manager, sz));
-  } else if (b.state === 'open' && letterLocked(s, b.id)) row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : LETTER_LOCK));
+  } else if (b.state === 'open' && letterLocked(s, b.id)) row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : letterLock(s)));
   else if (b.state === 'open') row.append(h('span', 'isl-wbadge-note', mini ? t('未進出', 'New') : t(`未進出・入国料 ${money(b.fee)}`, `Not yet · permit ${money(b.fee)}`)));
   else row.append(h('span', 'isl-wbadge-note', mini ? '🔒' : `🔒 ${needLine(s, sectorDef(b.id)) ?? ''}`));
   el.append(row);
   if (!mini && b.lastRev != null && !gray) el.append(h('small', 'isl-wbadge-rev', t(`先月 ${money(b.lastRev)}`, `Last month ${money(b.lastRev)}`)));
   el.addEventListener('click', () => {
     if (b.state === 'mine') goSector(b.id);
-    else if (b.state === 'open' && letterLocked(s, b.id)) toast(LETTER_LOCK);
+    else if (b.state === 'open' && letterLocked(s, b.id)) toast(letterLock(s));
     else if (b.state === 'open') startMove(ctx, b.id);
     else if (b.state === 'here') {
       const c = (s.n - 1) / 2;
@@ -3211,7 +3250,7 @@ function edgeEl(id: string): HTMLElement {
   el.append(head);
   if (st === 'open') {
     el.append(advanceBtn(id));
-    if (letterLocked(s, id)) el.append(h('small', 'isl-wedge-need', LETTER_LOCK));
+    if (letterLocked(s, id)) el.append(h('small', 'isl-wedge-need', letterLock(s)));
   } else if (st === 'mine') el.append(btn(t(`${d.name}へ移動 ▶`, `Go to ${d.name} ▶`), () => goSector(id)));
   else el.append(h('small', 'isl-wedge-need', `🔒 ${needLine(s, d) ?? ''}`));
   return el;
@@ -3745,13 +3784,18 @@ function afterReport() {
       true,
     );
   } else if (s.cleared && !s.flags.clearSeen) {
-    s.flags.clearSeen = true;
-    save();
-    modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`2 か月続けてエリアで売上 1 位、このセクタを制覇しました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `#1 in area sales two months running — you conquered this sector! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
+    clearModal();
   } else {
     speed = 1;
     renderHud();
   }
+}
+
+/** 初めての制覇のお祝い（フェーズ 1 クリア！）。月次報告のあと・発表で制覇したとき */
+function clearModal() {
+  s.flags.clearSeen = true;
+  save();
+  modal(t('フェーズ 1 クリア！', 'Phase 1 cleared!'), t(`2 か月続けてエリアで売上 1 位、研究成果も発表して、このセクタを制覇しました！新天地での実績は十分です。ランドのふちの関所は、通行料 ${money(gateToll(s))} を納めると開通し、となりのランドセクタへ進めます。`, `#1 in area sales two months running, findings presented — you conquered this sector! You have made your name in the new land. The gate at the edge of the land opens for a ${money(gateToll(s))} toll and leads to the next land sector.`), [[t('関所を見る', 'View the gate'), () => ((speed = 1), showGate(), renderHud()), 'is-on'], [t('続ける', 'Keep going'), () => ((speed = 1), renderHud())]], true);
 }
 
 /**

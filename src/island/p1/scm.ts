@@ -7,8 +7,9 @@ import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { DEF } from '../defs';
 import { INVEST, MAT_KEYS, MATS, MARKET, PRODUCT, SKILL, SKILLS, TRANSPORT, isResearch, rpCost, skuPrice, type Mat, type Sku } from './data';
-import { has, invest, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, learn, matDays, monthRevenue, myShops, myWorkshop, nextJam, poolCap, poolFree, poolUsed, sellInfo, speed, stageCaps, staffOf, storageCap, assign, whatIf, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type StageIf, type WhatIf } from './model';
+import { clearGoal, has, invest, skillLock, type PBuilding, jamOf, hasRoute, oneWay, shopArea, craftCheck, craftDays, learn, matDays, monthRevenue, myShops, myWorkshop, nextJam, poolCap, poolFree, poolUsed, sellInfo, speed, stageCaps, staffOf, storageCap, assign, whatIf, type GoodsWhy, type P1State, type SellInfo, type SellWhy, type Stage, type StageIf, type WhatIf } from './model';
 import { pickHero, slot, TASK_NAME } from './heroui';
+import { clearCondText } from './digmeet';
 import { after, mineSay, mineTip, open, openAds, openBuy, openData, openHire, openShop, openStaff, openWorkshop, SHELF_TIP, type Ctx } from './screens';
 import { openSkills } from './tree';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, rich, skuIcon, skuName } from './ui';
@@ -535,6 +536,14 @@ export function openSupply(ctx: Ctx, opt: { breakdown?: boolean } = {}) {
     const kpi = h('div', 'isl-scm-kpi');
     const last = s.reports[s.reports.length - 1];
     kpi.append(h('span', '', t(`今月の売上 ${money(monthRevenue(s))}`, `This month ${money(monthRevenue(s))}`)), h('span', '', last ? t(`エリア ${last.rank} 位`, `Area #${last.rank}`) : t('エリア順位：締めのあと', 'Area rank: after close')));
+    // 制覇の条件（発掘 v2 の 5 段目：2 か月続けて 1 位 ＋ 研究成果の発表）。まだ制覇していないセクタで、お題があるとき
+    const g = clearGoal(s);
+    if (!s.cleared && g.all > 0 && last) {
+      const [long, short] = clearCondText(g.streak, g);
+      const c = h('span', `isl-scm-cond ${g.top && !g.present ? 'is-wait' : ''}`);
+      c.append(h('span', 'is-long', long), h('span', 'is-short', short));
+      kpi.append(c);
+    }
     top.append(mine, words, kpi);
     body.append(top);
 

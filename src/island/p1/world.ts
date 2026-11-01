@@ -9,7 +9,7 @@ import { t } from '../../i18n';
 import { P1B, SECTORS, TIERS, aptitude, type SectorDef, type Sku, type Tier } from './data';
 import { TIER_NAME, sectorDef, sectorState, type SectorState } from './company';
 import { crowned, hasBusiness, lastRank, moveTo, townSeed, type MoveErr } from './land';
-import { newP1, staffOf, type P1State, type PBuilding, type Report, type ShopState } from './model';
+import { clearWaiting, newP1, staffOf, type P1State, type PBuilding, type Report, type ShopState } from './model';
 
 // ---------------------------------------------------------------- 階層と隣
 
@@ -180,6 +180,8 @@ export interface SectorBadge {
   /** 最新の売上順位（月の締めが無ければ null） */
   rank: number | null;
   crown: boolean;
+  /** 1 位を 2 か月続けたのに研究成果の発表がまだ（いまのセクタだけ。「👑 発表待ち」）。発掘 v2 の 5 段目 */
+  wait?: boolean;
   /** 主力商品（お店の棚の 1 番目の商品。多い順に最大 3 つ） */
   items: Sku[];
   /** エリアマネージャー（いまのセクタは null） */
@@ -220,7 +222,7 @@ export function sectorBadges(s: P1State): SectorBadge[] {
     const base = { id: d.id, name: d.name, tier: d.tier, delta, state, fee: d.fee, rank: null, crown: false, items: [], manager: null, lastRev: null, need: null };
     if (state === 'here') {
       const last = s.reports[s.reports.length - 1];
-      return { ...base, rank: last?.rank ?? null, crown: !!s.cleared, items: mainItems(s.buildings, s.shops), lastRev: last ? last.revenue : null };
+      return { ...base, rank: last?.rank ?? null, crown: !!s.cleared, wait: clearWaiting(s), items: mainItems(s.buildings, s.shops), lastRev: last ? last.revenue : null };
     }
     if (state === 'mine') {
       const rec = land.recs[d.id];

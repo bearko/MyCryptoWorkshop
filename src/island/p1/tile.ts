@@ -106,7 +106,7 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   const chief = chiefOf(s.dig!.sector)!;
   const who = h('div', 'isl-row isl-chief-who');
   who.append(heroIcon(chief, 64), h('b', '', t(`町の長 ${heroName(chief)}`, `Town head ${heroName(chief)}`)));
-  body.append(who, h('p', '', t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。上のランクの調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here for a higher-rank survey request.')));
+  body.append(who, h('p', '', t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつで、Common の 2 つの町で発表すると Uncommon の調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here. Presenting is one of the conditions to conquer this sector, and presenting in two Common towns earns the Uncommon survey request.')));
   const [a, n] = topicProgress(s);
   const row = h('div', 'isl-stock');
   for (const id of topicsOf(s.dig!.sector)) {
@@ -123,7 +123,7 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   acts.append(go);
   body.append(acts);
   if (lock === 'not-yet') body.append(h('small', 'isl-warn', t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
-  else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み（調査依頼状を受け取った）。', 'Already presented here (survey request received).')));
+  else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み。', 'Findings already presented here.')));
   return body;
 }
 

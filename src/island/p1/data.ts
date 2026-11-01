@@ -736,6 +736,11 @@ export const MARKET = {
 };
 /** 制覇（KGI の達成）：そのセクタで、この月数だけ続けて 1 位 */
 export const TOP_STREAK = 2;
+/**
+ * 発掘 v2 の 5 段目：Uncommon の調査依頼状は、Common のセクタでこの数だけ研究成果を発表したら届く
+ * （docs/ISLAND_PHASE1.md「お題・発表・調査依頼状」）
+ */
+export const LETTER_NEED = 2;
 /** 物流拠点：工房 → 拠点はトラックの定期便（距離 × link）、拠点 → お店は荷車 */
 export const DEPOT = { link: 0.3 };
 export const SHOP = { shelfCap: 10, storageCap: 20, displayPerDay: 6, partTimeDisplay: 4, partTimeWage: 30, partTimeMax: 1, noStaff: 0 };
@@ -1235,6 +1240,11 @@ export const DIG_BALANCE: {
   /** 自動プレイ（scripts/island/sim.ts）で、1 秒に打てる数の仮定 */
   simTapsPerSec: number;
   /**
+   * お題 k を埋める層（手前 0 から。ランクごと）。v13（発掘 v2 の 5 段目）：制覇に研究成果の発表が要るので、お題を奥の層へ
+   * （v12 までは お題 k ＝ k 番目の層）。docs/ISLAND_BALANCE.md「v13」
+   */
+  topicLayer: Record<'C' | 'U', number[]>;
+  /**
    * 復刻品（発掘 v2 の 3 段目。docs/ISLAND_PHASE1.md「3. 復刻品」）：レシピが開く研究 Lv・売値の倍率（同じランクの商品の平均に掛ける）・
    * 独占の月数（初めて売った月から、どのセクタでも他社が真似しない）・需要（1 種類の月の需要。ランクの需要と町の大きさを掛ける。
    * 同じランクの gap の商品の 0.6 倍くらい）・作る手間（日数・1 ロットの数）
@@ -1289,10 +1299,10 @@ export const DIG_BALANCE: {
       [2, 3],
     ],
     U: [
-      [2, 2],
       [2, 3],
       [3, 3],
       [3, 4],
+      [4, 5],
     ],
   },
   // 荒れ地 1 か所の正面の壁（横 7 × 縦 9。スマホの縦長の全画面に合う形）
@@ -1367,8 +1377,10 @@ export const DIG_BALANCE: {
   permitFee: { C: 2000, U: 8000 },
   // 自動プレイ：1 秒に 4 打
   simTapsPerSec: 4,
+  // お題の層（v13）
+  topicLayer: { C: [1, 2, 2], U: [2, 3, 3, 3] },
   // 復刻品：研究 Lv3 で開く・売値 ×1.25・独占 4 か月・需要 12 個（gap の商品の平均 20.5 の 0.6 倍）・3〜4 日・1 ロット 4 個（アンコモンは半分）
-  relic: { openLv: 3, priceMul: 1.25, monopolyMonths: 4, demandBase: 12, days: [3, 4], batch: 4 },
+  relic: { openLv: 3, priceMul: 1.05, monopolyMonths: 3, demandBase: 12, days: [3, 4], batch: 4 },
   // 復興：家の数の +6%（46 軒の町で +3 軒）・地図に描く住宅は 2 軒まで
   revive: { homes: 0.06, houses: 2 },
   dungeon: {

@@ -775,7 +775,7 @@ export function items(): Item[] {
       second(relicSku(relicKey(RELIC_AUDIT)), { stock: false })(s);
     },
     apply: (s) => second(relicSku(relicKey(RELIC_AUDIT)))(s),
-    note: '売値 ×1.25・独占 4 か月',
+    note: `売値 ×${DIG_BALANCE.relic.priceMul}・独占 ${DIG_BALANCE.relic.monopolyMonths} か月`,
   });
   out.push({ id: 'goods_u', group: '商品', name: 'アンコモンに替える', expect: ['sell'], check: 'yen', setup: uncommonReady, apply: toU, note: '値段 ×2.5・売り場の強さ ×1.3' });
   return out;
