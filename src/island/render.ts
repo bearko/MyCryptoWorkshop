@@ -2,7 +2,7 @@
  * 島づくりの描画（Canvas 2D）。1 マスは横 200・縦 110 のひし形で、隣のマスへは横 ±100・縦 +55。
  * 絵の基準点は「下端から 31 上、手前のマスの横の真ん中」（docs/ISLAND_MVP.md）。
  */
-import { DEF, type Def } from './defs';
+import { DEF, artId, type Def } from './defs';
 import { cells, frontCell, groundAt, type Building, type Dir, type State } from './sim';
 
 const BASE = `${import.meta.env.BASE_URL}island/`;
@@ -18,7 +18,7 @@ export function image(path: string): HTMLImageElement {
 }
 const ok = (im: HTMLImageElement) => im.complete && im.naturalWidth > 0;
 
-export const art = (id: string, dir: Dir) => image(`b/${id}/${dir === 'rd' || dir === 'ld' ? 'rd' : 'lu'}.png`);
+export const art = (id: string, dir: Dir) => image(`b/${artId(id)}/${dir === 'rd' || dir === 'ld' ? 'rd' : 'lu'}.png`);
 export const mirrored = (dir: Dir) => dir === 'ld' || dir === 'ru';
 
 export interface Camera {

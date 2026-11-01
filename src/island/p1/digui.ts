@@ -15,9 +15,10 @@
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { icon } from '../../ui/dom';
-import { DIG, PRODUCT, TABLET, type Mat } from './data';
-import { assign, blast, blastCost, blastSize, dig, digRepeatMs, digSite, drill, drillLen, DRILL_FUEL, extName, hasBlast, hasDrill, sessionSec, type DigErr, type DigHit, type DigItem, type RunEnd } from './model';
-import { DEEP_LOCK, anyPeek, autoDiggers, biggestFx, cellView, crewCount, digBlock, digErrText, digRec, digSpec, digSpecText, digStatus, findLabel, fxOf, gotLines, lockedLayer, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars, type CellView } from './digview';
+import { PRODUCT, TABLET, type Mat } from './data';
+import { RARITY_JA } from '../../game/catalog';
+import { assign, blast, blastCost, blastSize, dig, digRepeatMs, digSite, drill, drillLen, DRILL_FUEL, extName, extRank, extRarity, hasBlast, hasDrill, layersOf, sessionSec, type DigErr, type DigHit, type DigItem, type DigLayout, type RunEnd } from './model';
+import { DEEP_LOCK, DUNGEON_TAB, RARE_RELIC_NOTE, anyPeek, autoDiggers, biggestFx, cellView, crewCount, digBlock, digErrText, digRec, digSpec, digSpecText, digStatus, dungeonNotes, findLabel, fxOf, gotLines, lockedLayer, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars, type CellView } from './digview';
 import { DEEP_TIP, MEET_WALL, PEEK_TIP } from './digmeet';
 import { pickHero } from './heroui';
 import { open, refreshSheet, sheetOpen, type Ctx } from './screens';
@@ -45,6 +46,8 @@ export interface DigHooks {
   meetFirst?: () => boolean;
 }
 
+/** ランク → カタログのレアリティ */
+const TIER_RARITY = { C: 'Common', U: 'Uncommon', R: 'Rare', E: 'Epic', L: 'Legendary' } as const;
 /** エクステの絵（MCH の 64×64。整数倍か半分で） */
 export function extIcon(id: number, size = 64): HTMLElement {
   const e = icon(extImage(id), 'px isl-ext');
@@ -122,6 +125,8 @@ interface Panel {
   cs: number;
   sector: string;
   site: number;
+  /** いま描いている壁（ダンジョンは入るたびに作り直すので、壁そのもので見分ける） */
+  lay: DigLayout | null;
   /** 次に押したマスで発破を使う */
   blastArm: boolean;
   /** 次に押したマスで掘削ドリル（奥へ） */
@@ -220,7 +225,7 @@ export function openDig(ctx: Ctx, hooks: DigHooks, note?: string) {
   el.append(top, info, wallBox, foot);
   ctx.root.append(el);
   const resize = () => fitWall();
-  P = { ctx, hooks, el, title, endBtn, timer, fill, sec, info, spec, tools, why, wallBox, wall, legend, notes, cells: [], cs: 40, sector: s.dig.sector, site: s.dig.cur, blastArm: false, drillArm: false, deepHit: false, err: note ? { text: note, until: performance.now() + 3500, good: true } : null, ticked: 99, over: false, resize };
+  P = { ctx, hooks, el, title, endBtn, timer, fill, sec, info, spec, tools, why, wallBox, wall, legend, notes, cells: [], cs: 40, sector: s.dig.sector, site: s.dig.cur, lay: null, blastArm: false, drillArm: false, deepHit: false, err: note ? { text: note, until: performance.now() + 3500, good: true } : null, ticked: 99, over: false, resize };
   addEventListener('resize', resize);
   buildWall();
   refreshDig();
@@ -260,10 +265,12 @@ function buildWall() {
   const p = P!;
   const s = p.ctx.s();
   const L = digSite(s)!;
+  p.lay = L;
+  p.el.classList.toggle('is-dungeon', !!L.dungeon);
   p.wall.replaceChildren();
   p.wall.style.setProperty('--w', String(L.w));
   p.wall.style.setProperty('--h', String(L.h));
-  p.wall.style.setProperty('--hole', DIG[L.tier].layers[L.depth - 1].color);
+  p.wall.style.setProperty('--hole', layersOf(L)[L.depth - 1].color);
   p.cells = [];
   for (let y = 0; y < L.h; y++)
     for (let x = 0; x < L.w; x++) {
@@ -283,11 +290,11 @@ function paintLegend() {
   const s = p.ctx.s();
   const L = digSite(s)!;
   const lock = lockedLayer(s);
-  const key = `${L.tier}|${lock}`;
+  const key = `${L.tier}|${L.dungeon ? 'd' : 'w'}|${lock}`;
   if (p.legend.dataset.k === key) return;
   p.legend.dataset.k = key;
   p.legend.replaceChildren(h('small', 'isl-dim', t('手前', 'Front')));
-  DIG[L.tier].layers.forEach((st, n) => {
+  layersOf(L).forEach((st, n) => {
     const locked = lock != null && n >= lock;
     const c = h(locked ? 'button' : 'span', `isl-dig-lay ${locked ? 'is-locked' : ''}`);
     c.style.setProperty('--lc', st.color);
@@ -336,7 +343,7 @@ export function refreshDig() {
   if (!p) return;
   const s = p.ctx.s();
   if (!s.dig || !digSite(s)) return closeDig();
-  if (s.dig.sector !== p.sector || s.dig.cur !== p.site) {
+  if (s.dig.sector !== p.sector || s.dig.cur !== p.site || digSite(s) !== p.lay) {
     p.sector = s.dig.sector;
     p.site = s.dig.cur;
     buildWall();
@@ -364,8 +371,15 @@ export function refreshDig() {
   chip('is-sales', t('売上', 'Sales'), money(st.sales));
   chip('is-rp', t('研', 'RP'), `${st.rp}`);
   chip('is-got', t('出土', 'Finds'), t(`新 ${st.found}・Lv↑ ${st.lvUp}`, `New ${st.found} · Lv↑ ${st.lvUp}`));
-  chip('', t('掘った', 'Dug'), `${st.pct}%`);
-  chip(st.topics[0] >= st.topics[1] ? 'is-done' : '', t('お題', 'Targets'), `${st.topics[0]} / ${st.topics[1]}`);
+  if (st.dungeon) {
+    // ダンジョン：この作業でいちばん深くはがした層と最深記録・掘れる層（深い層の許可）
+    const dg = st.dungeon;
+    chip(`is-deep ${dg.deep > 0 && dg.deep >= dg.best ? 'is-done' : ''}`, t('最深', 'Deepest'), t(`${dg.deep} 層（記録 ${dg.best}）`, `${dg.deep} (best ${dg.best})`));
+    chip(dg.limit < dg.all ? 'is-lock' : '', t('掘れる', 'Can dig'), t(`${dg.limit} / ${dg.all} 層`, `${dg.limit} / ${dg.all}`));
+  } else {
+    chip('', t('掘った', 'Dug'), `${st.pct}%`);
+    chip(st.topics[0] >= st.topics[1] ? 'is-done' : '', t('お題', 'Targets'), `${st.topics[0]} / ${st.topics[1]}`);
+  }
   // 道具：発破・掘削ドリル（スキル → 発掘で開いていれば）・発掘隊・研究ノート
   p.tools.replaceChildren();
   if (hasBlast(s)) {
@@ -481,7 +495,16 @@ export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => v
     g.append(c);
   }
   box.append(g);
-  if (end.done) box.append(h('p', 'isl-gold', t('この荒れ地は掘りきった！（復興は近日）', 'This wasteland is fully dug! (Revival coming soon)')));
+  // ダンジョン：最深記録（初めての層に届いたら「新記録！」）
+  if (end.isDungeon) {
+    const rec = h('p', `isl-dig-deeprec ${end.record ? 'is-new' : ''}`);
+    rec.append(h('b', '', t(`最深 ${end.deep ?? 0} 層`, `Deepest: layer ${end.deep ?? 0}`)));
+    if (end.record) rec.append(h('span', 'isl-dig-newrec', t('新記録！', 'New record!')));
+    box.append(rec);
+  }
+  if (end.found != null) box.append(h('p', 'isl-gold', t('この荒れ地は掘りきった！ 底から古い石の階段が…ダンジョンの入り口が見つかった！', 'This wasteland is fully dug! Old stone stairs at the bottom… a dungeon entrance!')));
+  else if (end.revived) box.append(h('p', 'isl-gold', t(`この荒れ地は掘りきった！ 町に戻ると復興するよ（家 +${end.revived.homes}）`, `This wasteland is fully dug! It will be revived back in town (homes +${end.revived.homes})`)));
+  else if (end.done) box.append(h('p', 'isl-gold', t('この荒れ地は掘りきった！', 'This wasteland is fully dug!')));
   // 新しいレシピ（復刻品）：エクステの絵 64px と「工房で作る」
   const recipes = end.got.recipes ?? [];
   if (recipes.length) box.append(recipeCards(recipes, (key) => p.hooks.make?.(key)));
@@ -511,7 +534,7 @@ export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => v
       return;
     }
     const sec = sessionSec(p.ctx.s());
-    if (o.again && !end.done) acts.append(btn(t(`⛏ もう一度（${sec} 秒）`, `⛏ Again (${sec} s)`), () => o.again?.(), 'is-on'));
+    if (o.again && !end.done) acts.append(btn(end.isDungeon ? t(`⛏ もう一度潜る（${sec} 秒）`, `⛏ Dive again (${sec} s)`) : t(`⛏ もう一度（${sec} 秒）`, `⛏ Again (${sec} s)`), () => o.again?.(), 'is-on'));
     acts.append(btn(t('町に戻る', 'Back to town'), () => closeDig()));
     o.after?.();
     // 新しいレシピがあるときは、自分で閉じるまで残す（「工房で作る」を押せるように）
@@ -742,7 +765,10 @@ function showHits(hits: DigHit[], wasBlast: boolean, wasDrill = false) {
   const deep = Math.max(0, ...hits.map((x) => x.layer));
   p.ctx.sfx?.('dig', 1 + deep * 0.18, 1 - deep * 0.13);
   if (big === 'topic' || big === 'epic') window.setTimeout(() => p.ctx.sfx?.('mining'), 120);
-  else if (big === 'ext' || big === 'tablet') window.setTimeout(() => p.ctx.sfx?.('treasure'), 90);
+  else if (big === 'rare') {
+    window.setTimeout(() => p.ctx.sfx?.('treasure'), 90);
+    window.setTimeout(() => p.ctx.sfx?.('levelup'), 420);
+  } else if (big === 'ext' || big === 'tablet') window.setTimeout(() => p.ctx.sfx?.('treasure'), 90);
   else if (big === 'mat') window.setTimeout(() => p.ctx.sfx?.('check'), 90);
   if (wasBlast) p.el.classList.add('is-boom');
   window.setTimeout(() => P?.el.classList.remove('is-boom'), 400);
@@ -762,11 +788,17 @@ function showHits(hits: DigHit[], wasBlast: boolean, wasDrill = false) {
       void c.offsetWidth;
       c.classList.add('is-peel');
     }
-    if (f === 'mat' && hit.item?.kind === 'mat') floatUp(c, matIcon(hit.item.mat as Mat, 24), `+${hit.mat ?? hit.item.n}`);
+    // 置き場所がいっぱいなら、入ったぶんだけ（「置き場所がいっぱい」）
+    if (f === 'mat' && hit.item?.kind === 'mat') floatUp(c, matIcon(hit.item.mat as Mat, 24), hit.matFull ? (hit.mat ? t(`+${hit.mat}（置き場所がいっぱい）`, `+${hit.mat} (storage full)`) : t('置き場所がいっぱい', 'Storage full')) : `+${hit.mat ?? hit.item.n}`);
     else if (f === 'ext' && hit.item?.kind === 'ext') {
       const it = hit.item;
       window.setTimeout(() => flyToNotes(c, it.id, findLabel(hit), hit.rp), delay);
       delay += 220;
+    } else if (f === 'rare' && hit.item?.kind === 'ext') {
+      // Rare：中くらいの演出（作業は止めない）→ 研究ノートへ
+      const it = hit.item;
+      window.setTimeout(() => rareFind(c, it.id, hit), delay);
+      delay += 400;
     }
     // 復刻品のレシピが開いた：作業を止めない小さな札（まとめは発掘終了の札）
     if (hit.recipe) {
@@ -885,6 +917,19 @@ function readTablet(id: string, rp: number) {
   w.append(btn(t('閉じる', 'Close'), () => w.remove(), 'is-on'));
   p.el.append(w);
 }
+/** ダンジョンの奥の Rare：壁の上に中くらいの札（光・絵 96px・「Rare の遺物！」・RP）。作業は止めない。2.4 秒で研究ノートへ */
+function rareFind(c: HTMLElement, id: number, hit: DigHit) {
+  const p = P;
+  if (!p) return;
+  p.el.querySelector('.isl-dig-rare')?.remove();
+  const w = h('div', 'isl-dig-rare');
+  w.append(h('i', 'isl-dig-rare-rays'), h('span', 'isl-dig-rare-tag', t(`${RARITY_JA.Rare}の遺物！`, 'A Rare relic!')), extIcon(id, 96), h('b', '', extName(id)), h('small', '', `${findLabel(hit)}${hit.rp ? t(`・研究 +${hit.rp}`, ` · RP +${hit.rp}`) : ''}`));
+  p.el.append(w);
+  window.setTimeout(() => {
+    w.remove();
+    if (P) flyToNotes(c, id, '', 0);
+  }, 2400);
+}
 /** お題・大きな遺物（2 × 2）：画面全体に大きく（絵・名前・札・RP・進み）。タップで閉じる（時間は止めない） */
 function bigFind(id: number, rp: number, topic: boolean, hit: DigHit) {
   const p = P;
@@ -892,14 +937,16 @@ function bigFind(id: number, rp: number, topic: boolean, hit: DigHit) {
   document.querySelector('.isl-dig-big')?.remove();
   const s = p.ctx.s();
   const st = digStatus(s);
-  const w = h('div', `isl-dig-big ${topic ? '' : 'is-epic'}`);
+  const rk = topic ? null : extRank(id);
+  const w = h('div', `isl-dig-big ${topic ? '' : 'is-epic'} ${rk === 'L' ? 'is-legend' : ''}`);
   const box = h('div', 'isl-dig-big-box');
   const rays = h('i', 'isl-dig-big-rays');
-  const tag = topic ? t('お題を発見！', 'Target found!') : t('大きな遺物を発見！', 'A large relic!');
+  const rname = RARITY_JA[extRarity(id) as keyof typeof RARITY_JA] ?? '';
+  const tag = topic ? t('お題を発見！', 'Target found!') : t(`${rname}の大きな遺物を発見！`, `A large ${rname} relic!`);
   const sub = topic ? t(`研究 Lv5・研究ポイント +${rp}`, `Research Lv5 · RP +${rp}`) : `${findLabel(hit)}${rp ? t(`・研究ポイント +${rp}`, ` · RP +${rp}`) : ''}`;
   box.append(rays, h('span', 'isl-dig-big-tag', tag), extIcon(id, 128), h('b', 'isl-dig-big-name', extName(id)), h('span', 'isl-dig-big-rp', sub));
   if (topic && st) box.append(h('small', 'isl-dig-big-prog', st.topics[0] >= st.topics[1] ? t(`お題 ${st.topics[0]} / ${st.topics[1]}：全部そろった！ 町の長に発表しよう`, `Targets ${st.topics[0]} / ${st.topics[1]}: all found! Present to the town head`) : t(`お題 ${st.topics[0]} / ${st.topics[1]}`, `Targets ${st.topics[0]} / ${st.topics[1]}`)));
-  if (!topic) box.append(h('small', 'isl-dig-big-prog', t('4 マスぶんの大きな遺物（Epic 以上）', 'A 4-cell relic (Epic or above)')));
+  if (!topic) box.append(h('small', 'isl-dig-big-prog', t(`4 マスぶんの大きな遺物（${rname}）。本来このセクタでは手に入らない！`, `A 4-cell ${rname} relic — not normally found here!`)));
   box.append(h('small', 'isl-dig-big-tap', t('▶ タップで閉じる', '▶ Tap to close')));
   w.append(box);
   const close = () => w.remove();
@@ -975,6 +1022,20 @@ export function openNotes(ctx: Ctx, o: { fromDig?: DigHooks; sector?: string } =
       }
       body.append(row);
       if (!noteTab) return;
+      // ダンジョン：入り口が見つかったセクタごとに、奥で出る上のランクの遺物（未発見はシルエット）
+      if (noteTab === DUNGEON_TAB) {
+        body.append(h('p', 'isl-dim isl-note-dnote', RARE_RELIC_NOTE()));
+        for (const d of dungeonNotes(s)) {
+          body.append(h('h4', 'isl-note-h', d.best != null ? t(`${d.name}のダンジョン（最深 ${d.best} 層）`, `${d.name} dungeon (deepest ${d.best})`) : t(`${d.name}のダンジョン`, `${d.name} dungeon`)));
+          for (const r of d.ranks) {
+            const g = h('div', 'isl-note-grid');
+            for (const e of r.items) g.append(noteCard(e, r.tier));
+            const rn = RARITY_JA[TIER_RARITY[r.tier]];
+            body.append(h('small', `isl-note-rank is-${r.tier}`, t(`${rn}（奥の層ほど出やすい）`, `${rn} (more likely deeper)`)), g);
+          }
+        }
+        return;
+      }
       const list = noteEntries(s, noteTab);
       const tabsHere = tabs.find((x) => x.id === noteTab);
       // お題（上の層から）
@@ -1029,8 +1090,8 @@ function closeNotes() {
   x?.click();
 }
 
-function noteCard(e: ReturnType<typeof noteEntries>[number]): HTMLElement {
-  const c = h('div', `isl-note-card ${e.n ? '' : 'is-unknown'} ${e.topic ? 'is-topic' : ''}`);
+function noteCard(e: ReturnType<typeof noteEntries>[number], tier?: string): HTMLElement {
+  const c = h('div', `isl-note-card ${e.n ? '' : 'is-unknown'} ${e.topic ? 'is-topic' : ''} ${tier ? `is-r${tier}` : ''}`);
   if (e.topic) c.append(h('span', 'isl-note-topic', t('お題', 'Target')));
   const pic = h('span', 'isl-note-pic');
   pic.append(extIcon(e.id, 64));

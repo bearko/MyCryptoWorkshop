@@ -8,7 +8,7 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
-import { digMet, digReportLine, digReportText, type DigSummary } from './digmeet';
+import { digMet, digReportLine, digReportText, reviveReportText, type DigSummary } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
@@ -538,6 +538,12 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
         const line = h('div', 'isl-rp-dig');
         const txt = h('span', 'isl-rp-dig-text');
         txt.append(h('b', '', t('⛏ 今月の出土品', '⛏ Finds this month')), h('span', 'is-long', dl), h('span', 'is-short', ds));
+        // 復興と遺物の展示館（同じ行に続けて。スマホで 1 画面に収まるように）
+        const rv = reviveReportText(r);
+        if (rv) {
+          txt.className += ' has-revive';
+          txt.append(h('span', 'is-long isl-rp-revive', rv[0]), h('span', 'is-short isl-rp-revive', rv[1]));
+        }
         line.append(txt);
         if (hooks.openNotes) line.append(btn(t('研究ノート', 'Notebook'), () => hooks.openNotes?.(), 'isl-rp-go'));
         c4.append(line);
@@ -653,6 +659,9 @@ export function openDigSummary(ctx: Ctx, sum: DigSummary, hooks: DigSummaryHooks
         g.append(c);
       }
       c2.append(g);
+      // 復興と遺物の展示館（期間の来館・収入の合計）
+      const rv = reviveReportText({ revive: sum.revive, museum: sum.museum });
+      if (rv) c2.append(h('small', 'isl-ds-revive', rv[0]));
       // ---- 詰まり（最新の月）と打ち手 1 つ
       const c3 = h('div', 'isl-card2 isl-ds-card');
       const bn = reportJam(s, sum.latest);

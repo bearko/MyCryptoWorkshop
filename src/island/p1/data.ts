@@ -136,7 +136,7 @@ export const RIVAL = { pullCap: 1.3, weakShare: 0.15, weakMonths: 3 };
 
 export interface P1Building {
   id: string;
-  kind: 'workshop' | 'shop' | 'food' | 'warehouse' | 'depot' | 'fun' | 'big';
+  kind: 'workshop' | 'shop' | 'food' | 'warehouse' | 'depot' | 'fun' | 'big' | 'museum';
   cost: number;
   days: number;
   upkeep: number;
@@ -164,6 +164,8 @@ export const P1_BUILDINGS: P1Building[] = [
   { id: 'amusement', kind: 'fun', cost: 40000, days: 20, upkeep: 5000, soon: true },
   { id: 'factory', kind: 'big', cost: 60000, days: 20, upkeep: 6000, soon: true },
   { id: 'harbor', kind: 'big', cost: 120000, days: 30, upkeep: 9000, soon: true },
+  // 遺物の展示館（発掘 v2 の 4 段目）：復興した土地にだけ・会社で 1 つ。値段はブティック（Common の大きめの建物）と同じくらい
+  { id: 'museum', kind: 'museum', cost: 15000, days: 10, upkeep: 600 },
 ];
 
 /**
@@ -177,6 +179,8 @@ export const BUILD_CATS: { id: string; name: string; icon: string; ids: string[]
   { id: 'food', name: t('飲食', 'Food'), icon: '🍜', ids: ['ramen', 'cafe', 'bakery'] },
   { id: 'fun', name: t('娯楽', 'Leisure'), icon: '🎡', ids: ['arcade', 'amusement'] },
   { id: 'big', name: t('大型施設', 'Large sites'), icon: '🏭', ids: ['factory', 'harbor'] },
+  // 発掘 v2 の 4 段目：復興した土地ができると開く
+  { id: 'relic', name: t('遺物', 'Relics'), icon: '🏛', ids: ['museum'] },
 ];
 export const P1B: Record<string, P1Building> = Object.fromEntries(P1_BUILDINGS.map((b) => [b.id, b]));
 
@@ -1211,7 +1215,8 @@ export interface DigTree {
  */
 export const DIG_BALANCE: {
   rpPrice: Record<Tier, { lo: number; hi: number; big: number; step: number }>;
-  rpGain: Record<'C' | 'U', { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
+  /** RP の入り方。C・U は荒れ地（セクタのランク）、R・E・L はダンジョンの奥で出る上のランクのエクステ（エクステのランクで決まる。お題・石板・発表は無い） */
+  rpGain: Record<Tier, { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
   /** 地層の硬さ（層ごと。手前 → 奥。奥ほど硬い） */
   hard: Record<'C' | 'U', [number, number][]>;
   /** 荒れ地 1 か所の正面の壁のマス目（横 × 縦）。各マスに奥行きの層が DIG.<ランク>.layers の数だけ */
@@ -1235,6 +1240,29 @@ export const DIG_BALANCE: {
    * 同じランクの gap の商品の 0.6 倍くらい）・作る手間（日数・1 ロットの数）
    */
   relic: { openLv: number; priceMul: number; monopolyMonths: number; demandBase: number; days: [number, number]; batch: number };
+  /**
+   * 復興（発掘 v2 の 4 段目。docs/ISLAND_PHASE1.md「4. 復興・ダンジョン・展示館」）：掘りきった荒れ地 1 か所で、そのセクタの家の数 × homes の家が増え、
+   * 商品ごとの需要も同じ割合で上がる。地図の住宅の絵は houses 軒まで（近くの空き地に）
+   */
+  revive: { homes: number; houses: number };
+  /**
+   * ダンジョン（セクタで最後に掘りきった荒れ地から）：壁（横 × 縦）・層の数・硬さ（ランクごと・層ごと）・掘れる層（深い層の許可の Lv0〜5）・
+   * 出土品の割合・層ごとのエクステのランクの確率（そのセクタのランク／1 つ上／2 つ上／3 つ上）・上のランクの出土品の種類の数（セクタごと・ランクごと）
+   */
+  dungeon: {
+    wall: [number, number];
+    layers: number;
+    hard: Record<'C' | 'U', [number, number][]>;
+    deep: number[];
+    odds: { ext: number; mat: number };
+    rarity: Record<'C' | 'U', [number, number, number, number][]>;
+    pick: number;
+  };
+  /**
+   * 遺物の展示館：値段は P1B の museum。枠（はじめ・展示室の増築のあと）・増築の値段・価値（レアリティ × 研究 Lv）・
+   * 来館者（価値 1 あたりの月の人数）・入館料（1 人）・節目（展示の価値の合計）と、節目ごとの恒久のボーナス（会社全体の新商品の認知の上がり方・ブランド力）
+   */
+  museum: { slots: number[]; expand: number[]; val: Record<Tier, number>; lvStep: number; visitors: number; fee: number; marks: number[]; known: number; brand: number };
 } = {
   // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
   rpPrice: {
@@ -1248,6 +1276,10 @@ export const DIG_BALANCE: {
   rpGain: {
     C: { first: 15, lv: [8, 15, 20, 25], topic: 40, tablet: 20, present: 60 },
     U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
+    // v12（4 段目）：ダンジョンの奥の上のランク。初発見 R 80・E 250・L 600、研究 Lv の上がりは Uncommon の表に同じ倍率（80 / 25 = ×3.2・×10・×24）
+    R: { first: 80, lv: [38, 80, 122, 160], topic: 0, tablet: 0, present: 0 },
+    E: { first: 250, lv: [120, 250, 380, 500], topic: 0, tablet: 0, present: 0 },
+    L: { first: 600, lv: [288, 600, 912, 1200], topic: 0, tablet: 0, present: 0 },
   },
   // 地層の硬さ（層ごと・手前 → 奥。1 打の強さ 1 のときに打つ回数の範囲）。v11：正面の壁を手前から奥へ。奥ほど硬い
   hard: {
@@ -1308,7 +1340,7 @@ export const DIG_BALANCE: {
     // 発掘のランタン：ひびの隙間から見え始める深さ（何枚手前から。ふだんは いまの層だけ）。Lv4 でお題の気配が さらに 2 枚先から、Lv5 で石板も
     lamp: [1, 2, 3, 3, 3],
     hint: 2,
-    // 深い層の許可：掘れる層の数（Lv0〜5）。Lv4・5 は 4 段目のダンジョン用の深さ（準備中）
+    // 深い層の許可：掘れる層の数（Lv0〜5）。ダンジョンの深さは DIG_BALANCE.dungeon.deep
     deep: { C: [2, 3, 3, 3, 3, 3], U: [2, 2, 3, 4, 4, 4] },
     // 研究の目利き：研究 Lv の上限（Lv0〜5）と、深い層ほど研究が進みやすい倍率（層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん）
     cap: [3, 4, 5, 5, 5, 5],
@@ -1337,6 +1369,58 @@ export const DIG_BALANCE: {
   simTapsPerSec: 4,
   // 復刻品：研究 Lv3 で開く・売値 ×1.25・独占 4 か月・需要 12 個（gap の商品の平均 20.5 の 0.6 倍）・3〜4 日・1 ロット 4 個（アンコモンは半分）
   relic: { openLv: 3, priceMul: 1.25, monopolyMonths: 4, demandBase: 12, days: [3, 4], batch: 4 },
+  // 復興：家の数の +6%（46 軒の町で +3 軒）・地図に描く住宅は 2 軒まで
+  revive: { homes: 0.06, houses: 2 },
+  dungeon: {
+    wall: [7, 9],
+    layers: 6,
+    // 奥ほど硬い。Common のセクタでも、奥の層は Uncommon の荒れ地の奥（3〜4）より硬い
+    hard: {
+      C: [
+        [2, 2],
+        [2, 3],
+        [3, 4],
+        [4, 5],
+        [5, 6],
+        [6, 7],
+      ],
+      U: [
+        [3, 3],
+        [3, 4],
+        [4, 5],
+        [5, 6],
+        [6, 7],
+        [7, 8],
+      ],
+    },
+    // 掘れる層（深い層の許可 Lv0〜5）：Lv1〜3 で 3 層・Lv4 で 5 層・Lv5 で 6 層（荒れ地を掘りきるには Common で Lv1・Uncommon で Lv3 が要る）
+    deep: [2, 3, 3, 3, 5, 6],
+    odds: { ext: 0.178, mat: 0.104 },
+    // 層ごとのエクステのランク：[そのセクタのランク, 1 つ上, 2 つ上, 3 つ上]。
+    // Common のセクタ（1 つ上＝Uncommon・2 つ上＝Rare・3 つ上＝Epic）：1〜2 層は Common だけ・3 層 U 10%・4 層 U 25% R 5%・5 層 U 25% R 12% E 2%・6 層 U 25% R 20% E 6%
+    // Uncommon のセクタは 1 つ上へずらす（R・E・L）。Legendary は 6 層の 1% だけ
+    rarity: {
+      C: [
+        [1, 0, 0, 0],
+        [1, 0, 0, 0],
+        [0.9, 0.1, 0, 0],
+        [0.7, 0.25, 0.05, 0],
+        [0.61, 0.25, 0.12, 0.02],
+        [0.49, 0.25, 0.2, 0.06],
+      ],
+      U: [
+        [1, 0, 0, 0],
+        [1, 0, 0, 0],
+        [0.9, 0.1, 0, 0],
+        [0.7, 0.25, 0.05, 0],
+        [0.63, 0.25, 0.12, 0],
+        [0.54, 0.25, 0.2, 0.01],
+      ],
+    },
+    pick: 9,
+  },
+  // 展示館：枠 4（展示室の増築で 8・12・16）・価値 C 1・U 2・R 5・E 15・L 40 ×（1 + 0.25 ×（研究 Lv − 1））・価値 1 で月 12 人・入館料 15 G
+  museum: { slots: [4, 8, 12, 16], expand: [20000, 50000, 120000], val: { C: 1, U: 2, R: 5, E: 15, L: 40 }, lvStep: 0.25, visitors: 12, fee: 15, marks: [20, 50, 100, 200, 400, 800], known: 0.05, brand: 1 },
 };
 
 // ---------------------------------------------------------------- 発掘の枝（9 本目。発掘 v2 の 2 段目）
@@ -1373,9 +1457,9 @@ export const DIG_SKILLS: Skill[] = [
     requires: ['dig_ext'],
     show: [dShow(t('見え始める深さ', 'Sight'), lvTxt((v) => t(`${v} 枚手前から`, `${v} layer(s) ahead`), DT.lamp)), dShow(t('お題の気配', 'Target hints'), [t('なし', 'none'), t('なし', 'none'), t('なし', 'none'), t(`さらに ${DT.hint} 枚先から`, `${DT.hint} more layers`), t(`さらに ${DT.hint} 枚先から（石板も）`, `${DT.hint} more layers (tablets too)`)])],
   }),
-  dig_('dig_deep', t('深い層の許可', 'Deep-layer permit'), t('掘れる層の上限：はじめは 2 層目まで（岩盤は国の許可が要る）。Lv1 で岩盤（Common の 3 層目）・Uncommon は Lv2 で 3 層目・Lv3 で 4 層目。Lv4・5 はダンジョン用の深さ（準備中）', 'Deepest layer you may dig: layer 2 at first (bedrock needs a permit). Lv1: bedrock (Common layer 3); Uncommon layer 3 at Lv2, layer 4 at Lv3. Lv4–5: dungeon depth (coming soon)'), {
+  dig_('dig_deep', t('深い層の許可', 'Deep-layer permit'), t('掘れる層の上限：はじめは 2 層目まで（岩盤は国の許可が要る）。Lv1 で岩盤（Common の 3 層目）・Uncommon は Lv2 で 3 層目・Lv3 で 4 層目。ダンジョンは Lv1〜3 で 3 層・Lv4 で 5 層・Lv5 で 6 層', 'Deepest layer you may dig: layer 2 at first (bedrock needs a permit). Lv1: bedrock (Common layer 3); Uncommon layer 3 at Lv2, layer 4 at Lv3. Dungeons: 3 layers at Lv1–3, 5 at Lv4, 6 at Lv5'), {
     requires: ['dig_lamp'],
-    show: [dShow(t('Common の荒れ地', 'Common wastelands'), DT.deep.C.slice(1).map((n) => upTo(LAYER_C, n))), dShow(t('Uncommon の荒れ地', 'Uncommon wastelands'), DT.deep.U.slice(1).map((n) => upTo(LAYER_U, n))), dShow(t('ダンジョンの深さ', 'Dungeon depth'), [t('なし', 'none'), t('なし', 'none'), t('なし', 'none'), t('1 段（準備中）', '1 (coming soon)'), t('2 段（準備中）', '2 (coming soon)')])],
+    show: [dShow(t('Common の荒れ地', 'Common wastelands'), DT.deep.C.slice(1).map((n) => upTo(LAYER_C, n))), dShow(t('Uncommon の荒れ地', 'Uncommon wastelands'), DT.deep.U.slice(1).map((n) => upTo(LAYER_U, n))), dShow(t('ダンジョンの深さ', 'Dungeon depth'), DIG_BALANCE.dungeon.deep.slice(1).map((n) => t(`${n} 層まで`, `${n} layers`)))],
   }),
   dig_('dig_study', t('研究の目利き', 'Keen research'), t('研究 Lv の上限：はじめは Lv3。Lv1 で Lv4・Lv2 で Lv5。Lv3〜5 は深い層ほど研究が進みやすい（層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん数える）', 'Research level cap: Lv3 at first; Lv4 at panel Lv1, Lv5 at Lv2. Lv3–5: deeper layers count more (layer n counts 1 + 0.25 × (n − 1) × multiplier)'), {
     requires: ['dig_deep'],
@@ -1539,7 +1623,7 @@ export const WORLD_COMPANIES: [string, number][] = [
 export interface Invest {
   id: string;
   /** どの建物に付けるか（建物ごと＝セクタごと。工房はセクタに 1 つ、倉庫は棟ごと） */
-  kind: 'shop' | 'workshop' | 'warehouse';
+  kind: 'shop' | 'workshop' | 'warehouse' | 'museum';
   name: string;
   note: string;
   /** 段ごとの値段 */
@@ -1563,6 +1647,8 @@ export const INVESTS: Invest[] = [
   { id: 'tools', kind: 'workshop', name: t('道具の新調', 'New tools'), note: t('クラフトの日数 −10%（1 段ごと）', 'Crafting −10% days per level'), cost: [3000, 6000, 12000] },
   { id: 'breakroom', kind: 'workshop', name: t('職人の休憩所', 'Crafters’ break room'), note: t('工房で働く人のスタミナの減り −30%', 'Crafters lose 30% less stamina'), cost: [2500] },
   { id: 'rack', kind: 'warehouse', name: t('倉庫の高い棚', 'Tall racks'), note: t('この倉庫の置き場所 +100 個', 'This warehouse holds 100 more'), cost: [6000] },
+  // 遺物の展示館（発掘 v2 の 4 段目）：展示の枠 4 → 8・12・16
+  { id: 'hall', kind: 'museum', name: t('展示室の増築', 'Gallery extension'), note: t('展示の枠 +4（4 → 8・12・16）', 'Display slots +4 (4 → 8, 12, 16)'), cost: DIG_BALANCE.museum.expand },
   // 発掘の道具（ツルハシの新調・ランタン・発破の道具）は、発掘 v2 の 2 段目でスキルツリーの「発掘」の枝へ移した（DIG_PANELS。古いセーブは版 4 で移す）
 ];
 /** 以前の発掘の道具（工房の設備投資）→ 発掘の枝のパネル（版 3 → 4。段 → Lv：ツルハシ 1 段 Lv1・2 段 Lv3／ランタン Lv1／発破 Lv1） */
@@ -1632,6 +1718,22 @@ export const DIG: Record<DigTier, { w: number; h: number; layers: Stratum[]; mat
   },
 };
 /**
+ * ダンジョンの壁（発掘 v2 の 4 段目。セクタで最後に掘りきった荒れ地の底から見つかる。入るたびに作り直す）：横 7 × 縦 9 × 奥行き 6 層。
+ * 層の名前・色は仮（docs/ISLAND_ART_TODO.md）。硬さは DIG_BALANCE.dungeon.hard（セクタのランクごと。奥ほど硬い）。素材はそのセクタの荒れ地と同じ
+ */
+const DUNGEON_LAYERS = (): { name: string; color: string }[] => [
+  { name: t('古い地下道', 'Old tunnels'), color: '#6b5a48' },
+  { name: t('遺跡の床', 'Ruined floor'), color: '#5a5566' },
+  { name: t('崩れた回廊', 'Fallen gallery'), color: '#4d4258' },
+  { name: t('眠る宝物庫', 'Sleeping vault'), color: '#5b4526' },
+  { name: t('封じられた祭壇', 'Sealed altar'), color: '#3a2c4c' },
+  { name: t('大地の底', 'Bottom of the earth'), color: '#1f1a2e' },
+];
+export const DUNGEON_DIG: Record<DigTier, { w: number; h: number; layers: Stratum[]; mat: number; mats: Mat[] }> = {
+  C: { w: DIG_BALANCE.dungeon.wall[0], h: DIG_BALANCE.dungeon.wall[1], mat: DIG.C.mat, mats: DIG.C.mats, layers: DUNGEON_LAYERS().map((x, k) => ({ ...x, hard: DIG_BALANCE.dungeon.hard.C[k] })) },
+  U: { w: DIG_BALANCE.dungeon.wall[0], h: DIG_BALANCE.dungeon.wall[1], mat: DIG.U.mat, mats: DIG.U.mats, layers: DUNGEON_LAYERS().map((x, k) => ({ ...x, hard: DIG_BALANCE.dungeon.hard.U[k] })) },
+};
+/**
  * 荒れ地（未開拓エリア）：発掘場のあるセクタの地図に 2 × 2 マスを 4 か所。1 か所が 1 つの発掘場。
  * 置き場所は区画の内側（道路に面していないマス＝町の 1 マスの建物が建たない所）から、セクタの id で決める（model.ts の wasteSpots）
  */
@@ -1682,6 +1784,47 @@ export const DIG_SITES: Record<string, { topics: number[]; finds: number[] }> = 
 // ---------------------------------------------------------------- 復刻品（発掘 v2 の 3 段目。docs/ISLAND_PHASE1.md「3. 復刻品」）
 
 /** 復刻品の商品キー（「Relic-1122」。SKU は「Relic-1122:C」。いまの 17 商品のキーと重ならない） */
+/**
+ * ダンジョンの奥で出る、本来そのセクタでは手に入らないランクのエクステ（セクタごと・ランクごとに DIG_BALANCE.dungeon.pick 種。セクタの id の種で選ぶ）。
+ * Common のセクタ：Uncommon（Uncommon のセクタのお題以外の出土品から。復刻品のレシピがある）・Rare・Epic。Uncommon のセクタ：Rare・Epic・Legendary。
+ * Rare 以上はカタログのそのレアリティのエクステ（真の再販は除く・いまの 17 商品のシリーズは除く）。Epic・Legendary は 2 × 2
+ */
+export const DUNGEON_FINDS: Record<string, Partial<Record<Tier, number[]>>> = (() => {
+  const RAR: Record<Tier, string> = { C: 'Common', U: 'Uncommon', R: 'Rare', E: 'Epic', L: 'Legendary' };
+  const used = new Set(PRODUCTS.flatMap((p) => Object.values(p.ext)));
+  const prodSeries = new Set(allSeries.filter((x) => x.items.some((e) => used.has(e.id))).map((x) => x.key));
+  const byRar = (r: Tier) => [...new Set(allSeries.filter((x) => !prodSeries.has(x.key)).flatMap((x) => x.items.filter((e) => e.rarity === RAR[r] && !e.shin).map((e) => e.id)))].sort((a, b) => a - b);
+  const uFinds = [...new Set(Object.entries(DIG_SITES).filter(([id]) => id.startsWith('u')).flatMap(([, x]) => x.finds))].sort((a, b) => a - b);
+  // 文字列の種（FNV）と、種から決まる並べ替え
+  const seed = (x: string) => {
+    let h = 2166136261;
+    for (let i = 0; i < x.length; i++) h = Math.imul(h ^ x.charCodeAt(i), 16777619);
+    return h >>> 0;
+  };
+  const shuffle = (xs: number[], key: string) => {
+    let a = seed(key) || 1;
+    const r = () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t0 = a;
+      t0 = Math.imul(t0 ^ (t0 >>> 15), t0 | 1);
+      t0 ^= t0 + Math.imul(t0 ^ (t0 >>> 7), t0 | 61);
+      return ((t0 ^ (t0 >>> 14)) >>> 0) / 4294967296;
+    };
+    const out = [...xs];
+    for (let k = out.length - 1; k > 0; k--) {
+      const m = Math.floor(r() * (k + 1));
+      [out[k], out[m]] = [out[m], out[k]];
+    }
+    return out;
+  };
+  const pools: Partial<Record<Tier, number[]>> = { U: uFinds, R: byRar('R'), E: byRar('E'), L: byRar('L') };
+  const out: Record<string, Partial<Record<Tier, number[]>>> = {};
+  for (const id of Object.keys(DIG_SITES)) {
+    const ups: Tier[] = id.startsWith('u') ? ['R', 'E', 'L'] : ['U', 'R', 'E'];
+    out[id] = Object.fromEntries(ups.map((r) => [r, shuffle(pools[r] ?? [], `dungeon:${id}:${r}`).slice(0, DIG_BALANCE.dungeon.pick).sort((a, b) => a - b)]));
+  }
+  return out;
+})();
 export const relicKey = (ext: number) => `Relic-${ext}`;
 export const isRelic = (key: string) => key.startsWith('Relic-');
 /** 遺物の id から決まる種（同じ遺物はいつも同じレシピ・値段・日数） */

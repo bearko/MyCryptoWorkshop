@@ -54,6 +54,8 @@ export interface Anim {
   mark?: { i: number; j: number; label: string } | null;
   /** 発掘との出会い：光らせる荒れ地の番号（無ければ null） */
   wasteGlow?: number | null;
+  /** 復興・ダンジョンの見つかった演出：荒れ地の番号と始まった時刻（performance.now）。土 → 草地（ダンジョンは入り口が地面から現れる） */
+  revive?: { site: number; t0: number } | null;
 }
 
 export const newAnim = (): Anim => ({ clock: 0, frac: 0, speed: 1, dayMs: 1200, walkers: [], crowd: [], buyer: null, coins: new Map(), plus: [] });

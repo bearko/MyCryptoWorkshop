@@ -9015,3 +9015,320 @@ button.isl-mis {
   font-size: 12px;
   line-height: 1.45;
 }
+
+/* ---------------------------------------------------------------- 発掘 v2 の 4 段目：復興・ダンジョン・遺物の展示館（仮の見た目。docs/ISLAND_ART_TODO.md） */
+/* ダンジョンの発掘画面：壁のふちを石の青紫に */
+.isl-dig.is-dungeon .isl-dig-wall {
+  background: #07060c;
+  box-shadow:
+    0 0 0 3px #3b3550,
+    0 0 24px rgba(140, 110, 220, 0.35),
+    0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.isl-dig.is-dungeon .isl-dig-cell {
+  background-image:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
+    linear-gradient(rgba(0, 0, 0, 0.18) 1px, transparent 1px),
+    radial-gradient(rgba(255, 255, 255, 0.08) 1.5px, transparent 1.6px);
+  background-size:
+    50% 50%,
+    50% 50%,
+    9px 9px;
+}
+.isl-dig-chip.is-deep b {
+  color: #c8b4ff;
+}
+.isl-dig-chip.is-lock b {
+  color: #ffb36b;
+}
+/* 発掘終了の札：最深記録と「新記録！」 */
+.isl-dig-deeprec {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #c8b4ff;
+  font-size: 16px;
+}
+.isl-dig-newrec {
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: #ff6b8a;
+  color: #fff;
+  font-weight: 800;
+  animation: isl-dig-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+/* Rare の出土：中くらいの札（作業は止めない。押しても下の壁に届く） */
+.isl-dig-rare {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  z-index: 8;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 210px;
+  padding: 12px 10px 10px;
+  margin-left: -105px;
+  border: 3px solid #4fa8ff;
+  border-radius: 14px;
+  background: #16284a;
+  text-align: center;
+  overflow: hidden;
+  pointer-events: none;
+  animation: isl-dig-pop 0.4s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.isl-dig-rare > * {
+  position: relative;
+}
+.isl-dig-rare-rays {
+  position: absolute !important;
+  left: 50%;
+  top: 45%;
+  width: 360px;
+  height: 360px;
+  margin: -180px 0 0 -180px;
+  background: repeating-conic-gradient(rgba(79, 168, 255, 0.22) 0 10deg, transparent 10deg 20deg);
+  animation: isl-dig-spin 6s linear infinite;
+}
+.isl-dig-rare-tag {
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: #4fa8ff;
+  color: #08162c;
+  font-weight: 800;
+}
+.isl-dig-rare .isl-ext {
+  filter: drop-shadow(0 0 8px rgba(120, 190, 255, 0.9));
+}
+.isl-dig-rare small {
+  color: #7fe0d0;
+  font-weight: 700;
+}
+/* Epic・Legendary（2 × 2）：お題より大きく。Epic は紫・Legendary は金 */
+.isl-dig-big.is-epic .isl-dig-big-box {
+  width: min(360px, 92vw);
+  border-color: #c77dff;
+  box-shadow: 0 0 40px rgba(199, 125, 255, 0.6);
+}
+.isl-dig-big.is-epic .isl-dig-big-tag {
+  background: #c77dff;
+  color: #1a0b2a;
+}
+.isl-dig-big.is-epic .isl-dig-big-rays {
+  width: 680px;
+  height: 680px;
+  margin: -340px 0 0 -340px;
+  background: repeating-conic-gradient(rgba(199, 125, 255, 0.26) 0 8deg, transparent 8deg 16deg);
+}
+.isl-dig-big.is-epic.is-legend .isl-dig-big-box {
+  border-color: #ffb627;
+  box-shadow: 0 0 50px rgba(255, 182, 39, 0.7);
+}
+.isl-dig-big.is-epic.is-legend .isl-dig-big-tag {
+  background: #ffb627;
+}
+.isl-dig-big.is-epic.is-legend .isl-dig-big-rays {
+  background: repeating-conic-gradient(rgba(255, 210, 90, 0.3) 0 8deg, transparent 8deg 16deg);
+}
+/* 研究ノートの「ダンジョン」のタブ */
+.isl-note-dnote {
+  margin: 4px 0;
+}
+.isl-note-rank {
+  display: block;
+  margin: 6px 0 3px;
+  font-weight: 700;
+}
+.isl-note-rank.is-U,
+.isl-note-card.is-rU {
+  --rk: #63d471;
+}
+.isl-note-rank.is-R,
+.isl-note-card.is-rR {
+  --rk: #4fa8ff;
+}
+.isl-note-rank.is-E,
+.isl-note-card.is-rE {
+  --rk: #c77dff;
+}
+.isl-note-rank.is-L,
+.isl-note-card.is-rL {
+  --rk: #ffb627;
+}
+.isl-note-rank {
+  color: var(--rk, var(--isl-text));
+}
+.isl-note-card.is-rU,
+.isl-note-card.is-rR,
+.isl-note-card.is-rE,
+.isl-note-card.is-rL {
+  border-color: var(--rk);
+}
+/* 月次報告・まとめ報告の「🌱 復興」「🏛 展示館」（スマホは出土品の 1 行の下に、もう 1 行） */
+.isl-rp-revive {
+  color: #9ee08a;
+}
+@media (max-width: 599px) {
+  .isl-rp-dig-text.has-revive {
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
+  .isl-rp-dig-text.has-revive .isl-rp-revive.is-short {
+    flex-basis: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+.isl-ds-revive {
+  display: block;
+  margin-top: 4px;
+  color: #9ee08a;
+}
+/* 遺物の展示館の画面 */
+.isl-mus-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.isl-mus-chip {
+  display: grid;
+  gap: 1px;
+  flex: 1 1 120px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: #24324f;
+}
+.isl-mus-chip small {
+  color: var(--isl-dim);
+  font-size: 11px;
+}
+.isl-mus-chip.is-gold b {
+  color: var(--isl-gold);
+  font-size: 18px;
+}
+.isl-mus-chip.is-next b {
+  color: #7fe0d0;
+}
+.isl-mus-bonus {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--isl-dim);
+}
+.isl-mus-bonus b {
+  color: var(--isl-gold);
+}
+.isl-mus-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  gap: 6px;
+  margin: 6px 0;
+}
+.isl-mus-slot {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 132px;
+  padding: 6px 3px;
+  border: 2px dashed #4a5a7c;
+  border-radius: 12px;
+  background: #1a2540;
+  color: var(--isl-text);
+  text-align: center;
+  font: inherit;
+  cursor: pointer;
+}
+.isl-mus-slot.is-on {
+  border-style: solid;
+  border-color: #8a6a3a;
+  background: linear-gradient(#2a2238, #1d2a44);
+  box-shadow: inset 0 -10px 18px rgba(242, 181, 68, 0.12);
+}
+.isl-mus-slot.is-pick {
+  border-color: var(--isl-gold);
+  box-shadow: 0 0 0 3px rgba(242, 181, 68, 0.45);
+}
+.isl-mus-slot.is-locked {
+  cursor: default;
+  opacity: 0.55;
+}
+.isl-mus-plus {
+  font-size: 28px;
+  color: var(--isl-gold);
+}
+.isl-mus-lock {
+  font-size: 22px;
+}
+.isl-mus-name {
+  font-size: 12px;
+  line-height: 1.2;
+}
+.isl-mus-stars {
+  color: var(--isl-gold);
+  font-size: 11px;
+}
+.isl-mus-rar {
+  padding: 0 7px;
+  border: 1px solid var(--rc);
+  border-radius: 999px;
+  color: var(--rc);
+  font-size: 11px;
+  font-weight: 700;
+}
+.isl-mus-pick {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 2px solid var(--isl-gold);
+  border-radius: 12px;
+  background: #1d2a44;
+}
+.isl-mus-cands {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-auto-rows: max-content;
+  gap: 6px;
+}
+.isl-mus-cand {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px 3px;
+  border: 2px solid #33415f;
+  border-radius: 10px;
+  background: #24324f;
+  color: var(--isl-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.isl-mus-cand b {
+  font-size: 12px;
+  line-height: 1.2;
+}
+.isl-mus-cand.is-shown {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 599px) {
+  .isl-mus-slot {
+    min-height: 112px;
+  }
+  .isl-mus-slot.is-locked {
+    min-height: 56px;
+    padding: 2px;
+  }
+  .isl-mus-slot.is-locked small {
+    font-size: 10px;
+  }
+  .isl-mus-slot .isl-ext {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .isl-mus-chip {
+    flex: 1 1 40%;
+  }
+}

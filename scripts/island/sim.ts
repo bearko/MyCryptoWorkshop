@@ -25,6 +25,11 @@ import {
   blast,
   blastCost,
   digLayouts,
+  siteState,
+  DUNGEON,
+  autoExhibit,
+  extRank,
+  museumSlots,
   hasBlast,
   findCells,
   layerOpen,
@@ -131,10 +136,15 @@ export const SIM_TIME = {
  *   以前の道具（ツルハシ・ランタン・発破の道具）はパネルに移ったので、道具は買わない。発破は「発破」のパネルがあれば使う。
  */
 export const SIM_DIG = {
-  rta: { perMonth: null as number | null, target: 'know', permit: 2, digger: 0, tree: 'deep' as 'deep' | 'share' | 'all', share: 0 },
-  normal: { perMonth: 2 as number | null, target: 'sweep', permit: 5, digger: 0, tree: 'share' as 'deep' | 'share' | 'all', share: 0.2 },
-  full: { perMonth: null as number | null, target: 'sweep', permit: 1.5, digger: 1, tree: 'all' as 'deep' | 'share' | 'all', share: 0 },
+  rta: { perMonth: null as number | null, target: 'know', permit: 2, digger: 0, tree: 'deep' as 'deep' | 'share' | 'all', share: 0, dungeon: 0, museum: null as number | null },
+  normal: { perMonth: 2 as number | null, target: 'sweep', permit: 5, digger: 0, tree: 'share' as 'deep' | 'share' | 'all', share: 0.2, dungeon: 1, museum: 40000 as number | null },
+  full: { perMonth: null as number | null, target: 'sweep', permit: 1.5, digger: 1, tree: 'all' as 'deep' | 'share' | 'all', share: 0, dungeon: 3, museum: 20000 as number | null },
 } as const;
+/*
+ * v12（発掘 v2 の 4 段目）：dungeon＝ひと月に潜る回数のめやす（掘れる荒れ地が無いときだけ。最短は潜らない＝今どおり）。
+ * museum＝遺物の展示館を建てる目安（建てたあとも残る資金。null は建てない）。建てたら月末に価値の高い遺物から飾る（autoExhibit）。
+ * 100% は資金に余裕があれば展示室の増築も。ダンジョンでは、上のランクの覗き見 → いちばん深いマス（縦に掘り進める）を打つ
+ */
 /** 作業 1 回のゲームの日数（その方針の速さで、現実の作業時間が何日か。s があればそのときの作業時間＝追加申請で延びる） */
 export const runDays = (p: PolicyId, s?: P1State) => (s ? sessionSec(s) : DIG_BALANCE.sessionSec) / (SIM_TIME[p].month / 30);
 /** 作業 1 回で手で打つ数（作業時間 × 1 秒に 4 打） */
@@ -224,6 +234,8 @@ export interface RunResult {
   research: { C: number; U: number; allC: number | null };
   /** v10c：開いた復刻品のレシピの数（最後） */
   recipes: number;
+  /** v12：復興・ダンジョン・展示館（最後に：復興した荒れ地の合計・ダンジョンの数・潜った回数・最深・見つけた上のランクの種類と数・展示館の収入の合計・節目） */
+  v12: { revived: number; dungeons: number; dives: number; best: number; found: Record<'U' | 'R' | 'E' | 'L', number>; got: Record<'U' | 'R' | 'E' | 'L', number>; museum: boolean; income: number; marks: number };
 }
 
 // ---------------------------------------------------------------- 方針
@@ -322,6 +334,8 @@ interface Ctx {
   /** v9：いまの発掘作業の残りの日数・今月始めた作業の回数 */
   runLeft: number;
   runsMonth: number;
+  /** v12：今月ダンジョンに潜った回数 */
+  divesMonth?: number;
 }
 
 const DIRS = ['rd', 'ld', 'lu', 'ru'] as const;
@@ -1067,7 +1081,7 @@ function uValue(s: P1State, key: string) {
 /** 掘り残したマスの数（荒れ地 4 か所の合計。いちばん奥まで掘っていないマス） */
 export const digLeft = (s: P1State) => (s.dig ? s.dig.sites.reduce((a, x, k) => a + x.depth.filter((v) => v < (digLayouts(s.dig!.sector)[k]?.depth ?? 0)).length, 0) : 0);
 /** いま掘っている荒れ地の進み */
-const curSt = (s: P1State) => s.dig!.sites[s.dig!.cur];
+const curSt = (s: P1State) => siteState(s, s.dig!.cur)!;
 /** マス k のいまの層を打てる（掘りきっていない・掘ってよい層・2 × 2 を待っていない） */
 const canHit = (s: P1State, k: number) => {
   const L = digSite(s)!;
@@ -1143,7 +1157,30 @@ function sweepTarget(s: P1State): [number, number] | null {
   return best ?? digNext(s);
 }
 
-const digTarget = (s: P1State, c: Ctx) => (SIM_DIG[c.policy].target === 'know' ? knowTarget(s, c) : sweepTarget(s));
+/**
+ * v12：ダンジョンでは、上のランクの遺物の覗き見（いまの層。Epic 以上の 2 × 2 は取りかけの範囲）→ いちばん深いマス（縦に掘り進める。同じなら打ちかけ・真ん中寄り）
+ */
+function deepTarget(s: P1State): [number, number] | null {
+  const L = digSite(s);
+  if (!L || !s.dig) return null;
+  const st = curSt(s);
+  let best: [number, number] | null = null;
+  let score = -Infinity;
+  for (let k = 0; k < L.w * L.h; k++) {
+    if (!canHit(s, k)) continue;
+    const x = k % L.w;
+    const y = Math.floor(k / L.w);
+    const v = peekView(s, x, y);
+    const up = v && !v.hint && v.ahead === 0 && v.item.kind === 'ext' && extRank(v.item.id) !== 'C' && extRank(v.item.id) !== L.tier ? 1e6 : 0;
+    const sc = up + st.depth[k] * 1000 + (st.hp[k] < L.cells[k].hard[st.depth[k]] ? 500 : 0) - (Math.abs(x - 3) + Math.abs(y - 4));
+    if (sc > score) {
+      score = sc;
+      best = [x, y];
+    }
+  }
+  return best;
+}
+const digTarget = (s: P1State, c: Ctx) => (s.digRun?.site === DUNGEON ? deepTarget(s) : SIM_DIG[c.policy].target === 'know' ? knowTarget(s, c) : sweepTarget(s));
 
 /** 手で n 回まで打つ（発破が使えれば、条件のときは発破）。打った数を返す */
 function handDig(s: P1State, c: Ctx, n: number, rec: DigRec, useBlast: () => boolean, spendTools: (v: number) => void): number {
@@ -1171,11 +1208,12 @@ function handDig(s: P1State, c: Ctx, n: number, rec: DigRec, useBlast: () => boo
  * 次に掘る荒れ地（許可があって掘りきっていない所）：最短は、まだのお題のある荒れ地（無ければ石板・エクステの残り）。
  * 通常・100% は、いま掘っている所を掘りきるまで → まだ眠っているお題のある所 → 番号の順
  */
-function pickSite(s: P1State, p: PolicyId): number | null {
+function pickSite(s: P1State, p: PolicyId, c?: Ctx): number | null {
   const d = s.dig!;
   // v10：いまの許可で掘れるマスが残っている所だけ（深い層の許可が要る所は、許可を取るまで掘らない）
   const open = d.sites.map((x, k) => ({ x, k })).filter(({ x, k }) => x.permit && !x.done && siteDiggable(s, k)).map(({ k }) => k);
-  if (!open.length) return null;
+  // v12：掘れる荒れ地が無ければ、ダンジョンに潜る（ひと月に SIM_DIG.dungeon 回まで。最短は潜らない）
+  if (!open.length) return c && d.dungeon && (c.divesMonth ?? 0) < SIM_DIG[p].dungeon ? DUNGEON : null;
   const hidden = open.filter((k) => siteTopic(s, k) === 'hidden');
   if (p === 'rta') return hidden[0] ?? open.find((k) => k === d.cur) ?? open[0];
   if (open.includes(d.cur)) return d.cur;
@@ -1219,8 +1257,10 @@ export interface RunOpts {
 
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
-  const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, runLeft: 0, runsMonth: 0 };
-  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0 };
+  const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, runLeft: 0, runsMonth: 0, divesMonth: 0 };
+  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0, v12: { revived: 0, dungeons: 0, dives: 0, best: 0, found: { U: 0, R: 0, E: 0, L: 0 }, got: { U: 0, R: 0, E: 0, L: 0 }, museum: false, income: 0, marks: 0 } };
+  /** v12：復興した荒れ地（セクタを離れるときに足す） */
+  let revivedDone = 0;
   const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, allRev: 0, relicRev: 0, dig: newDigRec(), log: [] });
   const D = SIM_DIG[p];
   const cResearch = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && !skillSoon(k)).map((k) => k.id);
@@ -1330,6 +1370,30 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
         c.digBudget = cap;
       }
+      // v12：遺物の展示館（復興した土地ができたら。会社で 1 つ）を建てて、月末に価値の高い遺物から飾る。100% は展示室の増築も
+      if (D.museum != null && atPause) {
+        if (!s.museum?.at && canBuild(s, 'museum') == null && s.money >= (P1B.museum?.cost ?? 0) + D.museum) {
+          let at: [number, number, (typeof DIRS)[number]] | null = null;
+          for (let j = 0; j < s.n && !at; j++) for (let i = 0; i < s.n && !at; i++) {
+            const dd = allowedDirs(s, 'museum', i, j);
+            if (dd.length) at = [i, j, dd[0]];
+          }
+          if (at && typeof build(s, 'museum', ...at) !== 'string') {
+            res.actions.build = (res.actions.build ?? 0) + 1;
+            cur.act++;
+          }
+        }
+        if (s.museum?.at) {
+          if (autoExhibit(s)) cur.act++;
+          const mb = s.buildings.find((b) => b.id === 'museum' && b.uid === s.museum?.at?.uid);
+          const cost = mb ? investCost(mb, 'hall') : null;
+          if (p === 'full' && mb && mb.left <= 0 && cost != null && s.money > cost * 2 + 50000 && (s.museum.items.filter((x) => x != null).length >= museumSlots(s)) && invest(s, mb.uid, 'hall') == null) {
+            res.actions.invest = (res.actions.invest ?? 0) + 1;
+            cur.act++;
+            autoExhibit(s);
+          }
+        }
+      }
       // 発掘許可：資金に余裕があれば、次の荒れ地を申請する（月末か、掘れる荒れ地が無くなったとき）
       if (!s.digRun && (atPause || pickSite(s, p) == null)) {
         const n = askPermits(s, p, D.permit);
@@ -1364,10 +1428,14 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       // 発掘作業を始める：前の作業が終わっていて、今月の回数のめやすに届いていない（null は続けて）。通常は月の前半と後半に 1 回ずつ
       const due = D.perMonth == null || (c.runsMonth < D.perMonth && c.dayInMonth >= c.runsMonth * (30 / D.perMonth) + 2);
       if (!s.digRun && due) {
-        const k = pickSite(s, p);
+        const k = pickSite(s, p, c);
         if (k != null && typeof startRun(s, k) !== 'string') {
           c.runLeft = runDays(p, s);
           c.runsMonth++;
+          if (k === DUNGEON) {
+            c.divesMonth = (c.divesMonth ?? 0) + 1;
+            res.v12.dives++;
+          }
           cur.dig.runs++;
           c.digGoal = undefined;
           res.actions.dig = (res.actions.dig ?? 0) + 1;
@@ -1424,6 +1492,8 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       // v8：月の締め。RP が足りなくて止まった月＝詰まりの段に効く研究パネルがあるのに、どれも RP が足りない
       c.dayInMonth = 0;
       c.runsMonth = 0;
+      c.divesMonth = 0;
+      res.v12.income += r.museum?.income ?? 0;
       {
         const useful = whatIf(s, readBn(s)).filter((w) => w.ok && w.move.kind === 'skill' && isResearch(SKILL[w.move.id]));
         if (useful.length && useful.every((w) => w.move.kind === 'skill' && rpCost(SKILL[w.move.id]) > (s.rp ?? 0))) cur.dig.rpBlocked++;
@@ -1509,6 +1579,8 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       if (s.digRun) endRun(s);
       cur.dig.left = digLeft(s);
       cur.dig.done = s.dig?.sites.filter((x) => x.done).length ?? 0;
+      revivedDone += s.dig?.sites.filter((x) => x.revived).length ?? 0;
+      res.v12.best = Math.max(res.v12.best, s.dig?.dungeon?.best ?? 0);
       const f0 = s.money;
       const e = moveTo(s, next, mgr?.hero ?? null);
       res.spend.fees += Math.max(0, f0 - s.money);
@@ -1538,6 +1610,19 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.days = s.day;
   res.spend.end = Math.round(s.money);
   res.recipes = Object.keys(s.recipes ?? {}).length;
+  // v12：復興・ダンジョン・見つけた上のランクの遺物（研究ノート：種類と、掘った数）・展示館
+  res.v12.revived = revivedDone + (s.dig?.sites.filter((x) => x.revived).length ?? 0);
+  res.v12.dungeons = s.dungeons?.length ?? 0;
+  res.v12.best = Math.max(res.v12.best, s.dig?.dungeon?.best ?? 0);
+  for (const [id, n] of Object.entries(s.research ?? {})) {
+    const rk = extRank(Number(id));
+    if (rk === 'C' || !(n > 0)) continue;
+    // Uncommon は、Common のセクタのダンジョンで出たものだけでなく、Uncommon のセクタの荒れ地のものも入る（R・E・L はダンジョンだけ）
+    res.v12.found[rk]++;
+    res.v12.got[rk] += Math.floor(n);
+  }
+  res.v12.museum = !!s.museum?.at;
+  res.v12.marks = s.museum?.marks ?? 0;
   res.research.C = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && has(s, k.id)).length;
   res.research.U = SKILLS.filter((k) => skillTier(k) === 'U' && isResearch(k) && has(s, k.id)).length;
   if (p === 'full') {
@@ -1649,6 +1734,21 @@ export function tables(rep: Report2): string {
       return all > 0 ? `${((sum((r) => r.relicRev, tier) / all) * 100).toFixed(1)}%` : '—';
     };
     out.push(`| ${POLICY_NAME[p]} | ${mean(runs.map((x) => x.recipes)).toFixed(1)}（${range(runs.map((x) => x.recipes))}） | ${fmtG(sum((r) => r.relicRev))} | ${fmtG(sum((r) => r.allRev))} | ${pct()} | ${pct('C')} | ${pct('U')} |`);
+  }
+  out.push('');
+  // v12：復興・ダンジョン・遺物の展示館
+  out.push('### 表 4：復興・ダンジョン・遺物の展示館（v12。発掘 v2 の 4 段目）');
+  out.push('');
+  out.push('最後の時点（3 シードの平均。最小〜最大）。復興は回ったセクタの合計（4 か所目はダンジョン）。見つけた上のランクの遺物は研究ノートの種類（掘った数）。Uncommon は Uncommon のセクタの荒れ地の出土品も入る（Rare・Epic・Legendary はダンジョンの奥だけ）。展示館の収入は入館料の合計。');
+  out.push('');
+  out.push('| 方針 | 復興した荒れ地 | ダンジョン | 潜った回数 | 最深 | Uncommon | Rare | Epic | Legendary | 展示館 | 展示館の収入（合計） | 節目 |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    const v = (f: (x: RunResult['v12']) => number) => runs.map((r) => f(r.v12));
+    const mr = (f: (x: RunResult['v12']) => number, d = 1) => `${mean(v(f)).toFixed(d)}（${range(v(f))}）`;
+    const rk = (k: 'U' | 'R' | 'E' | 'L') => `${mean(v((x) => x.found[k])).toFixed(1)} 種（${mean(v((x) => x.got[k])).toFixed(1)} 個）`;
+    out.push(`| ${POLICY_NAME[p]} | ${mr((x) => x.revived)} | ${mr((x) => x.dungeons)} | ${mr((x) => x.dives)} | ${mr((x) => x.best)} | ${rk('U')} | ${rk('R')} | ${rk('E')} | ${rk('L')} | ${runs.filter((r) => r.v12.museum).length}/${runs.length} | ${fmtG(mean(v((x) => x.income)))}（${range(v((x) => x.income), fmtG)}） | ${mr((x) => x.marks)} |`);
   }
   out.push('');
   out.push('実時間の単価（`SIM_TIME`）：');
