@@ -53,9 +53,11 @@ export interface Ledger {
   other: number;
   /** セクタマネージャーが運営するセクタから本社へ回ってきた利益（赤字ならマイナス） */
   managed: number;
+  /** 遺物の展示館の入館料（発掘 v2 の 4 段目。以前の帳簿には無い） */
+  museum?: number;
 }
 export type LedgerKey = keyof Ledger;
-export const emptyLedger = (): Ledger => ({ sales: 0, mats: 0, wages: 0, part: 0, upkeep: 0, ads: 0, build: 0, fees: 0, side: 0, other: 0, managed: 0 });
+export const emptyLedger = (): Ledger => ({ sales: 0, mats: 0, wages: 0, part: 0, upkeep: 0, ads: 0, build: 0, fees: 0, side: 0, other: 0, managed: 0, museum: 0 });
 
 /** 月末の貸借対照表の材料 */
 export interface Balance {
@@ -76,7 +78,8 @@ export const newBooks = (): Books => ({ cur: emptyLedger(), months: [] });
 
 export function book(s: { books?: Books }, key: LedgerKey, amt: number) {
   if (!amt) return;
-  (s.books ??= newBooks()).cur[key] += amt;
+  const cur = (s.books ??= newBooks()).cur;
+  cur[key] = (cur[key] ?? 0) + amt;
 }
 
 /** 資本金（最初の資金） */
@@ -97,13 +100,13 @@ export function pl(l: Ledger): PL {
   const gross = l.sales - l.mats;
   const sga = l.wages + l.part + l.upkeep + l.ads;
   const op = gross - sga;
-  const nonop = l.side + l.other + l.managed;
+  const nonop = l.side + l.other + l.managed + (l.museum ?? 0);
   const special = l.build + l.fees;
   return { sales: l.sales, cogs: l.mats, gross, sga, op, nonop, special, net: op + nonop - special, l };
 }
 export function sumLedger(ls: Ledger[]): Ledger {
   const out = emptyLedger();
-  for (const l of ls) for (const k of Object.keys(out) as LedgerKey[]) out[k] += l[k] ?? 0;
+  for (const l of ls) for (const k of Object.keys(out) as LedgerKey[]) out[k] = (out[k] ?? 0) + (l[k] ?? 0);
   return out;
 }
 

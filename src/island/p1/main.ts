@@ -9,7 +9,7 @@ import { allSeries, getExtension, heroById } from '../../game/catalog';
 import { isEn, setLang, t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { icon } from '../../ui/dom';
-import { DEF } from '../defs';
+import { DEF, artId } from '../defs';
 import { effectDone, image, loading, pick, waterFrame, type Camera, type Effect } from '../render';
 import { cells, type Dir } from '../sim';
 import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, rewardText, P1B, PACES, PRODUCT, SIDE, SKILL, TIERS, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
@@ -82,7 +82,10 @@ import {
   type DigHit,
   type RunEnd,
   openRelics,
+  DUNGEON,
+  revivedSites,
 } from './model';
+import { openMuseum } from './museumui';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
 import {
@@ -699,13 +702,17 @@ const ERR: Record<PlaceErr, string> = {
   locked: t('まだ建てられません', 'Not available yet'),
   soon: t('準備中です（スキルツリーで解放予定）', 'Coming soon (unlocked by skills)'),
   limit: t('工房は 1 つまでです', 'Only one workshop for now'),
+  revive: t('遺物の展示館は、復興した土地（掘りきった荒れ地）にだけ建てられる', 'The relic museum can only go on revived land (a dug-out wasteland)'),
 };
+/** 建てられない理由（建物ごと：展示館は会社で 1 つ） */
+const errOf = (id: string, e: PlaceErr) => (id === 'museum' && e === 'limit' ? t('遺物の展示館は会社で 1 つまで', 'Only one relic museum per company') : id === 'museum' && e === 'locked' ? t('遺物の展示館は、復興した土地（掘りきった荒れ地）ができると建てられる', 'The relic museum unlocks once you have revived land (a dug-out wasteland)') : ERR[e]);
 
 function lockNote(id: string): string {
   const b = P1B[id];
   if (b.soon) return t('準備中', 'Coming soon');
   if (b.kind === 'workshop') return s.buildings.some((x) => x.owner === 'me' && x.id === 'workshop') ? t('建設済み', 'Built') : t('無料', 'Free');
   if (b.kind === 'shop' && !s.buildings.some((x) => x.owner === 'me' && x.id === 'workshop')) return t('工房のあと', 'After the workshop');
+  if (b.kind === 'museum') return s.museum?.at ? t('建設済み（会社で 1 つ）', 'Built (one per company)') : t('復興した土地が要る', 'Needs revived land');
   if (b.requires && !s.skills.includes(b.requires)) return t('スキルで解放', 'Unlock by skill');
   return money(b.cost);
 }
@@ -727,6 +734,8 @@ function kindNote(b: (typeof P1_BUILDINGS)[number]): string {
       return t(`置き場所 +${STORE.warehouse}`, `Storage +${STORE.warehouse}`);
     case 'depot':
       return t('遠いお店への便が速くなる', 'Faster runs to far shops');
+    case 'museum':
+      return t('遺物を飾ると、毎月お客さんが来る（復興した土地にだけ・会社で 1 つ）', 'Display relics for monthly visitors (revived land only · one per company)');
     default:
       return '';
   }
@@ -757,6 +766,8 @@ function openBuildSheet() {
     const fresh: string[] = [];
     const tabs = h('div', 'isl-bcats');
     for (const c of BUILD_CATS) {
+      // 「遺物」（遺物の展示館）は、荒れ地が初めて復興するまで出さない（チュートリアル・はじめの建築の一覧は今のまま）
+      if (c.id === 'relic' && !revivedSites(s).length && !s.museum?.at) continue;
       const open = buildCatOpen(s, c.id);
       const isNew = open && !seen.includes(c.id);
       if (isNew) fresh.push(c.id);
@@ -810,7 +821,7 @@ function openBuildSheet() {
       const guide = guideId === id;
       const c = h('button', `isl-bcard ${err === 'money' ? 'is-poor' : ''} ${err && err !== 'money' ? 'is-off' : ''} ${guide ? 'is-guide' : ''}`);
       c.type = 'button';
-      const im = image(`b/${id}/rd.png`).cloneNode() as HTMLImageElement;
+      const im = image(`b/${artId(id)}/rd.png`).cloneNode() as HTMLImageElement;
       im.alt = '';
       const cost = err === 'limit' ? t('建設済み', 'Built') : err === 'locked' ? lockNote(id) : b.cost ? money(b.cost) : t('無料', 'Free');
       c.append(im, h('b', '', DEF[id].name), h('span', `isl-bcost ${err === 'money' ? 'is-short' : ''}`, cost));
@@ -822,7 +833,7 @@ function openBuildSheet() {
         const e = canBuild(s, id);
         if (e) {
           sfx.play('error');
-          toast(ERR[e]);
+          toast(errOf(id, e));
           return;
         }
         closeSheet();
@@ -920,6 +931,7 @@ function reasonOf(err: PlaceErr | 'spot' | null): string {
   }
   if (err === 'taken') return t('建物があります', 'Already built on');
   if (err === 'waste') return t('荒れ地は掘りきるまで建てられません', 'Not until the wasteland is dug out');
+  if (err === 'revive') return t('復興した土地にだけ建てられます', 'Revived land only');
   if (err === 'road') return t('道路に面していません', 'Doesn’t face a road');
   if (err === 'money') return t('資金が足りません', 'Not enough funds');
   return ERR[err];
@@ -945,7 +957,7 @@ function tryPlace() {
     }
   } else {
     const r = build(s, placing.id, placing.i, placing.j, placing.dir);
-    if (typeof r === 'string') toast(ERR[r]);
+    if (typeof r === 'string') toast(errOf(placing.id, r));
     else {
       toast(t(`${name}の工事を始めました（${P1B[placing.id].days} 日）`, `Started building: ${name} (${P1B[placing.id].days} days)`));
       // お金が減るときは資金の演出で同じ音が鳴る。無料（工房）のときだけここで鳴らす
@@ -1128,6 +1140,7 @@ function renderPop() {
     permit: (k) => askPermit(k),
     notes: () => (closePop(), openNotes(ctx)),
     present: () => startPresent(),
+    museum: () => (closePop(), openMuseum(ctx)),
   });
   popTitle.textContent = title;
   popBody.replaceChildren(body);
@@ -1150,6 +1163,7 @@ function busyDig() {
 
 /** 荒れ地 k のまんなか（マスの座標） */
 function wasteMid(k: number): [number, number] | null {
+  if (k === DUNGEON) k = s.dig?.dungeon?.site ?? -1;
   const sp = wasteSpots(s.sector ?? 'c1')[k];
   return sp ? [sp[0] + 0.5, sp[1] + 0.5] : null;
 }
@@ -1161,6 +1175,7 @@ function focusWaste(k: number) {
 }
 /** 荒れ地 k の吹き出しを開く（助言のボタン） */
 function showWaste(k: number) {
+  if (k === DUNGEON) k = s.dig?.dungeon?.site ?? -1;
   const sp = wasteSpots(s.sector ?? 'c1')[k];
   if (!sp) return;
   closeSheet();
@@ -1200,7 +1215,8 @@ function startDig(k: number) {
   if (typeof r === 'string') {
     sfx.play('error');
     if (r === 'no-permit') toast(t('この荒れ地は、まだ発掘許可がありません', 'No dig permit for this wasteland yet'));
-    else if (r === 'done') toast(t('この荒れ地は掘りきった（復興は近日）', 'This wasteland is fully dug (revival coming soon)'));
+    else if (r === 'done') toast(t('この荒れ地は掘りきった', 'This wasteland is fully dug'));
+    else if (r === 'no-site' && k === DUNGEON) toast(t('このセクタには、まだダンジョンが見つかっていない', 'No dungeon found in this sector yet'));
     else if (r === 'deep') toast(t('ここから下は深い層の許可が要る（スキル → 発掘の「深い層の許可」）', 'Deeper layers need a permit (Skills → Digging: Deep-layer permit)'));
     return;
   }
@@ -1232,6 +1248,8 @@ function openDigPanel(note?: string) {
         sound.fadeBgm('bgmCraft');
         flushToasts();
         renderAll();
+        // 町に戻ったら：復興（土 → 草地）・ダンジョンの入り口が見つかった演出
+        setTimeout(() => townFxNow(), 380);
       },
       hit: (hits) => digHit(hits),
       make: (key) => makeRelic(key),
@@ -1266,10 +1284,67 @@ function flushToasts() {
 }
 /** 打った：荒れ地を掘りきったら、作業を終える */
 function digHit(hits: DigHit[]) {
-  if (!hits.some((x) => x.done)) return;
-  toast(t('この荒れ地は掘りきった！（復興は近日）', 'This wasteland is fully dug! (Revival coming soon)'));
+  const all = hits.flatMap((x) => [x, ...(x.extra ?? [])]);
+  if (!all.some((x) => x.done)) return;
+  if (s.digRun?.site === DUNGEON) toast(t('ダンジョンの壁を掘りきった！', 'You dug out the whole dungeon wall!'));
+  else if (all.some((x) => x.dungeon)) toast(t('この荒れ地は掘りきった！ 底にダンジョンの入り口が…！', 'This wasteland is fully dug! A dungeon entrance lies beneath…!'));
+  else toast(t('この荒れ地は掘りきった！ 町に戻ると復興するよ', 'This wasteland is fully dug! It will be revived back in town'));
   sfx.play('win');
   finishDig();
+}
+
+// ---------------------------------------------------------------- 復興・ダンジョンの入り口（町に戻ったあとの演出。docs/ISLAND_PHASE1.md「4. 復興・ダンジョン・展示館」）
+
+/** 町に戻ったら出す演出（発掘作業で荒れ地を掘りきった） */
+let townFx: { kind: 'revive' | 'dungeon'; site: number; homes: number }[] = [];
+let townFxTries = 0;
+/** 町に戻ったあと、会話・画面が閉じてから：カメラを荒れ地へ寄せて、土が草地に変わる（ダンジョンは入り口が現れる）→ トースト → マインちゃん（1 回目だけ） */
+function townFxNow() {
+  if (!townFx.length) return;
+  if (!calm()) {
+    // まとめ報告・会話のあと（待ちすぎたら、そのまま出す）
+    if (townFxTries++ < 120) setTimeout(() => townFxNow(), 500);
+    return;
+  }
+  townFxTries = 0;
+  const fx0 = townFx.shift()!;
+  focusWaste(fx0.site);
+  anim.revive = { site: fx0.site, t0: performance.now() };
+  sfx.play(fx0.kind === 'dungeon' ? 'mining' : 'levelup');
+  const name = wasteName(s.sector ?? 'c1', fx0.site);
+  setTimeout(() => {
+    if (fx0.kind === 'dungeon') toast(t(`⛏ ${name}の底に、ダンジョンの入り口が見つかった！`, `⛏ A dungeon entrance beneath the ${name}!`));
+    else toast(t(`🌱 ${name}が復興した！ 住民が増えた（家 +${fx0.homes}）`, `🌱 The ${name} is revived! More residents (homes +${fx0.homes})`));
+    sfx.play('win', 0.7);
+  }, 1500);
+  setTimeout(() => {
+    if (anim.revive?.site === fx0.site) anim.revive = null;
+    const next = () => {
+      if (townFx.length) townFxNow();
+      else museumTalkOnce();
+    };
+    if (fx0.kind === 'revive' && !s.flags.reviveTalk) {
+      s.flags.reviveTalk = true;
+      save();
+      talk([{ text: t('荒れ地がきれいな土地になったね！ [[復興]]した土地には建物を建てられるし、住む人も増えるよ。', 'The wasteland is clean, open land now! You can build on [[revived]] land, and more people will live here.') }], t('わかった', 'Got it'), next);
+    } else if (fx0.kind === 'dungeon' && !s.flags.dungeonTalk) {
+      s.flags.dungeonTalk = true;
+      save();
+      talk([{ text: t('荒れ地の底に[[ダンジョン]]があった！ 入るたびに中が変わって、奥ほど珍しい遺物が眠っているよ。入り口をタップして潜ってみよう！', 'A [[dungeon]] lay beneath the wasteland! It changes every visit, and rarer relics sleep deeper down. Tap the entrance and dive in!') }], t('わかった', 'Got it'), next);
+    } else next();
+    renderAll();
+  }, 2900);
+  renderAll();
+}
+/** 遺物の展示館を建てられるようになったとき（1 回だけ）：マインちゃん → 建築の「遺物」 */
+function museumTalkOnce() {
+  if (s.flags.museumTalk || s.museum?.at || !buildCatOpen(s, 'relic') || !calm()) return;
+  s.flags.museumTalk = true;
+  save();
+  talk([{ text: t('復興した土地に[[遺物の展示館]]を建てよう！ 掘った遺物を飾ると、お客さんが見に来てくれるよ。', 'Build a [[relic museum]] on the revived land! Display the relics you dug up and visitors will come to see them.') }], t('建築を開く', 'Open Build'), () => {
+    buildCat = 'relic';
+    openBuildTab();
+  });
 }
 /** 発掘作業のあいだに締めた月のトースト（他社のニュース・会社の締め）。作業のあとにまとめて出す */
 let heldNews: (() => void)[] = [];
@@ -1282,6 +1357,9 @@ function flushHeld() {
 function finishDig() {
   const end = endRun(s);
   if (!end) return;
+  // 掘りきった荒れ地：町に戻ったら、復興・ダンジョンの入り口の演出
+  if (end.revived) townFx.push({ kind: 'revive', site: end.revived.site, homes: end.revived.homes });
+  if (end.found != null) townFx.push({ kind: 'dungeon', site: end.found, homes: 0 });
   save();
   // 研究ノートを開いていたら閉じて、パネルに戻して札を見せる
   if (sheetOpen()) closeSheet();
@@ -3813,6 +3891,9 @@ requestAnimationFrame(frame);
   epicId: () => allSeries.flatMap((x) => x.items).find((e) => e.rarity === 'Epic')?.id ?? null,
   /** 荒れ地の左上のマス（撮影スクリプト用） */
   wastes: () => wasteSpots(s.sector ?? 'c1'),
+  /** 撮影スクリプト用：ダンジョンの番号・遺物の展示館の画面・展示館を建てる */
+  DUNGEON,
+  museum: () => openMuseum(ctx),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),
   /** 発掘との出会い（撮影スクリプト用）：操作がないまま進んだ日数 */
   idle: (v?: number) => (v != null ? (idleDays = v) : idleDays),

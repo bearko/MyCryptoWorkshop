@@ -7,7 +7,7 @@
 import { t } from '../../i18n';
 import { BRAND, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, ensureDig, fitEquipment, groundOf, hasLetter, newP1, staffOf, type P1State, type Report } from './model';
+import { assign, ensureDig, fitEquipment, groundOf, hasLetter, newP1, staffOf, syncGround, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -143,6 +143,8 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (!fresh && back?.snap) {
     const snap = back.snap as Partial<P1State>;
     Object.assign(s, snap);
+    // 地面はセーブ・写しに入れない（復興の小道を通すのに、先にこのセクタの地面にしておく）
+    s.ground = groundOf(s.n);
     // 以前の写し：発掘場が無い（そのセクタの新しい発掘場から）・版 2 の発掘場（荒れ地 4 か所に作り直す）
     ensureDig(s);
     // 以前の写し：制覇の月数・反撃は無い（もう 1 位なら制覇のまま）
@@ -189,6 +191,8 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
     brandAdd(s, BRAND.enter[def.tier], t(`${def.name}に出店`, `Opened in ${def.name}`));
   }
   s.ground = groundOf(s.n);
+  // 復興した荒れ地の小道
+  syncGround(s);
   land.cur = target;
   return null;
 }

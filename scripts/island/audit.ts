@@ -30,6 +30,8 @@ import {
   newP1,
   openRelic,
   relicSku,
+  digLayout,
+  reviveSite,
   oneWay,
   pathLen,
   raise,
@@ -584,7 +586,19 @@ export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base'];
   breakroom: { expect: ['craft'], note: 'スタミナ → 稼働率' },
   rack: { expect: ['buy'], base: 'j_trip', setup: (s) => (warehouse(s), void (s.mats.clay = (s.mats.clay ?? 0) + 190)), note: '倉庫があって、置き場所がいっぱいに近いとき（使わない素材 190）' },
   // 発掘の道具（ツルハシ・ランタン・発破）は、発掘 v2 の 2 段目でスキルツリーの発掘の枝へ移した（監査では「発掘」の対象外）
+  // 遺物の展示館の展示室の増築（発掘 v2 の 4 段目）：SCM の段ではなく、入館料と節目のボーナス
+  hall: { expect: [], out: '展示館（tests/island-p1-dungeon.test.ts で確認）' },
 };
+/** 荒れ地 k を掘りきって、復興させる（家 +N・需要 +6%） */
+function reviveFor(s: P1State, k: number) {
+  const st = s.dig!.sites[k];
+  const L = digLayout(s.dig!.sector, k)!;
+  st.permit = true;
+  st.depth.fill(L.depth);
+  st.hp.fill(0);
+  st.done = true;
+  if (!reviveSite(s, k)) throw new Error(`revive ${k}`);
+}
 /** 空いた棚に並べる商品：マインちゃんのおすすめ（いま作れるもの） */
 /** 監査で開く復刻品（ユーホタウンの出土品のはじめ。Common の素材だけ） */
 const RELIC_AUDIT = DIG_SITES.c2.finds[0];
@@ -733,6 +747,9 @@ export function items(): Item[] {
   out.push({ id: 'shop_boutique', group: '建物', name: 'ブティック（離れた商圏・店員とアルバイト 1）', expect: ['sell'], apply: shop2('boutique', true, true) });
   out.push({ id: 'warehouse', group: '建物', name: '倉庫', expect: ['buy'], base: 'j_trip', apply: warehouse, note: '往復で運べる量（置き場所）が詰まりのとき' });
   out.push({ id: 'depot', group: '建物', name: '物流拠点（遠いお店の近くに）', expect: ['haul'], apply: depot });
+  // 発掘 v2 の 4 段目：掘りきった荒れ地の復興（住民が増えて需要が上がる）・遺物の展示館
+  out.push({ id: 'revive', group: '建物', name: '荒れ地の復興（掘りきって家 +N・需要 +6%）', expect: ['sell'], apply: (s) => reviveFor(s, 0), note: '荒れ地 1 か所を掘りきった（住宅の絵 2 軒・小道も）' });
+  out.push({ id: 'museum', group: '建物', name: '遺物の展示館', expect: [], apply: () => {}, out: '展示館（tests/island-p1-dungeon.test.ts で確認）' });
   // 宣伝
   for (const a of ADS) out.push({ id: `ad_${a.id}`, group: '宣伝', name: a.name, expect: ['sell'], apply: ad(a.id), note: `${a.days} 日` });
   // 商品

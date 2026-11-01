@@ -408,6 +408,7 @@ function plTable(p: ReturnType<typeof pl>): HTMLElement {
   row(tbl, t('　他店でバイト', '  Part-time work'), l.side, 'is-sub');
   row(tbl, t('　依頼の報酬', '  Request rewards'), l.other, 'is-sub');
   row(tbl, t('　他セクタからの利益', '  From managed sectors'), l.managed, 'is-sub');
+  if (l.museum) row(tbl, t('　展示館の入館料', '  Museum admissions'), l.museum, 'is-sub');
   row(tbl, t('投資・特別な支出', 'Investment & special'), -p.special, 'is-head');
   row(tbl, t('　建物・スキル・設備', '  Buildings, skills, upgrades'), -l.build, 'is-sub');
   row(tbl, t('　通行料・出店許可申請', '  Tolls & permits'), -l.fees, 'is-sub');

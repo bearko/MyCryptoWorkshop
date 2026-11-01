@@ -737,7 +737,7 @@ describe('セーブ：版 3 → 4', () => {
 
   it('ツルハシの新調 1 段 → ツルハシの鍛え直し Lv1、2 段 → Lv3／ランタン → 発掘のランタン Lv1／発破の道具 → 発破 Lv1（払ったお金は戻さない）。設備投資からは外す', () => {
     const a = v3({ pick: 1 });
-    expect(a.v).toBe(5);
+    expect(a.v).toBe(6);
     expect(lvOf(a, 'dig_power')).toBe(1);
     expect(digPower(a)).toBe(2);
     const b = v3({ pick: 2, lantern: 1, blast: 1, tools: 2 });
@@ -776,6 +776,6 @@ describe('セーブ：版 3 → 4', () => {
     expect([researchCap(n), deepLayers(n, 'C')]).toEqual([3, 2]);
     // 版 4 を読み直しても変わらない
     const back = deserializeP1(serializeP1(s))!;
-    expect([back.v, researchCap(back), deepLayers(back, 'C'), lvOf(back, 'dig_power')]).toEqual([5, 5, 3, 0]);
+    expect([back.v, researchCap(back), deepLayers(back, 'C'), lvOf(back, 'dig_power')]).toEqual([6, 5, 3, 0]);
   });
 });

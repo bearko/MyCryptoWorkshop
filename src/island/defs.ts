@@ -214,3 +214,14 @@ export const POLICIES: Policy[] = [
   { id: 'festival', name: t('島のお祭り', 'Island festival'), note: t('月 900 G・支持 +6・移住 +2', '900 G/mo, approval +6, arrivals +2'), cost: 900, boost: { approval: 6, immigration: 2 }, unlock: 150 },
   { id: 'industry', name: t('産業の振興', 'Industry drive'), note: t('月 800 G・会社の売上 +15%・支持 −3', '800 G/mo, industry +15%, approval −3'), cost: 800, boost: { industry: 0.15, approval: -3 }, unlock: 100 },
 ];
+
+/**
+ * フェーズ 1（アイランド）だけの建物：島づくりの一覧（DEFS）には入れない。
+ * 遺物の展示館（発掘 v2 の 4 段目。復興した土地にだけ建てる 2 × 2）。絵はまだ無いので、ホールの絵を流用（ART。docs/ISLAND_ART_TODO.md）
+ */
+DEF.museum = D('museum', t('遺物の展示館', 'Relic museum'), 'culture', { size: 2, jobs: 6, cost: 15000, days: 10, upkeep: 600, appeal: 3 });
+
+/** 絵を流用している建物（id → 絵の id）。PixelLab で作ったら外す */
+export const ART: Record<string, string> = { museum: 'concert_hall' };
+/** 建物の絵の id（流用していればその絵） */
+export const artId = (id: string) => ART[id] ?? id;

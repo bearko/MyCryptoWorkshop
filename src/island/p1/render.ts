@@ -4,12 +4,12 @@
  */
 import { t } from '../../i18n';
 import { drawRef } from '../../render/images';
-import { DEF } from '../defs';
+import { DEF, artId } from '../defs';
 import { center, diamond, drawArt, drawBuilding, drawCell, image, type Camera, type Effect } from '../render';
 import { cells, frontCell, type Dir } from '../sim';
 import { PRODUCT, skuParts, type Sku } from './data';
 import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
-import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
+import { DUNGEON, craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
 import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
 import { standing } from './digview';
 
@@ -122,17 +122,19 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   // 荒れ地（2 × 2）：乾いた土・小石・石垣のかけら・枯れ草。発掘中は杭とロープ（仮の絵。docs/ISLAND_ART_TODO.md）
   const wastes = s.dig ? wasteSpots(s.dig.sector) : [];
   wastes.forEach((sp, k) => {
-    if (visible(sp[0], sp[1]) || visible(sp[0] + 1, sp[1] + 1)) drawWaste(ctx, s, k, sp, now, anim?.wasteGlow === k);
+    if (visible(sp[0], sp[1]) || visible(sp[0] + 1, sp[1] + 1)) drawWaste(ctx, s, k, sp, now, anim?.wasteGlow === k, anim?.revive?.site === k ? anim.revive.t0 : null);
   });
   // 置くとき：置けないマスは暗く、置く場所は緑（置ける）か赤（置けない）
   if (placeable)
     for (let j = 0; j < s.n; j++)
       for (let i = 0; i < s.n; i++) if (!placeable.has(j * s.n + i) && visible(i, j)) diamond(ctx, i, j, 'rgba(14,18,30,0.55)');
 
-  // 置くとき：荒れ地は赤く（発掘許可をもらって掘りきると建てられる）
+  // 置くとき：荒れ地は赤く（発掘許可をもらって掘りきると建てられる。復興した土地は除く。ダンジョンの入り口は赤いまま）
   if (placeable)
-    for (const [i0, j0] of wastes)
+    wastes.forEach(([i0, j0], k) => {
+      if (s.dig?.sites[k]?.revived) return;
       for (let dj = 0; dj < 2; dj++) for (let di = 0; di < 2; di++) if (visible(i0 + di, j0 + dj)) diamond(ctx, i0 + di, j0 + dj, 'rgba(225,60,60,0.42)');
+    });
 
   // 人流解析：お客さんの多い区画を薄い金色に（置けないマスの暗さの上に）
   if (ghost?.hot)
@@ -179,7 +181,12 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
   // 荒れ地の旗（発掘許可あり）：建物と同じく奥から手前へ
   wastes.forEach(([i0, j0], k) => {
     const st = s.dig?.sites[k];
-    if (!st?.permit || st.done || s.digRun?.site === k || !visible(i0, j0)) return;
+    if (!visible(i0, j0)) return;
+    // 復興した土地の「復興」の立て札（建物が建っていなければ）・ダンジョンの入り口の門（仮の絵。docs/ISLAND_ART_TODO.md）
+    const t0 = anim?.revive?.site === k ? anim.revive.t0 : null;
+    if (st?.revived && !s.buildings.some((b) => cells(DEF[b.id], b.i, b.j, b.dir).some(([x, y]) => x >= i0 && y >= j0 && x < i0 + 2 && y < j0 + 2))) items.push({ depth: (i0 + j0) * 1000 + i0 + 0.3, draw: () => reviveSign(ctx, i0, j0, t0, now) });
+    if (s.dig?.dungeon?.site === k) items.push({ depth: (i0 + j0 + 2) * 1000 + i0 + 0.4, draw: () => dungeonGate(ctx, i0, j0, t0, now, s.digRun?.site === DUNGEON) });
+    if (!st?.permit || st.done || s.digRun?.site === k) return;
     items.push({ depth: (i0 + j0) * 1000 + i0 + 0.3, draw: () => wasteFlag(ctx, i0, j0, now) });
   });
   if (ghost) {
@@ -194,7 +201,7 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
           edge(ctx, x, y, ghost.ok ? '#b8ffd0' : '#ffd0d0');
         }
         ctx.globalAlpha = ghost.ok ? 0.8 : 0.5;
-        drawArt(ctx, image(`b/${ghost.id}/${ghost.dir === 'rd' || ghost.dir === 'ld' ? 'rd' : 'lu'}.png`), def, ghost);
+        drawArt(ctx, image(`b/${artId(ghost.id)}/${ghost.dir === 'rd' || ghost.dir === 'ld' ? 'rd' : 'lu'}.png`), def, ghost);
         ctx.globalAlpha = 1;
       },
     });
@@ -412,7 +419,7 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
     const cs = cells(def, b.i, b.j, b.dir).map(([x, y]) => center(x, y));
     const wx = cs.reduce((a, c) => a + c.x, 0) / cs.length;
     const [fi, fj] = frontCell(def, b.i, b.j, b.dir);
-    const im = image(`b/${b.id}/rd.png`);
+    const im = image(`b/${artId(b.id)}/rd.png`);
     const ah = im.naturalHeight || 200;
     // 絵の上端（キャンバスの上の余白を少し差し引く）
     const wy = center(fi, fj).y + 55 - (ah - 31) + 26;
@@ -564,10 +571,23 @@ function digWorker(ctx: CanvasRenderingContext2D, hero: number, i: number, j: nu
  * 荒れ地 1 か所（2 × 2）：ひびの入った乾いた土・小石・崩れた石垣のかけら・枯れ草。
  * 発掘中は杭とロープ、掘りきった後はならした土（4 段目で建てられる土地に）。glow：発掘との出会いで光らせる
  */
-function drawWaste(ctx: CanvasRenderingContext2D, s: P1State, k: number, sp: [number, number], now: number, glow: boolean) {
+function drawWaste(ctx: CanvasRenderingContext2D, s: P1State, k: number, sp: [number, number], now: number, glow: boolean, fx0: number | null = null) {
   const [i, j] = sp;
   const st = s.dig?.sites[k];
   const done = !!st?.done;
+  // 復興した土地：整地された明るい草地（演出のあいだは、ならした土の上に草地がにじみ出る）。ダンジョンの入り口のまわりは踏み固めた石畳
+  const fxk = fx0 == null ? 1 : Math.min(1, Math.max(0, (now - fx0 - 500) / 1400));
+  if (st?.revived || s.dig?.dungeon?.site === k) {
+    const dungeon = s.dig?.dungeon?.site === k;
+    if (fxk < 1) {
+      drawWaste(ctx, { ...s, dig: { ...s.dig!, sites: s.dig!.sites.map((x, n) => (n === k ? { ...x, revived: false } : x)), dungeon: dungeon ? null : s.dig!.dungeon } }, k, sp, now, false);
+      ctx.save();
+      ctx.globalAlpha = fxk;
+    }
+    reviveGround(ctx, i, j, k, dungeon, fxk < 1 ? now : 0);
+    if (fxk < 1) ctx.restore();
+    return;
+  }
   const running = s.digRun?.site === k;
   const r = wasteRng(i * 131 + j * 17 + k * 7 + (s.sector ?? 'c1').charCodeAt(1) * 1009);
   const T = wastePt(i, j, 0, 0);
@@ -695,6 +715,123 @@ function drawWaste(ctx: CanvasRenderingContext2D, s: P1State, k: number, sp: [nu
     ctx.lineWidth = 6;
     ctx.stroke();
   }
+}
+/** 復興した土地の地面（仮の絵。docs/ISLAND_ART_TODO.md）：明るい新しい草地と、ふちの小さな花。ダンジョンの入り口のまわりは石畳 */
+function reviveGround(ctx: CanvasRenderingContext2D, i: number, j: number, k: number, dungeon: boolean, now: number) {
+  const r = wasteRng(i * 131 + j * 17 + k * 7 + 99);
+  const T = wastePt(i, j, 0, 0);
+  const R = wastePt(i, j, 1, 0);
+  const B = wastePt(i, j, 1, 1);
+  const L = wastePt(i, j, 0, 1);
+  ctx.beginPath();
+  [T, R, B, L].forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.fillStyle = dungeon ? '#77706a' : '#86c25a';
+  ctx.fill();
+  if (dungeon) {
+    // 石畳：明るい石と暗い目地
+    for (let u = 0; u < 6; u++)
+      for (let v = 0; v < 6; v++) {
+        const p = wastePt(i, j, (u + 0.5) / 6, (v + 0.5) / 6);
+        ctx.fillStyle = (u + v) % 2 ? '#8d867e' : '#69625b';
+        ctx.fillRect(Math.round(p.x - 14), Math.round(p.y - 5), 28, 10);
+      }
+  } else {
+    // 草のむらと、刈りそろえた筋・小さな花
+    for (let n = 0; n < 16; n++) {
+      const p = wastePt(i, j, 0.08 + r() * 0.84, 0.08 + r() * 0.84);
+      ctx.fillStyle = n % 2 ? 'rgba(170,230,110,0.45)' : 'rgba(70,140,50,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, 18 + r() * 26, 7 + r() * 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let n = 0; n < 10; n++) {
+      const p = wastePt(i, j, 0.06 + r() * 0.88, 0.06 + r() * 0.88);
+      ctx.fillStyle = n % 3 === 0 ? '#ffe28a' : n % 3 === 1 ? '#ffffff' : '#ff9fb8';
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
+    }
+  }
+  // 演出：きらきら（草地が広がるあいだ）
+  if (now) {
+    for (let n = 0; n < 8; n++) {
+      const p = wastePt(i, j, 0.15 + ((n * 37) % 70) / 100, 0.15 + ((n * 53) % 70) / 100);
+      const a = 0.5 + 0.5 * Math.sin(now / 120 + n);
+      ctx.fillStyle = `rgba(255,250,200,${a.toFixed(2)})`;
+      ctx.fillRect(Math.round(p.x - 2), Math.round(p.y - 12 - a * 8), 4, 4);
+    }
+  }
+}
+/** 「復興」の立て札（仮の絵）：木の杭と板・緑の文字の帯 */
+function reviveSign(ctx: CanvasRenderingContext2D, i: number, j: number, t0: number | null, now: number) {
+  const p = wastePt(i, j, 0.3, 0.3);
+  const rise = t0 == null ? 1 : Math.min(1, Math.max(0, (now - t0 - 1200) / 500));
+  if (rise <= 0) return;
+  const y = p.y - 40 * rise;
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(Math.round(p.x - 2), Math.round(y), 4, Math.round(40 * rise) + 2);
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(Math.round(p.x - 24), Math.round(y - 24), 48, 26);
+  ctx.fillStyle = '#e8c88a';
+  ctx.fillRect(Math.round(p.x - 22), Math.round(y - 22), 44, 22);
+  ctx.fillStyle = '#4c9a3a';
+  ctx.fillRect(Math.round(p.x - 22), Math.round(y - 22), 44, 6);
+  ctx.fillStyle = '#5a3a1a';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(t('復興', 'Revived'), p.x, y - 5);
+}
+/** ダンジョンの入り口（仮の絵）：石の門と、地下へ続く暗い階段。潜っているあいだは奥が光る */
+function dungeonGate(ctx: CanvasRenderingContext2D, i: number, j: number, t0: number | null, now: number, inside: boolean) {
+  const c = wastePt(i, j, 0.5, 0.5);
+  const rise = t0 == null ? 1 : Math.min(1, Math.max(0, (now - t0 - 800) / 900));
+  if (rise <= 0) return;
+  const h0 = 70 * rise;
+  // 階段の穴（暗い菱形）
+  const hole = [wastePt(i, j, 0.25, 0.3), wastePt(i, j, 0.75, 0.3), wastePt(i, j, 0.75, 0.7), wastePt(i, j, 0.25, 0.7)];
+  ctx.beginPath();
+  hole.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.fillStyle = '#120e18';
+  ctx.fill();
+  // 段（だんだん暗く）
+  for (let n = 0; n < 4; n++) {
+    const a = wastePt(i, j, 0.3, 0.36 + n * 0.08);
+    const b = wastePt(i, j, 0.7, 0.36 + n * 0.08);
+    ctx.strokeStyle = `rgba(150,140,130,${(0.7 - n * 0.15).toFixed(2)})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  if (inside) {
+    const a = 0.35 + 0.25 * Math.sin(now / 200);
+    ctx.fillStyle = `rgba(255,200,90,${a.toFixed(2)})`;
+    ctx.fillRect(Math.round(c.x - 10), Math.round(c.y - 4), 20, 8);
+  }
+  // 古い門（左右の柱と上の横石）
+  const lp = wastePt(i, j, 0.2, 0.75);
+  const rp = wastePt(i, j, 0.8, 0.25);
+  for (const p of [lp, rp]) {
+    ctx.fillStyle = '#2a2622';
+    ctx.fillRect(Math.round(p.x - 9), Math.round(p.y - h0), 18, Math.round(h0));
+    ctx.fillStyle = '#8a8178';
+    ctx.fillRect(Math.round(p.x - 7), Math.round(p.y - h0 + 2), 14, Math.round(h0 - 2));
+    ctx.fillStyle = '#a9a096';
+    ctx.fillRect(Math.round(p.x - 7), Math.round(p.y - h0 + 2), 4, Math.round(h0 - 2));
+  }
+  ctx.strokeStyle = '#2a2622';
+  ctx.lineWidth = 16;
+  ctx.beginPath();
+  ctx.moveTo(lp.x - 12, lp.y - h0);
+  ctx.lineTo(rp.x + 12, rp.y - h0);
+  ctx.stroke();
+  ctx.strokeStyle = '#8a8178';
+  ctx.lineWidth = 11;
+  ctx.beginPath();
+  ctx.moveTo(lp.x - 10, lp.y - h0);
+  ctx.lineTo(rp.x + 10, rp.y - h0);
+  ctx.stroke();
 }
 /** 発掘許可の小さな旗（荒れ地の奥の角） */
 function wasteFlag(ctx: CanvasRenderingContext2D, i: number, j: number, now: number) {

@@ -3,7 +3,7 @@
  * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「発掘場の画面」「研究ノート」。
  */
 import { t } from '../../i18n';
-import { DIG, DIG_AUTO, DIG_BALANCE, DIG_PANELS, DIG_SITES, relicOf, RESEARCH_NEED, SKILL, TABLETS, levelCost, maxLv, type Skill, type Tablet } from './data';
+import { DIG, DIG_AUTO, DIG_BALANCE, DIG_PANELS, DIG_SITES, DUNGEON_FINDS, relicOf, RESEARCH_NEED, SKILL, TABLETS, levelCost, maxLv, type Skill, type Tablet, type Tier } from './data';
 import { sectorDef } from './company';
 import {
   autoRate,
@@ -38,7 +38,12 @@ import {
   speed,
   topicProgress,
   siteProgress,
-  wasteName,
+  depthLimit,
+  dungeonDepth,
+  extRank,
+  layersOf,
+  siteName,
+  siteState,
   type DigErr,
   type DigGot,
   type DigHit,
@@ -69,9 +74,9 @@ export interface CellView {
 export function cellView(s: P1State, x: number, y: number): CellView {
   const L = digSite(s)!;
   const k = y * L.w + x;
-  const st = s.dig!.sites[L.site];
+  const st = siteState(s, L.site)!;
   const d = st.depth[k];
-  const layers = DIG[L.tier].layers;
+  const layers = layersOf(L);
   if (d >= L.depth) return { x, y, layer: d, state: 'dug', crack: 0, taps: 0, peek: null, color: layers[L.depth - 1].color };
   const left = st.hp[k];
   const hard = L.cells[k].hard[d];
@@ -82,8 +87,8 @@ export function cellView(s: P1State, x: number, y: number): CellView {
 export function lockedLayer(s: P1State): number | null {
   const L = digSite(s);
   if (!L) return null;
-  const n = deepLayers(s, L.tier);
-  return n < DIG[L.tier].layers.length ? n : null;
+  const n = depthLimit(s, L);
+  return n < layersOf(L).length ? n : null;
 }
 /**
  * 壁に、ひびの隙間から形が分かるほど（40% 以上）見えているマスがある（初めての覗き見のマインちゃんの一言）。
@@ -113,8 +118,8 @@ export interface DigSpec {
 export function digSpec(s: P1State): DigSpec | null {
   const L = digSite(s);
   if (!L) return null;
-  const layers = DIG[L.tier].layers;
-  return { sec: sessionSec(s), power: digPower(s), deep: layers[Math.min(layers.length, deepLayers(s, L.tier)) - 1].name, cap: researchCap(s) };
+  const layers = layersOf(L);
+  return { sec: sessionSec(s), power: digPower(s), deep: layers[Math.min(layers.length, depthLimit(s, L)) - 1].name, cap: researchCap(s) };
 }
 export const digSpecText = (x: DigSpec): string[] => [t(`⏱ ${x.sec} 秒`, `⏱ ${x.sec} s`), t(`⛏ 1 打 ${x.power}`, `⛏ Power ${x.power}`), t(`${x.deep}まで`, `to ${x.deep}`), t(`研究 Lv 上限 ${x.cap}`, `Research cap Lv${x.cap}`)];
 /** ロープの札 */
@@ -217,22 +222,25 @@ export interface DigStatus {
   topics: [number, number];
   /** SCM のいちばん細い段（お店が無ければ null） */
   jam: Stage | null;
+  /** ダンジョン：この作業でいちばん深くはがした層・最深記録・掘れる層の数・層の数 */
+  dungeon?: { deep: number; best: number; limit: number; all: number };
 }
 export function digStatus(s: P1State): DigStatus | null {
   const L = digSite(s);
   if (!L || !s.dig) return null;
   const d = date(s);
   return {
-    name: wasteName(L.sector, L.site),
+    name: siteName(s, L.site),
     date: d ? t(`${d.year} 年目 ${d.month} 月 ${d.day} 日`, `Y${d.year} M${d.month} D${d.day}`) : t(`開業準備 ${s.day + 1} 日目`, `Prep day ${s.day + 1}`),
     sales: monthRevenue(s),
     pct: Math.round(siteProgress(s, L.site) * 100),
     rp: s.rp ?? 0,
     found: s.digRun?.got.found ?? 0,
     lvUp: s.digRun?.got.lv ?? 0,
-    layer: DIG[L.tier].layers[digDepthLayer(s)].name,
+    layer: layersOf(L)[digDepthLayer(s)].name,
     topics: topicProgress(s),
     jam: myShops(s).length ? jamOf(s) : null,
+    ...(L.dungeon && s.dig.dungeon ? { dungeon: { deep: s.digRun ? (s.digRun.deep ?? 0) : (s.dig.dungeon.last ?? 0), best: s.dig.dungeon.best, limit: dungeonDepth(s), all: L.depth } } : {}),
   };
 }
 
@@ -296,8 +304,8 @@ export function digBlock(s: P1State): DigErr | null {
  * chip（打っただけ）→ crumble（1 枚はがれた）→ mat（素材）→ ext（エクステ。画面の中央に出て研究ノートへ吸い込まれる）→ tablet（石板の小さな窓）→
  * epic（Epic 以上の大きな遺物（2 × 2）。画面全体）→ topic（お題。画面全体）
  */
-export type DigFx = 'chip' | 'crumble' | 'mat' | 'ext' | 'tablet' | 'epic' | 'topic';
-const FX_ORDER: DigFx[] = ['chip', 'crumble', 'mat', 'ext', 'tablet', 'epic', 'topic'];
+export type DigFx = 'chip' | 'crumble' | 'mat' | 'ext' | 'rare' | 'tablet' | 'epic' | 'topic';
+const FX_ORDER: DigFx[] = ['chip', 'crumble', 'mat', 'ext', 'rare', 'tablet', 'epic', 'topic'];
 export function fxOf(hit: DigHit): DigFx {
   if (!hit.broke) return 'chip';
   const it = hit.item;
@@ -305,7 +313,9 @@ export function fxOf(hit: DigHit): DigFx {
   if (it.kind === 'mat') return 'mat';
   if (it.kind === 'tablet') return 'tablet';
   if (it.topic) return 'topic';
-  return hit.span && hit.span.w * hit.span.h > 1 ? 'epic' : 'ext';
+  if (hit.span && hit.span.w * hit.span.h > 1) return 'epic';
+  // ダンジョンの奥の Rare：中くらいの演出（Epic 以上は 2 × 2 で画面全体）
+  return extRank(it.id) === 'R' ? 'rare' : 'ext';
 }
 /** いくつかのマスを一度に崩したとき（発破）：いちばん大きい演出 */
 export const biggestFx = (hits: DigHit[]): DigFx => hits.map(fxOf).reduce<DigFx>((a, b) => (FX_ORDER.indexOf(b) > FX_ORDER.indexOf(a) ? b : a), 'chip');
@@ -356,11 +366,28 @@ export function noteTabs(s: P1State): NoteTab[] {
   const mine = s.land?.mine ?? [cur];
   const ids = Object.keys(DIG_SITES);
   const rank = (id: string) => (id === cur ? 0 : mine.includes(id) ? 1 : 2);
-  return ids
+  const out = ids
     .map((id, k) => ({ id, k }))
     .sort((a, b) => rank(a.id) - rank(b.id) || a.k - b.k)
     .map(({ id }) => ({ id, name: sectorDef(id).name, here: id === cur, visited: id === cur || mine.includes(id) }));
+  // ダンジョン（どこかのセクタで入り口が見つかったら）：見つかったセクタのダンジョンの奥の出土品をまとめて
+  if (s.dungeons?.length) out.push({ id: DUNGEON_TAB, name: t('⛏ ダンジョン', '⛏ Dungeons'), here: false, visited: true });
+  return out;
 }
+/** 研究ノートの「ダンジョン」のタブの id */
+export const DUNGEON_TAB = 'dungeon';
+/** ダンジョンの奥の出土品（入り口が見つかったセクタごと・上のランクごと。見つけたか・研究 Lv） */
+export function dungeonNotes(s: P1State): { sector: string; name: string; here: boolean; best: number | null; ranks: { tier: Tier; items: NoteEntry[] }[] }[] {
+  return (s.dungeons ?? []).map((sector) => {
+    const pools = DUNGEON_FINDS[sector] ?? {};
+    const one = (id: number): NoteEntry => ({ id, name: extName(id), topic: false, n: Math.floor(s.research?.[id] ?? 0), lv: researchOf(s, id), left: researchLeft(s, id), capped: researchCapped(s, id) });
+    const ranks = (Object.keys(pools) as Tier[]).map((tier) => ({ tier, items: (pools[tier] ?? []).map(one) }));
+    const here = sector === (s.sector ?? 'c1') && !!s.dig?.dungeon;
+    return { sector, name: sectorDef(sector).name, here, best: here ? s.dig!.dungeon!.best : null, ranks };
+  });
+}
+/** Rare 以上の遺物は、まだ復刻品にしない（研究ノートの注記） */
+export const RARE_RELIC_NOTE = () => t('Rare 以上の復刻は、Rare の町が開いてから。いまは遺物の展示館で飾ると価値が大きい。', 'Rare-and-up revivals come once the Rare towns open. For now they are worth a lot in the relic museum.');
 
 /** 研究ノートの 1 行（エクステ） */
 export interface NoteEntry {
@@ -384,6 +411,8 @@ export function noteEntries(s: P1State, sector: string): NoteEntry[] {
 }
 /** 研究ノートの復刻品の 1 行（研究 Lv3 で開く／開いた）。復刻品の無い遺物は null。[文, 開いた] */
 export function relicLine(e: Pick<NoteEntry, 'id' | 'lv'>): [string, boolean] | null {
+  const rk = extRank(e.id);
+  if (rk === 'R' || rk === 'E' || rk === 'L') return [t('復刻は Rare の町が開いてから', 'Revival once Rare towns open'), false];
   if (!relicOf(e.id)) return null;
   return e.lv >= DIG_BALANCE.relic.openLv ? [t('復刻品：作れる', 'Revival: can make'), true] : [t(`Lv${DIG_BALANCE.relic.openLv} で復刻品のレシピ`, `Revival recipe at Lv${DIG_BALANCE.relic.openLv}`), false];
 }

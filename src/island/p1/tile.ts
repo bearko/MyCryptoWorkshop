@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { permitFee, permitLock, presentLock, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { DUNGEON, dungeonDepth, museumMarks, museumOpen, museumSlots, museumValue, revivedSites, permitFee, permitLock, presentLock, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
@@ -33,6 +33,8 @@ export interface TileHooks {
   notes?: () => void;
   /** 町の長に研究成果を発表する */
   present?: () => void;
+  /** 遺物の展示館の展示の画面を開く */
+  museum?: () => void;
 }
 
 const DESC: Record<string, string> = {
@@ -47,6 +49,7 @@ const DESC: Record<string, string> = {
   station: t('列車が止まる駅。人の行き来がいちばん多く、駅の近くのお店にはお客さんがたくさん来ます。', 'The train station, the busiest spot in the area.'),
   park: t('住民の憩いの場。休日は家族連れでにぎわいます。', 'Where residents relax. Busy with families on holidays.'),
   police: t('エリアの安全を守る交番。', 'The police box that keeps the area safe.'),
+  museum: t('復興した町に、昔の Lime を伝える館。掘った遺物を飾ると、毎月お客さんが見に来て入館料が入ります。展示の価値が節目を超えるたびに、会社のブランド力と新商品の認知の上がり方が恒久に上がります。', 'A hall that tells of old Lime in the revived town. Display your relics and visitors pay to see them every month. Each value milestone permanently raises your brand and how fast new items become known.'),
   logistics: t('工房からトラックの定期便で商品を運び、近くのお店へ荷車で届ける物流拠点。工房から遠いお店の便が速くなります。', 'A hub: a truck shuttles goods here from the workshop, and carts deliver to nearby shops. Speeds up runs to far shops.'),
 };
 const HOME = t('エリアの住民が暮らす家。住民は近いお店ほどよく行きます（集合住宅は人が多い）。', 'Homes of the area’s residents. They shop at nearby stores (apartments hold more people).');
@@ -126,12 +129,14 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
 
 /**
  * 荒れ地（未開拓エリア）の吹き出し：名前・許可の有無・掘った割合・お題の気配・ボタン
- * （許可が無い：📜 発掘許可を申請する／許可がある：⛏ 発掘する（15 秒）・📖 研究ノート／掘りきった：復興は近日）。
+ * （許可が無い：📜 発掘許可を申請する／許可がある：⛏ 発掘する（15 秒）・📖 研究ノート／掘りきった：復興した土地・ダンジョンの入り口は別の吹き出し）。
  * 発掘との出会いの前は「まだ発掘許可がない」だけ（チュートリアルの案内の邪魔をしない）
  */
-function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): HTMLElement {
+function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks, at: [number, number]): HTMLElement {
   const st = s.dig!.sites[k];
   const met = digMet(s);
+  if (s.dig?.dungeon?.site === k) return dungeonPop(s, body, hooks);
+  if (st.revived) return revivedPop(s, k, body, hooks, at);
   const state = st.done ? t('掘りきった', 'Fully dug') : st.permit ? t('発掘許可あり', 'Permit granted') : t('発掘許可なし', 'No permit');
   body.append(meta([[t('所有者', 'Owner'), t('Lime の国', 'Kingdom of Lime')], [t('状態', 'Status'), state]]));
   body.append(h('p', '', t('Lime が復興を進めている荒れ地。国の発掘許可をもらって掘りきると、建物を建てられるようになる。栄えていた頃の Lime の遺物が眠っている。', 'A wasteland Lime is reviving. Dig it out with a national permit and it becomes buildable. Relics of Lime’s golden age lie beneath.')));
@@ -149,7 +154,7 @@ function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): H
   body.append(grid);
   const acts = h('div', 'isl-row isl-pop-acts');
   if (st.done) {
-    const b = btn(t('掘りきった（復興は近日）', 'Fully dug (revival coming soon)'), () => undefined);
+    const b = btn(t('掘りきった', 'Fully dug'), () => undefined);
     b.disabled = true;
     acts.append(b);
   } else if (!st.permit) {
@@ -175,6 +180,55 @@ function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): H
     if (s.monthPause) body.append(h('small', 'isl-warn', t('発掘を始めると、次の月が始まるよ（作業のあいだは時間が流れる）。', 'Digging starts the next month (time flows while you dig).')));
   }
   body.append(acts);
+  return body;
+}
+
+/** 復興した土地：建物を建てられる（遺物の展示館はここにだけ）・増えた家 */
+function revivedPop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks, at: [number, number]): HTMLElement {
+  const st = s.dig!.sites[k];
+  body.append(meta([[t('所有者', 'Owner'), t('売り地', 'For sale')], [t('状態', 'Status'), t('🌱 復興した土地', '🌱 Revived land')]]));
+  body.append(h('p', '', t('荒れ地を掘りきって整地した、新しい土地。建物を建てられる（遺物の展示館はここにだけ）。まわりに住む人も増えた。', 'Fresh land, dug out and leveled from the wasteland. You can build here (the relic museum only goes on such land). More people now live nearby.')));
+  const grid = h('div', 'isl-pop-grid');
+  stat(grid, t('増えた家', 'New homes'), t(`+${st.homes ?? 0} 軒`, `+${st.homes ?? 0}`), 'isl-good');
+  stat(grid, t('復興', 'Revived'), t(`${revivedSites(s).length} / ${s.dig!.sites.length}`, `${revivedSites(s).length} / ${s.dig!.sites.length}`));
+  body.append(grid);
+  const row = h('div', 'isl-row isl-pop-acts');
+  row.append(btn(t('ここに建てる', 'Build here'), () => hooks.buildHere(at[0], at[1]), 'is-on'));
+  body.append(row);
+  if (!(st.path ?? []).length) body.append(h('small', 'isl-warn', t('まわりが建物でふさがっていて、道路への小道が通っていない。', 'Buildings block the way, so no path to the road could be laid.')));
+  return body;
+}
+/** ダンジョンの入り口：潜る（発掘作業）・最深記録・入った回数・このダンジョンで見つけたもの。許可は要らない */
+function dungeonPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
+  const dg = s.dig!.dungeon!;
+  body.append(meta([[t('所有者', 'Owner'), t('Lime の国', 'Kingdom of Lime')], [t('状態', 'Status'), t('入るたびに中が変わる', 'Changes every visit')]]));
+  body.append(h('p', '', t('荒れ地の底で見つかった、古い地下の遺跡。そのセクタの出土品が無尽蔵に掘れて、入るたびに元に戻る。奥深くからは、本来このセクタでは手に入らない遺物も…。', 'Old underground ruins found beneath the wasteland. This sector’s finds never run out and the walls reset every visit. Deep inside lie relics not normally found here…')));
+  const grid = h('div', 'isl-pop-grid');
+  stat(grid, t('最深記録', 'Deepest'), t(`最深 ${dg.best} 層`, `Layer ${dg.best}`), 'isl-gold');
+  stat(grid, t('掘れる層', 'Can dig'), t(`${dungeonDepth(s)} / 6 層（深い層の許可）`, `${dungeonDepth(s)} / 6 (deep-layer permit)`));
+  stat(grid, t('入った回数', 'Visits'), t(`${dg.runs} 回`, `${dg.runs}`));
+  body.append(grid);
+  if (dg.found.length) {
+    const got = h('div', 'isl-pop-topics');
+    got.append(h('small', 'isl-dim', t('このダンジョンで見つけたもの', 'Found in this dungeon')));
+    const row = h('div', 'isl-row');
+    for (const id of dg.found.slice(-12)) {
+      const ic = extIcon(id, 32);
+      ic.title = extName(id);
+      row.append(ic);
+    }
+    got.append(row);
+    body.append(got);
+  }
+  const acts = h('div', 'isl-row isl-pop-acts');
+  const sec = sessionSec(s);
+  const go = btn(t(`⛏ ダンジョンに潜る（${sec} 秒）`, `⛏ Dive into the dungeon (${sec} s)`), () => hooks.dig?.(DUNGEON), 'isl-pop-dig is-on');
+  go.disabled = runLock(s, DUNGEON) !== null;
+  acts.append(go);
+  if (hooks.notes) acts.append(btn(t('📖 研究ノート', '📖 Notebook'), () => hooks.notes?.()));
+  body.append(acts);
+  if (dungeonDepth(s) < 6) body.append(h('small', 'isl-dim', t('もっと奥は「深い層の許可」の Lv4・5 で掘れる（スキル → 発掘）。', 'Deeper layers open at Deep-layer permit Lv4 and Lv5 (Skills → Digging).')));
+  if (s.monthPause) body.append(h('small', 'isl-warn', t('潜ると、次の月が始まるよ（作業のあいだは時間が流れる）。', 'Diving starts the next month (time flows while you dig).')));
   return body;
 }
 
@@ -206,7 +260,7 @@ function gate(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement {
 
 function empty(s: P1State, i: number, j: number, body: HTMLElement, hooks: TileHooks) {
   const wk = wasteAt(s, i, j);
-  if (wk >= 0 && s.dig) return { title: wasteName(s.dig.sector, wk), body: wastePop(s, wk, body, hooks) };
+  if (wk >= 0 && s.dig) return { title: s.dig.dungeon?.site === wk ? t('ダンジョンの入り口', 'Dungeon entrance') : s.dig.sites[wk]?.revived ? t(`${wasteName(s.dig.sector, wk)}（復興）`, `${wasteName(s.dig.sector, wk)} (revived)`) : wasteName(s.dig.sector, wk), body: wastePop(s, wk, body, hooks, [i, j]) };
   const g = ground(s, i, j);
   if (g === 'road') {
     body.append(meta([[t('所有者', 'Owner'), t('エリアの自治体', 'Local government')]]), h('p', '', t('荷車やお客さんが通る道路。建物の入口は道路の方に向けます。', 'A road for carts and shoppers. Entrances must face a road.')));
@@ -289,6 +343,14 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
     stat(grid, t('置き場所（全体）', 'Storage (total)'), t(`${poolUsed(s)} / ${poolCap(s)} 個`, `${poolUsed(s)} / ${poolCap(s)}`), 'is-wide');
     stat(grid, t('この倉庫', 'This warehouse'), t(`${STORE.warehouse + 100 * invLv(b, 'rack')} 個`, `${STORE.warehouse + 100 * invLv(b, 'rack')}`), 'is-wide');
     body.append(grid);
+  } else if (kind === 'museum') {
+    // 遺物の展示館：展示の数・価値・先月の来館と入館料・次の節目
+    const mk = museumMarks(s);
+    stat(grid, t('展示', 'Exhibits'), t(`${(s.museum?.items ?? []).filter((x) => x != null).length} / ${museumSlots(s)} 枠`, `${(s.museum?.items ?? []).filter((x) => x != null).length} / ${museumSlots(s)}`));
+    stat(grid, t('展示の価値', 'Exhibit value'), `${museumValue(s)}`, 'isl-gold');
+    stat(grid, t('先月の来館', 'Last month'), s.museum?.last ? t(`${s.museum.last.visitors} 人・${money(s.museum.last.income)}`, `${s.museum.last.visitors} · ${money(s.museum.last.income)}`) : '—');
+    stat(grid, t('次の節目', 'Next milestone'), mk.next != null ? t(`${mk.next}（あと ${mk.left}）`, `${mk.next} (${mk.left} to go)`) : t('すべて達成', 'All reached'));
+    body.append(grid);
   } else if (kind === 'workshop') {
     stat(grid, t('作業台', 'Benches'), `${s.slots.length}`);
     stat(grid, t('動いている作業台', 'Working'), `${s.slots.filter((x) => x.running).length}`);
@@ -302,6 +364,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
 
   const acts = h('div', 'isl-row isl-pop-acts');
   if (kind === 'warehouse') acts.append(btn(t('調達を開く', 'Open buying'), () => openBuy(ctx), 'is-on'));
+  else if (kind === 'museum') acts.append(btn(t('🏛 展示を見る', '🏛 View exhibits'), () => hooks.museum?.(), `is-on ${museumOpen(s) && !(s.museum?.items ?? []).some((x) => x != null) ? 'is-guide' : ''}`));
   else {
     // チュートリアル：建物の中の画面は、ここから開くと覚えてもらう
     const step = ctx.step?.();
@@ -328,7 +391,7 @@ function mine(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTML
       }, 'is-danger'),
     );
   body.append(acts, h('small', 'isl-dim', t(`移転すると約 ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} 日休業します。在庫と設備はそのままです。`, `Moving closes it for about ${Math.max(1, Math.ceil((P1B[b.id]?.days ?? 2) / 2))} days; stock and upgrades stay.`)));
-  if (kind === 'shop' || kind === 'workshop' || kind === 'warehouse') body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
+  if (kind === 'shop' || kind === 'workshop' || kind === 'warehouse' || kind === 'museum') body.append(h('h4', '', t('設備投資', 'Capital investment')), investList(ctx, b, hooks.redraw));
   return body;
 }
 

@@ -235,6 +235,24 @@ export function digReportText(d: { found: number; lv: number; rp: number }): [st
   return [t(`新発見 ${d.found}・研究 Lv ↑ ${d.lv}・RP +${d.rp}`, `New ${d.found} · Research Lv ↑ ${d.lv} · RP +${d.rp}`), t(`新発見 ${d.found}・Lv ↑ ${d.lv}・RP +${d.rp}`, `New ${d.found} · Lv ↑ ${d.lv} · RP +${d.rp}`)];
 }
 
+/**
+ * 月次報告・まとめ報告の 1 行（発掘 v2 の 4 段目）：「🌱 復興 N / 4」（ダンジョンが見つかっていれば「・ダンジョン」）と「🏛 展示館：来館 N 人・収入 N G」。
+ * どちらも無ければ null。[長い版, スマホの短い版]
+ */
+export function reviveReportText(r: Pick<Report, 'revive' | 'museum'>): [string, string] | null {
+  const long: string[] = [];
+  const short: string[] = [];
+  if (r.revive && r.revive.done > 0) {
+    long.push(t(`🌱 復興 ${r.revive.done} / ${r.revive.all}${r.revive.dungeon ? '（4 か所目はダンジョン）' : ''}`, `🌱 Revived ${r.revive.done} / ${r.revive.all}${r.revive.dungeon ? ' (4th: dungeon)' : ''}`));
+    short.push(t(`🌱 復興 ${r.revive.done}/${r.revive.all}`, `🌱 Revived ${r.revive.done}/${r.revive.all}`));
+  }
+  if (r.museum) {
+    long.push(t(`🏛 展示館：来館 ${r.museum.visitors.toLocaleString('en-US')} 人・収入 ${r.museum.income.toLocaleString('en-US')} G`, `🏛 Museum: ${r.museum.visitors.toLocaleString('en-US')} visitors · ${r.museum.income.toLocaleString('en-US')} G`));
+    short.push(t(`🏛 展示館 ${r.museum.visitors.toLocaleString('en-US')} 人・${r.museum.income.toLocaleString('en-US')} G`, `🏛 Museum ${r.museum.visitors.toLocaleString('en-US')} · ${r.museum.income.toLocaleString('en-US')} G`));
+  }
+  return long.length ? [long.join(t('　', ' · ')), short.join(t('・', ' · '))] : null;
+}
+
 // ---------------------------------------------------------------- 発掘作業のまとめ報告（作業のあいだに締めた月）
 
 /** 通算の月 → 年目と月 */
@@ -261,6 +279,9 @@ export interface DigSummary {
   relic: number;
   /** 最新の月の報告（「くわしい報告を見る」・詰まり） */
   latest: Report;
+  /** 復興（最新の月）と、期間の展示館の来館・収入の合計（無ければ無い） */
+  revive?: Report['revive'];
+  museum?: { visitors: number; income: number; value: number };
 }
 /** 発掘作業のあいだに締めた月（held。古い順・1 か月以上）をまとめる（純粋な関数） */
 export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: DigGot): DigSummary {
@@ -287,5 +308,7 @@ export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: Dig
     conquered: held.some((r) => (r.streak ?? 0) >= TOP_STREAK),
     relic: held.reduce((v, r) => v + (r.relic ?? 0), 0),
     latest,
+    ...(latest.revive ? { revive: latest.revive } : {}),
+    ...(held.some((r) => r.museum) ? { museum: { visitors: held.reduce((v, r) => v + (r.museum?.visitors ?? 0), 0), income: held.reduce((v, r) => v + (r.museum?.income ?? 0), 0), value: latest.museum?.value ?? 0 } } : {}),
   };
 }
