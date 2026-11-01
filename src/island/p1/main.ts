@@ -119,7 +119,7 @@ import { openSide } from './side';
 import { IslandSfx } from './sfx';
 import { tileContent } from './tile';
 import { closeDig, digOpen, digRect, extIcon, openDig, openNotes, refreshDig, refreshTimer, showEndCard } from './digui';
-import { MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
+import { BRANCH_TIP, MEET_FOUND, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage, type DigTip } from './digmeet';
 import { openBooks, openBrand, openLand, startMove } from './landui';
 import { brandAdd, sectorDef, sectorState, tierLabel } from './company';
 import { camShift, enteredSector, gridDelta, layerOf, needLine, sectorBadges, switchSector, type SectorBadge } from './world';
@@ -1191,6 +1191,7 @@ function startDig(k: number) {
     sfx.play('error');
     if (r === 'no-permit') toast(t('この荒れ地は、まだ発掘許可がありません', 'No dig permit for this wasteland yet'));
     else if (r === 'done') toast(t('この荒れ地は掘りきった（復興は近日）', 'This wasteland is fully dug (revival coming soon)'));
+    else if (r === 'deep') toast(t('ここから下は深い層の許可が要る（スキル → 発掘の「深い層の許可」）', 'Deeper layers need a permit (Skills → Digging: Deep-layer permit)'));
     return;
   }
   if (wasPause) toast(t('発掘を始めたので、次の月が始まったよ', 'Digging started the next month'));
@@ -1218,6 +1219,14 @@ function openDigPanel() {
     make: (key) => makeRelic(key),
     // 発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる
     noEnd: () => s.flags.digMeet === 'open',
+    // 発掘終了の札の「次の強化のおすすめ」・作業の外のロープ：スキルツリーのそのパネルへ（出会いの途中は、出会いの流れを優先）
+    skill: s.flags.digMeet === 'done' ? (id) => openSkills(ctx, id) : undefined,
+    deepTip: () => {
+      if (s.flags.digDeepTip) return false;
+      s.flags.digDeepTip = true;
+      save();
+      return true;
+    },
   });
   renderAll();
   const m = s.dig ? wasteMid(s.dig.cur) : null;
@@ -2631,6 +2640,15 @@ function tutorial(): { text: string; action?: [string, () => void] } {
 /** 発掘の助言のボタン */
 function digAct(x: DigTip): [string, () => void] {
   if (x.key === 'present') return [t('町の長の家へ', 'To the town head'), () => showChief()];
+  if (x.key === 'branch')
+    return [
+      t('発掘の枝を見る', 'View Digging branch'),
+      () => {
+        s.flags.digBranch = 'seen';
+        save();
+        openSkills(ctx, 'dig_ext');
+      },
+    ];
   if (x.key === 'letter') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
   if (x.key === 'permit') return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? 0)];
   if (x.key === 'relic')
@@ -2663,6 +2681,11 @@ function renderAdvisor() {
   p.append(rich(tip.text));
   p.addEventListener('click', () => {
     hiddenTip = tip.text;
+    // 発掘の枝の一言（1 回だけ）：閉じたら出し終えた
+    if (tip.text === BRANCH_TIP() && s.flags.digBranch === 'new') {
+      s.flags.digBranch = 'seen';
+      save();
+    }
     advisor.hidden = true;
   });
   bubbleBox.replaceChildren(p);

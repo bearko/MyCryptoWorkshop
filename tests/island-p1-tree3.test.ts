@@ -132,12 +132,14 @@ describe('汎用の効き目（fx）', () => {
 
 describe('外周のボリューム（Uncommon 以降）', () => {
   it('各ランクの外周は 52〜60 枚（大きめの研究パネルを除く）、大きめの研究パネル（以前の ✨）は枝ごとに 1 枚。効果はすべて fx か既存の効き目', () => {
+    // 発掘の枝（9 本目。お金パネルだけ・大きめの研究パネルなし）は別に数える（tests/island-p1-dig2b.test.ts）
+    const BR = BRANCHES.filter((b) => b.key !== 'dig');
     for (const tier of ['U', 'R', 'E', 'L'] as const) {
-      const all = SKILLS.filter((k) => k.tier === tier);
+      const all = SKILLS.filter((k) => k.tier === tier && k.branch !== 'dig');
       const n = all.filter((k) => !k.big).length;
       expect(n, tier).toBeGreaterThanOrEqual(52);
       expect(n, tier).toBeLessThanOrEqual(60);
-      for (const b of BRANCHES) expect(all.filter((k) => k.big && k.branch === b.key), `${tier} ${b.key}`).toHaveLength(1);
+      for (const b of BR) expect(all.filter((k) => k.big && k.branch === b.key), `${tier} ${b.key}`).toHaveLength(1);
     }
   });
 
@@ -155,7 +157,8 @@ describe('外周のボリューム（Uncommon 以降）', () => {
 
   it('新しいパネルの値段はランクの範囲（U 15,000〜60,000・R 60,000〜250,000・E 250,000〜1,000,000・L 1,000,000〜4,000,000）', () => {
     const R = { U: [15000, 60000], R: [60000, 250000], E: [250000, 1000000], L: [1000000, 4000000] } as const;
-    for (const k of SKILLS.filter((x) => /^[urel]_/.test(x.id) && !x.big)) {
+    // （発掘の枝の Uncommon は 20,000〜80,000。tests/island-p1-dig2b.test.ts）
+    for (const k of SKILLS.filter((x) => /^[urel]_/.test(x.id) && !x.big && x.branch !== 'dig')) {
       const [lo, hi] = R[k.tier as keyof typeof R];
       expect(k.cost, k.id).toBeGreaterThanOrEqual(lo);
       expect(k.cost, k.id).toBeLessThanOrEqual(hi);

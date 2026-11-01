@@ -11,7 +11,7 @@ import {
   ADS,
   levelCost,
   lvMulOf,
-  BLAST,
+  OLD_DIG_TOOLS,
   DIG,
   DIG_AUTO,
   DIG_BALANCE,
@@ -266,11 +266,18 @@ export interface Flags {
   digMeet?: 'tap' | 'open' | 'skill' | 'done';
   /** 初めて復刻品のレシピが開いたときのマインちゃんの会話を見た */
   relicTalk?: boolean;
+  /**
+   * スキルツリーの発掘の枝（発掘 v2 の 2 段目）：'new'＝出会いのあと、ツリーで雲から出てきた（マインちゃんの一言を 1 回だけ）／'seen'＝一言を出し終えた。
+   * 無ければ、まだ雲の中（出会いの前、または出会いのあとまだツリーを開いていない）
+   */
+  digBranch?: 'new' | 'seen';
+  /** 「深い層の許可が要る」マスを初めて押した（マインちゃんの一言を出した） */
+  digDeepTip?: boolean;
 }
 
 export interface P1State {
-  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘。1・2 のセーブは deserializeP1 で順に移す） */
-  v: 1 | 2 | 3;
+  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー。1〜3 のセーブは deserializeP1 で順に移す） */
+  v: 1 | 2 | 3 | 4;
   kind: 'p1';
   seed: number;
   n: number;
@@ -375,8 +382,14 @@ export interface P1State {
   emblem: number;
   /** 会社の研究ポイント（RP）。採掘でだけ貯まる。研究パネルを開くのに使う（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」） */
   rp: number;
-  /** 研究ノート：エクステごとの掘った数（会社で共有。研究レベルは researchLv） */
+  /** 研究ノート：エクステごとの掘った数（会社で共有。研究レベルは researchLv。上限（研究の目利き）を超えても数は貯める） */
   research: Record<number, number>;
+  /** 研究の数の端数（深い層ほど研究が進みやすい：層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん。端数は持ち越し） */
+  resCarry?: Record<number, number>;
+  /** 研究 Lv の RP を払い終えた上限（研究の目利きで上限が上がったら、その場で上がったぶんの RP を払う） */
+  resCapPaid?: number;
+  /** 版 3 までのセーブの下限（研究 Lv・掘れる層を下げない。版 4 の移し替えで決める） */
+  digOld?: { cap?: number; deep?: Partial<Record<DigTier, number>> };
   /** 掘り出した石板（id） */
   tablets: string[];
   /** 調査依頼状（そのランクのセクタへ出店できる）。Common のお題をそろえて発表すると 'U' */
@@ -514,7 +527,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
-    v: 3,
+    v: 4,
     kind: 'p1',
     seed,
     n,
@@ -556,6 +569,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     emblem: 0,
     rp: START_RP,
     research: {},
+    resCapPaid: DIG_BALANCE.tree.cap[0],
     tablets: [],
     letters: [],
     presented: [],
@@ -720,7 +734,7 @@ const cut = (s: Pick<P1State, 'skills' | 'skillLv'>, id: string, v: number) => M
 /** 汎用の効き目の合計のキャッシュ（skills・skillLv が入れ替わったら作り直す） */
 const fxCache = new WeakMap<object, { len: number; lv: object | undefined; sums: Partial<Record<FxKind, number>> }>();
 /**
- * 汎用の効き目（Skill.fx）の合計：取ったパネルの fx の v × 倍率（lot・brand は v × レベル）と、
+ * 汎用の効き目（Skill.fx）の合計：取ったパネルの fx の v × 倍率（lot・brand は v × レベル。レベルごとの表 at があればその値）と、
  * 解放型の Lv2 からの効果（Skill.up）の v ×（レベル − 1）。docs/ISLAND_PHASE1.md「汎用の効き目」
  */
 export function fxSum(s: Pick<P1State, 'skills' | 'skillLv'>, kind: FxKind): number {
@@ -731,7 +745,8 @@ export function fxSum(s: Pick<P1State, 'skills' | 'skillLv'>, kind: FxKind): num
     const k = SKILL[id];
     if (!k || (!k.fx && !k.up)) continue;
     const lv = lvOf(s, id);
-    for (const f of k.fx ?? []) sums[f.kind] = (sums[f.kind] ?? 0) + f.v * (FX_LIN.includes(f.kind) ? lv : lvMulOf(lv));
+    // レベルごとの表（発掘の枝）があれば、その Lv の値
+    for (const f of k.fx ?? []) sums[f.kind] = (sums[f.kind] ?? 0) + (f.at ? (f.at[Math.min(f.at.length, lv) - 1] ?? 0) : f.v * (FX_LIN.includes(f.kind) ? lv : lvMulOf(lv)));
     for (const f of k.up ?? []) sums[f.kind] = (sums[f.kind] ?? 0) + f.v * (lv - 1);
   }
   fxCache.set(s.skills, { len: s.skills.length, lv: s.skillLv, sums });
@@ -760,6 +775,8 @@ export function drainOf(s: P1State, st: Pick<Staff, 'task'>): number {
   const easy =
     (st.task === 'craft' ? (invLv(myWorkshop(s), 'breakroom') > 0 ? 0.7 : 1) * cut(s, 'chair', 0.3) * cut(s, 'five_s', 0.1) * (has(s, 'night') ? 1.2 : 1) : 1) *
     (st.task === 'shop' && has(s, 'hours') ? 1.2 : 1) *
+    // 常駐の交代制：常駐で働く日（作業していない日）の発掘隊の減り −15%／Lv
+    (st.task === 'dig' && !s.digRun ? fxCut(s, 'dig.relay') : 1) *
     cut(s, 'shift', 0.2) *
     fxCut(s, 'stamina');
   return STAMINA.work * easy;
@@ -801,6 +818,8 @@ export function assign(s: P1State, hero: number, task: Task | null, target: numb
   if (!st) return 'no-staff';
   // 修行中の職人は、修行が終わるまでほかの仕事に就けない
   if (st.task === 'train') return 'training';
+  // 発掘隊の人数の上限（発掘隊の役所）。古いセーブで上限を超えていたら、そのまま（新しくは付けられない）
+  if (task === 'dig' && st.task !== 'dig' && s.staff.filter((x) => x.task === 'dig').length >= crewCap(s)) return 'crew-full';
   unassign(s, st);
   if (task === 'craft') {
     const slot = s.slots[target as number];
@@ -1453,14 +1472,18 @@ export const skillSoon = (k: Skill) => !!k.sealed || !!k.soon || (k.id === 'head
 export const LEARNABLE = () => SKILLS.filter((k) => !skillSoon(k));
 
 /** スキルが取れない理由（null なら取れる。資金だけが足りないときは 'money'、研究ポイントが足りないときは 'rp'） */
-export type SkillLock = 'done' | 'training' | 'sealed' | 'soon' | 'ring' | 'requires' | 'brand' | 'emblem' | 'rp' | 'money';
+/** hidden：発掘の枝（発掘との出会いの前・Lime でないランド）は雲の中 */
+export type SkillLock = 'done' | 'training' | 'hidden' | 'sealed' | 'soon' | 'ring' | 'requires' | 'brand' | 'emblem' | 'rp' | 'money';
+/** 先に要るパネル（requires と、そのレベル reqLv）がそろっている */
+export const requiresMet = (s: P1State, k: Skill) => !k.requires?.some((r) => !has(s, r) || lvOf(s, r) < (k.reqLv?.[r] ?? 1)) && anyOfMet(k, (r) => has(s, r));
 export function skillLock(s: P1State, k: Skill): SkillLock | null {
   if (has(s, k.id)) return 'done';
   if (s.training?.id === k.id) return 'training';
+  if (k.branch === 'dig' && !digBranchOpen(s)) return 'hidden';
   if (k.sealed) return 'sealed';
   if (skillSoon(k)) return 'soon';
   if (!ringOpen(s, skillTier(k))) return 'ring';
-  if (k.requires?.some((r) => !has(s, r)) || !anyOfMet(k, (r) => has(s, r))) return 'requires';
+  if (!requiresMet(s, k)) return 'requires';
   if (k.brand && (s.brand ?? 0) < k.brand) return 'brand';
   if (k.emblem && (s.emblem ?? 0) < k.emblem) return 'emblem';
   if (isResearch(k)) return (s.rp ?? 0) < rpCost(k) ? 'rp' : null;
@@ -1477,10 +1500,11 @@ export function learn(s: P1State, id: string, hero?: number): string | null {
   const k = SKILL[id];
   if (!k || has(s, id)) return 'done';
   if (s.training?.id === id) return 'training';
+  if (k.branch === 'dig' && !digBranchOpen(s)) return 'hidden';
   if (k.sealed) return 'sealed';
   if (skillSoon(k)) return 'soon';
   if (!ringOpen(s, skillTier(k))) return 'ring';
-  if (k.requires?.some((r) => !has(s, r)) || !anyOfMet(k, (r) => has(s, r))) return 'requires';
+  if (!requiresMet(s, k)) return 'requires';
   if (k.brand && (s.brand ?? 0) < k.brand) return 'brand';
   if (k.emblem && (s.emblem ?? 0) < k.emblem) return 'emblem';
   let trainee: Staff | null = null;
@@ -1538,6 +1562,8 @@ export function setLevel(s: P1State, id: string, lv: number) {
   s.skillLv = { ...(s.skillLv ?? {}), [id]: lv };
   syncSlots(s);
   for (const b of myShops(s)) syncShop(s, b);
+  // 研究の目利き：研究 Lv の上限が上がったら、止まっていたエクステの Lv と RP をその場で
+  if (id === 'dig_study') syncResearchCap(s);
 }
 
 /** スキルが効き始める（取った・修行が終わった）。監査（scripts/island/audit.ts）も、条件を満たした状態としてこれで足す */
@@ -1551,6 +1577,7 @@ export function gainSkill(s: P1State, id: string) {
   if (id === 'd_buy') for (const m of Object.keys(MATS) as Mat[]) if (!s.routes.includes(m)) s.routes.push(m);
   syncSlots(s);
   for (const b of myShops(s)) syncShop(s, b);
+  if (id === 'dig_study') syncResearchCap(s);
 }
 
 /** 修行に出せる職人（製造の適性が高い順。ほかのセクタのマネージャーと修行中の人を除く） */
@@ -2453,9 +2480,11 @@ export function step(s: P1State): DayResult {
     }
   }
 
-  // 発掘隊：発掘作業のあいだだけ、同じ荒れ地を 1 日に数回ぶん打つ（作業していない日は働かない・スタミナも減らない）
+  // 発掘隊：発掘作業のあいだは、同じ荒れ地を 1 日に数回ぶん打つ。作業していない日は働かない・スタミナも減らない
+  // （常駐（自動化）があれば、作業していない日も許可のある荒れ地を掘る。スタミナは減る）
   for (const st of s.staff) {
-    if (st.task !== 'dig' || st.resting || !s.dig || !s.digRun) continue;
+    if (st.task !== 'dig' || st.resting || !s.dig) continue;
+    if (!s.digRun && (!hasAuto(s) || standSite(s) < 0)) continue;
     working.add(st.hero);
     const hits = autoDig(s, st);
     if (hits.length) (res.dug ??= []).push(...hits);
@@ -3080,7 +3109,7 @@ export function serializeP1(s: P1State): string {
 export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
-    if ((o.v !== 1 && o.v !== 2 && o.v !== 3) || o.kind !== 'p1') return null;
+    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4) || o.kind !== 'p1') return null;
     const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
@@ -3110,7 +3139,10 @@ export function deserializeP1(json: string): P1State | null {
       if (s.reports.length > s.digRun.rep0) s.monthPause = true;
       s.digRun = null;
     }
-    s.v = 3;
+    // 版 3 → 4：発掘の道具（工房の設備投資）を発掘の枝のパネルへ。研究 Lv・掘れる層は、いままでの深さを下限に
+    if (o.v !== 4) migrateDigTree(s);
+    s.resCapPaid ??= researchCap(s);
+    s.v = 4;
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -3930,6 +3962,10 @@ export interface DigState {
   topics: number[];
   /** 発掘隊の端数 */
   carry: number;
+  /** 素材の選り分けの端数 */
+  matCarry?: number;
+  /** 打った数（会心の判定の種） */
+  hits?: number;
   /** 今月：新発見・研究 Lv が上がった数・入った RP（月次報告の「今月の出土品」） */
   month: { found: number; lv: number; rp: number };
   /** 最後に発掘作業をした日（助言「しばらく掘っていない」） */
@@ -3975,8 +4011,17 @@ export interface DigHit {
   done?: boolean;
   /** 研究 Lv3 になって、復刻品のレシピが開いた（商品キー） */
   recipe?: string;
+  /** 会心（2 倍） */
+  crit?: boolean;
+  /** 素材のマス：実際に入った数（素材の選り分けで増える） */
+  mat?: number;
+  /** 広く掘る：隣のマスへの力で打ったマス */
+  splash?: boolean;
+  /** 広く掘る：同じ 1 打で隣のマスにも当たった結果 */
+  extra?: DigHit[];
 }
-export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'far' | 'no-blast' | 'money';
+/** 打てない理由。deep：深い層の許可が要る（スキル → 発掘）／no-drill：掘削ドリルが無い */
+export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'deep' | 'far' | 'no-blast' | 'no-drill' | 'money';
 
 /** 文字列の種（セクタの id → 発掘場の配置の種。同じセクタは何度遊んでも同じ配置） */
 function strSeed(x: string): number {
@@ -4157,12 +4202,55 @@ export function newDig(sector: string): DigState | null {
 export const digSite = (s: Pick<P1State, 'dig'>) => (s.dig ? digLayout(s.dig.sector, s.dig.cur) : null);
 /** いま掘っている荒れ地の進み具合 */
 const curSite = (s: Pick<P1State, 'dig'>) => s.dig?.sites[s.dig.cur] ?? null;
-/** 1 打の強さ：1 ＋ ツルハシの新調の段（工房の設備投資。工房が無ければ 1） */
-export const digPower = (s: P1State) => 1 + invLv(myWorkshop(s), 'pick');
-/** 1 回の発掘作業の長さ（秒。2 段目のスキル「追加申請」で延びる足場） */
-export const sessionSec = (_s: P1State) => DIG_BALANCE.sessionSec;
-/** 長押しで続けて打つ間隔（ミリ秒。2 段目のスキル「速さ」で短くなる足場） */
-export const digRepeatMs = (_s: P1State) => DIG_BALANCE.repeatMs;
+// ---------------------------------------------------------------- 発掘のスキルツリー（9 本目の枝「発掘」。発掘 v2 の 2 段目）
+
+const DT = DIG_BALANCE.tree;
+/** 表の Lv の値（Lv1〜5。未取得は 0） */
+const atLv = (xs: number[], lv: number) => (lv <= 0 ? 0 : xs[Math.min(xs.length, lv) - 1]);
+/** 発掘の枝を出すランド（Lime だけ。いまのランドはすべて Lime。ほかの国では枝を出さない） */
+export const digLand = (_s: Pick<P1State, 'sector'>) => true;
+/** 発掘の枝が見えている（Lime・発掘との出会いのあと）。前は枝ごと雲で隠す */
+export const digBranchOpen = (s: Pick<P1State, 'sector' | 'flags'>) => digLand(s) && !!s.flags.digMeet;
+/** 1 打の強さ：1 ＋ ツルハシの鍛え直し ＋ 重機の貸し出し（Lv1・3・5 で +1 ずつ） */
+export const digPower = (s: P1State) => 1 + fxSum(s, 'dig.power');
+/** 会心（2 倍）の確率（ツルハシの鍛え直しの Lv2・4） */
+export const critChance = (s: P1State) => fxSum(s, 'dig.crit');
+/** 1 回の発掘作業の長さ（秒）：15 ＋ 追加申請（+3 秒／Lv）＋ 長期の発掘許可（+6 秒／Lv）。最大 60 秒 */
+export const sessionSec = (s: P1State) => Math.min(DT.maxSec, DIG_BALANCE.sessionSec + fxSum(s, 'dig.sec'));
+/** 長押しで続けて打つ間隔（ミリ秒）：170 → 手早い掘り方で 150・130・115・100・90 */
+export const digRepeatMs = (s: P1State) => DIG_BALANCE.repeatMs - fxSum(s, 'dig.repeat');
+/** 掘れる層の数（深い層の許可。はじめは 2 層目まで。古いセーブは掘っていた深さを下限に） */
+export const deepLayers = (s: P1State, tier: DigTier) => Math.max(DT.deep[tier][Math.min(5, lvOf(s, 'dig_deep'))], s.digOld?.deep?.[tier] ?? 0);
+/**
+ * 画面に依存しない値（発掘画面の作り直しでもそのまま使う）：掘ってよい深さの上限（層の数）・ドリル 1 回で深さ方向に崩す数・
+ * 発破 1 回の広さ（N × N）・見える深さ（段）。断面の描き方は digui.ts だけが知っている
+ */
+export const digDepthLimit = (s: P1State, tier: DigTier) => deepLayers(s, tier);
+/** その層を掘ってよい（深い層の許可） */
+export const layerOpen = (s: P1State, L: Pick<DigLayout, 'tier'>, layer: number) => layer < deepLayers(s, L.tier);
+/** 研究 Lv の上限（研究の目利き：はじめは Lv3・Lv1 で 4・Lv2 で 5。古いセーブは上げていた Lv を下限に） */
+export const researchCap = (s: Pick<P1State, 'skills' | 'skillLv' | 'digOld'>) => Math.max(DT.cap[Math.min(5, lvOf(s, 'dig_study'))], s.digOld?.cap ?? 0);
+/** 深い層ほど研究が進みやすい倍率（研究の目利きの Lv3〜5） */
+export const deepMul = (s: P1State) => DT.deepMul[Math.min(5, lvOf(s, 'dig_study'))];
+/** 層 layer（0 が表）で見つけたエクステを、研究の数で何個ぶん数えるか：1 ＋ 0.25 × (n − 1) × 倍率 */
+export const researchGain = (s: P1State, layer: number) => 1 + 0.25 * layer * deepMul(s);
+/** ランタンで見える深さ（段。無ければ 0） */
+export const lampRows = (s: P1State) => atLv(DT.lamp, lvOf(s, 'dig_lamp'));
+/** 発破の火薬代・大きさ（N × N） */
+export const blastCost = (s: P1State) => DT.blastCost[Math.max(0, Math.min(5, lvOf(s, 'dig_blast')) - 1)];
+export const blastSize = (s: P1State) => atLv(DT.blastSize, lvOf(s, 'dig_blast')) || 3;
+/** 掘削ドリル：1 回で深さ方向に何マス（無ければ 0。いまの断面では「真下」）・燃料代 */
+export const drillLen = (s: P1State) => atLv(DT.drill, lvOf(s, 'dig_drill'));
+export const DRILL_FUEL = DT.drillFuel;
+export const hasDrill = (s: P1State) => lvOf(s, 'dig_drill') > 0;
+/** 発掘隊の人数の上限（発掘隊の役所：1 → 2・3・3・4・5） */
+export const crewCap = (s: P1State) => DT.office[Math.min(5, lvOf(s, 'dig_office'))];
+/** 発掘隊の 1 日に打つ回数の倍率（発掘隊の手際 +20%／Lv） */
+export const crewMul = (s: P1State) => 1 + fxSum(s, 'dig.crew');
+/** 常駐（自動化）：作業していない日も掘る */
+export const hasAuto = (s: P1State) => lvOf(s, 'u_dig_auto') > 0;
+/** 常駐の速さ（作業中の何割）：常駐の Lv の表 ×（1 ＋ 段取りの +10%／Lv） */
+export const autoRate = (s: P1State) => atLv(DT.auto, lvOf(s, 'u_dig_auto')) * (1 + fxSum(s, 'dig.autoSpeed'));
 /** そのマスは崩れている */
 export const isDug = (s: Pick<P1State, 'dig'>, x: number, y: number) => {
   const L = digSite(s);
@@ -4180,14 +4268,32 @@ function itemAt(s: Pick<P1State, 'dig'>, L: DigLayout, k: number): DigItem | nul
   if (it?.kind === 'ext' && it.topic && s.dig?.topics.includes(it.id)) return null;
   return it;
 }
-/** ランタン：掘れるマス（手が届くマス）のさらに 1 段下まで、中身が薄く見える */
+/** そのマスの、手が届くマスからの深さ（同じ列で上へ何段。0 は手が届く。届かなければ Infinity） */
+function depthFromReach(s: Pick<P1State, 'dig'>, x: number, y: number, max: number): number {
+  for (let dy = 0; dy <= max; dy++) {
+    const yy = y - dy;
+    if (yy < 0) break;
+    if (!isDug(s, x, yy) && reachable(s, x, yy)) return dy;
+  }
+  return Infinity;
+}
+/**
+ * ランタン（発掘のランタン）：手が届くマスから lampRows 段下まで、中身が薄く見える。
+ * Lv4 からはお題の気配（金の点線）が さらに 2 段先まで、Lv5 は石板も
+ */
 export function peek(s: P1State, x: number, y: number): DigItem | null {
   const L = digSite(s);
   if (!L || x < 0 || y < 0 || x >= L.w || y >= L.h) return null;
   if (isDug(s, x, y)) return L.cells[y * L.w + x].item;
-  if (invLv(myWorkshop(s), 'lantern') <= 0) return null;
-  const open = reachable(s, x, y) || (y > 0 && !isDug(s, x, y - 1) && reachable(s, x, y - 1));
-  return open ? itemAt(s, L, y * L.w + x) : null;
+  const rows = lampRows(s);
+  if (rows <= 0) return null;
+  const it = itemAt(s, L, y * L.w + x);
+  const lv = lvOf(s, 'dig_lamp');
+  const far = lv >= 4 ? rows + DT.hint : rows;
+  const d = depthFromReach(s, x, y, far);
+  if (d <= rows) return it;
+  if (d <= far && it && ((it.kind === 'ext' && it.topic) || (lv >= 5 && it.kind === 'tablet'))) return it;
+  return null;
 }
 /** そのマスを打てない理由（null なら打てる）。打てるのは発掘作業のあいだだけ（回数の制限は無い） */
 export function digCheck(s: P1State, x: number, y: number): DigErr | null {
@@ -4196,17 +4302,57 @@ export function digCheck(s: P1State, x: number, y: number): DigErr | null {
   if (!s.digRun || s.digRun.site !== s.dig.cur) return 'no-run';
   if (x < 0 || y < 0 || x >= L.w || y >= L.h) return 'out';
   if (curSite(s)!.hp[y * L.w + x] <= 0) return 'dug';
+  if (!layerOpen(s, L, L.cells[y * L.w + x].layer)) return 'deep';
   if (!reachable(s, x, y)) return 'far';
   return null;
 }
-/** そのエクステの研究レベル（会社で共有。0〜5） */
-export const researchOf = (s: Pick<P1State, 'research'>, id: number) => researchLv(s.research?.[id] ?? 0);
-/** 次の研究レベルまで、あと何個（最大なら 0） */
-export const researchLeft = (s: Pick<P1State, 'research'>, id: number) => {
+/** お題のエクステ（その場で研究 Lv5。研究 Lv の上限に掛からない） */
+const TOPIC_IDS = new Set(Object.values(DIG_SITES).flatMap((x) => x.topics));
+export const isTopicExt = (id: number) => TOPIC_IDS.has(id);
+type ResState = Pick<P1State, 'research' | 'skills' | 'skillLv' | 'digOld'>;
+/** そのエクステの研究レベル（会社で共有。0〜5。お題のほかは研究 Lv の上限まで） */
+export const researchOf = (s: ResState, id: number) => {
+  const lv = researchLv(s.research?.[id] ?? 0);
+  return TOPIC_IDS.has(id) ? lv : Math.min(lv, researchCap(s));
+};
+/** 研究 Lv の上限に達して止まっている（数は貯めている。研究の目利きで上がる） */
+export const researchCapped = (s: ResState, id: number) => !TOPIC_IDS.has(id) && researchCap(s) < RESEARCH_NEED.length && researchLv(s.research?.[id] ?? 0) >= researchCap(s);
+/** 次の研究レベルまで、あと何個（最大・上限なら 0） */
+export const researchLeft = (s: ResState, id: number) => {
+  if (researchCapped(s, id)) return 0;
   const n = s.research?.[id] ?? 0;
   const next = RESEARCH_NEED.find((x) => x > n);
-  return next == null ? 0 : next - n;
+  return next == null ? 0 : Math.max(1, Math.ceil(next - n));
 };
+/** そのエクステの RP の表（Common のエクステは 1000 番台、Uncommon は 2000 番台） */
+const extTier = (id: number): DigTier => (id >= 2000 ? 'U' : 'C');
+/**
+ * 研究 Lv の上限が上がったとき（研究の目利き）：上限で止まっていたエクステの Lv が上がり、そのぶんの RP が入る。
+ * 入った RP と上がった数を返す（上がっていなければ 0）
+ */
+export function syncResearchCap(s: P1State): { rp: number; lv: number } {
+  const cap = researchCap(s);
+  const paid = s.resCapPaid ?? cap;
+  const out = { rp: 0, lv: 0 };
+  if (cap > paid) {
+    for (const [k, n] of Object.entries(s.research ?? {})) {
+      const id = Number(k);
+      if (TOPIC_IDS.has(id)) continue;
+      const raw = researchLv(n);
+      let up = false;
+      for (let L = paid + 1; L <= Math.min(raw, cap); L++) {
+        const v = RP_GAIN[extTier(id)].lv[L - 2];
+        out.rp += v;
+        up = true;
+      }
+      if (up) out.lv++;
+    }
+    if (out.rp) gainRp(s, out.rp);
+    for (let i = 0; i < out.lv; i++) if (s.dig) countLv(s);
+  }
+  s.resCapPaid = Math.max(paid, cap);
+  return out;
+}
 /** RP を足す（今月の出土品・発掘作業の出土にも数える） */
 function gainRp(s: P1State, v: number) {
   s.rp = (s.rp ?? 0) + v;
@@ -4228,8 +4374,13 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
   if (!it) return;
   const G = RP_GAIN[L.tier];
   if (it.kind === 'mat') {
-    s.mats[it.mat] = (s.mats[it.mat] ?? 0) + it.n;
-    if (s.digRun) s.digRun.got.mat += it.n;
+    // 素材の選り分け：+20%／Lv（端数は持ち越し）
+    const v = it.n * (1 + fxSum(s, 'dig.mat')) + (s.dig?.matCarry ?? 0);
+    const n = Math.floor(v + 1e-9);
+    if (s.dig) s.dig.matCarry = v - n;
+    s.mats[it.mat] = (s.mats[it.mat] ?? 0) + n;
+    if (s.digRun) s.digRun.got.mat += n;
+    hit.mat = n;
     return;
   }
   if (it.kind === 'tablet') {
@@ -4258,19 +4409,28 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
     gotRecipe(s, it.id, hit);
     return;
   }
-  const n = before + 1;
+  // 深い層ほど研究が進みやすい（研究の目利きの Lv3〜）：層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん（端数は持ち越し）
+  s.resCarry ??= {};
+  const add = researchGain(s, L.cells[k].layer) + (s.resCarry[it.id] ?? 0);
+  const whole = Math.max(1, Math.floor(add + 1e-9));
+  s.resCarry[it.id] = Math.max(0, add - whole);
+  const n = before + whole;
   s.research[it.id] = n;
-  const lv0 = researchLv(before);
-  const lv1 = researchLv(n);
+  // 研究 Lv の上限（研究の目利き）までしか上がらない（数は貯める。上限が上がったら syncResearchCap で上がる）
+  const cap = researchCap(s);
+  const lv0 = Math.max(1, Math.min(cap, researchLv(before)));
+  const lv1 = Math.min(cap, researchLv(n));
   if (before === 0) {
     hit.first = true;
     countFound(s);
     hit.rp += G.first;
     gainRp(s, G.first);
-  } else if (lv1 > lv0) {
+  }
+  if (lv1 > lv0) {
     hit.lv = lv1;
     countLv(s);
-    const v = G.lv[lv1 - 2];
+    let v = 0;
+    for (let x = lv0 + 1; x <= lv1; x++) v += G.lv[x - 2];
     hit.rp += v;
     gainRp(s, v);
   }
@@ -4288,7 +4448,8 @@ function strike(s: P1State, L: DigLayout, x: number, y: number, power: number): 
   const k = y * L.w + x;
   const st = s.dig!.sites[L.site];
   const hp = st.hp;
-  hp[k] = Math.max(0, hp[k] - power);
+  // 隣への力（広く掘る）は端数になるので、小数 2 桁で丸める
+  hp[k] = Math.max(0, Math.round((hp[k] - power) * 100) / 100);
   const hit: DigHit = { x, y, broke: hp[k] <= 0, left: hp[k], item: null, rp: 0 };
   if (hit.broke) {
     if (s.digRun) s.digRun.got.cells++;
@@ -4300,47 +4461,137 @@ function strike(s: P1State, L: DigLayout, x: number, y: number, power: number): 
   }
   return hit;
 }
-/** 打つ：そのマスを 1 打（1 打の強さ digPower）。崩れたら中身が出る。発掘作業のあいだは何回でも打てる。打てなければ理由（DigErr） */
+/** 会心か（ツルハシの鍛え直しの Lv2・4。打った数から決めるので、同じ打ち方なら同じ結果） */
+function rollCrit(s: P1State): boolean {
+  const p = critChance(s);
+  if (p <= 0 || !s.dig) return false;
+  s.dig.hits = (s.dig.hits ?? 0) + 1;
+  return rng((s.seed >>> 0) + s.dig.hits * 7919 + 13)() < p;
+}
+/** 広く掘る：隣のマスへの力の向き（Lv1・2 左右・Lv3 左右と下・Lv4・5 上下左右） */
+const REACH_DIRS: Record<'lr' | 'lrd' | 'all', [number, number][]> = {
+  lr: [
+    [-1, 0],
+    [1, 0],
+  ],
+  lrd: [
+    [-1, 0],
+    [1, 0],
+    [0, 1],
+  ],
+  all: [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ],
+};
+/** 1 打（会心・広く掘るを含む）：そのマスを power で打ち、隣のマスにも力の一部（掘ってよい層のマスだけ） */
+function strikeAt(s: P1State, L: DigLayout, x: number, y: number, power: number): DigHit {
+  const crit = rollCrit(s);
+  const p = crit ? power * DT.critMul : power;
+  const hit = strike(s, L, x, y, p);
+  if (crit) hit.crit = true;
+  const lv = lvOf(s, 'dig_reach');
+  const r = fxSum(s, 'dig.reach');
+  if (lv > 0 && r > 0) {
+    const hp = s.dig!.sites[L.site].hp;
+    for (const [dx, dy] of REACH_DIRS[DT.reachDir[Math.min(5, lv) - 1]]) {
+      const X = x + dx;
+      const Y = y + dy;
+      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0 || !layerOpen(s, L, L.cells[Y * L.w + X].layer)) continue;
+      const h2 = strike(s, L, X, Y, p * r);
+      h2.splash = true;
+      (hit.extra ??= []).push(h2);
+      if (h2.done) hit.done = true;
+    }
+  }
+  return hit;
+}
+/** 打つ：そのマスを 1 打（1 打の強さ digPower・会心・広く掘る）。崩れたら中身が出る。発掘作業のあいだは何回でも打てる。打てなければ理由（DigErr） */
 export function dig(s: P1State, x: number, y: number): DigHit | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
-  return strike(s, digSite(s)!, x, y, digPower(s));
+  return strikeAt(s, digSite(s)!, x, y, digPower(s));
 }
-/** 発破の道具があるか */
-export const hasBlast = (s: P1State) => invLv(myWorkshop(s), 'blast') > 0;
-/** 発破：火薬代で、(x, y) を真ん中に 3 × 3 マスを一度に崩す（(x, y) に手が届くこと） */
+/** 発破が使えるか（スキル「発破」） */
+export const hasBlast = (s: P1State) => lvOf(s, 'dig_blast') > 0;
+/** 発破：火薬代で、(x, y) を真ん中に N × N マスを一度に崩す（(x, y) に手が届くこと。深い層の許可が無い層は崩さない） */
 export function blast(s: P1State, x: number, y: number): DigHit[] | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
   if (!hasBlast(s)) return 'no-blast';
-  if (s.money < BLAST.cost) return 'money';
+  const cost = blastCost(s);
+  if (s.money < cost) return 'money';
   const L = digSite(s)!;
-  s.money -= BLAST.cost;
-  spend(s, 'build', BLAST.cost);
+  s.money -= cost;
+  spend(s, 'build', cost);
   const hp = curSite(s)!.hp;
   const out: DigHit[] = [];
-  for (let dy = -1; dy <= 1; dy++)
-    for (let dx = -1; dx <= 1; dx++) {
+  const n = blastSize(s);
+  const lo = -Math.floor((n - 1) / 2);
+  for (let dy = lo; dy < lo + n; dy++)
+    for (let dx = lo; dx < lo + n; dx++) {
       const X = x + dx;
       const Y = y + dy;
-      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0) continue;
+      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0 || !layerOpen(s, L, L.cells[Y * L.w + X].layer)) continue;
       out.push(strike(s, L, X, Y, Infinity));
     }
   return out;
 }
-/** 次に打つマス（発掘隊）：打ちかけのマス → 浅いマス → 左から */
-export function digNext(s: P1State): [number, number] | null {
+/** 掘削ドリル：燃料代で、(x, y) から真下に N マスを一度に崩す（(x, y) に手が届くこと。深い層の許可が無い層で止まる） */
+export function drill(s: P1State, x: number, y: number): DigHit[] | DigErr {
+  const e = digCheck(s, x, y);
+  if (e) return e;
+  if (!hasDrill(s)) return 'no-drill';
+  if (s.money < DRILL_FUEL) return 'money';
+  const L = digSite(s)!;
+  s.money -= DRILL_FUEL;
+  spend(s, 'build', DRILL_FUEL);
+  const hp = curSite(s)!.hp;
+  const out: DigHit[] = [];
+  for (let k = 0; k < drillLen(s); k++) {
+    const Y = y + k;
+    if (Y >= L.h || !layerOpen(s, L, L.cells[Y * L.w + x].layer)) break;
+    if (hp[Y * L.w + x] <= 0) continue;
+    out.push(strike(s, L, x, Y, Infinity));
+  }
+  return out;
+}
+/** 荒れ地 k に、いまの許可で掘れるマスが残っている（深い層の許可が無い層は数えない） */
+export function siteDiggable(s: P1State, k: number): boolean {
+  const L = s.dig ? digLayout(s.dig.sector, k) : null;
+  const st = s.dig?.sites[k];
+  if (!L || !st) return false;
+  return st.hp.some((v, i) => v > 0 && layerOpen(s, L, L.cells[i].layer));
+}
+/**
+ * 次に打つマス（発掘隊）：打ちかけのマス → 浅いマス → 左から（深い層の許可が無い層は打たない）。
+ * stand（常駐で働く日）は常駐の段取りで選び方が変わる：Lv1 お題の気配のある所へ・Lv3 研究 Lv の低いエクステを先に・Lv5 研究 Lv の上限に達したエクステを避ける
+ */
+export function digNext(s: P1State, stand = false): [number, number] | null {
   const L = digSite(s);
   const st = curSite(s);
   if (!L || !st) return null;
+  const rl = stand ? lvOf(s, 'u_dig_route') : 0;
+  // お題の気配（まだ見つけていないお題のマス）
+  const tk = rl >= 1 && L.topic != null && !s.dig!.topics.includes(L.topic) ? L.cells.findIndex((c) => c.item?.kind === 'ext' && !!c.item.topic) : -1;
+  const cap = researchCap(s);
   let best: [number, number] | null = null;
   let score = Infinity;
   for (let y = 0; y < L.h; y++)
     for (let x = 0; x < L.w; x++) {
       const k = y * L.w + x;
       const hp = st.hp[k];
-      if (hp <= 0 || !reachable(s, x, y)) continue;
-      const v = (hp < L.cells[k].hard ? -1e6 : 0) + y * 100 + x;
+      if (hp <= 0 || !layerOpen(s, L, L.cells[k].layer) || !reachable(s, x, y)) continue;
+      let v = (hp < L.cells[k].hard ? -1e6 : 0) + (tk >= 0 ? (Math.abs(x - (tk % L.w)) + Math.abs(y - Math.floor(tk / L.w))) * 100 : y * 100) + x;
+      const it = itemAt(s, L, k);
+      if (it?.kind === 'ext' && !it.topic) {
+        // Lv3：研究 Lv の低いエクステほど先に（上限に達したものは数えない）・Lv5：上限に達したエクステは後回し
+        const lv = researchOf(s, it.id);
+        if (rl >= 3 && lv < cap) v -= 200 * (cap - lv);
+        if (rl >= 5 && lv >= cap) v += 1000;
+      }
       if (v < score) {
         score = v;
         best = [x, y];
@@ -4348,18 +4599,42 @@ export function digNext(s: P1State): [number, number] | null {
     }
   return best;
 }
-/** 発掘隊の 1 日：発掘作業のあいだだけ、適性の速さ × DIG_AUTO.perDay 回ぶん同じ荒れ地を打つ（端数は持ち越す） */
+/** 常駐（作業していない日）に掘る荒れ地：許可があって掘れるマスが残っている所（いまの荒れ地 → 段取り Lv1 はお題の気配のある所 → 番号の順）。無ければ -1 */
+export function standSite(s: P1State): number {
+  const d = s.dig;
+  if (!d) return -1;
+  const ok = d.sites.map((_, k) => k).filter((k) => d.sites[k].permit && !d.sites[k].done && siteDiggable(s, k));
+  if (!ok.length) return -1;
+  if (lvOf(s, 'u_dig_route') >= 1) {
+    const hidden = ok.find((k) => siteTopic(s, k) === 'hidden');
+    if (hidden != null && !ok.includes(d.cur)) return hidden;
+    if (hidden != null && siteTopic(s, d.cur) !== 'hidden') return hidden;
+  }
+  return ok.includes(d.cur) ? d.cur : ok[0];
+}
+/**
+ * 発掘隊の 1 日：発掘作業のあいだは、適性の速さ × DIG_AUTO.perDay ×（発掘隊の手際）回ぶん同じ荒れ地を打つ（端数は持ち越す）。
+ * 常駐（自動化）があれば、作業していない日も、許可のある荒れ地を その速さ × 常駐の割合で打つ
+ */
 export function autoDig(s: P1State, st: Staff): DigHit[] {
-  if (!s.dig || !s.digRun) return [];
+  if (!s.dig) return [];
+  const stand = !s.digRun;
+  if (stand) {
+    if (!hasAuto(s)) return [];
+    const k = standSite(s);
+    if (k < 0) return [];
+    s.dig.cur = k;
+  }
   const out: DigHit[] = [];
-  s.dig.carry += DIG_AUTO.perDay * speed(st, 'dig', s);
+  s.dig.carry += DIG_AUTO.perDay * speed(st, 'dig', s) * crewMul(s) * (stand ? autoRate(s) : 1);
+  const L = digSite(s)!;
   while (s.dig.carry >= 1) {
-    const at = digNext(s);
+    const at = digNext(s, stand);
     if (!at) break;
-    const r = dig(s, at[0], at[1]);
-    if (typeof r === 'string') break;
-    out.push(r);
+    const r = strikeAt(s, L, at[0], at[1], digPower(s));
+    out.push(r, ...(r.extra ?? []));
     s.dig.carry -= 1;
+    if (s.dig.sites[L.site].done) break;
   }
   s.dig.carry = Math.min(1, s.dig.carry);
   return out;
@@ -4433,7 +4708,8 @@ export function siteTopic(s: Pick<P1State, 'dig'>, k: number): 'none' | 'hidden'
 
 // ---------------------------------------------------------------- 発掘作業（15 秒）
 
-export type RunErr = 'no-site' | 'no-permit' | 'done' | 'busy';
+/** deep：いまの許可で掘れるマスが残っていない（深い層の許可が要る） */
+export type RunErr = 'no-site' | 'no-permit' | 'done' | 'busy' | 'deep';
 /** 荒れ地 k で発掘作業を始められない理由（null なら始められる） */
 export function runLock(s: P1State, k: number): RunErr | null {
   const st = s.dig?.sites[k];
@@ -4441,6 +4717,7 @@ export function runLock(s: P1State, k: number): RunErr | null {
   if (s.digRun) return 'busy';
   if (!st.permit) return 'no-permit';
   if (st.done) return 'done';
+  if (!siteDiggable(s, k)) return 'deep';
   return null;
 }
 /**
@@ -4563,6 +4840,44 @@ export function ensureDig(s: P1State) {
   const d = s.dig as (DigState & Partial<OldDig>) | null | undefined;
   if (d === undefined || (d && d.sector !== sec)) s.dig = newDig(sec);
   else if (d && !Array.isArray(d.sites)) s.dig = upgradeDig(d as OldDig, s);
+}
+
+/**
+ * 版 3 → 4（docs/ISLAND_PHASE1.md「セーブの引き継ぎ（版 4）」）：工房の設備投資の発掘の道具を、発掘の枝のパネルへ（払ったお金は戻さない）。
+ * ツルハシの新調 1 段 → ツルハシの鍛え直し Lv1・2 段 → Lv3／発掘のランタン → 発掘のランタン Lv1／発破の道具 → 発破 Lv1。
+ * いまのセクタと、ほかのセクタの写しの工房のうち、いちばん進んだ段で渡す（写しの設備投資からも外す）。
+ * 版 3 までは研究 Lv の上限・掘れる層の制限が無かったので、上げていた研究 Lv（お題を除く）・掘っていた層を下限に残す（下がらない）
+ */
+export function migrateDigTree(s: P1State) {
+  const lv: Record<string, number> = {};
+  const strip = (b: { id?: string; owner?: string; inv?: Partial<Record<string, number>> }) => {
+    if (b.id !== 'workshop' || !b.inv) return;
+    for (const [tool, to] of Object.entries(OLD_DIG_TOOLS)) {
+      const n = b.inv[tool] ?? 0;
+      if (n > 0) lv[to.id] = Math.max(lv[to.id] ?? 0, to.lv[Math.min(to.lv.length, n) - 1]);
+      delete b.inv[tool];
+    }
+  };
+  for (const b of s.buildings) if (b.owner === 'me') strip(b);
+  for (const r of Object.values(s.land?.recs ?? {})) for (const b of ((r.snap as { buildings?: PBuilding[] } | undefined)?.buildings ?? []) as PBuilding[]) if (b.owner === 'me') strip(b);
+  for (const [id, n] of Object.entries(lv)) if (lvOf(s, id) < n) setLevel(s, id, n);
+  // 研究 Lv の下限（お題を除く。版 3 は Lv5 まで上がっていた）
+  const top = Math.max(0, ...Object.entries(s.research ?? {}).filter(([id]) => !TOPIC_IDS.has(Number(id))).map(([, n]) => researchLv(n)));
+  const deep: Partial<Record<DigTier, number>> = {};
+  // 掘れる層の下限：いまのセクタの荒れ地で、崩したマスのいちばん深い層まで
+  if (s.dig) {
+    const tier = digTierOf(s.dig.sector);
+    if (tier)
+      s.dig.sites.forEach((st, k) => {
+        const L = digLayout(s.dig!.sector, k);
+        if (!L) return;
+        st.hp.forEach((v, i) => {
+          if (v <= 0) deep[tier] = Math.max(deep[tier] ?? 0, L.cells[i].layer + 1);
+        });
+      });
+  }
+  if (top > DT.cap[0] || Object.keys(deep).length) s.digOld = { ...(top > DT.cap[0] ? { cap: top } : {}), ...(Object.keys(deep).length ? { deep } : {}) };
+  s.resCapPaid = researchCap(s);
 }
 
 /** 以前のゴールドダストのパネルの値段（版 1 のセーブの返金に使う：✨ 3 → 4 → 5。外周は U 5・R 6・E 8・L 10 から） */

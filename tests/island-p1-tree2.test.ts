@@ -43,8 +43,8 @@ const rich = (seed = 5): P1State => {
 };
 
 describe('スキルツリー v2：データと配置', () => {
-  it('枝は 8 本（システムが新しい）。どのパネルも枝の配置に入っていて、パネルどうし・根もとと重ならない', () => {
-    expect(BRANCHES.map((b) => b.key)).toEqual(['shop', 'craft', 'logi', 'buy', 'people', 'ops', 'sys', 'tech']);
+  it('枝は 9 本（システム・発掘が新しい）。どのパネルも枝の配置に入っていて、パネルどうし・根もとと重ならない', () => {
+    expect(BRANCHES.map((b) => b.key)).toEqual(['shop', 'craft', 'logi', 'buy', 'people', 'ops', 'sys', 'tech', 'dig']);
     expect(UNPLACED).toEqual([]);
     const ps = [...POS.entries()];
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) expect(Math.hypot(ps[i][1].x - ps[j][1].x, ps[i][1].y - ps[j][1].y), `${ps[i][0]}–${ps[j][0]}`).toBeGreaterThan(1.05);

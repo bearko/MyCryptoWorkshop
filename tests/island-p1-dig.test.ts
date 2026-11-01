@@ -70,13 +70,23 @@ const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'
   for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
   throw new Error('no lot');
 };
-/** 工房（道具の設備投資のため）を建てる */
+/**
+ * 工房を建てる。1 段目のテストは「全部の層を掘れる・研究 Lv5 まで」が前提なので、
+ * 発掘の枝の「深い層の許可」Lv3・「研究の目利き」Lv2 を付けておく（2 段目の制限は tests/island-p1-dig2b.test.ts で確かめる）
+ */
 function site(seed = 1, sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   const s = newP1(seed, tier, sector);
   s.money = 1e7;
   const b = build(s, 'workshop', ...lot(s, 'workshop'));
   if (typeof b === 'string') throw new Error(b);
   b.left = 0;
+  open(s);
+  return s;
+}
+/** 深い層の許可 Lv3（全部の層）・研究の目利き Lv2（研究 Lv5 まで） */
+function open(s: P1State): P1State {
+  setLevel(s, 'dig_deep', 3);
+  setLevel(s, 'dig_study', 2);
   return s;
 }
 /** 荒れ地 k の許可をもらって、発掘作業を始める（時間は進めないので、作業は終わらない） */
@@ -289,7 +299,7 @@ describe('発掘許可（荒れ地ごと）', () => {
 
 describe('15 秒の発掘作業', () => {
   it('打てるのは作業のあいだだけ。回数の制限なしに何回でも打てる（工房が無くても掘れる）', () => {
-    const s = newP1(1);
+    const s = open(newP1(1));
     s.dig!.sites[0].permit = true;
     expect(digCheck(s, 0, 0)).toBe('no-run');
     run(s, 0);
@@ -517,17 +527,17 @@ describe('研究レベルと研究ポイント', () => {
   });
 });
 
-describe('道具（工房の設備投資）', () => {
-  it('ツルハシの新調：1 打の強さ +1（2 段）', () => {
+describe('道具（発掘 v2 の 2 段目でスキルツリーの発掘の枝へ移した）', () => {
+  it('ツルハシの鍛え直し：1 打の強さ +1（Lv1）・+2（Lv3）。工房の設備投資からは消えた', () => {
     const s = run(site());
     expect(digPower(s)).toBe(1);
     const ws = myWorkshop(s)!;
-    expect(invest(s, ws.uid, 'pick')).toBeNull();
-    expect(digPower(s)).toBe(2);
-    expect(invest(s, ws.uid, 'pick')).toBeNull();
-    expect(digPower(s)).toBe(3);
     expect(invest(s, ws.uid, 'pick')).not.toBeNull();
-    // 硬さ 3 のマスが 1 打で崩れる
+    setLevel(s, 'dig_power', 1);
+    expect(digPower(s)).toBe(2);
+    setLevel(s, 'dig_power', 3);
+    expect(digPower(s)).toBe(3);
+    // 硬さ 3 のマスが 1 打で崩れる（会心は崩れるのを早めるだけ）
     const L = digLayout('c1', 0)!;
     const k = L.cells.findIndex((c) => c.hard === 3);
     for (let yy = 0; yy < Math.floor(k / 7); yy++) if (hpOf(s)[yy * 7 + (k % 7)] > 0) breakCell(s, k % 7, yy);
@@ -542,16 +552,16 @@ describe('道具（工房の設備投資）', () => {
     breakCell(s, 0, 0);
     const want = (y: number) => L.cells[y * 7].item;
     expect(peek(s, 0, 2)).toBeNull();
-    invest(s, myWorkshop(s)!.uid, 'lantern');
+    setLevel(s, 'dig_lamp', 1);
     expect(peek(s, 0, 2)).toEqual(want(2));
     expect(peek(s, 0, 1)).toEqual(want(1));
     expect(peek(s, 0, 4)).toBeNull();
   });
 
-  it('発破：火薬代で 3 × 3 を一度に崩す（道具が無いと使えない。回数は使わない）', () => {
+  it('発破：火薬代で 3 × 3 を一度に崩す（発破のパネルが無いと使えない。回数は使わない）', () => {
     const s = run(site());
     expect(blast(s, 3, 0)).toBe('no-blast');
-    invest(s, myWorkshop(s)!.uid, 'blast');
+    setLevel(s, 'dig_blast', 1);
     const m0 = s.money;
     const r = blast(s, 3, 0);
     if (typeof r === 'string') throw new Error(r);
@@ -592,9 +602,10 @@ describe('発掘隊（仕事「発掘」）', () => {
 });
 
 describe('スキルツリーの 2 区分', () => {
-  it('お金パネルは技を除く 7 本 × 5 ランクの 35 枚（Lv5 まで）、残りは研究パネル（レベルなし）', () => {
+  it('お金パネルは技を除く 7 本 × 5 ランクの 35 枚と発掘の枝の 17 枚（Lv5 まで）、残りは研究パネル（レベルなし）', () => {
     const money = SKILLS.filter((k) => !isResearch(k));
-    expect(money).toHaveLength(35);
+    expect(money).toHaveLength(35 + 17);
+    expect(money.filter((k) => k.branch === 'dig')).toHaveLength(17);
     expect(Object.values(MONEY_PANELS.C).sort()).toEqual(['budget', 'bulk', 'host', 'jig', 'manual', 'pos', 'shortcut']);
     for (const tier of ['C', 'U', 'R', 'E', 'L'] as const) {
       const ids = Object.values(MONEY_PANELS[tier]);
@@ -610,7 +621,7 @@ describe('スキルツリーの 2 区分', () => {
       expect(maxLv(k), k.id).toBe(1);
       expect(rpCost(k), k.id).toBeGreaterThan(0);
     }
-    expect(SKILLS.filter(isResearch).length).toBe(SKILLS.length - 35);
+    expect(SKILLS.filter(isResearch).length).toBe(SKILLS.length - 35 - 17);
   });
 
   it('RP の値段：Common 平均 50 前後（20〜80）・Uncommon 平均 120 前後・Rare 以降 2.5 倍ずつ・大きめの研究パネルは約 2.5 倍・人材の募集は 30', () => {
@@ -709,9 +720,9 @@ describe('調査依頼状', () => {
 });
 
 describe('セーブ', () => {
-  it('新しいゲームは版 3・30 RP。発掘の進み・許可・研究ノートはセーブに残る', () => {
+  it('新しいゲームは版 4・30 RP。発掘の進み・許可・研究ノートはセーブに残る', () => {
     const s = run(site());
-    expect([s.v, s.rp]).toEqual([3, 30]);
+    expect([s.v, s.rp]).toEqual([4, 30]);
     breakCell(s, 0, 0);
     endRun(s);
     s.research[1011] = 3;
@@ -742,8 +753,8 @@ describe('セーブ', () => {
     delete o.dig;
     const m0 = o.money;
     const old = deserializeP1(JSON.stringify(o))!;
-    // 版 1 → 2 → 3 と順に移す
-    expect(old.v).toBe(3);
+    // 版 1 → 2 → 3 → 4 と順に移す
+    expect(old.v).toBe(4);
     expect(old.dig!.sites).toHaveLength(4);
     expect(old.skills).toEqual(expect.arrayContaining(['host', 'golden', 'jig', 'lounge', 'd_shop']));
     expect([lvOf(old, 'host'), lvOf(old, 'golden'), lvOf(old, 'lounge'), lvOf(old, 'd_shop')]).toEqual([3, 1, 1, 1]);
@@ -783,7 +794,7 @@ describe('セーブ', () => {
     o.tablets = ['tab_c1'];
     o.presented = [];
     const back = deserializeP1(JSON.stringify(o))!;
-    expect(back.v).toBe(3);
+    expect(back.v).toBe(4);
     expect(back.rp).toBe(333);
     expect(back.research).toEqual({ [found]: 11, 1011: 4 });
     expect(back.tablets).toEqual(['tab_c1']);

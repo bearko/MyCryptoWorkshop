@@ -7,11 +7,13 @@
  * 形で見分けられるので、色だけに頼らない。大きめの研究パネル（以前の ✨）は枝の根もとの近くに二重の縁の四角で。線は「先に要るスキル」から引く（無ければ枝の根もと）。
  * docs/ISLAND_PHASE1.md「スキルツリー」。
  */
+import { getExtension } from '../../game/catalog';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
+import { icon } from '../../ui/dom';
 import { TIER_NAME } from './company';
-import { BRANCHES, SKILL, SKILLS, TIERS, anyOfMet, fmtShown, isResearch, maxLv, rpCost, shownAt, shownOf, type Branch, type FxKind, type Mat, type Skill, type Sku, type Tier } from './data';
-import { affordableSkills, bestSkillMove, has, hqOpen, learn, LEARNABLE, levelLock, levelUp, lvOf, nextLevelCost, openHQ, openRing, ringOpen, ringsDue, skillLock, skillTier, trainDays, trainingOf, trainees, type P1State } from './model';
+import { BRANCHES, SKILL, SKILLS, TIERS, anyOfMet, isResearch, maxLv, rpCost, shownOf, shownText, type Branch, type FxKind, type Mat, type Skill, type Sku, type Tier } from './data';
+import { affordableSkills, bestSkillMove, digBranchOpen, has, hqOpen, learn, LEARNABLE, levelLock, levelUp, lvOf, nextLevelCost, openHQ, openRing, ringOpen, ringsDue, skillLock, skillTier, trainDays, trainingOf, trainees, type P1State } from './model';
 import { after, mineTip, open, type Ctx } from './screens';
 import { pickHero } from './heroui';
 import { BOUNDS, HUBPOS, LABEL_A, LAYOUT, OUTER, POS, R0, RING_EDGE, RING_OUT, STEP, UNIT, polar } from './treelayout';
@@ -22,8 +24,26 @@ const TIER_IMG: Record<Tier, string> = { C: '04_Lime_1_Common', U: '04_Lime_2_Un
 const tierImg = (tier: Tier) => assetUrl(`mch/Image/LandSectors/${TIER_IMG[tier]}.png`);
 const tierArea = (tier: Tier) => t(`${TIER_NAME[tier]} エリア`, `${TIER_NAME[tier]} area`);
 
-/** パネルの絵：建物（b）・エクステ（sku）・素材（mat）・ヒーロー（hero）・絵文字（仮。docs/ISLAND_ART_TODO.md） */
-const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; emoji?: string }> = {
+/** パネルの絵：建物（b）・商品（sku）・エクステ（ext。MCH のエクステの id）・素材（mat）・ヒーロー（hero）・絵文字（仮。docs/ISLAND_ART_TODO.md） */
+const ICON: Record<string, { b?: string; sku?: Sku; ext?: number; mat?: Mat; hero?: number; emoji?: string }> = {
+  // 発掘の枝（仮：MCH のエクステ・建物の流用。docs/ISLAND_ART_TODO.md「発掘の枝のパネル」）
+  dig_ext: { ext: 1111 },
+  dig_power: { ext: 1034 },
+  dig_speed: { ext: 1031 },
+  dig_reach: { ext: 1011 },
+  dig_lamp: { ext: 1150 },
+  dig_deep: { ext: 1016 },
+  dig_study: { ext: 1008 },
+  dig_blast: { emoji: '💥' },
+  dig_drill: { ext: 1156 },
+  dig_office: { b: 'city_hall' },
+  dig_crew: { ext: 1096 },
+  u_dig_ext2: { ext: 2111 },
+  u_dig_auto: { b: 'survey' },
+  u_dig_power2: { ext: 2034 },
+  u_dig_route: { b: 'lighthouse' },
+  u_dig_relay: { b: 'rest_area' },
+  u_dig_mat: { mat: 'gem' },
   host: { b: 'hotel' },
   display: { b: 'greengrocer' },
   vmd: { b: 'department' },
@@ -122,7 +142,7 @@ const ICON: Record<string, { b?: string; sku?: Sku; mat?: Mat; hero?: number; em
  * 外周の追加のパネル（fx で書いたもの）の絵：効き目の種類ごとの建物（仮。docs/ISLAND_ART_TODO.md「スキルツリー v3 の外周のパネル」）。
  * 同じ種類のパネルが並んでも見分けられるように、候補を順に回す
  */
-const KIND_ICON: Record<FxKind, string[]> = {
+const KIND_ICON: Partial<Record<FxKind, string[]>> = {
   pull: ['department', 'boutique', 'hotel', 'inn', 'item'],
   price: ['jewelry', 'wine_bar', 'boutique'],
   demand: ['amusement', 'park', 'arcade', 'food_stalls'],
@@ -150,6 +170,7 @@ const kindIcon = (k: Skill) => {
   const kind = k.fx?.[0]?.kind;
   if (!kind) return null;
   const list = KIND_ICON[kind];
+  if (!list) return null;
   const n = Number(k.id.match(/_(\d+)$/)?.[1] ?? 0);
   return { b: list[n % list.length] };
 };
@@ -161,6 +182,12 @@ const view = { x: 0, y: 0, zoom: 0, sel: null as string | null };
 /** 本社を開放した時刻（放射状に広がる演出のあいだ） */
 let burst = 0;
 const BURST_MS = 2600;
+/** 発掘の枝が雲から出てくる演出（出会いのあと、はじめてツリーを開いたとき）の始めた時刻 */
+let digReveal = 0;
+const DIG_REVEAL_MS = 2200;
+/** 発掘の枝の雲の真ん中（木の上の位置）と、雲のかたまりを置く半径 */
+const digCloudAt = () => polar((LAYOUT.dig.angle * Math.PI) / 180, R0 + STEP * 1.5);
+const DIG_PUFFS = [3.3, 4.4, 5.6, 6.8, 7.9, 9.4, 10.7];
 /** 外周が開く演出（ランク・始めた時刻・マインちゃんの一言まで進んだか） */
 let ringFx: { tier: Tier; t0: number; talk: boolean } | null = null;
 const RING_MS = 3400;
@@ -200,6 +227,12 @@ function iconOf(id: string, size: number): HTMLElement {
     return im;
   }
   if (spec.sku) return skuIcon(spec.sku, size);
+  if (spec.ext) {
+    const e = icon(getExtension(spec.ext).image, 'px isl-ext');
+    e.style.width = `${size}px`;
+    e.style.height = `${size}px`;
+    return e;
+  }
   if (spec.mat) return matIcon(spec.mat, size);
   if (spec.hero) return heroIcon(spec.hero, size);
   return h('span', 'isl-tree-emoji', spec.emoji ?? '✦');
@@ -215,14 +248,14 @@ function curImg(kind: 'emblem', size = 18): HTMLImageElement {
   return im;
 }
 
-/** パネルの見え方：取った・修行中・取れる・資金（RP）不足・条件が足りない・外周が閉じている・封印・準備中 */
-type State = 'done' | 'training' | 'open' | 'poor' | 'locked' | 'ring' | 'sealed' | 'soon';
+/** パネルの見え方：取った・修行中・取れる・資金（RP）不足・条件が足りない・外周が閉じている・封印・準備中・雲の中（発掘の枝の出会いの前） */
+type State = 'done' | 'training' | 'open' | 'poor' | 'locked' | 'ring' | 'sealed' | 'soon' | 'hidden';
 function stateOf(s: P1State, k: Skill): State {
   const e = skillLock(s, k);
   if (e === null) return 'open';
   if (e === 'money' || e === 'rp') return 'poor';
   if (e === 'requires' || e === 'brand' || e === 'emblem') return 'locked';
-  return e;
+  return e as State;
 }
 /** 条件の札（★30・🏅3） */
 function condTags(s: P1State, k: Skill): HTMLElement | null {
@@ -304,11 +337,12 @@ function effLines(s: P1State, k: Skill): HTMLElement | null {
   if (!base.length && !up.length) return null;
   const box = h('div', 'isl-tree-eff');
   const line = (x: (typeof base)[number], isUp: boolean) => {
-    const cur = shownAt(x, lv, isUp);
-    const nx = lv < mx ? shownAt(x, lv + 1, isUp) : null;
+    // 発掘の枝はレベルごとの表（「+6 秒」「150 ms」「岩盤まで」）。ほかは Lv1 の値 × 倍率
+    const cur = shownText(x, lv, isUp);
+    const nx = lv < mx ? shownText(x, lv + 1, isUp) : null;
     const r = h('div', 'isl-tree-effrow');
-    r.append(h('span', '', x.label), h('b', '', cur ? fmtShown(x, cur) : t('なし', 'none')));
-    if (nx != null && nx !== cur) r.append(h('span', 'isl-dim', '→'), h('b', 'isl-good', fmtShown(x, nx)));
+    r.append(h('span', '', x.label), h('b', '', cur ?? t('なし', 'none')));
+    if (nx != null && nx !== cur) r.append(h('span', 'isl-dim', '→'), h('b', 'isl-good', nx));
     box.append(r);
   };
   for (const x of base) line(x, false);
@@ -340,8 +374,10 @@ function infoLines(s: P1State, k: Skill, st: State): HTMLElement[] {
   if (tier !== 'C') out.push(h('span', 'isl-tag is-tier', tierArea(tier)));
   if (st === 'soon') out.push(h('small', 'isl-warn', t('準備中（まだ取れない）', 'Coming soon (not available yet)')));
   if (k.requires?.length) {
-    const need = k.requires.map((r) => (has(s, r) ? '✓' : '· ') + (SKILL[r]?.name ?? r)).join(t('　', '  '));
-    out.push(h('small', st === 'locked' && k.requires.some((r) => !has(s, r)) ? 'isl-warn' : 'isl-dim', t(`先に要る：${need}`, `Needs: ${need}`)));
+    // レベルが要るもの（reqLv）は「発掘隊の手際 Lv3」
+    const ok = (r: string) => has(s, r) && lvOf(s, r) >= (k.reqLv?.[r] ?? 1);
+    const need = k.requires.map((r) => (ok(r) ? '✓' : '· ') + (SKILL[r]?.name ?? r) + (k.reqLv?.[r] ? ` Lv${k.reqLv[r]}` : '')).join(t('　', '  '));
+    out.push(h('small', st === 'locked' && k.requires.some((r) => !ok(r)) ? 'isl-warn' : 'isl-dim', t(`先に要る：${need}`, `Needs: ${need}`)));
   }
   if (k.brand) out.push(h('small', (s.brand ?? 0) < k.brand ? 'isl-warn' : 'isl-good', brandNeed(s, k)));
   if (k.emblem) out.push(h('small', (s.emblem ?? 0) < k.emblem ? 'isl-warn' : 'isl-good', emblemNeed(s, k)));
@@ -450,6 +486,16 @@ export function openSkills(ctx: Ctx, focus?: string) {
       }
     }
     const fx = ringFx;
+    // 発掘の枝：出会いの前は雲の中（「？」の札だけ）。出会いのあと、はじめて開いたときに雲から出てくる
+    const digOn = !sealed && digBranchOpen(s);
+    if (digOn && !s.flags.digBranch && !ctx.step?.()) {
+      s.flags.digBranch = 'new';
+      digReveal = performance.now();
+      ctx.save();
+      setTimeout(() => ctx.sfx?.('levelup'), 500);
+    }
+    const revealing = digOn && performance.now() - digReveal < DIG_REVEAL_MS;
+    const hidden = (br: Branch) => br === 'dig' && !digOn;
     if (sealed) {
       view.x = 0;
       view.y = 0;
@@ -464,6 +510,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
     const chips = h('div', 'isl-tree-chips');
     const chipEls = new Map<Branch, HTMLElement>();
     for (const br of BRANCHES) {
+      if (hidden(br.key)) continue;
       const L = LAYOUT[br.key];
       const c = h('button', 'isl-tree-chip');
       c.type = 'button';
@@ -547,7 +594,9 @@ export function openSkills(ctx: Ctx, focus?: string) {
         });
         return;
       }
+      const rp0 = s.rp ?? 0;
       const e = learn(s, k.id);
+      if (!e && (s.rp ?? 0) > rp0) setTimeout(() => ctx.toast(t(`研究 Lv の上限が上がった！ 止まっていたエクステの研究が進んだ（研究ポイント +${(s.rp ?? 0) - rp0}）`, `Research cap raised! Held-back finds levelled up (RP +${(s.rp ?? 0) - rp0})`)), 900);
       if (e === 'money') fail(t(`資金が足りません（あと ${money(k.cost - s.money)}）`, `Not enough funds (${money(k.cost - s.money)} short)`));
       else if (e === 'brand') fail(plain(brandNeed(s, k)));
       else if (e === 'emblem') fail(plain(emblemNeed(s, k)));
@@ -555,6 +604,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       else if (e === 'ring' || e === 'sealed') fail(ringNeed(k));
       else if (e === 'soon') fail(t('準備中です', 'Coming soon'));
       else if (e === 'requires') fail(t('先に要るスキルがあります', 'Learn the required skills first'));
+      else if (e === 'hidden') fail(t('まだ雲の向こう（発掘と出会うと開く）', 'Still beyond the clouds (opens once you meet digging)'));
       else if (!e) {
         ctx.sfx?.('levelup');
         ctx.toast(isResearch(k) ? t(`研究ポイント ${rpCost(k)} で「${k.name}」を開放しました`, `Unlocked ${k.name} with ${rpCost(k)} RP`) : t(`「${k.name}」を開放しました`, `Unlocked: ${k.name}`));
@@ -566,12 +616,15 @@ export function openSkills(ctx: Ctx, focus?: string) {
     /** レベルを上げる（詳細カードのボタン・取得済みのパネルのダブルタップ）。チュートリアル中は上げない */
     const tryLevel = (k: Skill) => {
       if (only) return halt();
+      const rp0 = s.rp ?? 0;
       const e = levelUp(s, k.id);
       if (e === 'money') return fail(t(`資金が足りません（あと ${money(nextLevelCost(s, k) - s.money)}）`, `Not enough funds (${money(nextLevelCost(s, k) - s.money)} short)`));
       if (e === 'max') return fail(t('最大レベルです', 'Already at max level'));
       if (e) return fail(t('いまは上げられません', 'Can’t level up now'));
       ctx.sfx?.('levelup');
       ctx.toast(t(`「${k.name}」を Lv ${lvOf(s, k.id)} に上げました`, `${k.name} is now Lv ${lvOf(s, k.id)}`));
+      // 研究の目利き：上限で止まっていたエクステの研究 Lv が上がり、RP が入った
+      if ((s.rp ?? 0) > rp0) setTimeout(() => ctx.toast(t(`研究 Lv の上限が上がった！ 止まっていたエクステの研究が進んだ（研究ポイント +${(s.rp ?? 0) - rp0}）`, `Research cap raised! Held-back finds levelled up (RP +${(s.rp ?? 0) - rp0})`)), 900);
       justLeveled = { id: k.id, t: performance.now() };
       view.sel = k.id;
       after(ctx);
@@ -663,6 +716,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
     };
     // 本社 → 枝の根もと → スキル
     for (const br of BRANCHES) {
+      if (hidden(br.key)) continue;
       const L = LAYOUT[br.key];
       const hub = HUBPOS.get(br.key)!;
       line({ x: 0, y: 0 }, hub, L.color, 'is-on');
@@ -711,8 +765,28 @@ export function openSkills(ctx: Ctx, focus?: string) {
         world.append(wv);
       }
     }
+    // 発掘の枝の雲（出会いの前。雲から出てくるあいだは、薄れて消える）
+    if (!sealed && (!digOn || revealing)) {
+      const a = (LAYOUT.dig.angle * Math.PI) / 180;
+      DIG_PUFFS.forEach((r, k) => {
+        const q = px(polar(a + (k % 2 ? 0.07 : -0.06), r));
+        const puff = h('i', `isl-tree-cloud ${digOn ? 'is-leaving' : ''}`);
+        puff.style.left = `${q.x}px`;
+        puff.style.top = `${q.y}px`;
+        puff.style.setProperty('--sz', `${Math.round((1.5 + (k % 3) * 0.35 + r * 0.06) * UNIT)}px`);
+        puff.style.setProperty('--d', `${(k * 0.08).toFixed(2)}s`);
+        world.append(puff);
+      });
+      const c = px(digCloudAt());
+      const q = h('div', `isl-tree-cloudq ${digOn ? 'is-leaving' : ''}`, '?');
+      q.style.left = `${c.x}px`;
+      q.style.top = `${c.y}px`;
+      q.title = t('雲の向こうに、まだ何かある', 'Something lies beyond the clouds');
+      world.append(q);
+    }
     if (!sealed)
       for (const br of BRANCHES) {
+        if (hidden(br.key)) continue;
         const L = LAYOUT[br.key];
         const p = px(HUBPOS.get(br.key)!);
         const hub = h('div', 'isl-tree-hub');
@@ -728,6 +802,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
     const fxOrder = fx ? SKILLS.filter((k) => skillTier(k) === fx.tier) : [];
     if (!sealed)
       for (const k of SKILLS) {
+        if (hidden(k.branch)) continue;
         const L = LAYOUT[k.branch];
         const p = px(POS.get(k.id)!);
         const st = stateOf(s, k);
@@ -744,6 +819,15 @@ export function openSkills(ctx: Ctx, focus?: string) {
         if (fx && tier === fx.tier) {
           n.classList.add('is-ringpop');
           setBurst(n, POS.get(k.id)!, 0.6 + fxOrder.indexOf(k) * 0.07);
+        }
+        // 発掘の枝が雲から出てくる：雲の真ん中から、根もとの順にぽんと出る
+        if (revealing && k.branch === 'dig') {
+          const q = POS.get(k.id)!;
+          const c0 = digCloudAt();
+          n.classList.add('is-digpop');
+          n.style.setProperty('--dx', `${((c0.x - q.x) * UNIT).toFixed(0)}px`);
+          n.style.setProperty('--dy', `${((c0.y - q.y) * UNIT).toFixed(0)}px`);
+          n.style.setProperty('--d', `${(0.35 + Math.hypot(q.x, q.y) * 0.06).toFixed(2)}s`);
         }
         hover(n, () => skillCard(s, k, !!only));
         if (st === 'ring' && !isGoalTier(k)) {

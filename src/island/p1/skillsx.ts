@@ -7,11 +7,12 @@
  * このファイルは data.ts から読む（data.ts の値は使わない。型だけ）。
  */
 import { t } from '../../i18n';
-import type { Branch, Fx, FxKind, Skill, Tier } from './data';
+import type { Branch, DigFxKind, Fx, FxKind, Skill, Tier } from './data';
 
 type OuterTier = Exclude<Tier, 'C'>;
 /** Common 相当の 1 枚の効き目（割合。apt・brand・lot は数） */
-const FX_BASE: Record<FxKind, number> = {
+/** （発掘の枝の効き目は外周の追加のパネルに使わない） */
+const FX_BASE: Record<Exclude<FxKind, DigFxKind>, number> = {
   pull: 0.1,
   price: 0.05,
   demand: 0.08,
@@ -505,7 +506,7 @@ const OUTER: Record<OuterTier, Partial<Record<Branch, Block>>> = {
 /** 'pull:1.5+price' → fx（ランクの倍率と重みを掛ける） */
 function fxOf(spec: string, tier: OuterTier): Fx[] {
   return spec.split('+').map((x) => {
-    const [kind, w] = x.split(':') as [FxKind, string | undefined];
+    const [kind, w] = x.split(':') as [Exclude<FxKind, DigFxKind>, string | undefined];
     const raw = FX_BASE[kind] * TIER_F[tier] * (w ? Number(w) : 1);
     const v = kind === 'apt' || kind === 'brand' || kind === 'lot' ? Math.max(1, Math.round(raw)) : Math.round(raw * 100) / 100;
     return { kind, v };

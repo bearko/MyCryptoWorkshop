@@ -11,6 +11,7 @@ import { PRODUCT, skuParts, type Sku } from './data';
 import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, type Anim } from './anim';
 import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
 import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
+import { standing } from './digview';
 
 import { extImage } from './ui';
 export interface P1Ghost {
@@ -249,6 +250,26 @@ export function drawP1(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w
       const alpha = Math.min(1, cu.f / 0.06, (1 - cu.f) / 0.06);
       const carry = image(`items/${cu.carry}.png`);
       items.push({ depth: (p.i + p.j) * 1000 + p.i + 0.6, draw: () => drawWalker(ctx, cu.hero, p.i, p.j, p.di, p.dj, anim.clock / 90, Math.max(0, alpha), carry) });
+    }
+    // 発掘隊の常駐（自動化）：作業していない日に掘っている荒れ地に、小さな作業員とつるはしの動き
+    // （仮：歩く人の絵（MCH のヒーロー）の流用と、コードで描いたつるはし。docs/ISLAND_ART_TODO.md「常駐の作業員」）
+    const sd = !s.digRun ? standing(s) : null;
+    const sp = sd ? wastes[sd.site] : null;
+    if (sd && sp && (visible(sp[0], sp[1]) || visible(sp[0] + 1, sp[1] + 1))) {
+      const SPOTS: [number, number][] = [
+        [0.55, 0.75],
+        [1.25, 0.6],
+        [0.8, 1.35],
+        [1.45, 1.3],
+        [0.35, 1.2],
+      ];
+      sd.heroes.slice(0, SPOTS.length).forEach((hero, n) => {
+        const [di, dj] = SPOTS[n];
+        const i = sp[0] + di;
+        const j = sp[1] + dj;
+        const ph = now / 170 + n * 1.7;
+        items.push({ depth: (i + j) * 1000 + i + 0.6, draw: () => digWorker(ctx, hero, i, j, ph) });
+      });
     }
     const by = anim.buyer;
     if (by && by.path.length > 1) {
@@ -502,6 +523,43 @@ function wastePt(i: number, j: number, u: number, v: number) {
   const c = center(i, j);
   return { x: c.x + (u - v) * 200, y: c.y - 55 + (u + v) * 110 };
 }
+/** 常駐の作業員：ヒーローの絵（歩く人の流用）と、振り下ろすつるはし（コード描画）・土ぼこり */
+function digWorker(ctx: CanvasRenderingContext2D, hero: number, i: number, j: number, ph: number) {
+  // 振り上げ（0）→ 振り下ろし（1）。下ろしきったところで小さく跳ねる
+  const sw = (Math.sin(ph) + 1) / 2;
+  drawWalker(ctx, hero, i, j, 1, 0, sw > 0.85 ? (sw - 0.85) * 4 : 0);
+  const c = center(i, j);
+  const hx = c.x + 16;
+  const hy = c.y - 34;
+  const a = -1.9 + sw * 2.2;
+  const L = 30;
+  const ex = hx + Math.cos(a) * L;
+  const ey = hy + Math.sin(a) * L;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#7a4f24';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  // つるはしの頭（柄に直角の、灰色の弧）
+  const nx = Math.cos(a + Math.PI / 2) * 11;
+  const ny = Math.sin(a + Math.PI / 2) * 11;
+  ctx.strokeStyle = '#c9ced6';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(ex - nx, ey - ny);
+  ctx.quadraticCurveTo(ex + Math.cos(a) * 5, ey + Math.sin(a) * 5, ex + nx, ey + ny);
+  ctx.stroke();
+  // 土ぼこり（振り下ろしたとき）
+  if (sw > 0.8) {
+    ctx.fillStyle = `rgba(190,150,96,${((sw - 0.8) * 4).toFixed(2)})`;
+    for (let k = 0; k < 4; k++) ctx.fillRect(Math.round(ex - 10 + k * 6), Math.round(ey + 4 - (k % 2) * 5), 4, 4);
+  }
+  ctx.restore();
+}
+
 /**
  * 荒れ地 1 か所（2 × 2）：ひびの入った乾いた土・小石・崩れた石垣のかけら・枯れ草。
  * 発掘中は杭とロープ、掘りきった後はならした土（4 段目で建てられる土地に）。glow：発掘との出会いで光らせる

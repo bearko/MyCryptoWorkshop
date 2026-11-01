@@ -4,9 +4,9 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { DIG, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
+import { DIG, DIG_PANELS, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
 import { sectorDef } from './company';
-import { digLayout, digLayouts, extName, hasLetter, monopolyLeft, openRelics, permitFee, presentLock, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
+import { digLayout, digLayouts, extName, has, hasLetter, monopolyLeft, openRelics, permitFee, presentLock, sessionSec, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
 
 // ---------------------------------------------------------------- 発掘との出会い（2 か月目の途中、初めて手が空いたとき）
 
@@ -143,7 +143,7 @@ export function topicsPage(sector: string): string | null {
 
 // ---------------------------------------------------------------- マインちゃんの助言（発掘）
 
-export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'relic';
+export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'relic' | 'branch';
 /**
  * 発掘の助言。tier は、いまの助言の並び（main.ts の tutorial）のどこに入れるか：
  * - high：受け取れるもの（お題がそろって発表できる）。依頼の報酬の受け取りと同じ所（休業・倉庫の「止まっている」の後）
@@ -158,7 +158,11 @@ export interface DigTip {
   text: string;
   site?: number;
 }
-export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'idle', 'permit', 'topic-one', 'letter'];
+export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'idle', 'permit', 'topic-one', 'letter', 'branch'];
+/** 発掘の枝が雲から出たあとの 1 回だけの一言（流れを止めない助言） */
+export const BRANCH_TIP = () => t('[[発掘]]の枝ができたよ！ お金で[[追加申請]]をすると、1 回の発掘が長くなる。', 'A [[Digging]] branch appeared! Spend funds on [[Extra dig time]] to make each dig run longer.');
+/** 「深い層の許可が要る」マスを初めて押したとき（発掘場のパネルの中に出す） */
+export const DEEP_TIP = () => t('岩盤から下は国の許可が要るんだ。スキルツリーの[[深い層の許可]]で掘れるようになるよ。', 'Below the bedrock you need the nation’s permit. Get the [[Deep-layer permit]] in the skill tree to dig there.');
 /** 許可のある荒れ地を、この日数のあいだ掘っていなければ「15 秒だけ掘ってみよう」 */
 export const DIG_IDLE_DAYS = 10;
 
@@ -180,7 +184,8 @@ export function digTips(s: P1State): DigTip[] {
     const open = d.sites.map((x, k) => ({ x, k })).filter(({ x }) => x.permit && !x.done);
     if (open.length && s.day - (d.last ?? -1e9) >= DIG_IDLE_DAYS) {
       const k = (open.find(({ k }) => k === d.cur) ?? open[0]).k;
-      out.push({ key: 'idle', tier: 'mid', site: k, text: t(`[[${wasteName(d.sector, k)}]]で 15 秒だけ掘ってみよう！ 売れるのを待つあいだに、研究ポイントが貯まるよ。`, `Dig at the [[${wasteName(d.sector, k)}]] for just 15 seconds! Earn research points while sales come in.`) });
+      const sec = sessionSec(s);
+      out.push({ key: 'idle', tier: 'mid', site: k, text: t(`[[${wasteName(d.sector, k)}]]で ${sec} 秒だけ掘ってみよう！ 売れるのを待つあいだに、研究ポイントが貯まるよ。`, `Dig at the [[${wasteName(d.sector, k)}]] for just ${sec} seconds! Earn research points while sales come in.`) });
     }
     const no = d.sites.findIndex((x) => !x.permit);
     const fee = permitFee(s);
@@ -204,6 +209,8 @@ export function digTips(s: P1State): DigTip[] {
     const fee = Math.min(...(['u1', 'u2', 'u3', 'u4', 'u5'] as const).map((id) => sectorDef(id).fee));
     out.push({ key: 'letter', tier: 'low', text: t(`[[調査依頼状]]があるから、Uncommon のセクタに出店できるよ。入国料は ${fee.toLocaleString('en-US')} G から、ランドマップで選ぼう！`, `With the [[survey request]] you can open in Uncommon sectors. Permits start at ${fee.toLocaleString('en-US')} G — choose on the land map!`) });
   }
+  // 発掘の枝が雲から出たあと、1 回だけ（発掘のパネルを 1 枚でも開けたら出さない）
+  if (s.flags.digBranch === 'new' && !DIG_PANELS.some((id) => has(s, id))) out.push({ key: 'branch', tier: 'low', text: BRANCH_TIP() });
   return out.filter((x) => !s.digRun || x.key === 'present');
 }
 
