@@ -333,7 +333,7 @@ describe('セーブ：版 4 → 5（上から掘る断面 → 正面の壁）', 
 
   it('掘りかけは新しい壁で作り直す。許可・掘りきりの印はそのまま（掘りきった荒れ地は全部いちばん奥まで）', () => {
     const s = v4();
-    expect(s.v).toBe(6);
+    expect(s.v).toBe(7);
     const d = s.dig!;
     expect(d.sites.map((x) => [x.permit, x.done])).toEqual([
       [true, false],

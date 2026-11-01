@@ -4,9 +4,9 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { DIG, DIG_PANELS, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
+import { DIG, DIG_BALANCE, DIG_PANELS, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
 import { sectorDef } from './company';
-import { clearGoal, clearWaiting, digLayout, digLayouts, extName, has, hasLetter, letterNeed, monopolyLeft, presentedOf, sellersOf, openRelics, permitFee, presentLock, sessionSec, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
+import { clearGoal, clearWaiting, digLayout, digLayouts, extName, has, hasLetter, letterNeed, monopolyLeft, presentedOf, sellersOf, openRelics, permitFee, presentLock, presentRes, sessionSec, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
 
 // ---------------------------------------------------------------- 発掘との出会い（2 か月目の途中、初めて手が空いたとき）
 
@@ -164,12 +164,16 @@ export function topicsPage(sector: string): string | null {
   const theme = DIG_THEME[sector];
   const n = topicsOf(sector).length;
   if (!theme || !n) return null;
+  // Uncommon（発掘 v2 の 6 段目）：発表にはお題と、出土品の研究 Lv も
+  const R = DIG_BALANCE.presentRes[sectorDef(sector).tier as 'C' | 'U'];
+  if (R)
+    return t(`この町の荒れ地には、栄えていた頃の[[${theme}]]が眠っているはず。お題 ${n} つと、出土品 ${R.n} 種の[[研究 Lv${R.lv}]]がそろったら[[町の長]]に発表しよう！`, `This town’s wastelands should hold [[${theme}]] from Lime’s golden age. Find the ${n} targets and raise ${R.n} finds to [[research Lv${R.lv}]], then present to the [[town head]]!`);
   return t(`この町の荒れ地には、栄えていた頃の[[${theme}]]が眠っているはず。お題は ${n} つ、そろったら[[町の長]]に発表しよう！`, `This town’s wastelands should hold [[${theme}]] from Lime’s golden age. There are ${n} targets — once you have them all, present to the [[town head]]!`);
 }
 
 // ---------------------------------------------------------------- マインちゃんの助言（発掘）
 
-export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'letter-need' | 'relic' | 'copied' | 'branch';
+export type DigTipKey = 'present' | 'present-res' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'letter-need' | 'relic' | 'copied' | 'branch';
 /**
  * 発掘の助言。tier は、いまの助言の並び（main.ts の tutorial）のどこに入れるか：
  * - high：受け取れるもの（お題がそろって発表できる）。依頼の報酬の受け取りと同じ所（休業・倉庫の「止まっている」の後）
@@ -184,7 +188,7 @@ export interface DigTip {
   text: string;
   site?: number;
 }
-export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'copied', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch'];
+export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'copied', 'present-res', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch'];
 /** 発掘の枝が雲から出たあとの 1 回だけの一言（流れを止めない助言） */
 export const BRANCH_TIP = () => t('[[発掘]]の枝ができたよ！ お金で[[追加申請]]をすると、1 回の発掘が長くなる。', 'A [[Digging]] branch appeared! Spend funds on [[Extra dig time]] to make each dig run longer.');
 /** 「深い層の許可が要る」マスを初めて押したとき（発掘場のパネルの中に出す） */
@@ -220,6 +224,12 @@ export function digTips(s: P1State): DigTip[] {
     const fee = permitFee(s);
     if (no >= 0 && s.money >= fee)
       out.push({ key: 'permit', tier: 'mid', site: no, text: fee > 0 ? t(`次の荒れ地の[[発掘許可]]を申請しよう（申請料 ${fee.toLocaleString('en-US')} G）。[[${wasteName(d.sector, no)}]]をタップ！`, `Apply for the next [[dig permit]] (${fee.toLocaleString('en-US')} G). Tap the [[${wasteName(d.sector, no)}]]!`) : t(`このセクタの 1 か所目の[[発掘許可]]は無料だよ。[[${wasteName(d.sector, no)}]]をタップして申請しよう！`, `This sector’s first [[dig permit]] is free. Tap the [[${wasteName(d.sector, no)}]] and apply!`) });
+  }
+  // Uncommon（発掘 v2 の 6 段目）：お題はそろったが、発表には出土品 N 種の研究 Lv が要る
+  const pr = d && presentLock(s) === 'research' ? presentRes(s) : null;
+  if (d && pr) {
+    const open = d.sites.findIndex((x) => x.permit && !x.done);
+    out.push({ key: 'present-res', tier: 'mid', site: open >= 0 ? open : undefined, text: t(`お題はそろったね！ 発表には、この町の出土品 ${pr.need} 種を[[研究 Lv${pr.lv}]]に（いま ${pr.have} / ${pr.need}）。同じ遺物を掘り重ねよう！`, `All targets found! To present, raise ${pr.need} of this town’s finds to [[research Lv${pr.lv}]] (now ${pr.have} / ${pr.need}). Dig up the same relics again!`) });
   }
   if (d && presentLock(s) === 'not-yet') {
     const [a, b] = topicProgress(s);
@@ -356,13 +366,28 @@ export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: Dig
  * 制覇の条件の 1 行（月次報告の KGI のカード・ランドマップ）：[長い版, スマホの短い版]。
  * goal が無い（お題の無いセクタ・以前の報告）は、1 位を 2 か月だけ
  */
-export function clearCondText(streak: number, goal: { present: boolean; got: number; all: number } | null | undefined): [string, string] {
+/** 発表の条件の進み（Report.goal・clearGoal の形） */
+export type GoalLike = { present: boolean; got: number; all: number; res?: [number, number, number] | null };
+/**
+ * 発表の条件の進み（まだ発表していないとき）：[長い版, 短い版]。「2 / 4 お題・研究 Lv3 の出土品 1 / 2」「2/4・Lv3 1/2」。
+ * Uncommon（res のあるセクタ）だけ研究 Lv の条件を足す
+ */
+export function presentNeedText(g: GoalLike): [string, string] {
+  const r = g.res;
+  const long = t(`${g.got} / ${g.all} お題`, `${g.got} / ${g.all} targets`) + (r ? t(`・研究 Lv${r[2]} の出土品 ${r[0]} / ${r[1]}`, ` · finds at research Lv${r[2]} ${r[0]} / ${r[1]}`) : '');
+  const short = `${g.got}/${g.all}` + (r ? t(`・Lv${r[2]} ${r[0]}/${r[1]}`, ` · Lv${r[2]} ${r[0]}/${r[1]}`) : '');
+  return [long, short];
+}
+/** 発表の条件がそろっている（お題・Uncommon は研究 Lv も） */
+export const presentReady = (g: GoalLike) => g.got >= g.all && (!g.res || g.res[0] >= g.res[1]);
+export function clearCondText(streak: number, goal: GoalLike | null | undefined): [string, string] {
   const top = streak >= TOP_STREAK;
   const a = top ? ' ✔' : t(`（いま ${streak} / ${TOP_STREAK}）`, ` (${streak} / ${TOP_STREAK})`);
   const as = top ? '✔' : `${streak}/${TOP_STREAK}`;
   if (!goal || goal.all === 0) return [t(`制覇の条件：1 位を ${TOP_STREAK} か月${a}`, `To conquer: #1 for ${TOP_STREAK} months${a}`), t(`条件：1 位 ${TOP_STREAK} か月 ${as}`, `Goal: #1 × ${TOP_STREAK} ${as}`)];
-  const b = goal.present ? ' ✔' : t(` ${goal.got} / ${goal.all} お題`, ` ${goal.got} / ${goal.all} targets`);
-  const bs = goal.present ? '✔' : `${goal.got}/${goal.all}`;
+  const [need, needS] = presentNeedText(goal);
+  const b = goal.present ? ' ✔' : ` ${need}`;
+  const bs = goal.present ? '✔' : needS;
   return [
     t(`制覇の条件：1 位を ${TOP_STREAK} か月${a}／研究成果の発表${b}`, `To conquer: #1 for ${TOP_STREAK} months${a} / findings presented${b}`),
     t(`条件：1 位 ${TOP_STREAK} か月 ${as}・発表 ${bs}`, `Goal: #1 × ${TOP_STREAK} ${as} · present ${bs}`),
@@ -373,8 +398,9 @@ export function clearCondText(streak: number, goal: { present: boolean; got: num
 export function clearWaitTip(s: P1State): string | null {
   if (!clearWaiting(s)) return null;
   const g = clearGoal(s);
-  return g.got >= g.all
-    ? t('1 位を 2 か月守ったね！ あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ。', 'Two months at #1! Present your findings to the [[town head]] and the sector is [[yours]].')
-    : t(`1 位を 2 か月守ったね！ [[制覇]]にはこのセクタの研究成果の発表も要るよ（お題 ${g.got} / ${g.all}）。荒れ地を掘ろう！`, `Two months at #1! To [[conquer]] you also need to present this sector’s findings (targets ${g.got} / ${g.all}). Go dig!`);
+  if (presentReady(g)) return t('1 位を 2 か月守ったね！ あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ。', 'Two months at #1! Present your findings to the [[town head]] and the sector is [[yours]].');
+  // Uncommon：お題はそろったが、研究 Lv の条件がまだ
+  if (g.got >= g.all && g.res) return t(`1 位を 2 か月守ったね！ 発表には出土品 ${g.res[1]} 種を[[研究 Lv${g.res[2]}]]に（いま ${g.res[0]} / ${g.res[1]}）。荒れ地を掘って研究を進めよう！`, `Two months at #1! To present, raise ${g.res[1]} finds to [[research Lv${g.res[2]}]] (now ${g.res[0]} / ${g.res[1]}). Keep digging!`);
+  return t(`1 位を 2 か月守ったね！ [[制覇]]にはこのセクタの研究成果の発表も要るよ（${presentNeedText(g)[0]}）。荒れ地を掘ろう！`, `Two months at #1! To [[conquer]] you also need to present this sector’s findings (${presentNeedText(g)[0]}). Go dig!`);
 }
 

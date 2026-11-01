@@ -114,7 +114,8 @@ const lv = (s: P1State, id: string, n: number) => setLevel(s, id, n);
 describe('データ：9 本目の枝「発掘」', () => {
   it('BRANCHES に dig。パネルは Common 11 枚・Uncommon 外周 6 枚、すべてお金パネル（Lv1〜5・levelCost）。値段は C 2,000〜12,000・U 20,000〜80,000', () => {
     expect(BRANCHES.at(-1)).toEqual({ key: 'dig', name: '発掘' });
-    const ks = SKILLS.filter((k) => k.branch === 'dig');
+    // 無限の強化パネル・研究への寄付（6 段目）は別（tests/island-p1-dig2f.test.ts）
+    const ks = SKILLS.filter((k) => k.branch === 'dig' && !k.inf && !k.donate);
     expect(ks.map((k) => k.id)).toEqual(DIG_PANELS);
     expect(ks.filter((k) => !k.tier)).toHaveLength(11);
     expect(ks.filter((k) => k.tier === 'U')).toHaveLength(6);
@@ -737,7 +738,7 @@ describe('セーブ：版 3 → 4', () => {
 
   it('ツルハシの新調 1 段 → ツルハシの鍛え直し Lv1、2 段 → Lv3／ランタン → 発掘のランタン Lv1／発破の道具 → 発破 Lv1（払ったお金は戻さない）。設備投資からは外す', () => {
     const a = v3({ pick: 1 });
-    expect(a.v).toBe(6);
+    expect(a.v).toBe(7);
     expect(lvOf(a, 'dig_power')).toBe(1);
     expect(digPower(a)).toBe(2);
     const b = v3({ pick: 2, lantern: 1, blast: 1, tools: 2 });
@@ -776,6 +777,6 @@ describe('セーブ：版 3 → 4', () => {
     expect([researchCap(n), deepLayers(n, 'C')]).toEqual([3, 2]);
     // 版 4 を読み直しても変わらない
     const back = deserializeP1(serializeP1(s))!;
-    expect([back.v, researchCap(back), deepLayers(back, 'C'), lvOf(back, 'dig_power')]).toEqual([6, 5, 3, 0]);
+    expect([back.v, researchCap(back), deepLayers(back, 'C'), lvOf(back, 'dig_power')]).toEqual([7, 5, 3, 0]);
   });
 });

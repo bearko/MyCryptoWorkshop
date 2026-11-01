@@ -9376,3 +9376,21 @@ button.isl-mis {
     flex: 1 1 40%;
   }
 }
+
+/* ================================================================ 無限の強化パネル（発掘 v2 の 6 段目）：研究パネル（四角）で Lv の上限なし。右上の ∞・右下の Lv・次の Lv の RP */
+.isl-tree-mark.is-inf {
+  background: linear-gradient(180deg, #8fe6dc, #3f9f96);
+  color: #0f1626;
+  font-size: 15px;
+}
+.isl-tree-node.is-inf {
+  box-shadow: 0 0 0 2px rgba(143, 230, 220, 0.45), 0 0 14px rgba(143, 230, 220, 0.35);
+}
+.isl-tree-cat.is-inf span {
+  color: #8fe6dc;
+}
+/* 町の長の家：Uncommon の発表の条件（研究 Lv）を満たした出土品 */
+.isl-chief-topic.is-ok {
+  border-color: var(--isl-good);
+  box-shadow: 0 0 0 1px var(--isl-good);
+}

@@ -8,7 +8,7 @@
  * スマホ（390×844）では、折りたたみを閉じた状態でスクロールせずに 1 画面に収める。
  * docs/ISLAND_PHASE1.md「月の売上報告」。
  */
-import { clearCondText, digMet, digReportLine, digReportText, reviveReportText, type DigSummary } from './digmeet';
+import { clearCondText, digMet, digReportLine, digReportText, presentNeedText, presentReady, reviveReportText, type DigSummary } from './digmeet';
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { PRODUCT, TOP_STREAK, sku } from './data';
@@ -480,11 +480,13 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
         p.append(
           rich(
             waiting && g
-              ? g.got >= g.all
+              ? presentReady(g)
                 ? t('あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ！', 'Present your findings to the [[town head]] and it is [[yours]]!')
-                : t(`あとは研究成果の発表で[[制覇]]！ お題 ${g.got} / ${g.all}`, `Present your findings to [[conquer]]! Targets ${g.got} / ${g.all}`)
+                : t(`あとは研究成果の発表で[[制覇]]！ ${presentNeedText(g)[0]}`, `Present your findings to [[conquer]]! ${presentNeedText(g)[0]}`)
               : g && !g.present
-                ? t(`来月も守って、お題もそろえよう（${g.got} / ${g.all}）！`, `Hold on next month and find the targets (${g.got} / ${g.all})!`)
+                ? g.res
+                  ? t(`来月も守って、発表の条件もそろえよう（${presentNeedText(g)[0]}）！`, `Hold on next month and meet the presenting conditions (${presentNeedText(g)[0]})!`)
+                  : t(`来月も守って、お題もそろえよう（${g.got} / ${g.all}）！`, `Hold on next month and find the targets (${g.got} / ${g.all})!`)
                 : t('来月も守り切れたら[[制覇]]だよ！', 'Hold on next month and the sector is [[yours]]!'),
           ),
         );

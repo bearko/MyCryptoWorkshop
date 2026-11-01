@@ -15,6 +15,10 @@ import {
   DIG,
   DIG_AUTO,
   DIG_BALANCE,
+  donateCost,
+  infAmt,
+  infCost,
+  type InfKind,
   DUNGEON_DIG,
   DUNGEON_FINDS,
   WASTE,
@@ -223,7 +227,7 @@ export interface Report {
    * 制覇の 2 つ目の条件（発掘 v2 の 5 段目）：そのセクタの研究成果の発表。発表済み・お題の数（締めの時点）。
    * お題のあるセクタの報告だけ（以前の報告・お題の無いセクタは無い＝1 位を 2 か月だけで制覇）
    */
-  goal?: { present: boolean; got: number; all: number };
+  goal?: { present: boolean; got: number; all: number; res?: [number, number, number] };
   /** OJT で能力が上がった人の数 */
   ojt?: number;
   /** 月次 PDCA：来月の見込み（売上・利益） */
@@ -297,7 +301,7 @@ export interface Flags {
 
 export interface P1State {
   /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー／5：発掘の正面の壁／6：復興・ダンジョン・展示館。1〜5 のセーブは deserializeP1 で順に移す） */
-  v: 1 | 2 | 3 | 4 | 5 | 6;
+  v: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   kind: 'p1';
   seed: number;
   n: number;
@@ -400,8 +404,10 @@ export interface P1State {
   rally?: number;
   /** 会社のエンブレム（関所の開通・セクタの制覇で 1 つずつ）。スキルツリーの外周のパネルの条件（数を持っていればよい） */
   emblem: number;
-  /** 会社の研究ポイント（RP）。採掘でだけ貯まる。研究パネルを開くのに使う（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」） */
+  /** 会社の研究ポイント（RP）。採掘で貯まる（v14a から研究への寄付でも買える）。研究パネルを開くのに使う（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」） */
   rp: number;
+  /** 研究への寄付の回数（会社の永続の記録。RP の側：のちのリセットでも残るので、値段は下がって戻らない。版 7。古いセーブは 0） */
+  rpBuys?: number;
   /** 研究ノート：エクステごとの掘った数（会社で共有。研究レベルは researchLv。上限（研究の目利き）を超えても数は貯める） */
   research: Record<number, number>;
   /** 研究の数の端数（深い層ほど研究が進みやすい：層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん。端数は持ち越し） */
@@ -560,7 +566,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
-    v: 6,
+    v: 7,
     kind: 'p1',
     seed,
     n,
@@ -601,6 +607,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     books: newBooks(),
     emblem: 0,
     rp: START_RP,
+    rpBuys: 0,
     research: {},
     resCapPaid: DIG_BALANCE.tree.cap[0],
     tablets: [],
@@ -1521,14 +1528,16 @@ export const rareHeroes = () =>
 /** まだ取れないパネル（封印・準備中。ヘッドハンティングはレアのヒーローがカタログにいなければ準備中） */
 export const skillSoon = (k: Skill) => !!k.sealed || !!k.soon || (k.id === 'headhunt' && !rareHeroes().length);
 /** 取れるパネルの数（封印・準備中を除く。100% の数え方） */
-export const LEARNABLE = () => SKILLS.filter((k) => !skillSoon(k));
+export const LEARNABLE = () => SKILLS.filter((k) => !skillSoon(k) && !k.donate);
 
 /** スキルが取れない理由（null なら取れる。資金だけが足りないときは 'money'、研究ポイントが足りないときは 'rp'） */
 /** hidden：発掘の枝（発掘との出会いの前・Lime でないランド）は雲の中 */
-export type SkillLock = 'done' | 'training' | 'hidden' | 'sealed' | 'soon' | 'ring' | 'requires' | 'brand' | 'emblem' | 'rp' | 'money';
+/** donate：研究への寄付は開放するパネルではない（押すたびに寄付する。donateLock・donate） */
+export type SkillLock = 'done' | 'training' | 'hidden' | 'sealed' | 'soon' | 'ring' | 'requires' | 'brand' | 'emblem' | 'rp' | 'money' | 'donate';
 /** 先に要るパネル（requires と、そのレベル reqLv）がそろっている */
 export const requiresMet = (s: P1State, k: Skill) => !k.requires?.some((r) => !has(s, r) || lvOf(s, r) < (k.reqLv?.[r] ?? 1)) && anyOfMet(k, (r) => has(s, r));
 export function skillLock(s: P1State, k: Skill): SkillLock | null {
+  if (k.donate) return 'donate';
   if (has(s, k.id)) return 'done';
   if (s.training?.id === k.id) return 'training';
   if (k.branch === 'dig' && !digBranchOpen(s)) return 'hidden';
@@ -1550,6 +1559,7 @@ export function skillLock(s: P1State, k: Skill): SkillLock | null {
  */
 export function learn(s: P1State, id: string, hero?: number): string | null {
   const k = SKILL[id];
+  if (k?.donate) return 'donate';
   if (!k || has(s, id)) return 'done';
   if (s.training?.id === id) return 'training';
   if (k.branch === 'dig' && !digBranchOpen(s)) return 'hidden';
@@ -1583,30 +1593,82 @@ export function learn(s: P1State, id: string, hero?: number): string | null {
   return null;
 }
 
-/** レベルが上げられない理由（null なら上げられる）。未取得は 'none'。研究パネルはレベルなし（'max'） */
-export type LevelLock = 'none' | 'max' | 'ring' | 'money';
+/**
+ * レベルが上げられない理由（null なら上げられる）。未取得は 'none'。研究パネルはレベルなし（'max'）。
+ * 無限の強化パネル（Skill.inf）は Lv の上限が無く、RP で上げる（足りなければ 'rp'）
+ */
+export type LevelLock = 'none' | 'max' | 'ring' | 'money' | 'rp';
 export function levelLock(s: P1State, k: Skill): LevelLock | null {
+  if (k.donate) return 'none';
   const lv = lvOf(s, k.id);
   if (lv <= 0) return 'none';
   if (lv >= maxLv(k)) return 'max';
   if (!ringOpen(s, skillTier(k))) return 'ring';
+  if (k.inf) return (s.rp ?? 0) < infCost(lv + 1) ? 'rp' : null;
   if (s.money < levelCost(k, lv + 1)) return 'money';
   return null;
 }
-/** 次のレベルの値段（資金。お金パネルだけ） */
-export const nextLevelCost = (s: P1State, k: Skill) => levelCost(k, lvOf(s, k.id) + 1);
-/** お金パネルのレベルを 1 つ上げる（資金）。docs/ISLAND_PHASE1.md「パネルのレベル」 */
+/** 次のレベルの値段（お金パネルは資金。無限の強化パネルは RP：nextLevelRp） */
+export const nextLevelCost = (s: P1State, k: Skill) => (k.inf ? 0 : levelCost(k, lvOf(s, k.id) + 1));
+/** 無限の強化パネルの次の Lv の値段（RP。ほかのパネルは 0） */
+export const nextLevelRp = (s: Pick<P1State, 'skills' | 'skillLv'>, k: Skill) => (k.inf ? infCost(lvOf(s, k.id) + 1) : 0);
+/** お金パネルのレベルを 1 つ上げる（資金）。無限の強化パネルは RP で。docs/ISLAND_PHASE1.md「パネルのレベル」 */
 export function levelUp(s: P1State, id: string): LevelLock | null {
   const k = SKILL[id];
   if (!k) return 'none';
   const e = levelLock(s, k);
   if (e) return e;
   const lv = lvOf(s, id) + 1;
-  const c = levelCost(k, lv);
-  s.money -= c;
-  spend(s, 'build', c);
+  if (k.inf) {
+    s.rp -= infCost(lv);
+  } else {
+    const c = levelCost(k, lv);
+    s.money -= c;
+    spend(s, 'build', c);
+  }
   setLevel(s, id, lv);
   return null;
+}
+
+// ---------------------------------------------------------------- 研究への寄付（発掘 v2 の 6 段目：お金で RP を買う・回数の上限なし）
+
+/** Common のセクタを 1 つでも制覇した（いまのセクタ・ランドの写しの記録から） */
+export function conqueredC(s: P1State): boolean {
+  if (s.cleared && (s.tier ?? 'C') === 'C') return true;
+  for (const [id, r] of Object.entries(s.land?.recs ?? {})) {
+    if (id === s.land?.cur) continue;
+    const snap = r.snap as { cleared?: boolean; tier?: Tier } | undefined;
+    if (snap?.cleared && (snap.tier ?? SECTORS.find((x) => x.id === id)?.tier) === 'C') return true;
+  }
+  return false;
+}
+/** 寄付した回数（会社の永続の記録。RP の側＝のちのリセットでも残る。古いセーブは 0） */
+export const donations = (s: Pick<P1State, 'rpBuys'>) => s.rpBuys ?? 0;
+/** 次の寄付の値段（G） */
+export const nextDonateCost = (s: Pick<P1State, 'rpBuys'>) => donateCost(donations(s));
+/**
+ * 寄付できない理由（null ならできる）：hidden 発掘の枝が雲の中／closed まだ開いていない（Uncommon の調査依頼状を持っている、
+ * または Common のセクタを 1 つ制覇したあと）／money 資金が足りない
+ */
+export type DonateLock = 'hidden' | 'closed' | 'money';
+export const donateOpen = (s: P1State) => hasLetter(s, 'U') || conqueredC(s);
+export function donateLock(s: P1State): DonateLock | null {
+  if (!digBranchOpen(s)) return 'hidden';
+  if (!donateOpen(s)) return 'closed';
+  if (s.money < nextDonateCost(s)) return 'money';
+  return null;
+}
+/** 寄付する：G を払って RP を受け取る（押すたびに値段が上がる）。払った額・受け取った RP・次の値段 */
+export function donate(s: P1State): { cost: number; rp: number; next: number } | DonateLock {
+  const e = donateLock(s);
+  if (e) return e;
+  const cost = nextDonateCost(s);
+  s.money -= cost;
+  spend(s, 'build', cost);
+  s.rpBuys = donations(s) + 1;
+  const rp = DIG_BALANCE.buyRp.rp;
+  s.rp = (s.rp ?? 0) + rp;
+  return { cost, rp, next: nextDonateCost(s) };
 }
 /** レベルを決める（skillLv は入れ替える：汎用の効き目のキャッシュが作り直される）。監査・テストからも使う */
 export function setLevel(s: P1State, id: string, lv: number) {
@@ -2835,7 +2897,7 @@ export function endMonth(s: P1State): Report {
   }
   // 制覇の 2 つ目の条件：そのセクタの研究成果の発表（発掘 v2 の 5 段目。お題のあるセクタだけ）
   const goal = clearGoal(s);
-  if (goal.all > 0) report.goal = { present: goal.present, got: goal.got, all: goal.all };
+  if (goal.all > 0) report.goal = { present: goal.present, got: goal.got, all: goal.all, ...(goal.res ? { res: goal.res } : {}) };
   const won = s.topStreak >= TOP_STREAK && goal.present;
   // ブランド力：セクタを制覇・1 位を守った・順位が上がった・大きく下がった
   if (top && s.cleared) brandAdd(s, BRAND.stayTop, t('1 位を守った', 'Stayed #1'));
@@ -3177,7 +3239,7 @@ export function serializeP1(s: P1State): string {
 export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
-    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4 && o.v !== 5 && o.v !== 6) || o.kind !== 'p1') return null;
+    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4 && o.v !== 5 && o.v !== 6 && o.v !== 7) || o.kind !== 'p1') return null;
     const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
@@ -3216,7 +3278,9 @@ export function deserializeP1(json: string): P1State | null {
     // 版 5 → 6：掘りきった荒れ地は復興済みに・4 か所とも掘りきっていたら、いちばん番号の大きい荒れ地をダンジョンに（ensureDig の syncRevive）。
     // 地面はセーブに入れないので、復興の小道をここで通す
     syncGround(s);
-    s.v = 6;
+    // 版 6 → 7（発掘 v2 の 6 段目）：研究への寄付の回数は 0 から・無限の強化パネルは Lv0（取っていない）。発表済みのセクタは発表済みのまま
+    s.rpBuys ??= 0;
+    s.v = 7;
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -3970,7 +4034,7 @@ export function bestSkillMove(s: P1State): { id: string; kind: 'skill' | 'level'
     if (!best || score > best.score) best = { ...x, units, score };
   }
   if (best && best.score <= 0.05) {
-    const cost = (x: { id: string; kind: 'skill' | 'level' }) => (x.kind === 'skill' ? (isResearch(SKILL[x.id]) ? rpCost(SKILL[x.id]) * 100 : SKILL[x.id].cost) : nextLevelCost(s, SKILL[x.id]));
+    const cost = (x: { id: string; kind: 'skill' | 'level' }) => (x.kind === 'skill' ? (isResearch(SKILL[x.id]) ? rpCost(SKILL[x.id]) * 100 : SKILL[x.id].cost) : SKILL[x.id].inf ? nextLevelRp(s, SKILL[x.id]) * 100 : nextLevelCost(s, SKILL[x.id]));
     const cheap = [...list].sort((a, b) => cost(a) - cost(b))[0];
     return { ...cheap, units: 0 };
   }
@@ -4468,14 +4532,41 @@ const atLv = (xs: number[], lv: number) => (lv <= 0 ? 0 : xs[Math.min(xs.length,
 export const digLand = (_s: Pick<P1State, 'sector'>) => true;
 /** 発掘の枝が見えている（Lime・発掘との出会いのあと）。前は枝ごと雲で隠す */
 export const digBranchOpen = (s: Pick<P1State, 'sector' | 'flags'>) => digLand(s) && !!s.flags.digMeet;
-/** 1 打の強さ：1 ＋ ツルハシの鍛え直し ＋ 重機の貸し出し（Lv1・3・5 で +1 ずつ） */
-export const digPower = (s: P1State) => 1 + fxSum(s, 'dig.power');
+/** 無限の強化パネルの効き目の量（DIG_BALANCE.infinite の per × Lv^curve。未取得 0） */
+const INF_ID: Record<InfKind, string> = { speed: 'u_dig_speed_inf', power: 'u_dig_power_inf', reach: 'u_dig_reach_inf' };
+export const infOf = (s: Pick<P1State, 'skills' | 'skillLv'>, kind: InfKind) => infAmt(DIG_BALANCE.infinite[kind], lvOf(s, INF_ID[kind]));
+/**
+ * 無限の強化パネルを Lv lv にしたときの値（ほかのパネルはいまのまま）：speed 長押しの間隔（ms）・power 1 打の強さ・reach 1 つ大きくなる確率（1 を超えてよい）。
+ * スキルツリーの「いま → 次の Lv」と、digRepeatMs・digPower が使う
+ */
+export function infAt(s: Pick<P1State, 'skills' | 'skillLv'>, kind: InfKind, lv: number): number {
+  const a = infAmt(DIG_BALANCE.infinite[kind], lv);
+  if (kind === 'speed') {
+    const base = DIG_BALANCE.repeatMs - fxSum(s, 'dig.repeat');
+    return a > 0 ? Math.max(DIG_BALANCE.infinite.minMs, Math.round(base / (1 + a))) : base;
+  }
+  if (kind === 'power') return Math.round((1 + fxSum(s, 'dig.power')) * (1 + a) * 100) / 100;
+  return a;
+}
+/** 1 打の強さ：（1 ＋ ツルハシの鍛え直し ＋ 重機の貸し出し（Lv1・3・5 で +1 ずつ））×（1 ＋ 掘る力 ∞）。小数 2 桁 */
+export const digPower = (s: P1State) => infAt(s, 'power', lvOf(s, INF_ID.power));
 /** 会心（2 倍）の確率（ツルハシの鍛え直しの Lv2・4） */
 export const critChance = (s: P1State) => fxSum(s, 'dig.crit');
 /** 1 回の発掘作業の長さ（秒）：15 ＋ 追加申請（+3 秒／Lv）＋ 長期の発掘許可（+6 秒／Lv）。最大 60 秒 */
 export const sessionSec = (s: P1State) => Math.min(DT.maxSec, DIG_BALANCE.sessionSec + fxSum(s, 'dig.sec'));
-/** 長押しで続けて打つ間隔（ミリ秒）：170 → 手早い掘り方で 150・130・115・100・90 */
-export const digRepeatMs = (s: P1State) => DIG_BALANCE.repeatMs - fxSum(s, 'dig.repeat');
+/** 長押しで続けて打つ間隔（ミリ秒）：170 → 手早い掘り方で 150・130・115・100・90 →（発掘の速さ ∞）÷（1 ＋ 2%×Lv^0.85…）、下限 40 ms */
+export const digRepeatMs = (s: P1State) => infAt(s, 'speed', lvOf(s, INF_ID.speed));
+/**
+ * 掘る範囲 ∞：発破が 1 回り大きく・ドリルが 1 層深くなる数（確率 reach × Lv^curve。1 を超えたぶんは確実に、端数は確率）。
+ * 打った数から決める（同じ打ち方なら同じ結果。会心と同じ）
+ */
+function reachBonus(s: P1State): number {
+  const p = infOf(s, 'reach');
+  if (p <= 0 || !s.dig) return 0;
+  const whole = Math.floor(p);
+  s.dig.hits = (s.dig.hits ?? 0) + 1;
+  return whole + (rng((s.seed >>> 0) + s.dig.hits * 7919 + 29)() < p - whole ? 1 : 0);
+}
 /** 掘れる層の数（深い層の許可。はじめは 2 層目まで。古いセーブは掘っていた深さを下限に） */
 export const deepLayers = (s: P1State, tier: DigTier) => Math.max(DT.deep[tier][Math.min(5, lvOf(s, 'dig_deep'))], s.digOld?.deep?.[tier] ?? 0);
 /**
@@ -4892,7 +4983,8 @@ export function blast(s: P1State, x: number, y: number): DigHit[] | DigErr {
   if (!hasBlast(s)) return 'no-blast';
   const L = digSite(s)!;
   const st = curSite(s)!;
-  const n = blastSize(s);
+  // 掘る範囲 ∞：確率で 1 回り大きく
+  const n = blastSize(s) + reachBonus(s);
   const lo = -Math.floor((n - 1) / 2);
   const targets: [number, number][] = [];
   for (let dy = lo; dy < lo + n; dy++)
@@ -4920,7 +5012,9 @@ export function drill(s: P1State, x: number, y: number): DigHit[] | DigErr {
   spend(s, 'build', DRILL_FUEL);
   const k = y * L.w + x;
   const out: DigHit[] = [];
-  for (let i = 0; i < drillLen(s); i++) {
+  // 掘る範囲 ∞：確率で 1 層深く
+  const len = drillLen(s) + reachBonus(s);
+  for (let i = 0; i < len; i++) {
     if (!open1(s, L, st, k)) break;
     const h = strike(s, L, x, y, Infinity);
     out.push(h);
@@ -5385,13 +5479,31 @@ export function digDepthLayer(s: Pick<P1State, 'dig'>): number {
 }
 /** 発表すると受け取る調査依頼状（Common → Uncommon。Uncommon → Rare は枠だけ） */
 const NEXT_TIER: Partial<Record<Tier, Tier>> = { C: 'U', U: 'R' };
-export type PresentErr = 'no-site' | 'not-yet' | 'done';
-/** 研究成果を発表できない理由（null ならできる）：このセクタのお題をそろえたら、セクター長に発表する */
+/** research：お題はそろったが、研究 Lv の条件（Uncommon）が足りない */
+export type PresentErr = 'no-site' | 'not-yet' | 'research' | 'done';
+/**
+ * 発表の 2 つ目の条件（発掘 v2 の 6 段目。Uncommon だけ）：そのセクタの出土品（DIG_SITES の finds）のうち need 種を研究 Lv lv 以上に。
+ * have はいまの数（need まで）・ids は条件を満たした出土品。条件の無いセクタ（Common・発掘場の無いセクタ）は null
+ */
+export function presentRes(s: P1State): { have: number; need: number; lv: number; ids: number[] } | null {
+  if (!s.dig) return null;
+  const tier = digTierOf(s.dig.sector);
+  const R = tier ? DIG_BALANCE.presentRes[tier as DigTier] : undefined;
+  if (!R) return null;
+  const ids = (DIG_SITES[s.dig.sector]?.finds ?? []).filter((id) => researchOf(s, id) >= R.lv);
+  return { have: Math.min(ids.length, R.n), need: R.n, lv: R.lv, ids };
+}
+/**
+ * 研究成果を発表できない理由（null ならできる）：このセクタのお題をそろえたら、セクター長に発表する。
+ * Uncommon はお題に加えて、出土品 N 種を研究 Lv M 以上に（presentRes）。発表済みのセクタは 'done'（古いセーブで発表済みのものもそのまま）
+ */
 export function presentLock(s: P1State): PresentErr | null {
   if (!s.dig) return 'no-site';
   if (s.presented.includes(s.dig.sector)) return 'done';
   const [a, b] = topicProgress(s);
-  return a < b ? 'not-yet' : null;
+  if (a < b) return 'not-yet';
+  const r = presentRes(s);
+  return r && r.have < r.need ? 'research' : null;
 }
 /** そのランクのセクタで発表した数（Common の 2 つで Uncommon の調査依頼状。LETTER_NEED） */
 export const presentedOf = (s: Pick<P1State, 'presented'>, tier: Tier) => (s.presented ?? []).filter((id) => digTierOf(id) === tier).length;
@@ -5411,11 +5523,14 @@ export function letterProgress(s: Pick<P1State, 'presented' | 'letters'>, tier: 
  * 制覇の条件（発掘 v2 の 5 段目）：① TOP_STREAK か月続けて 1 位 ② そのセクタの研究成果の発表（お題のあるセクタだけ。
  * お題の無いセクタ・発掘場の無いセクタは ② を済みとみなす）。streak はいまの続けて 1 位の月の数
  */
-export function clearGoal(s: P1State): { streak: number; top: boolean; present: boolean; got: number; all: number } {
+export function clearGoal(s: P1State): { streak: number; top: boolean; present: boolean; got: number; all: number; res: [number, number, number] | null } {
   const streak = s.topStreak ?? 0;
   const [got, all] = topicProgress(s);
   const present = !s.dig || all === 0 || s.presented.includes(s.dig.sector);
-  return { streak, top: streak >= TOP_STREAK, present, got, all };
+  // Uncommon：発表の 2 つ目の条件（研究 Lv）の進み [いま, 要る数, Lv]（発表済みなら満たしたものとして）
+  const r = all > 0 ? presentRes(s) : null;
+  const res: [number, number, number] | null = r ? [present ? r.need : r.have, r.need, r.lv] : null;
+  return { streak, top: streak >= TOP_STREAK, present, got, all, res };
 }
 /** 1 位を 2 か月続けたのに、研究成果の発表がまだで制覇になっていない（「👑 1 位を守っている（制覇まで：研究成果の発表）」） */
 export const clearWaiting = (s: P1State) => {
