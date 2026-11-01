@@ -2956,14 +2956,6 @@ button.isl-mis {
   inset: 0;
   overflow: visible;
 }
-.isl-tree-lines line {
-  stroke-width: 4;
-  stroke-linecap: round;
-  opacity: 0.28;
-}
-.isl-tree-lines line.is-on {
-  opacity: 0.9;
-}
 .isl-tree-root,
 .isl-tree-hub,
 .isl-tree-node {
@@ -3001,87 +2993,22 @@ button.isl-mis {
   color: var(--isl-dim);
   font-size: 10px;
 }
-.isl-tree-node {
-  display: grid;
-  justify-items: center;
-  align-content: start;
-  gap: 1px;
-  width: 92px;
-  height: 92px;
-  padding: 5px 4px 4px;
-  border: 3px solid var(--br);
-  border-radius: 14px;
-  background: linear-gradient(180deg, #34497a, #1d2a44);
-  color: var(--isl-text);
-  font-family: inherit;
-  cursor: pointer;
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
-}
-.isl-tree-node img,
-.isl-tree-node .px,
-.isl-tree-node .isl-tree-emoji {
-  width: 52px;
-  height: 40px;
-  object-fit: contain;
-  image-rendering: pixelated;
-}
 .isl-tree-emoji {
   display: grid;
   place-items: center;
   font-size: 30px;
 }
-.isl-tree-name {
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: center;
-}
 .isl-tree-cost {
   font-size: 10px;
   color: var(--isl-gold);
 }
-.isl-tree-mark {
-  position: absolute;
-  top: -9px;
-  right: -9px;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--isl-line);
-  border-radius: 50%;
-  background: var(--isl-good);
-  color: var(--isl-ink);
-  font-size: 13px;
-  font-weight: 900;
-}
-.isl-tree-node.is-locked {
-  filter: grayscale(0.9) brightness(0.6);
-  border-style: dashed;
-}
-.isl-tree-node.is-locked .isl-tree-mark {
-  background: #5a6480;
-  font-size: 11px;
-}
 .isl-tree-node.is-poor {
   opacity: 0.85;
-}
-.isl-tree-node.is-open {
-  box-shadow: 0 0 0 3px rgba(111, 208, 140, 0.4), 0 0 16px rgba(111, 208, 140, 0.45);
-  animation: isl-tree-open 1.6s ease-in-out infinite alternate;
 }
 @keyframes isl-tree-open {
   to {
     box-shadow: 0 0 0 5px rgba(111, 208, 140, 0.15), 0 0 22px rgba(111, 208, 140, 0.6);
   }
-}
-.isl-tree-node.is-done {
-  background: linear-gradient(180deg, #4d5f3a, #2b3b2a);
-}
-.isl-tree-node.is-sel {
-  outline: 3px solid #fff;
-  outline-offset: 3px;
-  z-index: 2;
 }
 .isl-tree-root {
   cursor: pointer;
@@ -3130,12 +3057,6 @@ button.isl-mis {
     transform: translate(-50%, -50%) scale(1);
     opacity: 1;
   }
-}
-.isl-tree-world.is-burst .isl-tree-lines line {
-  stroke-dasharray: var(--len);
-  stroke-dashoffset: var(--len);
-  animation: isl-tree-draw 0.6s ease-out forwards;
-  animation-delay: var(--d, 0s);
 }
 @keyframes isl-tree-draw {
   to {
@@ -4304,16 +4225,8 @@ button.isl-mis {
   background: #ffd257;
   color: #3a2f10;
 }
-.isl-tree-node.is-brand {
-  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.35);
-}
 
 /* ================================================================ スキルツリー：チュートリアルの誘導・マインちゃんが止める・開放の光 */
-.isl-tree-node.is-hot {
-  z-index: 3;
-  box-shadow: 0 0 0 4px rgba(255, 214, 110, 0.9), 0 0 26px rgba(255, 214, 110, 0.85);
-  animation: isl-guide 1.1s ease-in-out infinite;
-}
 .isl-tree-node.is-hot::after {
   content: '👆';
   position: absolute;
@@ -4330,9 +4243,6 @@ button.isl-mis {
   to {
     transform: translate(-50%, -8px) scale(0.92);
   }
-}
-.isl-tree-node.is-learned {
-  animation: isl-tree-learned 1.2s ease-out;
 }
 @keyframes isl-tree-learned {
   0% {
@@ -6163,22 +6073,9 @@ button.isl-mis {
   font-weight: 900;
   white-space: nowrap;
 }
-.isl-tree-node.is-training {
-  background: linear-gradient(180deg, #5a4d22, #2f2a14);
-  box-shadow: 0 0 0 3px rgba(230, 211, 106, 0.45), 0 0 16px rgba(230, 211, 106, 0.4);
-}
 .isl-tree-node.is-training .isl-tree-mark {
   background: #e6d36a;
   font-size: 12px;
-}
-.isl-tree-node .isl-tree-prog {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: -6px;
-  width: auto;
-  height: 6px;
-  border: 1px solid #000;
 }
 .isl-tree-trainbox {
   display: grid;
@@ -6471,14 +6368,6 @@ button.isl-mis {
     filter: drop-shadow(0 0 18px rgba(255, 214, 90, 0.95));
   }
 }
-.isl-tree-lines line.is-closed {
-  opacity: 0.1;
-  stroke-dasharray: 6 8;
-}
-.isl-tree-lines line.is-dust {
-  stroke-dasharray: 8 6;
-  opacity: 0.6;
-}
 .isl-tree-ringlab {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -6537,13 +6426,6 @@ button.isl-mis {
 }
 
 /* パネル：外周が閉じている（薄い輪郭と「？」）・封印（???）・準備中・✨ */
-.isl-tree-node.is-ring {
-  background: rgba(15, 22, 38, 0.35);
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--tc) 60%, transparent);
-  box-shadow: none;
-  align-content: center;
-}
 .isl-tree-q {
   font-size: 34px;
   font-weight: 900;
@@ -6552,31 +6434,12 @@ button.isl-mis {
 .isl-tree-dicon .isl-tree-q {
   font-size: 30px;
 }
-.isl-tree-node.is-sealed {
-  border-style: dashed;
-  border-color: var(--tc);
-  background: radial-gradient(circle, color-mix(in srgb, var(--tc) 25%, #0f1626), #0f1626);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--tc) 40%, transparent);
-}
-.isl-tree-node.is-sealed .isl-tree-name {
-  font-size: 16px;
-  letter-spacing: 2px;
-  color: var(--tc);
-}
 .isl-tree-sealimg {
   opacity: 0.45;
   filter: saturate(0.6);
 }
 .isl-tree-node.is-soon {
   filter: grayscale(0.7) brightness(0.75);
-}
-.isl-tree-node.is-dust {
-  border-color: #ffd257;
-  background: linear-gradient(180deg, #5a4614, #2a2210);
-  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.45), 0 0 18px rgba(255, 210, 87, 0.45);
-}
-.isl-tree-node.is-dust.is-done {
-  background: linear-gradient(180deg, #6b5a1d, #3d3212);
 }
 .isl-tree-cost.is-dust {
   display: inline-flex;
@@ -6587,14 +6450,6 @@ button.isl-mis {
 .isl-tree-cost.is-dust .isl-tree-curimg {
   width: 14px;
   height: 14px;
-}
-.isl-tree-tags {
-  position: absolute;
-  top: -10px;
-  left: -8px;
-  display: grid;
-  gap: 2px;
-  justify-items: start;
 }
 .isl-tree-tags .isl-tree-brand {
   position: static;
@@ -6623,9 +6478,6 @@ button.isl-mis {
   background: rgba(126, 224, 143, 0.16);
   color: #7ee08f;
 }
-.isl-tree-dicon.is-dust {
-  box-shadow: 0 0 14px rgba(255, 210, 87, 0.5);
-}
 .isl-btn.is-on.is-dust {
   background: linear-gradient(180deg, #ffe08a, #e0a92a);
   color: #3a2a06;
@@ -6639,15 +6491,6 @@ button.isl-mis {
 .isl-tree.is-ringfx .isl-tree-hub,
 .isl-tree.is-ringfx .isl-tree-ringlab:not(.is-glow) {
   filter: brightness(0.35) saturate(0.6);
-}
-.isl-tree.is-ringfx .isl-tree-lines line {
-  opacity: 0.08;
-}
-.isl-tree-node.is-ringpop {
-  z-index: 3;
-  animation: isl-tree-burst 0.75s cubic-bezier(0.2, 1.35, 0.4, 1) both;
-  animation-delay: var(--d, 0s);
-  box-shadow: 0 0 0 3px rgba(255, 214, 90, 0.7), 0 0 22px rgba(255, 214, 90, 0.7);
 }
 .isl-tree-curtain {
   position: absolute;
@@ -6974,41 +6817,9 @@ button.isl-mis {
   font-size: 11px;
   font-weight: 400;
 }
-.isl-tree-lv {
-  position: absolute;
-  right: -6px;
-  bottom: -8px;
-  padding: 0 5px;
-  border: 2px solid var(--isl-line);
-  border-radius: 8px;
-  background: #0f1626;
-  color: #dfe8ff;
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 15px;
-}
 .isl-tree-lv.is-max {
   border-color: #ffd257;
   color: #ffd257;
-}
-.isl-tree-node.is-max {
-  border-color: #ffd257;
-  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.5), 0 0 14px rgba(255, 210, 87, 0.45);
-}
-.isl-tree-up {
-  position: absolute;
-  left: -6px;
-  bottom: -8px;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #2f8f4e;
-  color: #eaffef;
-  font-size: 10px;
-  line-height: 1;
-  animation: isl-tree-upglow 1.8s ease-in-out infinite alternate;
 }
 @keyframes isl-tree-upglow {
   from {
@@ -7034,18 +6845,6 @@ button.isl-mis {
   100% {
     transform: translate(-50%, -50%) scale(1);
   }
-}
-.isl-tree-node.is-goal {
-  opacity: 0.6;
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--tc) 70%, transparent);
-  background: rgba(15, 22, 38, 0.55);
-  box-shadow: none;
-  filter: saturate(0.6);
-}
-.isl-tree-node.is-goal .isl-tree-mark {
-  background: #5a6480;
-  font-size: 11px;
 }
 .isl-tree-lvrow {
   display: flex;
@@ -7156,82 +6955,9 @@ button.isl-mis {
   font-weight: 700;
 }
 /* 大きめの研究パネル（以前の ✨）：四角のまま、縁を二重に（枝の色） */
-.isl-tree-node.is-research.is-dust {
-  border: 5px double var(--br);
-  background: linear-gradient(180deg, #4a4220, #262214);
-  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.3), 0 0 14px rgba(255, 210, 87, 0.3);
-}
-.isl-tree-lines line.is-dust {
-  stroke-dasharray: 6 5;
-}
 /* お金パネル：ボタンは透明にして、菱形は ::before（四角を 45° 回す）に描く */
-.isl-tree-node.is-money {
-  width: 116px;
-  height: 116px;
-  padding: 22px 14px 18px;
-  align-content: center;
-  gap: 0;
-  border-color: transparent !important;
-  background: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-.isl-tree-node.is-money::before {
-  content: '';
-  position: absolute;
-  inset: 16px;
-  z-index: -1;
-  transform: rotate(45deg);
-  border: 3px solid #ffd257;
-  border-radius: 9px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--br) 32%, #34497a), #1d2a44 75%);
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
-}
-.isl-tree-node.is-money img,
-.isl-tree-node.is-money .px,
-.isl-tree-node.is-money .isl-tree-emoji {
-  width: 44px;
-  height: 34px;
-}
-.isl-tree-node.is-money .isl-tree-emoji {
-  font-size: 26px;
-}
-.isl-tree-node.is-money .isl-tree-name {
-  max-width: 78px;
-}
 /* 値段の札は下の角に */
-.isl-tree-node.is-money > .isl-tree-cost {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  padding: 0 7px;
-  border: 2px solid #ffd257;
-  border-radius: 999px;
-  background: #2a2210;
-  line-height: 16px;
-  white-space: nowrap;
-}
 /* ✓ は右上の辺、Lv の札は右の角の下、▲ は左の角の下（名前に重ならないように）、条件の札は左上の辺 */
-.isl-tree-node.is-money .isl-tree-mark {
-  top: 12px;
-  right: 12px;
-}
-.isl-tree-node.is-money .isl-tree-lv {
-  right: -8px;
-  bottom: 30px;
-}
-.isl-tree-node.is-money .isl-tree-up {
-  left: -4px;
-  bottom: 32px;
-}
-.isl-tree-node.is-money .isl-tree-tags {
-  top: 8px;
-  left: 6px;
-}
-.isl-tree-node.is-money.is-open::before {
-  animation: isl-tree-open-d 1.6s ease-in-out infinite alternate;
-}
 @keyframes isl-tree-open-d {
   from {
     box-shadow: 0 0 0 3px rgba(111, 208, 140, 0.4), 0 0 16px rgba(111, 208, 140, 0.45);
@@ -7240,62 +6966,44 @@ button.isl-mis {
     box-shadow: 0 0 0 5px rgba(111, 208, 140, 0.15), 0 0 22px rgba(111, 208, 140, 0.6);
   }
 }
-.isl-tree-node.is-money.is-done::before {
-  background: linear-gradient(135deg, #5a6d3e, #2b3b2a 75%);
-}
-.isl-tree-node.is-money.is-locked::before {
-  border-style: dashed;
-}
-.isl-tree-node.is-money.is-max::before {
-  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.55), 0 0 16px rgba(255, 210, 87, 0.5);
-}
-.isl-tree-node.is-money.is-sel::before {
-  outline: 3px solid #fff;
-  outline-offset: 3px;
-}
-.isl-tree-node.is-money.is-hot::before {
-  box-shadow: 0 0 0 4px rgba(255, 214, 110, 0.9), 0 0 26px rgba(255, 214, 110, 0.85);
-}
-.isl-tree-node.is-money.is-goal::before {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--tc) 70%, transparent);
-  background: rgba(15, 22, 38, 0.55);
-  box-shadow: none;
-}
-.isl-tree-node.is-money.is-tier-U::before,
-.isl-tree-node.is-money.is-tier-R::before,
-.isl-tree-node.is-money.is-tier-E::before,
-.isl-tree-node.is-money.is-tier-L::before {
-  border-color: #ffd257;
-}
-/* 詳細カードの絵：お金パネルは菱形の枠 */
+/* 詳細カードの絵：木のパネルと同じひし形（研究パネルは枝の色の枠・お金パネルは金の二重の枠・大きめの研究パネルは太い枠） */
+.isl-tree-dicon.is-research,
 .isl-tree-dicon.is-money {
   position: relative;
   border-color: transparent;
   background: none;
 }
+.isl-tree-dicon.is-research::before,
 .isl-tree-dicon.is-money::before {
   content: '';
   position: absolute;
   inset: 9px;
   z-index: 0;
   transform: rotate(45deg);
-  border: 3px solid #ffd257;
-  border-radius: 7px;
+  border: 3px solid var(--br);
+  border-radius: 6px;
   background: linear-gradient(135deg, color-mix(in srgb, var(--br) 32%, #34497a), #1d2a44 75%);
 }
+.isl-tree-dicon.is-money::before {
+  border: 5px double #ffd257;
+}
+.isl-tree-dicon.is-research.is-dust::before {
+  border-width: 5px;
+  background: linear-gradient(135deg, #5a4614, #2a2210 78%);
+}
+.isl-tree-dicon.is-research > *,
 .isl-tree-dicon.is-money > * {
   position: relative;
   z-index: 1;
 }
+.isl-tree-dicon.is-research img,
+.isl-tree-dicon.is-research .px,
+.isl-tree-dicon.is-research .isl-tree-emoji,
 .isl-tree-dicon.is-money img,
 .isl-tree-dicon.is-money .px,
 .isl-tree-dicon.is-money .isl-tree-emoji {
-  width: 40px;
-  height: 34px;
-}
-.isl-tree-dicon.is-research.is-dust {
-  border: 5px double var(--br);
+  width: 32px;
+  height: 32px;
 }
 .isl-tree-hcard {
   --catc: var(--br);
@@ -7314,6 +7022,8 @@ button.isl-mis {
   flex: none;
   width: 10px;
   height: 10px;
+  margin: 0 1px;
+  transform: rotate(45deg);
   border: 2px solid #8fe6dc;
   border-radius: 2px;
   background: rgba(143, 230, 220, 0.25);
@@ -7322,9 +7032,9 @@ button.isl-mis {
   color: #8fe6dc;
 }
 .isl-tree-cat.is-money .isl-tree-catmark {
-  margin: 0 1px;
-  transform: rotate(45deg);
-  border-color: #ffd257;
+  width: 11px;
+  height: 11px;
+  border: 4px double #ffd257;
   background: rgba(255, 210, 87, 0.3);
 }
 .isl-tree-cat.is-money span {
@@ -9378,14 +9088,6 @@ button.isl-mis {
 }
 
 /* ================================================================ 無限の強化パネル（発掘 v2 の 6 段目）：研究パネル（四角）で Lv の上限なし。右上の ∞・右下の Lv・次の Lv の RP */
-.isl-tree-mark.is-inf {
-  background: linear-gradient(180deg, #8fe6dc, #3f9f96);
-  color: #0f1626;
-  font-size: 15px;
-}
-.isl-tree-node.is-inf {
-  box-shadow: 0 0 0 2px rgba(143, 230, 220, 0.45), 0 0 14px rgba(143, 230, 220, 0.35);
-}
 .isl-tree-cat.is-inf span {
   color: #8fe6dc;
 }
@@ -9958,4 +9660,338 @@ button.isl-mis {
 }
 .isl-btn.isl-delegate-amt {
   border-radius: 12px;
+}
+
+/* ================================================================ スキルツリーのパネル：どれも同じ大きさのひし形・中はアイコンだけ（名前・値段はツールチップと下の詳細カード） */
+/* ボタンはひし形の外接の正方形（64px。タップの的）。ひし形は ::before（正方形を 45° 回す）。アイコンは正立のまま真ん中に 32px */
+.isl-tree-node {
+  --pw: 64px;
+  --pc: var(--br);
+  display: grid;
+  place-items: center;
+  width: var(--pw);
+  height: var(--pw);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--isl-text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-tree-node::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  box-sizing: border-box;
+  width: calc(var(--pw) * 0.7071);
+  height: calc(var(--pw) * 0.7071);
+  margin: calc(var(--pw) * -0.3536) 0 0 calc(var(--pw) * -0.3536);
+  transform: rotate(45deg);
+  border: 3px solid var(--pc);
+  border-radius: 5px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--br) 30%, #34497a), #1d2a44 78%);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.isl-tree-node > img,
+.isl-tree-node > .px,
+.isl-tree-node > .isl-tree-emoji {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  pointer-events: none;
+}
+/* 64×64 のエクステの絵はちょうど 1/2（ドットのまま）。200×200 の建物の絵は同じ 32px の箱に縮める */
+.isl-tree-node > .px {
+  image-rendering: pixelated;
+}
+.isl-tree-node > .isl-tree-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+/* お金パネル：金の二重の枠（研究パネルは枝の色の 1 本の枠。色だけに頼らない） */
+.isl-tree-node.is-money {
+  --pc: #ffd257;
+}
+.isl-tree-node.is-money::before {
+  border: 5px double #ffd257;
+}
+/* 大きめの研究パネル（以前の ✨）：枝の色の太い枠と金の光 */
+.isl-tree-node.is-dust::before {
+  border-width: 5px;
+  background: linear-gradient(135deg, #5a4614, #2a2210 78%);
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.45), 0 0 14px rgba(255, 210, 87, 0.45);
+}
+.isl-tree-node.is-done::before {
+  background: linear-gradient(135deg, #5a6d3e, #2b3b2a 78%);
+}
+.isl-tree-node.is-dust.is-done::before {
+  background: linear-gradient(135deg, #6b5a1d, #3d3212 78%);
+}
+.isl-tree-node.is-training::before {
+  background: linear-gradient(135deg, #5a4d22, #2f2a14 78%);
+  box-shadow: 0 0 0 3px rgba(230, 211, 106, 0.45), 0 0 14px rgba(230, 211, 106, 0.4);
+}
+.isl-tree-node.is-locked {
+  filter: grayscale(0.85) brightness(0.62);
+}
+.isl-tree-node.is-locked::before {
+  border-style: dashed;
+}
+/* 上げられる（開いている）パネル：緑の光がゆっくり脈打つ（いまの光り方のまま） */
+.isl-tree-node.is-open::before {
+  animation: isl-tree-open-d 1.6s ease-in-out infinite alternate;
+}
+@keyframes isl-tree-open-d {
+  from {
+    box-shadow: 0 0 0 3px rgba(111, 208, 140, 0.4), 0 0 14px rgba(111, 208, 140, 0.45);
+  }
+  to {
+    box-shadow: 0 0 0 5px rgba(111, 208, 140, 0.15), 0 0 22px rgba(111, 208, 140, 0.6);
+  }
+}
+.isl-tree-node.is-brand::before {
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.35);
+}
+.isl-tree-node.is-max::before {
+  border-color: #ffd257;
+  box-shadow: 0 0 0 2px rgba(255, 210, 87, 0.55), 0 0 14px rgba(255, 210, 87, 0.5);
+}
+.isl-tree-node.is-inf::before {
+  box-shadow: 0 0 0 2px rgba(143, 230, 220, 0.45), 0 0 14px rgba(143, 230, 220, 0.35);
+}
+.isl-tree-node.is-sel {
+  z-index: 2;
+}
+.isl-tree-node.is-sel::before {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+/* 外周が閉じている：薄い点線のひし形と「？」 */
+.isl-tree-node.is-ring::before {
+  border: 3px dashed color-mix(in srgb, var(--tc) 60%, transparent);
+  background: rgba(15, 22, 38, 0.35);
+  box-shadow: none;
+}
+.isl-tree-node > .isl-tree-q {
+  font-size: 24px;
+  line-height: 1;
+}
+.isl-tree-node.is-sealed::before {
+  border: 3px dashed var(--tc);
+  background: radial-gradient(circle, color-mix(in srgb, var(--tc) 25%, #0f1626), #0f1626);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tc) 40%, transparent);
+}
+.isl-tree-node.is-goal {
+  opacity: 0.6;
+  filter: saturate(0.6);
+}
+.isl-tree-node.is-goal::before {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--tc) 70%, transparent);
+  background: rgba(15, 22, 38, 0.55);
+  box-shadow: none;
+}
+.isl-tree-node.is-goal.is-money::before {
+  border: 5px double color-mix(in srgb, #ffd257 70%, transparent);
+}
+/* チュートリアルの注目：金色の光が脈打つ（ひし形の形で） */
+.isl-tree-node.is-hot {
+  z-index: 3;
+}
+.isl-tree-node.is-hot::before {
+  box-shadow: 0 0 0 4px rgba(255, 214, 110, 0.9), 0 0 26px rgba(255, 214, 110, 0.85);
+  animation: isl-tree-hot-d 1.1s ease-in-out infinite;
+}
+@keyframes isl-tree-hot-d {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(255, 214, 110, 0.95), 0 0 22px rgba(255, 214, 110, 0.8);
+  }
+  60% {
+    box-shadow: 0 0 0 10px rgba(255, 214, 110, 0), 0 0 30px rgba(255, 214, 110, 0.9);
+  }
+}
+.isl-tree-node.is-hot::after {
+  bottom: -38px;
+}
+/* 開放した瞬間の光（ひし形の形で光る） */
+.isl-tree-node.is-learned {
+  animation: isl-tree-learned-d 1.2s ease-out;
+}
+@keyframes isl-tree-learned-d {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: drop-shadow(0 0 0 rgba(255, 230, 150, 0));
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(1.28);
+    filter: drop-shadow(0 0 16px rgba(255, 230, 150, 1));
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: drop-shadow(0 0 0 rgba(255, 230, 150, 0));
+  }
+}
+.isl-tree-node.is-ringpop {
+  z-index: 3;
+  animation: isl-tree-burst 0.75s cubic-bezier(0.2, 1.35, 0.4, 1) both;
+  animation-delay: var(--d, 0s);
+}
+.isl-tree-node.is-ringpop::before {
+  box-shadow: 0 0 0 3px rgba(255, 214, 90, 0.7), 0 0 20px rgba(255, 214, 90, 0.7);
+}
+/* つながりを強調しているとき：つながっているパネルを少し明るく */
+.isl-tree-node.is-rel::before {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--br) 70%, transparent), 0 0 12px color-mix(in srgb, var(--br) 60%, transparent);
+}
+
+/* 角の小さな印：✓・🔒・⏳・∞（右上の辺）・Lv の札（右下の辺）・▲（左下の辺）・★🏅（左上の辺） */
+.isl-tree-mark {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--isl-line);
+  border-radius: 50%;
+  background: var(--isl-good);
+  color: var(--isl-ink);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+.isl-tree-node.is-locked .isl-tree-mark,
+.isl-tree-node.is-goal .isl-tree-mark {
+  background: #5a6480;
+  font-size: 9px;
+}
+.isl-tree-node.is-training .isl-tree-mark {
+  background: #e6d36a;
+}
+.isl-tree-mark.is-inf {
+  background: linear-gradient(180deg, #8fe6dc, #3f9f96);
+  color: #0f1626;
+  font-size: 12px;
+}
+.isl-tree-lv {
+  position: absolute;
+  right: -4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border: 2px solid var(--isl-line);
+  border-radius: 7px;
+  background: #0f1626;
+  color: #dfe8ff;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 12px;
+}
+.isl-tree-lv.is-max {
+  border-color: #ffd257;
+  color: #ffd257;
+}
+.isl-tree-up {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #2f8f4e;
+  color: #eaffef;
+  font-size: 8px;
+  line-height: 1;
+  animation: isl-tree-upglow 1.8s ease-in-out infinite alternate;
+}
+.isl-tree-tags {
+  position: absolute;
+  top: -2px;
+  left: -6px;
+  display: grid;
+  gap: 1px;
+  justify-items: start;
+}
+.isl-tree-tags .isl-tree-brand,
+.isl-tree-tags .isl-tree-emb {
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 12px;
+}
+.isl-tree-tags .isl-tree-emb .isl-tree-curimg {
+  width: 10px;
+  height: 10px;
+}
+.isl-tree-node .isl-tree-prog {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: -4px;
+  width: auto;
+  height: 5px;
+  border: 1px solid #000;
+}
+
+/* つながりの線：親のひし形の縁 → 子のひし形の縁。太さは画面の上で 3px 前後（--lw は tree.ts の place() が拡大率から決める） */
+.isl-tree-lines path.isl-tree-edge {
+  fill: none;
+  stroke-width: var(--lw, 4px);
+  stroke-linecap: round;
+  transition: opacity 0.15s, stroke-width 0.15s;
+}
+/* 本社 → 枝の根もと */
+.isl-tree-lines path.is-trunk {
+  opacity: 0.9;
+  stroke-width: calc(var(--lw, 4px) * 1.3);
+}
+/* 開いている（親を取った・子はまだ）：実線・はっきりした色 */
+.isl-tree-lines path.is-open {
+  opacity: 0.95;
+}
+/* 取得済みどうし：実線・少し光る */
+.isl-tree-lines path.is-done {
+  opacity: 1;
+  stroke-width: calc(var(--lw, 4px) * 1.15);
+  filter: drop-shadow(0 0 4px rgba(255, 246, 200, 0.75));
+}
+/* まだ親を取っていない（鍵）：細い点線・暗い色 */
+.isl-tree-lines path.is-lock {
+  opacity: 0.42;
+  stroke-width: calc(var(--lw, 4px) * 0.6);
+  stroke-dasharray: 0.1 calc(var(--lw, 4px) * 1.6);
+}
+/* 外周が閉じている：ごく薄い点線 */
+.isl-tree-lines path.is-closed {
+  opacity: 0.14;
+  stroke-width: calc(var(--lw, 4px) * 0.6);
+  stroke-dasharray: 0.1 calc(var(--lw, 4px) * 1.6);
+}
+/* 選んだ・マウスを乗せたパネルのつながり：太く明るく。ほかの線は少し暗く */
+.isl-tree-lines.has-hl path.isl-tree-edge:not(.is-hl):not(.is-trunk) {
+  opacity: 0.16;
+}
+.isl-tree-lines.has-hl path.is-hl {
+  opacity: 1;
+  stroke-width: calc(var(--lw, 4px) * 1.8);
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.55));
+}
+.isl-tree-lines.has-hl path.is-hl.is-lock,
+.isl-tree-lines.has-hl path.is-hl.is-closed {
+  opacity: 0.85;
+  stroke-width: calc(var(--lw, 4px) * 1.1);
+}
+/* 本社を開放した直後：線が本社からのびる */
+.isl-tree-world.is-burst .isl-tree-lines path.isl-tree-edge {
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: isl-tree-draw 0.6s ease-out forwards;
+  animation-delay: var(--d, 0s);
+}
+.isl-tree.is-ringfx .isl-tree-lines path.isl-tree-edge {
+  opacity: 0.08;
 }

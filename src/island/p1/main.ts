@@ -667,7 +667,7 @@ function renderFoot() {
   // チュートリアル：次に押すところを光らせる
   const tk = tutOf(s);
   const step = tk < TUT_DONE ? TUT[tk] : undefined;
-  // 発掘との出会いの最後：スキルタブを光らせる（四角い研究パネルを開いてもらう）
+  // 発掘との出会いの最後：スキルタブを光らせる（研究パネルを開いてもらう）
   const [hm, hk] = (step && !introPending() ? hlOf(step, s) : !step && s.flags.digMeet === 'skill' && !root.querySelector('.isl-modal') ? 'skill' : '').split(':');
   for (const m of Object.keys(tabBtns) as Menu[]) {
     tabBtns[m].classList.toggle('is-guide', !placing && hm === m && (menu !== m || (m === 'skill' && !sheetOpen())));
@@ -1470,7 +1470,7 @@ function checkMeet() {
   }, 1600);
 }
 
-/** 最初の発掘作業が終わった（発掘終了の札のあと）：セリフ 4（スキルツリーの四角いパネルへ） */
+/** 最初の発掘作業が終わった（発掘終了の札のあと）：セリフ 4（スキルツリーの研究パネルへ） */
 /** 復刻品を工房で作る（発掘終了の札・マインちゃんの会話）：発掘のパネルを閉じて、市場データの「工房で作る」と同じ動き */
 function makeRelic(key: string) {
   if (digOpen()) closeDig();
@@ -2718,7 +2718,7 @@ function tutorial(): { text: string; action?: [string, () => void] } {
   if (s.monthPause && waitTip) return { text: waitTip, action: canPresent(s) ? [t('町の長の家へ', 'To the town head'), () => showChief()] : [t('次の月へ進む', 'Next month'), nextMonth] };
   if (s.monthPause && !s.cleared && (s.topStreak ?? 0) > 0 && s.reports.at(-1)?.rank === 1) return { text: firstTopTip(), action: [t('次の月へ進む', 'Next month'), nextMonth] };
   if (s.monthPause) return { text: t('ダッシュボードやスキルツリーで来月の計画を立てたら、右下の[[懐中時計]]を押して次の月へ進もう！', 'Plan next month in the dashboard or skill tree, then press the [[pocket watch]] at the bottom right to start the next month!'), action: [t('次の月へ進む', 'Next month'), nextMonth] };
-  // 発掘との出会いの途中（工房をタップ → 発掘場／スキルツリーの四角いパネル）
+  // 発掘との出会いの途中（工房をタップ → 発掘場／スキルツリーの研究パネル）
   const meet = meetTip(s);
   if (meet) return { text: meet, action: (s.flags.digMeet === 'tap' || s.flags.digMeet === 'open') && !s.digRun ? [t('荒れ地の場所へ', 'To the wasteland'), () => focusWaste(meetSite())] : undefined };
   // 発掘の助言（digmeet.ts の digTips。tier ごとに、いまの並びの決まった所へ）

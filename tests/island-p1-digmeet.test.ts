@@ -103,7 +103,7 @@ describe('発掘との出会い（2 か月目の途中、初めて手が空い�
     expect(meetReady(old, 5)).toBe(true);
   });
 
-  it('国の役所からの手紙（セリフ 1〜3）と 4（1 枚 2 文まで・最後は次にすること）。途中の一言は「荒れ地をタップ」→「マスを掘る」→「スキルツリーの四角いパネル」', () => {
+  it('国の役所からの手紙（セリフ 1〜3）と 4（1 枚 2 文まで・最後は次にすること）。途中の一言は「荒れ地をタップ」→「マスを掘る」→「スキルツリーの研究パネル」', () => {
     const lines = [...MEET_LINES(), MEET_FOUND()];
     expect(lines).toHaveLength(4);
     for (const l of lines) expect(l.replace(/[！？]/g, '。').split('。').filter((x) => x.trim()).length).toBeLessThanOrEqual(2);
@@ -112,7 +112,7 @@ describe('発掘との出会い（2 か月目の途中、初めて手が空い�
     expect(lines[1]).toContain('[[遺物]]');
     expect(lines[2]).toContain('[[発掘許可]]');
     expect(lines[2]).toContain('掘ってみよう');
-    expect(lines[3]).toContain('四角いパネル');
+    expect(lines[3]).toContain('研究パネル');
     for (const l of lines) expect(l).not.toContain('ツルハシ');
     const s = month2();
     expect(meetTip(s)).toBeNull();

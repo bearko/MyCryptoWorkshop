@@ -31,10 +31,15 @@ export const WEDGE = 41.75;
 
 
 export const UNIT = 96;
-/** 内側（Common）の段：1 段目の半径・段の間・パネルの間（弧の長さ） */
+/**
+ * パネルの大きさ（単位：UNIT）：どのパネルも同じ大きさのひし形（正方形を 45° 回す）。PANEL はひし形の外接の幅（角から角まで。64px）。
+ * 中のアイコンは正立のまま、ひし形の内側に収まる正方形（幅の半分＝32px。64×64 のエクステの絵はちょうど 1/2）
+ */
+export const PANEL = 2 / 3;
+/** 内側（Common）の段：1 段目の半径・段の間・パネルの間（弧の長さ）。パネルのすき間はひし形の幅の 0.8〜1 枚分（前は 1.25・1.15） */
 export const R0 = 3.6;
-export const STEP = 1.25;
-export const GAP = 1.15;
+export const STEP = 1.3;
+export const GAP = 1.22;
 /** 枝の根もと（ハブ）の距離 */
 export const HUB = 1.45;
 /** 大きめの研究パネル（以前の ✨）：根もとの近く（枝の向きから少し横へ） */
@@ -93,6 +98,85 @@ export const UNPLACED = SKILLS.filter((k) => !POS.has(k.id)).map((k) => k.id);
 for (const id of UNPLACED) POS.set(id, { x: 0, y: 0 });
 /** パネルの位置（テスト用：重なっていないか） */
 export const treePos = (id: string) => POS.get(id) ?? null;
+
+/**
+ * つながりの線：from（先に要るパネル。null は枝の根もと＝ハブ）→ to。先に要るものが無ければ根もとから。
+ * 封印（sealed）は、ひとつ内側の外周のまんなかのパネル（無ければ根もと）から
+ */
+export type TreeEdge = { from: string | null; to: string; br: Branch };
+export const EDGES: TreeEdge[] = [];
+for (const br of Object.keys(LAYOUT) as Branch[]) {
+  for (const k of SKILLS.filter((x) => x.branch === br)) {
+    if (k.sealed) {
+      const tier = tierOf(k);
+      const inner = SKILLS.filter((x) => x.branch === br && !x.big && OUTER.indexOf(tierOf(x)) === OUTER.indexOf(tier) - 1);
+      EDGES.push({ from: inner.length ? inner[Math.floor(inner.length / 2)].id : null, to: k.id, br });
+      continue;
+    }
+    if (k.requires?.length) for (const r of k.requires) EDGES.push({ from: r, to: k.id, br });
+    else EDGES.push({ from: null, to: k.id, br });
+  }
+}
+/** 線の端の位置（木の上。null は枝の根もと） */
+export const edgeEnd = (id: string | null, br: Branch) => (id ? POS.get(id)! : HUBPOS.get(br)!);
+/**
+ * 線をパネルのひし形の縁で切る：中心 c から向き (ux, uy) に進んで、ひし形（L1 の半径 r）の縁に着くまでの距離。
+ * ひし形は |x| + |y| ≤ r なので、r / (|ux| + |uy|)
+ */
+export const rimDist = (ux: number, uy: number, r = PANEL / 2) => r / Math.max(1e-6, Math.abs(ux) + Math.abs(uy));
+/**
+ * 線が、ほかのパネルの上を横切るときは、ゆるい弧にする（曲げる量。単位：UNIT。正は進む向きの左）。
+ * 横切るパネルが無ければ 0。どちらに曲げても横切るなら、横切るパネルが少ない側
+ */
+export function edgeBend(a: { x: number; y: number }, b: { x: number; y: number }, skip: (id: string) => boolean): number {
+  // 近くのパネルだけ調べる（弧が膨らむぶん＋ひし形の半分の外は見ない）
+  const pad = 1.6 + PANEL;
+  const near = [...POS].filter(([id, p]) => !skip(id) && p.x > Math.min(a.x, b.x) - pad && p.x < Math.max(a.x, b.x) + pad && p.y > Math.min(a.y, b.y) - pad && p.y < Math.max(a.y, b.y) + pad);
+  const hits = (bend: number) => near.filter(([, p]) => curveNear(a, b, bend, p, PANEL / 2 + 0.06)).length;
+  let bestN = hits(0);
+  if (!bestN) return 0;
+  // 小さい曲げから順に（同じ数なら曲げの小さいほう）。左右を交互に
+  let best = 0;
+  for (let k = 1; k <= 16 && bestN; k++)
+    for (const m of [k * 0.1, -k * 0.1]) {
+      const n = hits(m);
+      if (n < bestN) {
+        best = m;
+        bestN = n;
+        if (!n) break;
+      }
+    }
+  return Math.round(best * 10) / 10;
+}
+let bends: Map<TreeEdge, number> | null = null;
+/** どの線をどれだけ曲げるか（配置は変わらないので、はじめて使うときに 1 回だけ数える） */
+export function edgeBends(): Map<TreeEdge, number> {
+  if (bends) return bends;
+  bends = new Map();
+  for (const e of EDGES) {
+    const m = edgeBend(edgeEnd(e.from, e.br), edgeEnd(e.to, e.br), (id) => id === e.from || id === e.to);
+    if (m) bends.set(e, m);
+  }
+  return bends;
+}
+/** 弧（2 次ベジェ。制御点は真ん中から横へ bend×2）の上の点 */
+export function curveAt(a: { x: number; y: number }, b: { x: number; y: number }, bend: number, t: number) {
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const nx = -(b.y - a.y) / len;
+  const ny = (b.x - a.x) / len;
+  const cx = (a.x + b.x) / 2 + nx * bend * 2;
+  const cy = (a.y + b.y) / 2 + ny * bend * 2;
+  const u = 1 - t;
+  return { x: u * u * a.x + 2 * u * t * cx + t * t * b.x, y: u * u * a.y + 2 * u * t * cy + t * t * b.y, cx, cy };
+}
+/** 弧が、点 p のひし形（L1 の半径 r）に入るか */
+export function curveNear(a: { x: number; y: number }, b: { x: number; y: number }, bend: number, p: { x: number; y: number }, r: number) {
+  for (let i = 1; i < 60; i++) {
+    const q = curveAt(a, b, bend, i / 60);
+    if (Math.abs(q.x - p.x) + Math.abs(q.y - p.y) < r) return true;
+  }
+  return false;
+}
 
 export const BOUNDS = [...POS.values()].reduce((b, p) => ({ x0: Math.min(b.x0, p.x), x1: Math.max(b.x1, p.x), y0: Math.min(b.y0, p.y), y1: Math.max(b.y1, p.y) }), { x0: 0, x1: 0, y0: 0, y1: 0 });
 

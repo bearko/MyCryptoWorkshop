@@ -37,7 +37,7 @@ export const MEET_LINES = (): string[] => [
   t('1 か所目の[[発掘許可]]をもらったよ。光っている荒れ地をタップして、掘ってみよう！', 'We got our first [[dig permit]]. Tap the glowing wasteland and start digging!'),
 ];
 /** 最初の発掘作業が終わったあと（セリフ 4） */
-export const MEET_FOUND = (): string => t('遺物の[[エクステ]]を見つけると[[研究ポイント]]が貯まるよ。スキルツリーの四角いパネルを開いてみよう！', 'Finding relic [[extensions]] earns [[research points]]. Try opening a square panel in the skill tree!');
+export const MEET_FOUND = (): string => t('遺物の[[エクステ]]を見つけると[[研究ポイント]]が貯まるよ。スキルツリーの研究パネルを開いてみよう！', 'Finding relic [[extensions]] earns [[research points]]. Try opening a research panel in the skill tree!');
 
 /** 出会いの最初の発掘作業のあいだ、発掘画面のマインちゃんの一言（壁の掘り方） */
 export const MEET_WALL = (): string => t('壁のマスをタップすると、手前の土から 1 枚ずつはがれるよ。ひびの隙間に何か見えたら、そこを掘ってみよう！', 'Tap a cell in the wall to peel the soil off one layer at a time. If you glimpse something through a crack, dig there!');
@@ -50,7 +50,7 @@ export function meetTip(s: Pick<P1State, 'flags' | 'dig' | 'digRun'>): string | 
   if ((ph === 'tap' || ph === 'open') && !s.dig) return null;
   if (ph === 'tap') return t('光っている[[荒れ地]]をタップして、「⛏ 発掘する」を押そう！', 'Tap the glowing [[wasteland]], then press “⛏ Dig”!');
   if (ph === 'open') return s.digRun ? MEET_WALL() : t('光っている[[荒れ地]]をタップして、「⛏ 発掘する」を押そう！', 'Tap the glowing [[wasteland]], then press “⛏ Dig”!');
-  if (ph === 'skill') return t('光っている「[[スキル]]」タブから、四角い[[研究パネル]]を開いてみよう！', 'Open the glowing [[Skills]] tab and try a square [[research panel]]!');
+  if (ph === 'skill') return t('光っている「[[スキル]]」タブから、[[研究パネル]]を開いてみよう！', 'Open the glowing [[Skills]] tab and try a [[research panel]]!');
   return null;
 }
 
@@ -154,7 +154,7 @@ export function presentAfter(letter: Tier | null, left = 0, conquered = false): 
   if (left > 0) return t(`あと ${left} つ、別の Common の町で研究を発表すると[[調査依頼状]]がもらえるよ。いまは研究ポイントでスキルを開こう！`, `Present in ${left} more Common town${left > 1 ? 's' : ''} to get the [[survey request]]. For now, spend research points on skills!`);
   if (letter === 'U') return t('[[調査依頼状]]で、Uncommon のセクタに出店できるようになったよ。お金がたまったら、ランドマップから出店しよう！', 'With the [[survey request]], you can open in Uncommon sectors. Once you have the funds, open there from the land map!');
   if (letter === 'R') return t('[[Rare の調査依頼状]]をもらったよ。Rare の町への道が開いたら使えるはず。まずは研究ポイントでスキルを開こう！', 'We got a [[Rare survey request]]. It will help once the road to Rare towns opens. For now, spend research points on skills!');
-  return t('[[研究ポイント]]が貯まったね。スキルツリーの四角いパネルを開こう！', 'Your [[research points]] grew. Open a square panel in the skill tree!');
+  return t('[[研究ポイント]]が貯まったね。スキルツリーの研究パネルを開こう！', 'Your [[research points]] grew. Open a research panel in the skill tree!');
 }
 
 // ---------------------------------------------------------------- 到着の案内（2 か所目から）のお題の 1 枚
