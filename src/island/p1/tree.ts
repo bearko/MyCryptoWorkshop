@@ -3,8 +3,10 @@
  *   左 = ① 調達・左上 = 技・上 = ② 製造・右上 = ③ 物流・右 = システム・右下 = ④ 販売・下 = 経営・左下 = 人材。
  * 内側（Common）の段のさらに外へ、ランクごとの外周（Uncommon・Rare・Epic・Legendary）が同心円で広がる。
  * 外周は、そのランクのセクタに出店したあと、はじめてツリーを開いたときの演出で開く（Flags.rings）。
- * 2 区分：研究パネル（RP で開く・レベルなし）は四角（縁は枝の色）、お金パネル（資金で開く・Lv1〜5）は菱形（四角を 45° 回す。縁は金。絵と文字は傾けない）。
- * 形で見分けられるので、色だけに頼らない。大きめの研究パネル（以前の ✨）は枝の根もとの近くに二重の縁の四角で。線は「先に要るスキル」から引く（無ければ枝の根もと）。
+ * パネルはどれも同じ大きさのひし形（正方形を 45° 回す）で、中はアイコンだけ（正立のまま）。名前・値段・効き目は PC のツールチップと下の詳細カードで。
+ * 2 区分は枠で見分ける：研究パネル（RP で開く・レベルなし）は枝の色の 1 本の枠、お金パネル（資金で開く・Lv1〜5）は金の二重の枠、
+ * 大きめの研究パネル（以前の ✨）は枝の色の太い枠と金の光。線は「先に要るスキル」のひし形の縁から子のひし形の縁まで（無ければ枝の根もとから）。
+ * 状態で描き分け（開いている＝実線・鍵＝細い点線・取得済みどうし＝実線で光る）、選んだパネルのつながりを太く明るく。
  * docs/ISLAND_PHASE1.md「スキルツリー」。
  */
 import { getExtension } from '../../game/catalog';
@@ -16,7 +18,7 @@ import { BRANCHES, DIG_BALANCE, SKILL, SKILLS, TIERS, anyOfMet, isResearch, maxL
 import { affordableSkills, bestSkillMove, digBranchOpen, donate, donateLock, donations, has, hqOpen, infAt, learn, LEARNABLE, levelLock, levelUp, lvOf, nextDonateCost, nextLevelCost, nextLevelRp, openHQ, openRing, ringOpen, ringsDue, skillLock, skillTier, trainDays, trainingOf, trainees, type P1State } from './model';
 import { after, mineTip, open, type Ctx } from './screens';
 import { pickHero } from './heroui';
-import { BOUNDS, HUBPOS, LABEL_A, LAYOUT, OUTER, POS, R0, RING_EDGE, RING_OUT, STEP, UNIT, polar } from './treelayout';
+import { BOUNDS, EDGES, HUBPOS, LABEL_A, LAYOUT, OUTER, PANEL, POS, R0, RING_EDGE, RING_OUT, STEP, UNIT, curveAt, edgeBends, edgeEnd, polar, type TreeEdge } from './treelayout';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, plain, rich, skuIcon } from './ui';
 
 /** ランドセクタの絵（はじまりの国 Lime） */
@@ -196,6 +198,10 @@ const DIG_PUFFS = [3.3, 4.4, 5.6, 6.8, 7.9, 9.4, 10.7];
 /** 外周が開く演出（ランク・始めた時刻・マインちゃんの一言まで進んだか） */
 let ringFx: { tier: Tier; t0: number; talk: boolean } | null = null;
 const RING_MS = 3400;
+/** 市場データなどからパネルを選んで開いたとき：最初の place() で、パネルを詳細カードの上へ持ち上げる */
+let liftOnce = false;
+/** 「全体」ボタンを押した（描き直したあとに、木の全部が収まる大きさを決める） */
+const ALL = -2;
 /** 本社のパネル（view.sel） */
 const HQ = '@hq';
 /** ダブルタップ（ダブルクリック）：同じパネルを続けて押したら開放する */
@@ -291,7 +297,7 @@ function infText(s: P1State, k: Skill, lv: number): string {
 const INF_LABEL = { speed: () => t('長押しの間隔', 'Hold-strike interval'), power: () => t('1 打の強さ', 'Strike power'), reach: () => t('1 回り大きくなる確率', 'Chance of one size bigger') };
 /** 足りないぶん（RP・資金）。RP は発掘でしか貯まらないので、どこで貯まるかも添える */
 const shortOf = (s: P1State, k: Skill) => (isResearch(k) ? t(`あと ${rpCost(k) - (s.rp ?? 0)} RP（発掘で貯まる）`, `${rpCost(k) - (s.rp ?? 0)} RP short (earn RP by digging)`) : t(`あと ${money(k.cost - s.money)} 足りない`, `${money(k.cost - s.money)} short`));
-/** 区分の 1 行：■ 研究パネル（レベルなし）／◆ お金パネル（Lv 3 / 5）。形の記号と文字で（色だけに頼らない） */
+/** 区分の 1 行：◇ 研究パネル（レベルなし。枝の色の 1 本の枠）／◈ お金パネル（Lv 3 / 5。金の二重の枠）。枠の印と文字で（色だけに頼らない） */
 function catLine(s: P1State, k: Skill, tut = false): HTMLElement {
   // 無限の強化パネル：研究パネル（RP）で、Lv の上限なし（∞）
   if (k.inf) {
@@ -326,10 +332,6 @@ function catLine(s: P1State, k: Skill, tut = false): HTMLElement {
 }
 /** 開くボタンの言い方：研究パネル「研究する 40 RP」、お金パネル「開放する 4,000 G」 */
 const learnLabel = (k: Skill) => (isResearch(k) ? (k.train ? t(`研究して修行に出す ${rpCost(k)} RP`, `Research & train · ${rpCost(k)} RP`) : t(`研究する ${rpCost(k)} RP`, `Research · ${rpCost(k)} RP`)) : k.train ? t(`修行に出す ${money(k.cost)}`, `Start training · ${money(k.cost)}`) : t(`開放する ${money(k.cost)}`, `Unlock · ${money(k.cost)}`));
-/** 値段の札（研究パネル：RP・お金パネル：資金） */
-function costTag(k: Skill): HTMLElement {
-  return h('span', `isl-tree-cost ${isResearch(k) ? 'is-rp' : 'is-g'} ${k.big ? 'is-dust' : ''}`, priceOf(k));
-}
 /** 技の修行の説明（取ったあと、職人が修行して身につける） */
 const trainNote = (k: Skill) => t(`取ったあと、職人が修行して身につける（${k.train} 日。製造の適性が高いほど早い）。修行中の職人は作業台に立てない`, `After unlocking, a crafter trains to master it (${k.train} days, shorter with higher crafting aptitude). They can’t work a bench meanwhile`);
 /** 修行中の札：職人・残りの日数・進み具合 */
@@ -504,6 +506,8 @@ export function openSkills(ctx: Ctx, focus?: string) {
     view.x = p.x;
     view.y = p.y;
     view.sel = focus;
+    // 下の詳細カードに隠れないよう、描いたあとで少し上へ（place()）
+    liftOnce = true;
   } else if (focus && LAYOUT[focus as Branch]) {
     const c = branchCenter(focus as Branch);
     view.x = c.x;
@@ -599,7 +603,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const mi = h('img');
       mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
       mi.alt = '';
-      stop.replaceChildren(mi, h('p', '', t('ちょっと待って！ いまは光っている四角い「人材の募集」を研究しよう！', 'Wait! For now, research the glowing square Recruiting panel!')));
+      stop.replaceChildren(mi, h('p', '', t('ちょっと待って！ いまは光っている「人材の募集」を研究しよう！', 'Wait! For now, research the glowing Recruiting panel!')));
       stop.hidden = false;
       stop.classList.remove('is-shake');
       void stop.offsetWidth;
@@ -762,42 +766,125 @@ export function openSkills(ctx: Ctx, focus?: string) {
         world.append(wv);
       }
     }
-    const line = (a: { x: number; y: number }, b: { x: number; y: number }, color: string, cls: string) => {
+    /**
+     * つながりの線：親のひし形の縁から、子のひし形の縁まで（パネルの下に隠れない）。ほかのパネルを横切る線はゆるい弧（treelayout の edgeBends）。
+     * 状態：開いている（親を取った・子はまだ）＝実線・鍵（親がまだ）＝細い点線・取得済みどうし＝実線で光る・外周が閉じている＝薄い点線
+     */
+    const RIM = PANEL / 2 + 0.04;
+    const bends = edgeBends();
+    /** つながりの線（パネルの id → その線）。選んだ・マウスを乗せたパネルのつながりを強調する */
+    const edgeEls: { e: TreeEdge; el: SVGPathElement }[] = [];
+    /** 中心 c のひし形の縁を越える t（from=0 から、または 1 から戻る） */
+    const exitT = (a: { x: number; y: number }, b: { x: number; y: number }, bend: number, c: { x: number; y: number }, fromEnd: boolean) => {
+      const out = (t0: number) => {
+        const q = curveAt(a, b, bend, t0);
+        return Math.abs(q.x - c.x) + Math.abs(q.y - c.y) >= RIM;
+      };
+      let lo = fromEnd ? 1 : 0;
+      let hi = fromEnd ? 0.5 : 0.5;
+      if (!out(hi)) return hi;
+      for (let i = 0; i < 18; i++) {
+        const m = (lo + hi) / 2;
+        if (out(m)) hi = m;
+        else lo = m;
+      }
+      return hi;
+    };
+    const drawEdge = (e: TreeEdge, color: string, cls: string) => {
       if (sealed) return;
-      const A = px(a);
-      const B = px(b);
-      const l = document.createElementNS(NS, 'line');
-      const len = Math.hypot(B.x - A.x, B.y - A.y);
+      const a = edgeEnd(e.from, e.br);
+      const b = edgeEnd(e.to, e.br);
+      const bend = bends.get(e) ?? 0;
+      // 根もと（ハブ）の側は札の下から（札が上に重なる）
+      const t0 = e.from ? exitT(a, b, bend, a, false) : 0;
+      const t1 = exitT(a, b, bend, b, true);
+      if (t1 <= t0) return;
+      const P = (t0: number) => px(curveAt(a, b, bend, t0));
+      const A = P(t0);
+      const B = P(t1);
+      let d: string;
+      let len: number;
+      if (!bend) {
+        d = `M${A.x.toFixed(1)} ${A.y.toFixed(1)}L${B.x.toFixed(1)} ${B.y.toFixed(1)}`;
+        len = Math.hypot(B.x - A.x, B.y - A.y);
+      } else {
+        // [t0, t1] の部分の 2 次ベジェ：制御点は blossom（(1−t0)(1−t1)a + ((1−t0)t1 + t0(1−t1))c + t0·t1·b）
+        const c = curveAt(a, b, bend, 0);
+        const w0 = (1 - t0) * (1 - t1);
+        const w1 = (1 - t0) * t1 + t0 * (1 - t1);
+        const w2 = t0 * t1;
+        const C = px({ x: w0 * a.x + w1 * c.cx + w2 * b.x, y: w0 * a.y + w1 * c.cy + w2 * b.y });
+        d = `M${A.x.toFixed(1)} ${A.y.toFixed(1)}Q${C.x.toFixed(1)} ${C.y.toFixed(1)} ${B.x.toFixed(1)} ${B.y.toFixed(1)}`;
+        len = Math.hypot(C.x - A.x, C.y - A.y) + Math.hypot(B.x - C.x, B.y - C.y);
+      }
+      const l = document.createElementNS(NS, 'path');
       l.setAttribute('style', `--len:${len.toFixed(0)};--d:${delay(a)}`);
-      l.setAttribute('x1', `${A.x}`);
-      l.setAttribute('y1', `${A.y}`);
-      l.setAttribute('x2', `${B.x}`);
-      l.setAttribute('y2', `${B.y}`);
+      l.setAttribute('d', d);
       l.setAttribute('stroke', color);
-      l.setAttribute('class', cls);
+      l.setAttribute('class', `isl-tree-edge ${cls}`);
+      svg.append(l);
+      edgeEls.push({ e, el: l });
+    };
+    // 本社 → 枝の根もと（ハブ）
+    const trunk = (b: { x: number; y: number }, color: string) => {
+      if (sealed) return;
+      const A = px({ x: 0, y: 0 });
+      const B = px(b);
+      const l = document.createElementNS(NS, 'path');
+      l.setAttribute('style', `--len:${Math.hypot(B.x - A.x, B.y - A.y).toFixed(0)};--d:0s`);
+      l.setAttribute('d', `M${A.x} ${A.y}L${B.x} ${B.y}`);
+      l.setAttribute('stroke', color);
+      l.setAttribute('class', 'isl-tree-edge is-trunk');
       svg.append(l);
     };
-    // 本社 → 枝の根もと → スキル
     for (const br of BRANCHES) {
       if (hidden(br.key)) continue;
-      const L = LAYOUT[br.key];
-      const hub = HUBPOS.get(br.key)!;
-      line({ x: 0, y: 0 }, hub, L.color, 'is-on');
-      for (const k of SKILLS.filter((x) => x.branch === br.key)) {
-        const p = POS.get(k.id)!;
-        const tier = skillTier(k);
-        const closed = !ringOpen(s, tier) || !!k.sealed;
-        const cls = `${has(s, k.id) ? 'is-on' : ''} ${closed ? 'is-closed' : ''} ${k.big ? 'is-dust' : ''}`;
-        if (k.sealed) {
-          // 封印：ひとつ内側の外周の最後のパネル（無ければ根もと）から
-          const inner = SKILLS.filter((x) => x.branch === br.key && !x.big && OUTER.indexOf(skillTier(x)) === OUTER.indexOf(tier) - 1);
-          line(inner.length ? POS.get(inner[Math.floor(inner.length / 2)].id)! : hub, p, L.color, cls);
-          continue;
-        }
-        const from = k.requires?.length ? k.requires.map((r) => POS.get(r)!) : [hub];
-        for (const f of from) line(f, p, L.color, cls);
-      }
+      trunk(HUBPOS.get(br.key)!, LAYOUT[br.key].color);
     }
+    // 枝の根もと → スキル（先に要るスキル → スキル）
+    for (const e of EDGES) {
+      if (hidden(e.br)) continue;
+      const k = SKILL[e.to];
+      const closed = !ringOpen(s, skillTier(k)) || !!k.sealed;
+      const up = e.from ? has(s, e.from) : true;
+      const got = has(s, k.id) || (!!k.donate && donations(s) > 0);
+      const cls = closed ? 'is-closed' : up && got ? 'is-done' : up ? 'is-open' : 'is-lock';
+      drawEdge(e, LAYOUT[e.br].color, cls);
+    }
+    /** つながりの強調：そのパネルの「先に要る」パネルまでの線（根もとまで）と、そのパネルから先へ伸びる線。ほかの線は少し暗く */
+    const nodeEls = new Map<string, HTMLElement>();
+    const hlNow = { id: null as string | null };
+    const highlight = (id: string | null) => {
+      if (hlNow.id === id) return;
+      hlNow.id = id;
+      for (const n of wrap.querySelectorAll('.isl-tree-node.is-rel')) n.classList.remove('is-rel');
+      for (const x of edgeEls) x.el.classList.remove('is-hl', 'is-hl-up');
+      const k = id ? SKILL[id] : null;
+      svg.classList.toggle('has-hl', !!k);
+      if (!k) return;
+      // 先に要るもの（たどれるところまで）
+      const up = new Set<string>([k.id]);
+      const queue = [k.id];
+      while (queue.length) {
+        const cur = queue.pop()!;
+        for (const x of edgeEls)
+          if (x.e.to === cur) {
+            x.el.classList.add('is-hl', 'is-hl-up');
+            if (x.e.from && !up.has(x.e.from)) {
+              up.add(x.e.from);
+              queue.push(x.e.from);
+            }
+          }
+      }
+      for (const x of edgeEls)
+        if (x.e.from === k.id) {
+          x.el.classList.add('is-hl');
+          nodeEls.get(x.e.to)?.classList.add('is-rel');
+        }
+      for (const r of up) if (r !== k.id) nodeEls.get(r)?.classList.add('is-rel');
+      // 強調した線は上に（ほかの線に隠れない）
+      for (const x of edgeEls) if (x.el.classList.contains('is-hl')) svg.append(x.el);
+    };
     const root = h('button', `isl-tree-root ${sealed ? 'is-sealed' : ''} ${view.sel === HQ ? 'is-sel' : ''}`);
     root.type = 'button';
     const rp = px({ x: 0, y: 0 });
@@ -870,7 +957,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
         const p = px(POS.get(k.id)!);
         const st = stateOf(s, k);
         const tier = skillTier(k);
-        // 形：研究パネルは四角・お金パネルは菱形（閉じた外周の「?」は形を見せない）
+        // どれも同じ大きさのひし形。枠：研究パネルは枝の色・お金パネルは金の二重（閉じた外周の「?」は区分を見せない）
         const shape = isResearch(k) || (st === 'ring' && !isGoalTier(k)) || k.sealed ? 'is-research' : 'is-money';
         const n = h('button', `isl-tree-node ${shape} is-${st} ${view.sel === k.id ? 'is-sel' : ''} ${k.brand ? 'is-brand' : ''} ${k.big ? 'is-dust' : ''} ${tier !== 'C' ? `is-tier-${tier}` : ''}`);
         n.type = 'button';
@@ -878,6 +965,9 @@ export function openSkills(ctx: Ctx, focus?: string) {
         n.style.top = `${p.y}px`;
         n.style.setProperty('--br', L.color);
         n.style.setProperty('--tc', TIERS[tier].color);
+        // 文字は出さないので、読み上げ用に名前を
+        n.setAttribute('aria-label', st === 'ring' && !isGoalTier(k) ? '?' : shownName(s, k));
+        nodeEls.set(k.id, n);
         setBurst(n, POS.get(k.id)!);
         if (fx && tier === fx.tier) {
           n.classList.add('is-ringpop');
@@ -892,51 +982,47 @@ export function openSkills(ctx: Ctx, focus?: string) {
           n.style.setProperty('--dy', `${((c0.y - q.y) * UNIT).toFixed(0)}px`);
           n.style.setProperty('--d', `${(0.35 + Math.hypot(q.x, q.y) * 0.06).toFixed(2)}s`);
         }
-        hover(n, () => skillCard(s, k, !!only));
+        hover(n, () => skillCard(s, k, !!only), k.id);
+        // パネルの中はアイコンだけ。角に小さな印：✓（取得済み・右上）・🔒（鍵）・⏳（修行中）・∞・Lv の札（右下）・▲（左下）・★🏅（左上）・「?」（まだ分からない）
         if (st === 'ring' && !isGoalTier(k)) {
           // 外周が閉じている：薄い輪郭と「？」（目標として存在だけ見せる）
           n.append(h('span', 'isl-tree-q', '?'));
         } else if (st === 'ring') {
-          // Epic・Legendary：名前を出して、目標として見せる（取れない）
+          // Epic・Legendary：アイコンを出して、目標として見せる（取れない）
           n.classList.add('is-goal');
-          n.append(iconOf(k.id, 44), h('span', 'isl-tree-name', k.name), h('span', 'isl-tree-mark', '🔒'));
+          n.append(iconOf(k.id, 32), h('span', 'isl-tree-mark', '🔒'));
         } else {
-          n.append(iconOf(k.id, 44), h('span', 'isl-tree-name', shownName(s, k)));
+          n.append(iconOf(k.id, 32));
           const tags = condTags(s, k);
           if (tags && st !== 'sealed') n.append(tags);
           if (k.donate) {
-            // 研究への寄付：次の寄付の額と、寄付した回数
+            // 研究への寄付：寄付した回数
             if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
-            else n.append(h('span', 'isl-tree-cost is-g', money(nextDonateCost(s))));
             if (donations(s) > 0) n.append(h('span', 'isl-tree-lv', `×${donations(s)}`));
           } else if (st === 'done' && k.inf) {
-            // 無限の強化パネル：Lv と ∞、次の Lv の値段（RP）
+            // 無限の強化パネル：∞ と Lv
             const lv = lvOf(s, k.id);
             n.classList.add('is-inf');
-            n.append(h('span', 'isl-tree-mark is-inf', '∞'), h('span', 'isl-tree-lv', `Lv${lv}`), h('span', 'isl-tree-cost is-rp', t(`研 ${nextLevelRp(s, k).toLocaleString('en-US')}`, `RP ${nextLevelRp(s, k).toLocaleString('en-US')}`)));
+            n.append(h('span', 'isl-tree-mark is-inf', '∞'), h('span', 'isl-tree-lv', `Lv${lv}`));
             if (!only && canLevel(s, k)) n.append(h('span', 'isl-tree-up', '▲'));
           } else if (st === 'done') {
             const lv = lvOf(s, k.id);
             const mx = maxLv(k);
             n.append(h('span', 'isl-tree-mark', '✓'));
-            // レベルの札（右下）。最大は金の縁、上げられるものは ▲ がゆっくり光る
-            if (mx > 1 && !only) n.append(h('span', `isl-tree-lv ${lv >= mx ? 'is-max' : ''}`, `Lv${lv}`));
+            // レベルの札（Lv2 から。右下）。最大は金の縁、上げられるものは ▲ がゆっくり光る
+            if (mx > 1 && !only && lv >= 2) n.append(h('span', `isl-tree-lv ${lv >= mx ? 'is-max' : ''}`, `Lv${lv}`));
             if (lv >= mx && mx > 1) n.classList.add('is-max');
             else if (!only && canLevel(s, k)) n.append(h('span', 'isl-tree-up', '▲'));
-          }
-          else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
+          } else if (st === 'locked') n.append(h('span', 'isl-tree-mark', '🔒'));
           else if (st === 'training') n.append(h('span', 'isl-tree-mark', '⏳'));
-          else if (st === 'soon') n.append(h('span', 'isl-tree-cost', t('準備中', 'Soon')));
-          else if (st !== 'sealed') n.append(costTag(k));
         }
-        // 技：修行の日数の札と、修行中の進み具合
+        // 技：修行中の進み具合（下の角に細い棒）
         const tr = trainingOf(s, k.id);
         if (tr) {
-          n.append(h('span', 'isl-tree-cost', t(`あと ${tr.left} 日`, `${tr.left} d left`)));
           const pb = bar(1 - tr.left / tr.total, 'var(--isl-gold)');
           pb.classList.add('isl-tree-prog');
           n.append(pb);
-        } else if (k.train && st !== 'done' && st !== 'ring' && st !== 'soon') n.append(h('span', 'isl-tree-train', t(`修行 ${k.train} 日`, `${k.train}-day training`)));
+        }
         if (target === k.id) n.classList.add('is-hot');
         if (justLearned?.id === k.id && performance.now() - justLearned.t < 1500) n.classList.add('is-learned');
         if (justLeveled?.id === k.id && performance.now() - justLeveled.t < 900) n.classList.add('is-lvup');
@@ -957,6 +1043,8 @@ export function openSkills(ctx: Ctx, focus?: string) {
         world.append(n);
       }
     vp.append(world);
+    // 選んでいるパネルのつながりを強調（タップして詳細を出しているあいだ）
+    highlight(view.sel && SKILL[view.sel] ? view.sel : null);
     // 選んだスキルの説明と「習得する」
     const detail = h('div', 'isl-tree-detail');
     const sel = view.sel ? SKILL[view.sel] : null;
@@ -981,7 +1069,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       const ic = h('div', `isl-tree-dicon ${isResearch(sel) ? 'is-research' : 'is-money'} ${sel.big ? 'is-dust' : ''}`);
       ic.style.setProperty('--br', L.color);
       if (st === 'ring' && !isGoalTier(sel)) ic.append(h('span', 'isl-tree-q', '?'));
-      else ic.append(iconOf(sel.id, 48));
+      else ic.append(iconOf(sel.id, 32));
       const txt = h('div');
       txt.append(titleEl(s, sel));
       // 区分：研究パネル（レベルなし）／お金パネル（Lv 3 / 5）
@@ -1039,28 +1127,34 @@ export function openSkills(ctx: Ctx, focus?: string) {
       detail.append(top2, b);
       }
     } else if (sealed) detail.append(h('p', 'isl-dim', t('真ん中の本社を押して、開放しましょう。開放すると、事業ごとの強化の枝が広がります。', 'Tap HQ in the middle to unlock it. Upgrade branches for each business will spread out.')));
-    else detail.append(h('p', 'isl-dim', t('四角は研究パネル（研究ポイントで開く・レベルなし）、菱形はお金パネル（資金で開く・Lv5 まで上げられる）。パネルを押すと説明が出ます（ダブルタップでも開く）。', 'Squares are research panels (RP, no levels); diamonds are money panels (funds, up to Lv5). Tap a panel for details (or double-tap to unlock).')));
+    else detail.append(h('p', 'isl-dim', t('枝の色の枠は研究パネル（研究ポイントで開く・レベルなし）、金の二重の枠はお金パネル（資金で開く・Lv5 まで上げられる）。パネルを押すと名前と説明が出ます（ダブルタップでも開く）。', 'Branch-coloured frames are research panels (RP, no levels); gold double frames are money panels (funds, up to Lv5). Tap a panel for its name and details (or double-tap to unlock).')));
     // ズーム
     const zoom = h('div', 'isl-tree-zoom');
     zoom.append(
       btn('+', () => ((view.zoom = Math.min(ZMAX, view.zoom * 1.2)), place())),
       btn('−', () => ((view.zoom = Math.max(ZMIN, view.zoom / 1.2)), place())),
       btn(t('全体', 'All'), () => {
-        view.zoom = fit();
+        // 「全体」：閉じた外周も含めて、木の全部が 1 画面に収まる大きさ（ひし形が見分けられる大きさ）。
+        // 選んでいたパネルは外す（下の詳細カードが短くなり、木が隠れない）。大きさは描き直したあとの place() で
+        view.zoom = ALL;
         view.x = 0;
         view.y = 0;
-        place();
+        if (view.sel) {
+          view.sel = null;
+          after(ctx);
+        } else place();
       }),
     );
     // PC：パネルにマウスを乗せると、くわしい説明
     const card = h('div', 'isl-tree-hover');
     card.hidden = true;
-    function hover(el: HTMLElement, fill: () => HTMLElement) {
+    function hover(el: HTMLElement, fill: () => HTMLElement, id?: string) {
       if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return;
       el.addEventListener('pointerenter', (e) => {
         if (e.pointerType !== 'mouse' || drag || ringFx) return;
         card.replaceChildren(fill());
         card.hidden = false;
+        if (id) highlight(id);
         const r = el.getBoundingClientRect();
         const w = wrap.getBoundingClientRect();
         const cw = Math.min(280, w.width - 16);
@@ -1070,7 +1164,11 @@ export function openSkills(ctx: Ctx, focus?: string) {
         card.style.left = `${Math.max(8, left)}px`;
         card.style.top = `${Math.max(8, Math.min(w.height - 160, r.top - w.top))}px`;
       });
-      el.addEventListener('pointerleave', () => (card.hidden = true));
+      el.addEventListener('pointerleave', () => {
+        card.hidden = true;
+        // マウスが離れたら、選んでいるパネルの強調に戻す
+        if (id) highlight(view.sel && SKILL[view.sel] ? view.sel : null);
+      });
     }
     if (sealed) {
       chips.hidden = true;
@@ -1140,7 +1238,20 @@ export function openSkills(ctx: Ctx, focus?: string) {
     // 開いているいちばん外のエリアまで（閉じた外周は、ひとつ外の境目の円がちょうど見えるくらい。開く演出のあいだはそのエリアまで）
     const openTop = [...OUTER].reverse().find((x) => ringOpen(s, x));
     const fitR = fx ? RING_OUT[fx.tier] + 0.9 : openTop ? RING_OUT[openTop] + 0.9 : RING_EDGE.U + 0.35;
-    const fit = () => Math.max(ZMIN, Math.min(1, Math.min(vp.clientWidth, vp.clientHeight) / (2 * fitR * UNIT)));
+    const fit = (r = fitR) => Math.max(ZMIN, Math.min(1, Math.min(vp.clientWidth, vp.clientHeight) / (2 * r * UNIT)));
+    /**
+     * 「全体」：いちばん外の段まで。上の帯（通貨・チップ）と下の説明の帯の半分ずつは木に重なってよいとして、
+     * 帯のあいだの真ん中に本社が来るように
+     */
+    function fitAll() {
+      const v = vp.getBoundingClientRect();
+      const topH = Math.max(0, top.getBoundingClientRect().bottom - v.top);
+      const botH = Math.max(0, v.bottom - detail.getBoundingClientRect().top);
+      const hh = vp.clientHeight - (topH + botH) / 2;
+      view.zoom = Math.max(ZMIN, Math.min(1, Math.min(vp.clientWidth - 16, hh) / (2 * (RING_OUT.L + PANEL / 2 + 0.1) * UNIT)));
+      view.x = 0;
+      view.y = -(topH - botH) / 2 / (UNIT * view.zoom);
+    }
     /** いま見ている枝のチップを光らせる（スマホでは横スクロールの帯の中で見える所へ） */
     let curBr: Branch | null = null;
     const markChip = () => {
@@ -1173,7 +1284,7 @@ export function openSkills(ctx: Ctx, focus?: string) {
       view.sel = id;
       const t0 = performance.now();
       const a = { x: view.x, y: view.y, z: view.zoom };
-      const z1 = Math.max(a.z, innerWidth < 600 ? 0.7 : 0.85);
+      const z1 = Math.max(a.z, innerWidth < 600 ? 0.72 : 0.85);
       const lift = (vp.clientHeight * 0.12) / (UNIT * z1);
       const anim = (now: number) => {
         if (!world.isConnected) return;
@@ -1189,14 +1300,21 @@ export function openSkills(ctx: Ctx, focus?: string) {
       requestAnimationFrame(anim);
     }
     function place() {
+      if (view.zoom === ALL) fitAll();
       if (view.zoom < 0) view.zoom = fit();
-      if (!view.zoom) view.zoom = innerWidth < 600 ? 0.62 : 0.8;
+      if (!view.zoom) view.zoom = innerWidth < 600 ? 0.7 : 0.8;
+      if (liftOnce && detail.isConnected) {
+        liftOnce = false;
+        view.y += (Math.max(0, wrap.getBoundingClientRect().bottom - detail.getBoundingClientRect().top) / 2) / (UNIT * view.zoom);
+      }
       const c = px({ x: view.x, y: view.y });
       world.style.transform = `translate(${vp.clientWidth / 2 - c.x * view.zoom}px, ${vp.clientHeight / 2 - c.y * view.zoom}px) scale(${view.zoom})`;
+      // 線の太さは画面の上で 3px 前後に（引いて見たときは細くなりすぎないよう、木の上で 10px まで）
+      world.style.setProperty('--lw', `${Math.min(10, 3 / view.zoom).toFixed(2)}px`);
       markChip();
     }
     // 引っぱって動かす・2 本指でつまんで拡大縮小（スマホ）・ホイールで拡大（PC）
-    const ZMIN = 0.18;
+    const ZMIN = 0.14;
     const ZMAX = 1.8;
     const pts = new Map<number, { x: number; y: number }>();
     let drag: { x: number; y: number; vx: number; vy: number } | null = null;
@@ -1274,9 +1392,11 @@ export function openSkills(ctx: Ctx, focus?: string) {
       { passive: false },
     );
     requestAnimationFrame(place);
-    // スマホ：説明の帯が高くなっても、ズームのボタンが隠れないように
+    // 説明の帯が高くなっても、ズームのボタンが隠れないように（PC でも、選んだパネルの詳細カードは高い）
     requestAnimationFrame(() => {
-      if (innerWidth < 600 && detail.isConnected) zoom.style.bottom = `${detail.offsetHeight + 16}px`;
+      if (!detail.isConnected) return;
+      const above = wrap.getBoundingClientRect().bottom - detail.getBoundingClientRect().top;
+      zoom.style.bottom = `${Math.max(innerWidth < 600 ? 0 : 120, above + 8)}px`;
     });
   });
 }
