@@ -413,7 +413,7 @@ describe('セーブの引き継ぎ（版 5 → 6）', () => {
   }
   it('掘りきった荒れ地は復興済みに（家・需要・小道）', () => {
     const s = v5([0, 2]);
-    expect(s.v).toBe(7);
+    expect(s.v).toBe(8);
     expect(s.dig!.sites.map((x) => !!x.revived)).toEqual([true, false, true, false]);
     expect(s.dig!.dungeon).toBeFalsy();
     for (const [x, y] of s.dig!.sites[0].path!) expect(isRoad(s, x, y)).toBe(true);

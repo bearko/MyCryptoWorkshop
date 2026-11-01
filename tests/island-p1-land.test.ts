@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MANAGER, TIERS, rivalDef } from '../src/island/p1/data';
+import { MANAGER, RESET, TIERS, rivalDef } from '../src/island/p1/data';
 import { managerRate, pl, quarters, runSector, sectorState, type SectorRec } from '../src/island/p1/company';
 import { moveTo, recOf } from '../src/island/p1/land';
 import { allowedDirs, assign, build, deserializeP1, gateToll, heroStats, monthRevenue, newP1, openGate, serializeP1, setShelf, startCraft, step, type P1State } from '../src/island/p1/model';
@@ -144,10 +144,10 @@ describe('関所の先：ランドセクタ', () => {
     openGate(s);
     expect(moveTo(s, 'u1', null)).toBe('letter');
     s.letters = ['U'];
+    // 発掘 v2 の 7 段目：会社として初めて Uncommon へ進出するときは、出店許可申請の費用を取らない（ランクアップの災害と徴収がその代わり）
     s.money = 1000;
-    expect(moveTo(s, 'u1', null)).toBe('money');
-    s.money = 1e6;
     expect(moveTo(s, 'u1', null)).toBeNull();
+    expect(s.money).toBe(RESET.grant);
     // ウメコタウン（港町）の他社（セクタの個性）の売上に、ランクの倍率が掛かる
     const lamp0 = rivalDef(s.rivals[0].id)!.base;
     expect(s.n).toBe(TIERS.U.n);

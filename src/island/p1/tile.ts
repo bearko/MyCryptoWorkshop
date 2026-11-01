@@ -4,7 +4,7 @@
  */
 import { t } from '../../i18n';
 import { DEF } from '../defs';
-import { DIG_SITES, INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
+import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
 import { DUNGEON, dungeonDepth, museumMarks, museumOpen, museumSlots, museumValue, revivedSites, permitFee, permitLock, presentLock, presentRes, researchOf, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
@@ -12,6 +12,78 @@ import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
 import { canPresent, chiefOf, digMet, isChiefHome } from './digmeet';
 import { extIcon } from './digui';
 import { DEEP_LOCK, standing } from './digview';
+import { repairCostOf, repairDaysOf } from './company';
+import { clearRuin, isRuin, repair, repairAll, repairAllCost, repairLock, ruinsOf } from './reset';
+
+/**
+ * 廃墟の吹き出し：ランドの災害で壊れた自社の建物。手で直す（元の建物の値段の 40%・工期は短く。設備投資の段は 0 から）か、取り壊す（無料・空き地）。
+ * 廃墟が 2 つ以上なら「全部修繕（合計 N G）」も
+ */
+function ruinPop(ctx: Ctx, b: PBuilding, body: HTMLElement, hooks: TileHooks): HTMLElement {
+  const s = ctx.s();
+  const cost = repairCostOf(b.id);
+  const days = repairDaysOf(b.id);
+  body.append(
+    h('p', '', t('ランドを襲った災害で壊れてしまった建物。働かず、売りもしない。修繕すると元の建物に戻る（設備投資は 0 から）。', 'Wrecked by the disaster that struck the land. It does not work or sell. Repair it to get the building back (upgrades start from zero).')),
+    meta([
+      [t('修繕', 'Repair'), money(cost)],
+      [t('工期', 'Work'), t(`${days} 日`, `${days} days`)],
+      [t('元の値段', 'Built for'), money(P1B[b.id]?.cost ?? 0)],
+    ]),
+  );
+  const lock = repairLock(s, b.uid);
+  const row = h('div', 'isl-row isl-pop-acts');
+  const go = btn(t(`🔨 修繕する（${money(cost)}・${days} 日）`, `🔨 Repair (${money(cost)} · ${days} days)`), () => {
+    const r = repair(s, b.uid);
+    if (typeof r === 'string') {
+      ctx.sfx?.('error');
+      return;
+    }
+    ctx.sfx?.('place');
+    ctx.toast(t(`${DEF[b.id].name}の修繕を始めた（${r.days} 日）`, `Repairing the ${DEF[b.id].name} (${r.days} days)`));
+    ctx.save();
+    hooks.close();
+    ctx.refresh();
+  }, lock ? '' : 'is-on is-guide');
+  go.disabled = !!lock;
+  row.append(go);
+  row.append(
+    btn(t('取り壊す（無料）', 'Clear (free)'), () => {
+      if (!clearRuin(s, b.uid)) return;
+      ctx.sfx?.('tap');
+      ctx.toast(t('廃墟を取り壊した。空き地になった', 'Cleared the ruin. The lot is empty now'));
+      ctx.save();
+      hooks.close();
+      ctx.refresh();
+    }),
+  );
+  body.append(row);
+  if (lock === 'money') body.append(h('small', 'isl-warn', t(`あと ${money(cost - s.money)} 足りません`, `${money(cost - s.money)} short`)));
+  if (lock === 'limit') body.append(h('small', 'isl-warn', t('工房はもう建っている（工房は 1 つまで）。取り壊して空き地にしよう', 'You already have a workshop (only one). Clear this one')));
+  // 全部修繕
+  const all = repairAllCost(s);
+  if (ruinsOf(s).length >= 2 && all.n >= 2) {
+    const r2 = h('div', 'isl-row');
+    const ab = btn(t(`全部修繕（${all.n} 軒・合計 ${money(all.cost)}）`, `Repair all (${all.n} · ${money(all.cost)})`), () => {
+      const r = repairAll(s);
+      if (!r.n) {
+        ctx.sfx?.('error');
+        return;
+      }
+      ctx.sfx?.('spend');
+      ctx.toast(t(`${r.n} 軒の修繕を始めた（${money(r.cost)}）`, `Repairing ${r.n} buildings (${money(r.cost)})`));
+      ctx.save();
+      hooks.close();
+      ctx.refresh();
+    });
+    ab.disabled = s.money < Math.min(...ruinsOf(s).map((x) => repairCostOf(x.id)));
+    r2.append(ab);
+    body.append(r2);
+    if (s.money < all.cost) body.append(h('small', 'isl-dim', t('資金のあるだけ、工房 → 安い順に直します', 'Repairs the workshop first, then cheapest first, as funds allow')));
+  }
+  body.append(h('small', 'isl-dim', t('手で直すほうが安上がり。ほかの町へ移るときは、ランドマップからヒーローに[[復興]]を任せることもできる（割高・自動）。', 'Repairing by hand is cheaper. When you move to another town, you can leave the [[recovery]] to a hero from the land map (pricier, automatic).').replace(/\[\[|\]\]/g, '')));
+  return body;
+}
 
 export interface TileHooks {
   /** 移転先を選ぶモードへ */
@@ -80,6 +152,8 @@ export function tileContent(ctx: Ctx, i: number, j: number, hooks: TileHooks): {
   if (!b) return empty(s, i, j, body, hooks);
   const name = DEF[b.id].name;
   if (b.owner === 'me') return { title: name, body: mine(ctx, b, body, hooks) };
+  // 廃墟（ランクアップの災害で壊れた自社の建物。発掘 v2 の 7 段目）：修繕する・取り壊す・全部修繕
+  if (isRuin(b)) return { title: t(`🏚 ${name}（廃墟）`, `🏚 ${name} (ruin)`), body: ruinPop(ctx, b, body, hooks) };
   if (b.owner === 'town') {
     const isHome = DEF[b.id].cat === 'home';
     if (isGate(b)) return { title: t('関所', 'Gate'), body: gate(s, body, hooks) };
@@ -112,7 +186,7 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
       'p',
       '',
       presentRes(s)
-        ? t('この町の長が住む家。「お題」の遺物を全部掘り出し、この町の出土品の研究を進めたら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつ。', 'Home of the town head. Dig up every target relic and advance research on this town’s finds, then present your findings here. Presenting is one of the conditions to conquer this sector.')
+        ? t('この町の長が住む家。「お題」の遺物を全部掘り出し、この町の荒れ地で出土品を掘り重ねたら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつ。', 'Home of the town head. Dig up every target relic and dig this town’s finds again and again, then present your findings here. Presenting is one of the conditions to conquer this sector.')
         : t('この町の長が住む家。町の荒れ地から「お題」の遺物を全部掘り出したら、ここで研究成果を発表しよう。発表はこのセクタの制覇の条件のひとつで、Common の 2 つの町で発表すると Uncommon の調査依頼状がもらえる。', 'Home of the town head. Dig up every target relic from this town’s wastelands, then present your findings here. Presenting is one of the conditions to conquer this sector, and presenting in two Common towns earns the Uncommon survey request.'),
     ),
   );
@@ -125,20 +199,19 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
     row.append(c);
   }
   body.append(h('h4', '', t(`お題 ${a} / ${n}`, `Targets ${a} / ${n}`)), row);
-  // Uncommon（発掘 v2 の 6 段目）：発表には、この町の出土品 N 種を研究 Lv M 以上に（研究 Lv の高い順に並べる）
+  // Uncommon（発掘 v2 の 7 段目）：発表には、この町の出土品 N 種を この町の荒れ地で M 個ずつ 掘り出す（この町で掘った数の多い順に並べる）
   const res = presentRes(s);
   if (res && !s.presented.includes(s.dig!.sector)) {
     const rrow = h('div', 'isl-stock');
-    const finds = [...(DIG_SITES[s.dig!.sector]?.finds ?? [])].sort((x, y) => researchOf(s, y) - researchOf(s, x));
-    // 研究の進んだ順に 4 つまで（まだ掘っていないものは、知っているものが足りないときだけ ？？？ で）
-    const known = finds.filter((id) => researchOf(s, id) > 0);
-    for (const id of [...known, ...finds.filter((id) => researchOf(s, id) <= 0)].slice(0, Math.max(res.need, Math.min(4, known.length)))) {
-      const lv = researchOf(s, id);
-      const c = h('span', `isl-chip isl-chief-topic ${lv >= res.lv ? 'is-ok' : lv > 0 ? '' : 'is-unknown'}`);
-      c.append(extIcon(id, 32), h('small', '', lv > 0 ? t(`Lv${lv}${lv >= res.lv ? ' ✔' : ''}`, `Lv${lv}${lv >= res.lv ? ' ✔' : ''}`) : t('？？？', '???')));
+    // 掘った数の多い順に 4 つまで（まだこの町で掘っていないものは、足りないときだけ ？？？ で）
+    const known = res.best.filter((x) => x.n > 0);
+    for (const x of [...known, ...res.best.filter((y) => y.n <= 0)].slice(0, Math.max(res.need, Math.min(4, known.length)))) {
+      const ok = x.n >= res.dug;
+      const c = h('span', `isl-chip isl-chief-topic ${ok ? 'is-ok' : x.n > 0 ? '' : 'is-unknown'}`);
+      c.append(extIcon(x.id, 32), h('small', '', x.n > 0 || researchOf(s, x.id) > 0 ? `${Math.min(x.n, res.dug)} / ${res.dug}${ok ? ' ✔' : ''}` : t('？？？', '???')));
       rrow.append(c);
     }
-    body.append(h('h4', res.have >= res.need ? 'isl-good' : '', t(`研究 Lv${res.lv} の出土品 ${res.have} / ${res.need}`, `Finds at research Lv${res.lv}: ${res.have} / ${res.need}`)), rrow);
+    body.append(h('h4', res.have >= res.need ? 'isl-good' : '', t(`この町で ${res.dug} 個掘った出土品 ${res.have} / ${res.need} 種`, `Finds dug ${res.dug}× here: ${res.have} / ${res.need}`)), rrow);
   }
   const acts = h('div', 'isl-row isl-pop-acts');
   const lock = presentLock(s);
@@ -146,8 +219,8 @@ function chiefPop(s: P1State, body: HTMLElement, hooks: TileHooks): HTMLElement 
   go.disabled = !canPresent(s);
   acts.append(go);
   body.append(acts);
-  if (lock === 'not-yet') body.append(h('small', 'isl-warn', res ? t(`お題がそろい、出土品 ${res.need} 種が研究 Lv${res.lv} になったら発表できる（お題 あと ${n - a} つ・研究 ${res.have} / ${res.need}）`, `Present once all targets are found and ${res.need} finds reach research Lv${res.lv} (targets ${n - a} to go · research ${res.have} / ${res.need})`) : t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
-  else if (lock === 'research' && res) body.append(h('small', 'isl-warn', t(`🔒 発表には、この町の出土品 ${res.need} 種を研究 Lv${res.lv} に（いま ${res.have} / ${res.need}）。同じ遺物を掘り重ねよう`, `🔒 To present, raise ${res.need} of this town’s finds to research Lv${res.lv} (now ${res.have} / ${res.need}). Dig the same relics again`)));
+  if (lock === 'not-yet') body.append(h('small', 'isl-warn', res ? t(`お題がそろい、この町の出土品 ${res.need} 種をこの町で ${res.dug} 個ずつ掘り出したら発表できる（お題 あと ${n - a} つ・出土品 ${res.have} / ${res.need} 種）`, `Present once all targets are found and ${res.need} of this town’s finds are dug ${res.dug}× here (targets ${n - a} to go · finds ${res.have} / ${res.need})`) : t(`お題がそろったら発表できる（あと ${n - a} つ）`, `Present once all targets are found (${n - a} to go)`)));
+  else if (lock === 'research' && res) body.append(h('small', 'isl-warn', t(`🔒 発表には、この町の出土品 ${res.need} 種を、この町で ${res.dug} 個ずつ掘り出そう（いま ${res.have} / ${res.need} 種）。同じ遺物を掘り重ねよう`, `🔒 To present, dig up ${res.need} of this town’s finds ${res.dug}× each here (now ${res.have} / ${res.need}). Dig the same relics again`)));
   else if (lock === 'done') body.append(h('small', 'isl-dim', t('このセクタの研究成果は発表済み。', 'Findings already presented here.')));
   return body;
 }

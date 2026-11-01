@@ -5,9 +5,10 @@
  * ゲームの数値（data.ts・式）は変えない。ここは計測だけ。
  */
 import { writeFileSync } from 'node:fs';
-import { aptitude, anyOfMet, ADS, DIG_BALANCE, DIG_PANELS, INF_PANELS, infCost, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, donateCost, isResearch, maxLv, rpCost, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
-import { managerApt, sectorDef } from '../../src/island/p1/company';
-import { crowned, moveTo } from '../../src/island/p1/land';
+import { aptitude, anyOfMet, ADS, RESET, DIG_BALANCE, DIG_PANELS, INF_PANELS, infCost, INVEST, MISSIONS, P1B, PRODUCT, PRODUCTS, SECTORS, SKILL, SKILLS, donateCost, isResearch, maxLv, rpCost, type Skill, TIERS, UNCOMMON, sku, skuParts, techSkill, type Mat, type Sku, type Task, type Tier } from '../../src/island/p1/data';
+import { managerApt, RUIN, sectorDef, type RuinLike } from '../../src/island/p1/company';
+import { crowned, moveFee, moveTo } from '../../src/island/p1/land';
+import { delegate, rankUpTier, repairAll, reviveView } from '../../src/island/p1/reset';
 import { MEET_IDLE_DAYS } from '../../src/island/p1/digmeet';
 import {
   accept,
@@ -204,6 +205,8 @@ export interface SectorRun {
   /** 月ごとの締め（順位・売上・資金・ボトルネック） */
   /** bn：ゲームの bottleneck()（月の締め）、read：人が読むボトルネック（readBn） */
   log: { m: number; rank: number; rev: number; top: number; money: number; bn: Stage | undefined; read: Stage }[];
+  /** v14：100% の再発掘の周回（被災した Common の町に戻って、荒れ地を掘り直す。表の「1 町の平均」には入れない） */
+  revisit?: boolean;
 }
 
 export interface DigRec {
@@ -260,7 +263,22 @@ export interface RunResult {
   v12: { revived: number; dungeons: number; dives: number; best: number; found: Record<'U' | 'R' | 'E' | 'L', number>; got: Record<'U' | 'R' | 'E' | 'L', number>; museum: boolean; income: number; marks: number };
   /** v14a：研究への寄付（回数・払った G・受け取った RP）・無限の強化パネルの Lv（最後）と払った RP・入った RP の合計（寄付を除く） */
   v14: { donations: number; donateG: number; donateRp: number; inf: Record<string, number>; infRp: number; rpDug: number };
+  /**
+   * v14（発掘 v2 の 7 段目：ランクアップの災害と復興）：徴収額・支度金・移る前に押した寄付の回数・失ったお金のパネルの数・任せた町の数・
+   * 任せた町の復興にかかった月数（全部直った町だけ）・直しきれなかった町・支援金の合計・担当の能力値の伸び（合計）・再発掘で入った RP（100% の周回）・研究待ちの月（Uncommon）
+   */
+  v14b: { levy: number; grant: number; preDonate: number; lost: number; delegated: number; doneMonths: number[]; undone: number; funds: number; grow: number; growHeroes: number; redigRp: number; resWaitU: number };
 }
+
+/**
+ * v14：ランクアップの災害と復興の手（発掘 v2 の 7 段目）。移る前の寄付（お金は徴収されるので、押せるだけ。上限 donate 回）・
+ * 被災した町に任せる数（towns。お店の売上の大きい町から）と、送る支援金（少ない／多いとき）・手元に残す資金・100% の再発掘の周回（お題がそろうか months か月まで）
+ */
+export const SIM_RESET: Record<PolicyId, { donate: number; towns: number; fund: [number, number]; keep: number; revisit: boolean; months: number }> = {
+  rta: { donate: 3, towns: 1, fund: [10000, 10000], keep: 15000, revisit: false, months: 0 },
+  normal: { donate: 5, towns: 2, fund: [10000, 30000], keep: 20000, revisit: false, months: 0 },
+  full: { donate: 60, towns: 99, fund: [30000, 80000], keep: 20000, revisit: true, months: 3 },
+};
 
 // ---------------------------------------------------------------- 方針
 
@@ -369,6 +387,9 @@ interface Ctx {
   runsMonth: number;
   /** v12：今月ダンジョンに潜った回数 */
   divesMonth?: number;
+  /** v14：100% の再発掘の周回を足した・その町 */
+  toured?: boolean;
+  revisit?: Set<string>;
 }
 
 const DIRS = ['rd', 'ld', 'lu', 'ru'] as const;
@@ -650,6 +671,12 @@ export function policy(s: P1State, c: Ctx): Action[] {
       const only = (task: Task) => crew(s).filter((y) => y.task === task).length <= 1;
       const idle = free.filter((x) => x.task == null || (x.task === 'side' && !rescue) || (w.min && x.task !== 'craft' && !((x.task === 'transport' || x.task === 'buy') && only(x.task))));
       hero = idle[0]?.hero ?? null;
+      // v14：作業台に人がいないのに、雇える候補がもういない（候補を雇いきった）：アルバイトのいるお店の店員を職人に回す（お店はアルバイトで開いている）。
+      // ランクアップの災害のあと、少ない支度金で立ち上げた順番によっては、店員だけが増えて作業台が空いたまま止まる（候補が尽きて雇い直せない）
+      if (hero == null && w.task === 'craft' && !s.hirePool.some((id) => (w.min ? aptitude(heroStatsOf(id), 'craft') >= w.min : true))) {
+        const clerk = free.find((x) => x.task === 'shop' && (Object.values(s.shops).find((sh) => sh.staff === x.hero)?.part ?? 0) > 0);
+        hero = clerk?.hero ?? null;
+      }
     }
     if (hero == null) {
       // 雇う（1 日 1 人）
@@ -965,7 +992,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
   if (c.monthEnd && c.policy === 'full') acts.push({ kind: 'skill', run: () => (infSpend(s) > 0 ? null : 'none') });
   if (c.monthEnd && c.policy !== 'rta' && donateLock(s) !== 'hidden' && donateLock(s) !== 'closed') {
     const next = c.route[c.at + 1];
-    const saveNeed = saving && next ? (s.land ? 0 : gateToll(s)) + sectorDef(next).fee + 12000 : 0;
+    // v14：次がランクアップの進出なら、費用も立ち上げの資金も要らない（お金は徴収される）
+    const saveNeed = saving && next && !rankUpTier(s, next) ? (s.land ? 0 : gateToll(s)) + sectorDef(next).fee + 12000 : 0;
     const keep = reserve + saveNeed + Math.max(SIM_DONATE.keep, c.monthEnd.revenue);
     let spare = budget - keep;
     let n = 0;
@@ -1354,7 +1382,10 @@ export interface RunOpts {
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
   const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, runLeft: 0, runsMonth: 0, divesMonth: 0 };
-  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0, rpLeft: { end: 0, afterAll: 0, allAt: null }, v12: { revived: 0, dungeons: 0, dives: 0, best: 0, found: { U: 0, R: 0, E: 0, L: 0 }, got: { U: 0, R: 0, E: 0, L: 0 }, museum: false, income: 0, marks: 0 }, v14: { donations: 0, donateG: 0, donateRp: 0, inf: {}, infRp: 0, rpDug: 0 } };
+  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0, rpLeft: { end: 0, afterAll: 0, allAt: null }, v12: { revived: 0, dungeons: 0, dives: 0, best: 0, found: { U: 0, R: 0, E: 0, L: 0 }, got: { U: 0, R: 0, E: 0, L: 0 }, museum: false, income: 0, marks: 0 }, v14: { donations: 0, donateG: 0, donateRp: 0, inf: {}, infRp: 0, rpDug: 0 }, v14b: { levy: 0, grant: 0, preDonate: 0, lost: 0, delegated: 0, doneMonths: [], undone: 0, funds: 0, grow: 0, growHeroes: 0, redigRp: 0, resWaitU: 0 } };
+  /** v14：任せた町の担当（能力値の伸びを数える） */
+  const growHeroes = new Set<number>();
+  const R = SIM_RESET[p];
   /** v12：復興した荒れ地（セクタを離れるときに足す） */
   let revivedDone = 0;
   const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, allRev: 0, relicRev: 0, dig: newDigRec(), log: [] });
@@ -1414,6 +1445,49 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       invSeen.sector = s.sector;
     }
 
+    // ---- v14：被災した町の復興を任せる（月末。ランクアップの災害のあと・いまのセクタ以外）。お店の売上の大きい町から R.towns まで。
+    // 支援金が尽きた・まだ送っていない町に、資金が「送る額 ＋ 手元に残す額」あれば送る（多ければ大きい額）。担当はいまのマネージャー（いなければ手の空いた人で能力値の高い人）
+    if (atPause && R.towns > 0 && s.resets?.length && s.land) {
+      const ids = s.land.mine
+        .filter((id) => id !== s.land!.cur && (reviveView(s, id)?.ruins ?? 0) > 0)
+        .sort((a, b) => (s.land!.recs[b].base?.rev ?? 0) - (s.land!.recs[a].base?.rev ?? 0));
+      const chosen = ids.filter((id) => s.land!.recs[id].revive!.spent > 0 || s.land!.recs[id].revive!.fund > 0);
+      for (const id of ids) {
+        if (!chosen.includes(id) && chosen.length >= R.towns) continue;
+        const rv = reviveView(s, id)!;
+        const rest = ((s.land.recs[id].snap?.buildings as RuinLike[] | undefined) ?? []).filter((b) => b.owner === RUIN);
+        if (rv.hero != null && rv.fund > 0 && !rv.out) continue;
+        const fund = s.money > R.fund[1] * 3 + R.keep ? R.fund[1] : R.fund[0];
+        if (s.money < fund + R.keep || !rest.length) continue;
+        const mgr = s.land.recs[id].manager;
+        const st0 = mgr != null ? s.staff.find((x) => x.hero === mgr) : null;
+        const hero = rv.hero ?? (st0 && st0.task === 'manager' && st0.target === id ? st0.hero : null) ?? crew(s).filter((x) => x.task == null).sort((a, b) => managerApt(b.stats) - managerApt(a.stats))[0]?.hero;
+        if (hero == null) continue;
+        if (delegate(s, id, hero, fund) != null) continue;
+        if (!chosen.includes(id)) {
+          chosen.push(id);
+          res.v14b.delegated++;
+        }
+        res.v14b.funds += fund;
+        res.actions.delegate = (res.actions.delegate ?? 0) + 1;
+        cur.act += 2;
+        if (cur.topDay == null) cur.actTop += 2;
+      }
+      // 任せない町（廃墟だけで売上の無い町）のマネージャーは、いまの町の仕事に呼び戻す（任せる町がそろってから）
+      if (chosen.length >= Math.min(R.towns, ids.length))
+        for (const id of ids) {
+          if (chosen.includes(id)) continue;
+          const mg = s.land.recs[id].manager;
+          const st = mg != null ? s.staff.find((x) => x.hero === mg) : null;
+          if (!st || st.task !== 'manager' || st.target !== id) continue;
+          st.task = null;
+          st.target = null;
+          s.land.recs[id].manager = null;
+          res.actions.recall = (res.actions.recall ?? 0) + 1;
+          cur.act++;
+        }
+    }
+
     // ---- 発掘（v9。SIM_DIG：15 秒の発掘作業・許可・道具・発掘隊・発表）
     // 発掘との出会い：最初の月の締めのあと、操作がないまま 5 日（月の途中はふつう手が空く）。1 か所目の許可は手紙で済む
     if (!s.flags.digMeet && s.reports.length >= 1 && c.dayInMonth >= MEET_IDLE_DAYS && s.dig && !atPause) {
@@ -1431,7 +1505,10 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       const spendTools = (v: number) => (res.spend.tools += v);
       // v10：発掘の枝（以前の道具はパネルに移った）。最短：お題が許可の無い層に残っていれば、深い層の許可の次の Lv（根もとから）。
       // 通常：月末に、その月の売上の 20% までを、発掘のパネルの安い順に（お題が許可の無い層にあれば深い層の許可を先に）。100%：方針のスキルの一覧でまとめて
+      // v14：お店が 1 軒もない立ち上げのあいだ（ランクアップの災害のあとは支度金だけ）は、発掘にお金を使わない（お店を先に）
+      const startup = !s.buildings.some((b) => b.owner === 'me' && P1B[b.id]?.kind === 'shop');
       const take = (id: string, keep: number) => {
+        if (startup) return 0;
         const st = digStep(s, id);
         if (!st || s.money < st.cost + keep) return 0;
         const m0 = s.money;
@@ -1495,7 +1572,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       // 発掘許可：資金に余裕があれば、次の荒れ地を申請する（月末か、掘れる荒れ地が無くなったとき）
       // v13：お題のある荒れ地の許可がまだで、許可のある荒れ地にはもうお題が無い（発表に要る）ときも、作業のあいだに申請する
       const topicPermit = !clearGoal(s).present && !s.dig.sites.some((x, k) => x.permit && !x.done && siteTopic(s, k) === 'hidden') && s.dig.sites.some((x, k) => !x.permit && siteTopic(s, k) === 'hidden');
-      if (!s.digRun && (atPause || pickSite(s, p) == null || topicPermit)) {
+      if (!s.digRun && !startup && (atPause || pickSite(s, p) == null || topicPermit)) {
         const n = askPermits(s, p, D.permit);
         if (n) {
           cur.dig.permits += n;
@@ -1577,6 +1654,13 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
     // ---- 1 日（v9：作業のあいだは発掘隊も打つ。作業の日数が尽きた・荒れ地を掘りきったら作業を終える）
     const d = step(s);
     cur.dig.auto += d.dug?.length ?? 0;
+    // v14：任せた町の担当の伸び
+    for (const x of d.company?.managed ?? []) {
+      const g = x.revive?.grow;
+      if (!g) continue;
+      res.v14b.grow += Object.values(g).reduce<number>((a, v) => a + (v ?? 0), 0);
+      if (x.hero != null) growHeroes.add(x.hero);
+    }
     if (s.digRun) {
       c.runLeft -= 1;
       if (c.runLeft <= 0 || s.dig?.sites[s.digRun.site]?.done) {
@@ -1644,6 +1728,17 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
 
     // ---- 制覇したら（2 か月続けて 1 位）、次のセクタへ（100% は依頼を済ませてから）
     if (s.cleared && cur.topDay != null) {
+      // v14：100% の再発掘の周回：被災した Common の町（任せた町も）を回って、荒れ地を掘り直す（お題がそろうか R.months か月）
+      if (cur.revisit) {
+        const [g0, a0] = topicProgress(s);
+        if (g0 < a0 && s.day - cur.arrived < 30 * R.months) continue;
+      }
+      if (!c.route[c.at + 1] && R.revisit && !c.toured && s.resets?.length) {
+        c.toured = true;
+        const back = (s.land?.mine ?? []).filter((id) => sectorDef(id).tier === 'C' && id !== s.sector);
+        c.route.push(...back);
+        c.revisit = new Set(back);
+      }
       const next = c.route[c.at + 1];
       const sectorMissionsLeft = MISSIONS.some((m) => m.sector === s.sector && s.missions[m.id] !== 'claimed');
       if (!next) {
@@ -1668,13 +1763,14 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
         continue;
       }
-      if (p === 'full' && sectorMissionsLeft && s.day - cur.topDay < 30 * 12) continue;
+      if (p === 'full' && !cur.revisit && sectorMissionsLeft && s.day - cur.topDay < 30 * 12) continue;
       // v8：100% は発掘場をぜんぶ掘ってから。Uncommon へは調査依頼状が要る（Common のセクタのお題をそろえて発表する）
-      if (p === 'full' && digLeft(s) > 0 && s.day - cur.topDay < 30 * FULL_DIG_WAIT) continue;
+      if (p === 'full' && !cur.revisit && digLeft(s) > 0 && s.day - cur.topDay < 30 * FULL_DIG_WAIT) continue;
       if (sectorDef(next).tier === 'U' && !hasLetter(s, 'U')) continue;
-      // 関所 → 出店許可（費用 ＋ 立ち上げの資金）
-      const fee = sectorDef(next).fee;
-      const start = p === 'rta' ? 8000 : 12000;
+      // 関所 → 出店許可（費用 ＋ 立ち上げの資金）。v14：ランクアップの進出は費用なし・お金は徴収されるので立ち上げの資金も要らない
+      const up = rankUpTier(s, next);
+      const fee = moveFee(s, next);
+      const start = up ? 0 : p === 'rta' ? 8000 : 12000;
       if (!s.land) {
         if (s.money < gateToll(s) + fee + start) continue;
         const g0 = s.money;
@@ -1696,9 +1792,23 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       cur.dig.done = s.dig?.sites.filter((x) => x.done).length ?? 0;
       revivedDone += s.dig?.sites.filter((x) => x.revived).length ?? 0;
       res.v12.best = Math.max(res.v12.best, s.dig?.dungeon?.best ?? 0);
+      // v14：ランクアップの進出の前に、余ったお金で研究への寄付（どうせ徴収されるので、押せるだけ。上限 R.donate 回）
+      if (up) {
+        for (let k = 0; k < R.donate && donateLock(s) === null; k++) {
+          if (typeof donate(s) === 'string') break;
+          res.v14b.preDonate++;
+          res.actions.donate = (res.actions.donate ?? 0) + 1;
+          cur.act++;
+        }
+        res.v14b.lost = s.skills.filter((id) => SKILL[id] && !isResearch(SKILL[id])).length;
+      }
       const f0 = s.money;
       const e = moveTo(s, next, mgr?.hero ?? null);
-      res.spend.fees += Math.max(0, f0 - s.money);
+      if (up && s.resets?.length) {
+        const rr = s.resets[s.resets.length - 1];
+        res.v14b.levy = rr.levy;
+        res.v14b.grant = rr.grant;
+      } else res.spend.fees += Math.max(0, f0 - s.money);
       if (e) {
         res.stop = `${next} へ移れない（${e}）`;
         break;
@@ -1708,6 +1818,15 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       cur.left = s.day;
       c.at++;
       cur = newRun(next);
+      if (c.revisit?.has(next)) {
+        cur.revisit = true;
+        // 手で直す（資金のあるだけ。工房 → 安い順）
+        const r = repairAll(s);
+        if (r.n) {
+          res.actions.repair = (res.actions.repair ?? 0) + 1;
+          cur.act++;
+        }
+      }
       res.sectors.push(cur);
       c.lineup = [];
       c.lineupDirty = true;
@@ -1737,6 +1856,16 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
     for (let k = 1; k <= lv; k++) res.v14.infRp += infCost(k);
   }
   res.v14.rpDug = res.sectors.reduce((a, r) => a + r.dig.rp, 0) - res.v14.donateRp;
+  // v14：任せた町の復興（全部直った月数・直しきれなかった町）・担当の伸び・再発掘の RP・研究待ち（Uncommon）
+  for (const id of s.land?.mine ?? []) {
+    const rv = s.land?.recs[id]?.revive;
+    if (!rv || !(rv.spent > 0)) continue;
+    if (rv.doneAt != null) res.v14b.doneMonths.push(rv.doneAt);
+    else res.v14b.undone++;
+  }
+  res.v14b.growHeroes = growHeroes.size;
+  res.v14b.redigRp = res.sectors.filter((r) => r.revisit).reduce((a, r) => a + r.dig.rp, 0);
+  res.v14b.resWaitU = res.sectors.filter((r) => r.tier === 'U').reduce((a, r) => a + r.dig.resWait, 0);
   res.rpLeft.afterAll = Math.round(res.rpLeft.afterAll);
   // v12：復興・ダンジョン・見つけた上のランクの遺物（研究ノート：種類と、掘った数）・展示館
   res.v12.revived = revivedDone + (s.dig?.sites.filter((x) => x.revived).length ?? 0);
@@ -1805,7 +1934,7 @@ export function tables(rep: Report2): string {
   for (const p of pols) {
     const runs = rep.runs.filter((r) => r.policy === p);
     for (const id of routeOf(p)) {
-      const rs = runs.map((r) => r.sectors.find((x) => x.id === id)).filter((x): x is SectorRun => !!x);
+      const rs = runs.map((r) => r.sectors.find((x) => x.id === id && !x.revisit)).filter((x): x is SectorRun => !!x);
       const tops = rs.filter((x) => x.months != null);
       const months = tops.map((x) => x.months!);
       const secs = tops.map((x) => secOf(p, x, 'top')!);
@@ -1819,10 +1948,10 @@ export function tables(rep: Report2): string {
   out.push('');
   out.push('### 表 2：方針ごとの合計と、憲章の目標との差');
   out.push('');
-  out.push('合計は、着いてから次のセクタへ移るまで（制覇のあと資金をためる月も含む）＋ チュートリアル。Rare 以降は未実装なので「—」。');
+  out.push('合計は、着いてから次のセクタへ移るまで（制覇のあと資金をためる月も含む）＋ チュートリアル。Rare 以降は未実装なので「—」。v14：「再発掘」は 100% が Uncommon のあと被災した Common の町を回って掘り直した時間（合計に入る。「うち Common」には入れない）。');
   out.push('');
-  out.push('| 方針 | 回ったセクタ | 合計の月数（ゲーム内） | 行動の数 | 合計の実時間 | うち Common | うち Uncommon | Rare〜Legendary | 憲章の目標（Lime 全体） | 目標の配分での C＋U の目安 | 差 |');
-  out.push('|---|---|---|---|---|---|---|---|---|---|---|');
+  out.push('| 方針 | 回ったセクタ | 合計の月数（ゲーム内） | 行動の数 | 合計の実時間 | うち Common | うち Uncommon | うち再発掘（v14） | Rare〜Legendary | 憲章の目標（Lime 全体） | 目標の配分での C＋U の目安 | 差 |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   const target: Record<PolicyId, { label: string; cu: [number, number] }> = {
     // rta：1 セクタ 15 分 × C1・U1（Common やや短め）→ 25〜30 分
     rta: { label: '2 h（C〜L）', cu: [25 * 60, 30 * 60] },
@@ -1834,16 +1963,17 @@ export function tables(rep: Report2): string {
   for (const p of pols) {
     const runs = rep.runs.filter((r) => r.policy === p);
     const tot = runs.map(totalSec);
-    const byTier = (tier: Tier) => runs.map((x) => x.sectors.filter((r) => r.tier === tier).reduce((a, r) => a + (secOf(p, r, 'left') ?? 0), 0) + (tier === 'C' ? SIM_TIME[p].tutorial : 0));
+    const byTier = (tier: Tier) => runs.map((x) => x.sectors.filter((r) => r.tier === tier && !r.revisit).reduce((a, r) => a + (secOf(p, r, 'left') ?? 0), 0) + (tier === 'C' ? SIM_TIME[p].tutorial : 0));
+    const redig = runs.map((x) => x.sectors.filter((r) => r.revisit).reduce((a, r) => a + (secOf(p, r, 'left') ?? 0), 0));
     const months = runs.map((x) => x.days / 30);
     const acts = runs.map((x) => Object.values(x.actions).reduce((a, b) => a + b, 0));
     const done = runs.filter((x) => x.done).length;
-    const visited = mean(runs.map((x) => x.sectors.filter((r) => r.months != null).length));
+    const visited = mean(runs.map((x) => x.sectors.filter((r) => r.months != null && !r.revisit).length));
     const tg = target[p];
     const m = mean(tot);
     const diff = m < tg.cu[0] ? `目安より ${fmtMin(tg.cu[0] - m)} 短い` : m > tg.cu[1] ? `目安より ${fmtMin(m - tg.cu[1])} 長い` : '目安の範囲';
     out.push(
-      `| ${POLICY_NAME[p]} | 制覇 ${visited.toFixed(1)} / ${routeOf(p).length}（完走 ${done}/${runs.length}） | ${mean(months).toFixed(1)}（${range(months.map((v) => Math.round(v)))}） | ${Math.round(mean(acts))} | ${fmtH(m)}（${range(tot, fmtH)}） | ${fmtH(mean(byTier('C')))} | ${fmtH(mean(byTier('U')))} | — | ${tg.label} | ${fmtH(tg.cu[0])}〜${fmtH(tg.cu[1])} | ${diff} |`,
+      `| ${POLICY_NAME[p]} | 制覇 ${visited.toFixed(1)} / ${routeOf(p).length}（完走 ${done}/${runs.length}） | ${mean(months).toFixed(1)}（${range(months.map((v) => Math.round(v)))}） | ${Math.round(mean(acts))} | ${fmtH(m)}（${range(tot, fmtH)}） | ${fmtH(mean(byTier('C')))} | ${fmtH(mean(byTier('U')))} | ${mean(redig) > 0 ? fmtH(mean(redig)) : '—'} | — | ${tg.label} | ${fmtH(tg.cu[0])}〜${fmtH(tg.cu[1])} | ${diff} |`,
     );
   }
   out.push('');
@@ -1860,8 +1990,8 @@ export function tables(rep: Report2): string {
       const xs = runs.flatMap((x) => x.sectors.filter(f).map((r) => secOf(p, r, 'left') ?? 0));
       return xs.length ? mean(xs) : null;
     };
-    const c = per((r) => r.tier === 'C');
-    const c2 = per((r) => r.tier === 'C' && r.id !== 'c1');
+    const c = per((r) => r.tier === 'C' && !r.revisit);
+    const c2 = per((r) => r.tier === 'C' && r.id !== 'c1' && !r.revisit);
     const u = per((r) => r.tier === 'U');
     const at = runs.map((x) => x.rpLeft.allAt).filter((v): v is string => !!v);
     out.push(
@@ -1872,9 +2002,9 @@ export function tables(rep: Report2): string {
   // v14a：RP の倍率なし・無限の強化パネル・研究への寄付・Uncommon の発表の研究 Lv
   out.push('### 表 6：研究ポイントの使い道（v14a。発掘 v2 の 6 段目）');
   out.push('');
-  out.push(`3 シードの平均（最小〜最大）。「掘って入った RP」は寄付を除く合計。無限の強化パネルは 100% だけが上げる（C・U の研究パネルを全部開けたあとの RP。Lv1 ${infCost(1).toLocaleString('en-US')} RP・×${DIG_BALANCE.infinite.grow}）。寄付は通常・100% が Common を 1 つ制覇（または依頼状）のあと、資金に余裕のある月に（はじめ ${donateCost(0).toLocaleString('en-US')} G・×${DIG_BALANCE.buyRp.grow}・1 回 ${DIG_BALANCE.buyRp.rp} RP。\`SIM_DONATE\`）。「研究 Lv 待ち」はお題がそろったのに Uncommon の研究 Lv の条件が足りず発表できなかった月の締め（Uncommon のセクタの合計）。`);
+  out.push(`3 シードの平均（最小〜最大）。「掘って入った RP」は寄付を除く合計。無限の強化パネルは 100% だけが上げる（C・U の研究パネルを全部開けたあとの RP。Lv1 ${infCost(1).toLocaleString('en-US')} RP・×${DIG_BALANCE.infinite.grow}）。寄付は通常・100% が Common を 1 つ制覇（または依頼状）のあと、資金に余裕のある月に（はじめ ${donateCost(0).toLocaleString('en-US')} G・×${DIG_BALANCE.buyRp.grow}・1 回 ${DIG_BALANCE.buyRp.rp} RP。\`SIM_DONATE\`）。「研究待ち」はお題がそろったのに Uncommon の発表の 2 つ目の条件（v14 から「この町の出土品 2 種を、この町で 3 個ずつ」。v14a は研究 Lv3）が足りず発表できなかった月の締め（Uncommon のセクタの合計）。`);
   out.push('');
-  out.push('| 方針 | 掘って入った RP | 寄付の回数 | 寄付に払った G | 寄付で入った RP | 発掘の速さ ∞ | 掘る力 ∞ | 掘る範囲 ∞ | 無限の強化パネルに払った RP | 最後に残った RP | 研究 Lv 待ちの月（Uncommon） |');
+  out.push('| 方針 | 掘って入った RP | 寄付の回数 | 寄付に払った G | 寄付で入った RP | 発掘の速さ ∞ | 掘る力 ∞ | 掘る範囲 ∞ | 無限の強化パネルに払った RP | 最後に残った RP | 研究待ちの月（Uncommon） |');
   out.push('|---|---|---|---|---|---|---|---|---|---|---|');
   for (const p of pols) {
     const runs = rep.runs.filter((r) => r.policy === p);
@@ -1883,6 +2013,24 @@ export function tables(rep: Report2): string {
     const num = (n: number) => Math.round(n).toLocaleString('en-US');
     out.push(
       `| ${POLICY_NAME[p]} | ${mr((x) => x.rpDug, 0, num)} | ${mr((x) => x.donations)} | ${mr((x) => x.donateG, 0, fmtG)} | ${mr((x) => x.donateRp, 0, num)} | Lv ${mr((x) => x.inf.u_dig_speed_inf ?? 0)} | Lv ${mr((x) => x.inf.u_dig_power_inf ?? 0)} | Lv ${mr((x) => x.inf.u_dig_reach_inf ?? 0)} | ${mr((x) => x.infRp, 0, num)} | ${Math.round(mean(runs.map((x) => x.rpLeft.end))).toLocaleString('en-US')} | ${mean(runs.map((x) => x.sectors.filter((r) => r.tier === 'U').reduce((a, r) => a + r.dig.resWait, 0))).toFixed(1)} |`,
+    );
+  }
+  out.push('');
+  // v14：ランクアップの災害と復興
+  out.push('### 表 7：ランクアップの災害と復興（v14。発掘 v2 の 7 段目）');
+  out.push('');
+  out.push(`3 シードの平均（最小〜最大）。Uncommon へ移るとき（会社として初めて）に、所持金を全額徴収 → 支度金 ${RESET.grant.toLocaleString('en-US')} G。移る前に余ったお金で寄付（\`SIM_RESET\`：最短 ${SIM_RESET.rta.donate}・通常 ${SIM_RESET.normal.donate}・100% ${SIM_RESET.full.donate} 回まで）。通常は売上の大きい Common の町 ${SIM_RESET.normal.towns} つまで、100% は全部の町にヒーローと支援金を送る（復興にかかった月数は、支援金を送ってから全部直るまでの、支援金のあった会社の月の締めの数）。担当の伸びは能力値の合計の伸び。100% は Uncommon のあと、被災した町を回って手で直し、荒れ地を掘り直す（再発掘の RP）。`);
+  out.push('');
+  out.push('| 方針 | 徴収額 | 支度金 | 移る前の寄付 | 失ったお金のパネル | 任せた町 | 復興にかかった月数（全部直った町） | 直しきれなかった町 | 送った支援金 | 担当の伸び（能力値の合計・人数） | 再発掘の RP | 研究待ちの月（Uncommon） |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    const v = (f: (x: RunResult['v14b']) => number) => runs.map((r) => f(r.v14b));
+    const mr = (f: (x: RunResult['v14b']) => number, d = 1, fm: (n: number) => string = (n) => n.toFixed(d)) => `${fm(mean(v(f)))}（${range(v(f), d ? (n) => String(Math.round(n)) : fm)}）`;
+    const num = (n: number) => Math.round(n).toLocaleString('en-US');
+    const dm = runs.flatMap((r) => r.v14b.doneMonths);
+    out.push(
+      `| ${POLICY_NAME[p]} | ${mr((x) => x.levy, 0, fmtG)} | ${mr((x) => x.grant, 0, fmtG)} | ${mr((x) => x.preDonate)} 回 | ${mr((x) => x.lost)} 枚 | ${mr((x) => x.delegated)} | ${dm.length ? `${mean(dm).toFixed(1)} か月（${range(dm)}）` : '—'} | ${mr((x) => x.undone)} | ${mr((x) => x.funds, 0, fmtG)} | +${mr((x) => x.grow, 0, num)}・${mr((x) => x.growHeroes)} 人 | ${mr((x) => x.redigRp, 0, num)} | ${mr((x) => x.resWaitU)} |`,
     );
   }
   out.push('');
@@ -2037,7 +2185,7 @@ export function digObservations(rep: Report2): string {
   for (const p of pols) {
     const runs = rep.runs.filter((r) => r.policy === p);
     for (const id of routeOf(p)) {
-      const rs = runs.map((r) => r.sectors.find((x) => x.id === id)).filter((x): x is SectorRun => !!x);
+      const rs = runs.map((r) => r.sectors.find((x) => x.id === id && !x.revisit)).filter((x): x is SectorRun => !!x);
       if (!rs.length) continue;
       const m = (f: (d: DigRec) => number) => Math.round(mean(rs.map((x) => f(x.dig))));
       const tops = rs.map((x) => x.dig.topicsAt).filter((v): v is number => v != null);

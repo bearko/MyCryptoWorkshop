@@ -7,7 +7,8 @@
 import { t } from '../../i18n';
 import { BRAND, LETTER_NEED, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, ensureDig, fitEquipment, groundOf, hasLetter, letterProgress, newP1, staffOf, syncGround, type P1State, type Report } from './model';
+import { assign, ensureDig, fitEquipment, groundOf, hasLetter, letterProgress, newP1, staffOf, syncFacilities, syncGround, type P1State, type Report } from './model';
+import { rankUpTier, resetForTier } from './reset';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -82,6 +83,8 @@ export function townSeed(s: P1State, id: string): number {
 
 /** 出店許可申請（入国料） */
 export const feeOf = (id: string) => sectorDef(id).fee;
+/** その出店で払う費用：ランクアップの災害が起きる出店（会社として初めて上のランク）は取らない（徴収がその代わり。発掘 v2 の 7 段目） */
+export const moveFee = (s: Pick<P1State, 'land'>, id: string) => (s.land && sectorState(s.land, id) !== 'open' ? 0 : rankUpTier(s, id) ? 0 : feeOf(id));
 
 /**
  * 調査依頼状が無いので出店できない理由（ランドマップ・隣のセクタの札・進出のボタン・助言で同じ文）。
@@ -109,7 +112,9 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   if (st === 'cloud' || st === 'locked' || st === 'soon') return st;
   const fresh = st === 'open';
   if (fresh && !hasLetter(s, sectorDef(target).tier)) return 'letter';
-  const fee = fresh ? feeOf(target) : 0;
+  // 会社として初めて上のランクへ：ランクアップの災害と徴収（出店許可申請の費用は取らない）
+  const up = fresh ? rankUpTier(s, target) : null;
+  const fee = fresh && !up ? feeOf(target) : 0;
   if (s.money < fee) return 'money';
   const cur = land.cur;
   const business = hasBusiness(s);
@@ -143,6 +148,8 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
   rec.base = last && last.revenue > 0 ? { rev: last.revenue, matRate: (last.costs.materials ?? 0) / last.revenue, fixed: (last.costs.upkeep ?? 0) + (last.costs.part ?? 0) + (last.costs.ads ?? 0) } : undefined;
   if (!business) rec.base = undefined;
   rec.snap = JSON.parse(JSON.stringify(Object.fromEntries(SECTOR_KEYS.map((k) => [k, s[k as keyof P1State]]))));
+  // ランクアップの災害：すべてのセクタの建物が廃墟に・所持金は全額徴収 → 支度金・お金のパネルは未取得へ（reset.ts）
+  if (up) resetForTier(s, up, target);
 
   // ---- 行き先へ
   const back = land.recs[target];
@@ -161,6 +168,15 @@ export function moveTo(s: P1State, target: string, manager: number | null): Move
       const grow = Math.min(2, 1 + (back.capital * MANAGER.roi) / back.base.rev);
       for (const k of Object.keys(s.demand)) s.demand[k] = (s.demand[k] ?? 0) * grow;
     }
+    // 任せていた復興の支援金の残りは、本社へ戻す（戻ってきたので、ここからは手で直す）
+    if (back.revive?.fund) {
+      s.money += back.revive.fund;
+      book(s, 'build', -back.revive.fund);
+      back.revive.fund = 0;
+      back.revive.out = false;
+    }
+    // 任せた担当が直した建物：お店の札・作業台をそろえる
+    syncFacilities(s);
     // マネージャーは本社の仕事に戻る
     if (back.manager != null) {
       const m = staffOf(s, back.manager);

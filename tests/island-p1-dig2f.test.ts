@@ -301,44 +301,48 @@ describe('3. 研究への寄付（お金で RP・回数の上限なし）', () =
     donate(s);
     donate(s);
     const back = deserializeP1(serializeP1(s))!;
-    expect([back.v, donations(back), nextDonateCost(back)]).toEqual([7, 2, 26400]);
+    expect([back.v, donations(back), nextDonateCost(back)]).toEqual([8, 2, 26400]);
   });
 });
 
-describe('4. Uncommon のお題に研究 Lv', () => {
+describe('4. Uncommon のお題に、この町で掘った数（v14：研究 Lv → この町で掘った数）', () => {
   /** Uncommon のセクタ・お題は全部そろえた */
   const uTown = () => {
     const s = game('u1', 'U');
     s.dig!.topics = [...DIG_SITES.u1.topics];
     return s;
   };
-  it('お題がそろっても、出土品 2 種が研究 Lv3 でなければ鍵（research）。そろえば発表できる（RP と Rare の依頼状）', () => {
+  it('お題がそろっても、出土品 2 種をこの町で 10 個ずつ掘っていなければ鍵（research）。会社の研究 Lv は数えない。そろえば発表できる（RP と Rare の依頼状）', () => {
     const s = uTown();
-    expect(DIG_BALANCE.presentRes).toEqual({ U: { n: 2, lv: 3 } });
+    expect(DIG_BALANCE.presentRes).toEqual({ U: { n: 2, dug: 10 } });
     expect(presentLock(s)).toBe('research');
-    expect(presentRes(s)).toMatchObject({ have: 0, need: 2, lv: 3 });
+    expect(presentRes(s)).toMatchObject({ have: 0, need: 2, dug: 10 });
     expect(present(s)).toBe('research');
-    s.research[DIG_SITES.u1.finds[0]] = RESEARCH_NEED[2];
-    s.research[DIG_SITES.u1.finds[1]] = RESEARCH_NEED[1];
-    expect(presentRes(s)).toMatchObject({ have: 1, need: 2 });
+    // 研究 Lv（会社で共有）が高くても、この町で掘っていなければ数えない
+    s.research[DIG_SITES.u1.finds[0]] = RESEARCH_NEED[4];
+    s.research[DIG_SITES.u1.finds[1]] = RESEARCH_NEED[4];
     expect(presentLock(s)).toBe('research');
-    s.research[DIG_SITES.u1.finds[1]] = RESEARCH_NEED[2];
+    s.dig!.dug = { [DIG_SITES.u1.finds[0]]: 10, [DIG_SITES.u1.finds[1]]: 9 };
+    expect(presentRes(s)).toMatchObject({ have: 1, need: 2 });
+    expect(presentRes(s)!.best[0]).toEqual({ id: DIG_SITES.u1.finds[0], n: 10 });
+    expect(presentLock(s)).toBe('research');
+    s.dig!.dug[DIG_SITES.u1.finds[1]] = 10;
     expect(presentLock(s)).toBeNull();
     const r = present(s);
     expect(r).toMatchObject({ rp: RP_GAIN.U.present, letter: 'R' });
     expect(presentLock(s)).toBe('done');
   });
 
-  it('お題がそろっていなければ not-yet（いままでどおり）。制覇の条件の文・月次報告に進み具合（研究 Lv3 の出土品 1 / 2）', () => {
+  it('お題がそろっていなければ not-yet（いままでどおり）。制覇の条件の文・月次報告に進み具合（この町で 10 個掘った出土品 1 / 2 種）', () => {
     const s = game('u1', 'U');
     s.dig!.topics = [DIG_SITES.u1.topics[0]];
-    s.research[DIG_SITES.u1.finds[0]] = RESEARCH_NEED[4];
+    s.dig!.dug = { [DIG_SITES.u1.finds[0]]: 12 };
     expect(presentLock(s)).toBe('not-yet');
     const g = clearGoal(s);
-    expect(g.res).toEqual([1, 2, 3]);
-    expect(clearCondText(1, g)[0]).toBe('制覇の条件：1 位を 2 か月（いま 1 / 2）／研究成果の発表 1 / 4 お題・研究 Lv3 の出土品 1 / 2');
-    expect(clearCondText(1, g)[1]).toBe('条件：1 位 2 か月 1/2・発表 1/4・Lv3 1/2');
-    expect(presentNeedText(g)[0]).toBe('1 / 4 お題・研究 Lv3 の出土品 1 / 2');
+    expect(g.res).toEqual([1, 2, 10]);
+    expect(clearCondText(1, g)[0]).toBe('制覇の条件：1 位を 2 か月（いま 1 / 2）／研究成果の発表 1 / 4 お題・この町で 10 個掘った出土品 1 / 2 種');
+    expect(clearCondText(1, g)[1]).toBe('条件：1 位 2 か月 1/2・発表 1/4・掘 1/2');
+    expect(presentNeedText(g)[0]).toBe('1 / 4 お題・この町で 10 個掘った出土品 1 / 2 種');
     // 月次報告の goal にも
     for (const r of s.rivals) {
       r.base = 0;
@@ -348,8 +352,8 @@ describe('4. Uncommon のお題に研究 Lv', () => {
     s.monthSales = { Sensu: 50000 };
     s.day += DAYS;
     const rep = endMonth(s);
-    expect(rep.goal).toEqual({ present: false, got: 1, all: 4, res: [1, 2, 3] });
-    expect(topicsPage('u1')).toContain('出土品 2 種の[[研究 Lv3]]');
+    expect(rep.goal).toEqual({ present: false, got: 1, all: 4, res: [1, 2, 10] });
+    expect(topicsPage('u1')).toContain('この町の出土品 2 種を[[この町で 10 個ずつ]]');
   });
 
   it('Common は今のまま（お題だけ）。研究 Lv の条件は無い', () => {
@@ -371,10 +375,10 @@ describe('5. 古いセーブ（版 6 → 7）', () => {
     o.v = 6;
     delete o.rpBuys;
     const back = deserializeP1(JSON.stringify(o))!;
-    expect(back.v).toBe(7);
+    expect(back.v).toBe(8);
     expect(donations(back)).toBe(0);
     for (const id of INF_PANELS) expect(lvOf(back, id)).toBe(0);
     expect(presentLock(back)).toBe('done');
-    expect(clearGoal(back)).toMatchObject({ present: true, res: [2, 2, 3] });
+    expect(clearGoal(back)).toMatchObject({ present: true, res: [2, 2, 10] });
   });
 });

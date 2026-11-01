@@ -4,7 +4,7 @@
  * docs/ISLAND_PHASE1.md「ブランド力」「ランドマップとセクタ」「決算書」。
  */
 import { t } from '../../i18n';
-import { BRAND, MANAGER, SECTORS, type Stats, type Tier } from './data';
+import { BRAND, MANAGER, P1B, RESET, SECTORS, type Stats, type Tier } from './data';
 
 // ---------------------------------------------------------------- ブランド力
 
@@ -55,9 +55,13 @@ export interface Ledger {
   managed: number;
   /** 遺物の展示館の入館料（発掘 v2 の 4 段目。以前の帳簿には無い） */
   museum?: number;
+  /** 特別損失：復興の徴収（ランクアップの災害で、ランドが所持金を全額徴収。発掘 v2 の 7 段目。以前の帳簿には無い） */
+  levy?: number;
+  /** 特別利益：復興の支度金（ランドから） */
+  grant?: number;
 }
 export type LedgerKey = keyof Ledger;
-export const emptyLedger = (): Ledger => ({ sales: 0, mats: 0, wages: 0, part: 0, upkeep: 0, ads: 0, build: 0, fees: 0, side: 0, other: 0, managed: 0, museum: 0 });
+export const emptyLedger = (): Ledger => ({ sales: 0, mats: 0, wages: 0, part: 0, upkeep: 0, ads: 0, build: 0, fees: 0, side: 0, other: 0, managed: 0, museum: 0, levy: 0, grant: 0 });
 
 /** 月末の貸借対照表の材料 */
 export interface Balance {
@@ -101,7 +105,8 @@ export function pl(l: Ledger): PL {
   const sga = l.wages + l.part + l.upkeep + l.ads;
   const op = gross - sga;
   const nonop = l.side + l.other + l.managed + (l.museum ?? 0);
-  const special = l.build + l.fees;
+  // 特別な出入り：投資・入国料・復興の徴収（損失）から、復興の支度金（利益）を引く
+  const special = l.build + l.fees + (l.levy ?? 0) - (l.grant ?? 0);
   return { sales: l.sales, cogs: l.mats, gross, sga, op, nonop, special, net: op + nonop - special, l };
 }
 export function sumLedger(ls: Ledger[]): Ledger {
@@ -139,6 +144,11 @@ export interface SectorRec {
   capital: number;
   /** マネージャーの月ごとの結果（新しいものが後ろ） */
   log: { m: number; rev: number; profit: number; invest: number; toHQ: number }[];
+  /**
+   * 被災した町の復興（発掘 v2 の 7 段目。ランクアップの災害のあと）：復興支援金の残り・被災した建物の数・任せてからの月数・使った支援金・
+   * 全部直った月（任せた月から数える）・支援金が尽きた。担当は manager（マネージャーの仕組みのまま）
+   */
+  revive?: { fund: number; all: number; months: number; spent: number; doneAt?: number; out?: boolean; last?: number };
 }
 
 export interface Land {
@@ -177,14 +187,16 @@ export const managerRate = (apt: number) => Math.max(MANAGER.min, Math.min(MANAG
  * セクタマネージャーのひと月：売上は離れたときの売上 × 適性の倍率 × ゆらぎ。費用は素材（売上に比例）と決まった費用。
  * 利益が出たら、invest の割合をそのセクタへ投資（以後の売上が伸びる）、残りを本社へ。赤字はそのまま本社が負う。
  */
-export function runSector(rec: SectorRec, st: Stats | null, m: number, rnd: () => number, bonus: { rate?: number; profit?: number } = {}): { rev: number; profit: number; invest: number; toHQ: number } {
+export function runSector(rec: SectorRec, st: Stats | null, m: number, rnd: () => number, bonus: { rate?: number; profit?: number; scale?: number } = {}): { rev: number; profit: number; invest: number; toHQ: number } {
   const base = rec.base;
   if (!base) return { rev: 0, profit: 0, invest: 0, toHQ: 0 };
+  // 被災した町（発掘 v2 の 7 段目）：直ったお店の割合ぶんだけ（売上も決まった費用も）。全部直ったら 1
+  const scale = Math.max(0, Math.min(1, bonus.scale ?? 1));
   // スキル：マネージャー研修（倍率 +0.1）
   const rate = (st ? managerRate(managerApt(st)) : MANAGER.none) + (bonus.rate ?? 0);
   const grow = 1 + (rec.capital * MANAGER.roi) / Math.max(1, base.rev);
-  const rev = Math.round(base.rev * rate * grow * (1 + (rnd() * 2 - 1) * MANAGER.noise));
-  const raw = rev - rev * base.matRate - base.fixed;
+  const rev = Math.round(base.rev * scale * rate * grow * (1 + (rnd() * 2 - 1) * MANAGER.noise));
+  const raw = rev - rev * base.matRate - base.fixed * scale;
   // スキル：持株会社（利益 +10%。赤字には掛けない）
   const profit = Math.round(raw > 0 ? raw * (bonus.profit ?? 1) : raw);
   const invest = profit > 0 ? Math.round(profit * rec.invest) : 0;
@@ -196,3 +208,122 @@ export function runSector(rec: SectorRec, st: Stats | null, m: number, rnd: () =
 
 export const TIER_NAME: Record<Tier, string> = { C: 'Common', U: 'Uncommon', R: 'Rare', E: 'Epic', L: 'Legendary' };
 export const tierLabel = (tier: Tier) => t(`${TIER_NAME[tier]}ランドセクタ`, `${TIER_NAME[tier]} land sector`);
+
+// ---------------------------------------------------------------- 被災した町の復興（発掘 v2 の 7 段目。docs/ISLAND_PHASE1.md「ランクアップの災害と復興」）
+
+/** 廃墟（ランクアップの災害で壊れた自社の建物）の持ち主。その場所に残り、働かない・売らない。修繕すると 'me' に戻る */
+export const RUIN = 'ruin';
+/** 建物の形（写しの中の建物も同じ形） */
+export interface RuinLike {
+  uid: number;
+  id: string;
+  owner: string;
+  left: number;
+  inv?: Partial<Record<string, number>>;
+}
+/** 手で直す値段（元の建物の値段の 40%・最低 1,000 G） */
+export const repairCostOf = (id: string) => Math.max(RESET.repair.min, Math.round((P1B[id]?.cost ?? 0) * RESET.repair.rate));
+/** 手で直す日数（元の工期の 4 割・最低 1 日） */
+export const repairDaysOf = (id: string) => Math.max(1, Math.ceil((P1B[id]?.days ?? 2) * RESET.repair.days));
+/** ヒーローに任せたときの 1 軒の値段（修繕の値段 × 1.5。割高） */
+export const delegateCostOf = (id: string) => Math.round(repairCostOf(id) * RESET.delegate.costMul);
+/** 担当が 1 か月に直せる数（能力値の平均で 1〜3 軒） */
+export function revivePerMonth(st: Stats): number {
+  const a = managerApt(st);
+  const D = RESET.delegate;
+  return a < D.lo ? D.perMonth[0] : a < D.hi ? D.perMonth[1] : D.perMonth[2];
+}
+/** 写しの建物の、廃墟の数と直った（自社の）数 */
+export function ruinCount(bs: RuinLike[] | undefined): { ruins: number; fixed: number } {
+  let ruins = 0;
+  let fixed = 0;
+  for (const b of bs ?? []) {
+    if (b.owner === RUIN) ruins++;
+    else if (b.owner === 'me' && P1B[b.id]) fixed++;
+  }
+  return { ruins, fixed };
+}
+/** 被災した町のマネージャーの売上の割合：直った建物 /（直った建物 ＋ 廃墟）。被災していなければ 1 */
+export function reviveScale(rec: Pick<SectorRec, 'revive' | 'snap'>): number {
+  if (!rec.revive) return 1;
+  const { ruins, fixed } = ruinCount(rec.snap?.buildings as RuinLike[] | undefined);
+  return ruins + fixed > 0 ? fixed / (ruins + fixed) : 0;
+}
+/** 修繕の順：工房 → 安い順（同じなら建てた順） */
+export const repairOrder = <T extends RuinLike>(xs: T[]): T[] => [...xs].sort((a, b) => (a.id === 'workshop' ? -1 : 0) - (b.id === 'workshop' ? -1 : 0) || repairCostOf(a.id) - repairCostOf(b.id) || a.uid - b.uid);
+
+/**
+ * 復興の担当のひと月の伸び：能力値（PHY・INT・AGI）の低い順に RESET.grow.stats 個を +lo〜hi（上限 100）。上がった能力と数
+ */
+export function growHero(st: { stats: Stats }, rnd: () => number): Partial<Record<'phy' | 'int' | 'agi', number>> {
+  const G = RESET.grow;
+  const keys = (['phy', 'int', 'agi'] as const).filter((k) => st.stats[k] < 100).sort((a, b) => st.stats[a] - st.stats[b]).slice(0, G.stats);
+  const out: Partial<Record<'phy' | 'int' | 'agi', number>> = {};
+  const next = { ...st.stats };
+  for (const k of keys) {
+    const d = Math.min(100 - next[k], G.lo + Math.floor(rnd() * (G.hi - G.lo + 1)));
+    if (d <= 0) continue;
+    next[k] += d;
+    out[k] = d;
+  }
+  st.stats = next;
+  return out;
+}
+
+/** 復興のひと月の結果（会社の月の締め） */
+export interface ReviveMonth {
+  /** この月に直した数・残りの廃墟・被災した数・使った支援金・残り・尽きた・全部直って本社へ戻した支援金・担当の伸び */
+  fixed: number;
+  left: number;
+  all: number;
+  spent: number;
+  fund: number;
+  out: boolean;
+  refund: number;
+  grow: Partial<Record<'phy' | 'int' | 'agi', number>>;
+}
+/**
+ * 任せた町のひと月（会社の月の締め）：担当（マネージャー）がいて支援金があれば、廃墟を安い順に 1〜3 軒（能力値で）直す。
+ * 1 軒は修繕の値段 × 1.5（割高）。支援金が尽きたら止まる（out）。全部直ったら残りの支援金は本社へ（refund）。
+ * 担当は、支援金があった月に能力値が大きく伸びる（growHero）。お題と出土品の発掘はしない（写しの発掘場には触らない）
+ */
+export function reviveMonth(rec: SectorRec, st: { stats: Stats } | null, rnd: () => number): ReviveMonth | null {
+  const rv = rec.revive;
+  const bs = rec.snap?.buildings as RuinLike[] | undefined;
+  if (!rv || !bs) return null;
+  const ruins = repairOrder(bs.filter((b) => b.owner === RUIN));
+  const out: ReviveMonth = { fixed: 0, left: ruins.length, all: rv.all, spent: 0, fund: rv.fund, out: false, refund: 0, grow: {} };
+  if (!ruins.length) return null;
+  if (st && rv.fund > 0) {
+    rv.months++;
+    const per = revivePerMonth(st.stats);
+    for (const b of ruins) {
+      if (out.fixed >= per) break;
+      const c = delegateCostOf(b.id);
+      if (rv.fund < c) break;
+      rv.fund -= c;
+      rv.spent += c;
+      out.spent += c;
+      b.owner = 'me';
+      b.left = 0;
+      delete b.inv;
+      out.fixed++;
+    }
+    out.left = ruins.length - out.fixed;
+    out.grow = growHero(st, rnd);
+    // 残りの廃墟があるのに、いちばん安い 1 軒も直せない：支援金が尽きた
+    const rest = ruins.filter((b) => b.owner === RUIN);
+    rv.out = rest.length > 0 && rest.every((b) => rv.fund < delegateCostOf(b.id));
+  }
+  rv.last = out.fixed;
+  out.out = !!rv.out;
+  if (out.left === 0) {
+    if (rv.doneAt == null) rv.doneAt = rv.months;
+    out.refund = rv.fund;
+    rv.fund = 0;
+    rv.out = false;
+    out.out = false;
+  }
+  out.fund = rv.fund;
+  return out;
+}

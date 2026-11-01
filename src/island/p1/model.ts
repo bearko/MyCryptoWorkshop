@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { allSeries, heroById } from '../../game/catalog';
 import { DEF } from '../defs';
 import { cells, type Dir } from '../sim';
-import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, runSector, sectorProfile, type BrandEv, type Books, type Land, type LedgerKey } from './company';
+import { book, brandAdd, brandPull, emptyLedger, newBooks, newLand, reviveMonth, reviveScale, ruinCount, runSector, sectorProfile, type BrandEv, type Books, type Land, type LedgerKey, type ReviveMonth, type RuinLike } from './company';
 import {
   ADS,
   levelCost,
@@ -240,6 +240,11 @@ export interface Report {
   revive?: { done: number; all: number; dungeon: boolean };
   /** 遺物の展示館の来館者・入館料の収入・展示の価値（館があるとき） */
   museum?: { visitors: number; income: number; value: number };
+  /**
+   * 被災した町の復興（発掘 v2 の 7 段目。ほかのセクタ）：直った数 / 被災した数・先月の会社の締めで直した数・そのセクタの売上（マネージャー）・
+   * 支援金の残り・尽きた・担当（任せていなければ null）
+   */
+  rebuild?: { id: string; fixed: number; all: number; plus: number; rev: number; fund: number; out: boolean; hero: number | null }[];
 }
 
 export interface Flags {
@@ -297,11 +302,20 @@ export interface Flags {
   dungeonTalk?: boolean;
   /** 遺物の展示館を建てられるようになったときのマインちゃんの一言を出した */
   museumTalk?: boolean;
+  /** 被災した町に初めて戻ったときの一言（廃墟をタップすると修繕できる）を出した（発掘 v2 の 7 段目） */
+  ruinTalk?: boolean;
+  /** 初めて復興を任せたときの一言を出した */
+  delegateTalk?: boolean;
+  /** 再発掘で初めて RP が入ったときの一言を出した */
+  redigTalk?: boolean;
 }
 
 export interface P1State {
-  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー／5：発掘の正面の壁／6：復興・ダンジョン・展示館。1〜5 のセーブは deserializeP1 で順に移す） */
-  v: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  /**
+   * セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー／5：発掘の正面の壁／6：復興・ダンジョン・展示館／
+   * 7：研究への寄付・無限の強化パネル／8：ランクアップの災害と復興。1〜7 のセーブは deserializeP1 で順に移す）
+   */
+  v: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   kind: 'p1';
   seed: number;
   n: number;
@@ -439,6 +453,28 @@ export interface P1State {
   museum?: MuseumState;
   /** ダンジョンの入り口が見つかったセクタ（会社で共有。研究ノートの「ダンジョン」のタブ） */
   dungeons?: string[];
+  /** 店の名前（ランクアップの災害の復興協定書のサインとハンコ。初めてのサインで決める。以後のサインも同じ名前。発掘 v2 の 7 段目） */
+  storeName?: string;
+  /**
+   * 周回（ランクアップの災害で 1 つ進む）と、この周回で初めて掘り出したエクステ・読んだ石板（この周回の初発見の RP がまた入る）。
+   * 無ければ 0 周目（研究ノートの数で初発見を決める）
+   */
+  loop?: { n: number; found: number[]; tablets: string[] };
+  /** ランクアップの災害の記録（起きた日・行き先のランク・徴収額・支度金・被災した建物の数（セクタごと）） */
+  resets?: ResetRec[];
+}
+
+/** ランクアップの災害 1 回の記録（演出・自動プレイの計測） */
+export interface ResetRec {
+  day: number;
+  tier: Tier;
+  /** 行き先のセクタ */
+  to: string;
+  levy: number;
+  grant: number;
+  ruins: Record<string, number>;
+  /** 演出（サインとハンコ）を見た */
+  seen?: boolean;
 }
 
 /** 遺物の展示館：建っている場所（無ければ null）・展示（枠ごとのエクステの id。空きは null）・展示室の増築の段・届いた節目の数・先月の来館 */
@@ -566,7 +602,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
-    v: 7,
+    v: 8,
     kind: 'p1',
     seed,
     n,
@@ -1299,6 +1335,11 @@ function syncSlots(s: P1State) {
 function syncShop(s: P1State, b: PBuilding) {
   const sh = (s.shops[b.uid] ??= { uid: b.uid, shelves: [], staff: null, part: 0, storage: {}, shelf: {}, sat: 1, carry: {}, rev: 0, cost: 0, last: null, aw: AWARE.start });
   while (sh.shelves.length < shelfCount(s, b)) sh.shelves.push(null);
+}
+/** 作業台とお店の札を、建っている自社の建物にそろえる（任せた町で直った建物に戻ってきたとき。発掘 v2 の 7 段目） */
+export function syncFacilities(s: P1State) {
+  syncSlots(s);
+  for (const b of myShops(s)) syncShop(s, b);
 }
 
 /**
@@ -2815,6 +2856,9 @@ export function endMonth(s: P1State): Report {
     ...(mus ? { museum: mus } : {}),
     ...(s.dig ? { revive: { done: s.dig.sites.filter((x) => x.done).length, all: s.dig.sites.length, dungeon: !!s.dig.dungeon } } : {}),
   };
+  // 被災した町の復興（ほかのセクタ。まだ廃墟が残っている町と、先月に直し終えた町）
+  const rb = rebuildRows(s);
+  if (rb.length) report.rebuild = rb;
   void brandStart;
 
   // 他社の追随：自社が売っている商品を扱う他社が少ないと、ENTRY_AFTER か月ごとに、扱っていない他社が 1 社ずつ真似を始める（0.8 の強さ）。
@@ -2944,6 +2988,23 @@ export function endMonth(s: P1State): Report {
   return report;
 }
 
+/** 被災した町の復興の進み（ほかのセクタ。月次報告の「🏗 復興」の行・ランドマップの札）。廃墟が残っている町と、先月に直し終えた町 */
+export function rebuildRows(s: P1State): NonNullable<Report['rebuild']> {
+  const out: NonNullable<Report['rebuild']> = [];
+  for (const id of s.land?.mine ?? []) {
+    if (id === s.land?.cur) continue;
+    const rec = s.land?.recs[id];
+    const rv = rec?.revive;
+    if (!rec || !rv) continue;
+    const { ruins } = ruinCount(rec.snap?.buildings as RuinLike[] | undefined);
+    if (ruins === 0 && !rv.last) continue;
+    const st = rec.manager != null ? staffOf(s, rec.manager) : null;
+    const hero = st && st.task === 'manager' && st.target === id ? st.hero : null;
+    out.push({ id, fixed: Math.max(0, rv.all - ruins), all: rv.all, plus: rv.last ?? 0, rev: rec.log[rec.log.length - 1]?.rev ?? 0, fund: rv.fund, out: !!rv.out, hero });
+  }
+  return out;
+}
+
 /** 建物の月の維持費（予算管理で −10%） */
 export const upkeepOf = (s: P1State, b: PBuilding) => Math.round((P1B[b.id]?.upkeep ?? 0) * Math.max(0.2, cut(s, 'budget', 0.1) * fxCut(s, 'upkeep')));
 /** 給料の倍率（インセンティブ +10%・福利厚生 +5%） */
@@ -3004,7 +3065,8 @@ export function forecastNext(s: P1State, r?: Report): { sales: number; profit: n
 /** 会社の月の締め：ほかのセクタ（マネージャーが運営）の結果を本社へ、帳簿をひと月ぶん閉じる */
 export interface CompanyMonth {
   m: number;
-  managed: { id: string; rev: number; profit: number; invest: number; toHQ: number; hero: number | null }[];
+  /** revive：被災した町の復興（発掘 v2 の 7 段目。任せた町のこの月の修繕・担当の伸び） */
+  managed: { id: string; rev: number; profit: number; invest: number; toHQ: number; hero: number | null; revive?: ReviveMonth }[];
   /** 四半期が終わった（3 か月ごと） */
   quarter: number | null;
 }
@@ -3015,15 +3077,25 @@ export function closeCompanyMonth(s: P1State): CompanyMonth {
     for (const id of s.land.mine) {
       if (id === s.land.cur) continue;
       const rec = s.land.recs[id];
-      if (!rec?.base) continue;
+      if (!rec) continue;
       // マネージャーがほかの仕事に移っていたら、マネージャー不在（売上は下がる）
       const st0 = rec.manager != null ? staffOf(s, rec.manager) : null;
       const st = st0 && st0.task === 'manager' && st0.target === id ? st0 : null;
-      // マネージャー研修：売上の倍率 +0.1・持株会社：利益 +10%
-      const r = runSector(rec, st?.stats ?? null, m, rng(s.seed + s.day * 31 + id.length * 7 + id.charCodeAt(1)), { rate: 0.1 * lvMul(s, 'mgr') + fxSum(s, 'manager'), profit: 1 + 0.1 * lvMul(s, 'holding') });
+      // 被災した町（発掘 v2 の 7 段目）：担当が支援金で廃墟を直す（売上の前に。直ったぶんから売上が戻る）
+      const rv = rec.revive ? reviveMonth(rec, st, rng(s.seed + s.day * 17 + id.charCodeAt(1) * 3)) : null;
+      if (rv?.refund) {
+        s.money += rv.refund;
+        book(s, 'build', -rv.refund);
+      }
+      if (!rec.base) {
+        if (rv) managed.push({ id, rev: 0, profit: 0, invest: 0, toHQ: 0, hero: rec.manager ?? null, revive: rv });
+        continue;
+      }
+      // マネージャー研修：売上の倍率 +0.1・持株会社：利益 +10%。被災した町は直った割合ぶん
+      const r = runSector(rec, st?.stats ?? null, m, rng(s.seed + s.day * 31 + id.length * 7 + id.charCodeAt(1)), { rate: 0.1 * lvMul(s, 'mgr') + fxSum(s, 'manager'), profit: 1 + 0.1 * lvMul(s, 'holding'), scale: reviveScale(rec) });
       s.money += r.toHQ;
       book(s, 'managed', r.toHQ);
-      managed.push({ id, ...r, hero: rec.manager ?? null });
+      managed.push({ id, ...r, hero: rec.manager ?? null, ...(rv ? { revive: rv } : {}) });
     }
   }
   const books = (s.books ??= newBooks());
@@ -3239,7 +3311,7 @@ export function serializeP1(s: P1State): string {
 export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
-    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4 && o.v !== 5 && o.v !== 6 && o.v !== 7) || o.kind !== 'p1') return null;
+    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4 && o.v !== 5 && o.v !== 6 && o.v !== 7 && o.v !== 8) || o.kind !== 'p1') return null;
     const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
@@ -3280,7 +3352,10 @@ export function deserializeP1(json: string): P1State | null {
     syncGround(s);
     // 版 6 → 7（発掘 v2 の 6 段目）：研究への寄付の回数は 0 から・無限の強化パネルは Lv0（取っていない）。発表済みのセクタは発表済みのまま
     s.rpBuys ??= 0;
-    s.v = 7;
+    // 版 7 → 8（発掘 v2 の 7 段目）：ランクアップの災害。すでに Uncommon に出店しているセーブは、さかのぼって災害を起こさない
+    // （起きるのは会社として初めて上のランクへ進出するとき＝次は Rare。rankUpTier が出店したセクタのランクで決める）。
+    // 店の名前が無ければ、次のサインのときに決める。周回は 0（研究ノートの数で初発見）
+    s.v = 8;
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -4139,6 +4214,12 @@ export interface DigState {
   last?: number;
   /** ダンジョン（4 か所目を掘りきると見つかる） */
   dungeon?: DungeonState | null;
+  /** 何周目の壁か（ランクアップの災害で作り直すと 1 つ進む。新しい種・新しい壁。無ければ 0） */
+  round?: number;
+  /** この周回に、この町の荒れ地（ダンジョンを除く）で掘り出したエクステの数（id → 個。Uncommon の発表の条件） */
+  dug?: Record<number, number>;
+  /** 前の周回までのダンジョンの最深記録（作り直しても残す） */
+  best?: number;
 }
 /** 1 回の発掘作業の出土（発掘終了の札・まとめ報告） */
 export interface DigGot {
@@ -4189,6 +4270,8 @@ export interface DigHit {
   rp: number;
   /** はじめて掘ったエクステ */
   first?: boolean;
+  /** 再発掘（ランクアップの災害のあとの周回）で、この周回に初めて掘り出した（初発見の RP がまた入った）。石板も */
+  again?: boolean;
   /** 研究レベルが上がった（上がったあとのレベル） */
   lv?: number;
   /** この 1 打で、荒れ地を掘りきった */
@@ -4356,19 +4439,21 @@ const layoutCache = new Map<string, DigLayout[]>();
  * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は DIG_BALANCE.topicLayer の層。v12 までは k 番目の層）。石板は決まった層に（お題と別のマス）。
  * 1 マスの 1 つの層には 1 つまで（重ならない）。ほかはマス × 層ごとに DIG_ODDS の割合でエクステ・素材
  */
-export function digLayouts(sector: string): DigLayout[] {
-  const hit = layoutCache.get(sector);
+export function digLayouts(sector: string, round = 0): DigLayout[] {
+  // round：ランクアップの災害で作り直した壁（発掘 v2 の 7 段目。0 周目はいままでと同じ種）
+  const key = round > 0 ? `${sector}:r${round}` : sector;
+  const hit = layoutCache.get(key);
   if (hit) return hit;
   const def = SECTORS.find((x) => x.id === sector);
   const site = DIG_SITES[sector];
   const tier = digTierOf(sector);
   if (!def || !site || !tier) {
-    layoutCache.set(sector, []);
+    layoutCache.set(key, []);
     return [];
   }
   const D = DIG[tier];
   const odds = DIG_ODDS[tier];
-  const r = rng(strSeed(`dig:${sector}`));
+  const r = rng(strSeed(round > 0 ? `dig:${sector}:r${round}` : `dig:${sector}`));
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
   const shuffle = <T>(xs: T[]) => {
     const a = [...xs];
@@ -4421,11 +4506,11 @@ export function digLayouts(sector: string): DigLayout[] {
       }
     out.push(L);
   }
-  layoutCache.set(sector, out);
+  layoutCache.set(key, out);
   return out;
 }
-/** 荒れ地 k の壁（無ければ null） */
-export const digLayout = (sector: string, k = 0): DigLayout | null => digLayouts(sector)[k] ?? null;
+/** 荒れ地 k の壁（無ければ null）。round：何周目の壁か */
+export const digLayout = (sector: string, k = 0, round = 0): DigLayout | null => digLayouts(sector, round)[k] ?? null;
 
 // ---------------------------------------------------------------- ダンジョン（発掘 v2 の 4 段目。docs/ISLAND_PHASE1.md「4. 復興・ダンジョン・展示館」）
 
@@ -4494,7 +4579,7 @@ export function dungeonLayout(sector: string, runs: number): DigLayout | null {
 export function layoutOf(s: Pick<P1State, 'dig'>, k: number): DigLayout | null {
   if (!s.dig) return null;
   if (k === DUNGEON) return s.dig.dungeon ? dungeonLayout(s.dig.sector, s.dig.dungeon.runs) : null;
-  return digLayout(s.dig.sector, k);
+  return digLayout(s.dig.sector, k, s.dig.round ?? 0);
 }
 /** 荒れ地 k（DUNGEON ならダンジョンのいまの壁）の進み具合 */
 export function siteState(s: Pick<P1State, 'dig'>, k: number): DigSiteState | null {
@@ -4514,10 +4599,10 @@ export function siteName(s: Pick<P1State, 'dig'>, k: number): string {
 /** まだ掘っていない荒れ地 1 か所（どのマスも 0 枚・手前の層の硬さ） */
 const freshSite = (L: DigLayout): DigSiteState => ({ depth: L.cells.map(() => 0), hp: L.cells.map((c) => c.hard[0]), permit: false, done: false });
 /** 新しい発掘場（荒れ地 4 か所。そのセクタに発掘場が無ければ null）。許可はまだ（1 か所目は申請料なし） */
-export function newDig(sector: string): DigState | null {
-  const Ls = digLayouts(sector);
+export function newDig(sector: string, round = 0): DigState | null {
+  const Ls = digLayouts(sector, round);
   if (!Ls.length) return null;
-  return { sector, sites: Ls.map(freshSite), cur: 0, topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 } };
+  return { sector, sites: Ls.map(freshSite), cur: 0, topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 }, ...(round > 0 ? { round } : {}) };
 }
 /** いま掘っている荒れ地の壁（ダンジョンならダンジョンのいまの壁） */
 export const digSite = (s: Pick<P1State, 'dig'>) => (s.dig ? layoutOf(s, s.dig.cur) : null);
@@ -4614,14 +4699,15 @@ export const cellDepth = (s: Pick<P1State, 'dig'>, x: number, y: number) => {
   return L ? (curSite(s)!.depth[y * L.w + x] ?? 0) : 0;
 };
 /** マス k の層 layer に埋まっているもの（もう見つけたお題・もう読んだ石板は出ない：見つけ済みのものは、作り直した壁にも置かない） */
-function findAt(s: Pick<P1State, 'dig'> & Partial<Pick<P1State, 'tablets'>>, L: DigLayout, k: number, layer: number): DigFind | null {
+function findAt(s: Pick<P1State, 'dig'> & Partial<Pick<P1State, 'tablets' | 'loop'>>, L: DigLayout, k: number, layer: number): DigFind | null {
   // （掘り出した瞬間は、まだ topics・tablets に入っていないので出る）
   const i = L.at[k * L.depth + layer];
   if (i == null || i < 0) return null;
   const f = L.finds[i];
   const it = f.item;
   if (it.kind === 'ext' && it.topic && s.dig?.topics.includes(it.id)) return null;
-  if (it.kind === 'tablet' && s.tablets?.includes(it.id)) return null;
+  // 石板：2 周目からは「この周回で読んだ」もの（ランクアップの災害のあと、また埋まっている）
+  if (it.kind === 'tablet' && (s.loop ? s.loop.tablets : s.tablets)?.includes(it.id)) return null;
   return f;
 }
 /** いま掘っている荒れ地の、マス (x, y) の層 layer に埋まっているもの（見つけ済みのお題・読んだ石板は null） */
@@ -4791,14 +4877,25 @@ function reveal(s: P1State, L: DigLayout, f: DigFind, hit: DigHit) {
     return;
   }
   if (it.kind === 'tablet') {
-    if (!s.tablets.includes(it.id)) {
-      s.tablets.push(it.id);
+    // 2 周目から（発掘 v2 の 7 段目）：この周回で初めて読んだ石板なら、また RP
+    const read = s.loop ? s.loop.tablets.includes(it.id) : s.tablets.includes(it.id);
+    if (!read) {
+      if (!s.tablets.includes(it.id)) s.tablets.push(it.id);
+      if (s.loop) {
+        s.loop.tablets.push(it.id);
+        hit.again = s.loop.n > 0;
+      }
       hit.rp += G.tablet;
       gainRp(s, G.tablet);
     }
     return;
   }
   const before = s.research[it.id] ?? 0;
+  // この町の荒れ地（ダンジョンを除く）で、この周回に掘り出した数（Uncommon の発表の条件。お題は数えない）
+  if (!L.dungeon && !it.topic && s.dig) {
+    const dug = (s.dig.dug ??= {});
+    dug[it.id] = (dug[it.id] ?? 0) + 1;
+  }
   // ダンジョンで見つけたもの（入り口の吹き出しに並べる）
   if (L.dungeon && s.dig?.dungeon && !s.dig.dungeon.found.includes(it.id)) s.dig.dungeon.found.push(it.id);
   if (it.topic) {
@@ -4808,7 +4905,8 @@ function reveal(s: P1State, L: DigLayout, f: DigFind, hit: DigHit) {
     if (before === 0) {
       hit.first = true;
       countFound(s);
-    }
+    } else if (s.loop && s.loop.n > 0 && !s.loop.found.includes(it.id)) hit.again = true;
+    if (s.loop && !s.loop.found.includes(it.id)) s.loop.found.push(it.id);
     if (researchLv(before) < 5) {
       hit.lv = 5;
       countLv(s);
@@ -4831,8 +4929,12 @@ function reveal(s: P1State, L: DigLayout, f: DigFind, hit: DigHit) {
   const lv1 = Math.min(cap, researchLv(n));
   // RP はエクステのランクで（ダンジョンの奥の Rare 以上は大きい。荒れ地の出土品はセクタのランクと同じ）
   const E = RP_GAIN[extRank(it.id)];
-  if (before === 0) {
-    hit.first = true;
+  // 2 周目から（ランクアップの災害のあと）：この周回で初めて掘り出したエクステなら、初発見の RP がまた入る（同じ周回で 2 回は入らない）
+  const again = before > 0 && !!s.loop && s.loop.n > 0 && !s.loop.found.includes(it.id);
+  if (s.loop && !s.loop.found.includes(it.id)) s.loop.found.push(it.id);
+  if (before === 0 || again) {
+    if (before === 0) hit.first = true;
+    else hit.again = true;
     countFound(s);
     hit.rp += E.first;
     gainRp(s, E.first);
@@ -5479,19 +5581,24 @@ export function digDepthLayer(s: Pick<P1State, 'dig'>): number {
 }
 /** 発表すると受け取る調査依頼状（Common → Uncommon。Uncommon → Rare は枠だけ） */
 const NEXT_TIER: Partial<Record<Tier, Tier>> = { C: 'U', U: 'R' };
-/** research：お題はそろったが、研究 Lv の条件（Uncommon）が足りない */
+/** research：お題はそろったが、出土品の条件（Uncommon。この町で掘った数）が足りない */
 export type PresentErr = 'no-site' | 'not-yet' | 'research' | 'done';
+/** その町の荒れ地（ダンジョンを除く）で、この周回に掘り出した数（発掘 v2 の 7 段目） */
+export const dugHere = (s: Pick<P1State, 'dig'>, id: number) => s.dig?.dug?.[id] ?? 0;
 /**
- * 発表の 2 つ目の条件（発掘 v2 の 6 段目。Uncommon だけ）：そのセクタの出土品（DIG_SITES の finds）のうち need 種を研究 Lv lv 以上に。
- * have はいまの数（need まで）・ids は条件を満たした出土品。条件の無いセクタ（Common・発掘場の無いセクタ）は null
+ * 発表の 2 つ目の条件（Uncommon だけ）：そのセクタの出土品（DIG_SITES の finds）のうち need 種を、この町の荒れ地で dug 個ずつ掘り出す
+ * （v14：6 段目の「研究 Lv3」は会社で共有のため縛りにならなかったので、この町で掘った数に）。
+ * have はいまの数（need まで）・ids は条件を満たした出土品・best は掘った数の多い順の出土品（町の長の家の吹き出し）。条件の無いセクタは null
  */
-export function presentRes(s: P1State): { have: number; need: number; lv: number; ids: number[] } | null {
+export function presentRes(s: P1State): { have: number; need: number; dug: number; ids: number[]; best: { id: number; n: number }[] } | null {
   if (!s.dig) return null;
   const tier = digTierOf(s.dig.sector);
   const R = tier ? DIG_BALANCE.presentRes[tier as DigTier] : undefined;
   if (!R) return null;
-  const ids = (DIG_SITES[s.dig.sector]?.finds ?? []).filter((id) => researchOf(s, id) >= R.lv);
-  return { have: Math.min(ids.length, R.n), need: R.n, lv: R.lv, ids };
+  const finds = DIG_SITES[s.dig.sector]?.finds ?? [];
+  const ids = finds.filter((id) => dugHere(s, id) >= R.dug);
+  const best = finds.map((id) => ({ id, n: dugHere(s, id) })).sort((a, b) => b.n - a.n || a.id - b.id);
+  return { have: Math.min(ids.length, R.n), need: R.n, dug: R.dug, ids, best };
 }
 /**
  * 研究成果を発表できない理由（null ならできる）：このセクタのお題をそろえたら、セクター長に発表する。
@@ -5527,9 +5634,9 @@ export function clearGoal(s: P1State): { streak: number; top: boolean; present: 
   const streak = s.topStreak ?? 0;
   const [got, all] = topicProgress(s);
   const present = !s.dig || all === 0 || s.presented.includes(s.dig.sector);
-  // Uncommon：発表の 2 つ目の条件（研究 Lv）の進み [いま, 要る数, Lv]（発表済みなら満たしたものとして）
+  // Uncommon：発表の 2 つ目の条件（この町で掘った数）の進み [いま, 要る種類, 1 種あたりの個数]（発表済みなら満たしたものとして）
   const r = all > 0 ? presentRes(s) : null;
-  const res: [number, number, number] | null = r ? [present ? r.need : r.have, r.need, r.lv] : null;
+  const res: [number, number, number] | null = r ? [present ? r.need : r.have, r.need, r.dug] : null;
   return { streak, top: streak >= TOP_STREAK, present, got, all, res };
 }
 /** 1 位を 2 か月続けたのに、研究成果の発表がまだで制覇になっていない（「👑 1 位を守っている（制覇まで：研究成果の発表）」） */
@@ -5599,7 +5706,7 @@ export function upgradeDig(old: OldDig, s: Pick<P1State, 'buildings'>): DigState
  */
 function rebuildWalls(d: DigState) {
   const old = d.sites ?? [];
-  d.sites = digLayouts(d.sector).map((L, k) => {
+  d.sites = digLayouts(d.sector, d.round ?? 0).map((L, k) => {
     const st = freshSite(L);
     st.permit = !!old[k]?.permit;
     st.done = !!old[k]?.done;

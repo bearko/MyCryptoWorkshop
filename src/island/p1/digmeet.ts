@@ -97,7 +97,7 @@ export const canPresent = (s: P1State) => digMet(s) && presentLock(s) === null;
  * Common は 2 つのセクタで発表したら（LETTER_NEED）なので、この発表で数がそろうときだけ 'U'
  */
 export function letterToGet(s: P1State): Tier | null {
-  const L = s.dig ? digLayout(s.dig.sector) : null;
+  const L = s.dig ? digLayout(s.dig.sector, 0, s.dig.round ?? 0) : null;
   if (!L) return null;
   const next: Tier = L.tier === 'C' ? 'U' : 'R';
   if (hasLetter(s, next)) return null;
@@ -106,7 +106,7 @@ export function letterToGet(s: P1State): Tier | null {
 }
 /** この発表のあと、依頼状まで残りの発表の数（Common で 1 つ目の発表なら 1。依頼状を持っている・この発表でそろうなら 0） */
 export function lettersLeft(s: P1State): number {
-  const L = s.dig ? digLayout(s.dig.sector) : null;
+  const L = s.dig ? digLayout(s.dig.sector, 0, s.dig.round ?? 0) : null;
   if (!L || L.tier !== 'C' || hasLetter(s, 'U')) return 0;
   const done = presentedOf(s, 'C') + (s.presented.includes(s.dig!.sector) ? 0 : 1);
   return Math.max(0, letterNeed('C') - done);
@@ -114,7 +114,7 @@ export function lettersLeft(s: P1State): number {
 
 /** 発表の会話（3 枚：マインちゃん → 町の長 → 町の長）。who が null の枚はマインちゃん */
 export function presentPages(s: P1State): { text: string; who: number | null }[] {
-  const L = s.dig ? digLayout(s.dig.sector) : null;
+  const L = s.dig ? digLayout(s.dig.sector, 0, s.dig.round ?? 0) : null;
   const chief = chiefOf(s.dig?.sector ?? '');
   const n = topicsOf(s.dig?.sector ?? '').length;
   const tier = L?.tier ?? 'C';
@@ -164,10 +164,10 @@ export function topicsPage(sector: string): string | null {
   const theme = DIG_THEME[sector];
   const n = topicsOf(sector).length;
   if (!theme || !n) return null;
-  // Uncommon（発掘 v2 の 6 段目）：発表にはお題と、出土品の研究 Lv も
+  // Uncommon（発掘 v2 の 7 段目）：発表にはお題と、この町の出土品 N 種を、この町で M 個ずつ掘り出すことも
   const R = DIG_BALANCE.presentRes[sectorDef(sector).tier as 'C' | 'U'];
   if (R)
-    return t(`この町の荒れ地には、栄えていた頃の[[${theme}]]が眠っているはず。お題 ${n} つと、出土品 ${R.n} 種の[[研究 Lv${R.lv}]]がそろったら[[町の長]]に発表しよう！`, `This town’s wastelands should hold [[${theme}]] from Lime’s golden age. Find the ${n} targets and raise ${R.n} finds to [[research Lv${R.lv}]], then present to the [[town head]]!`);
+    return t(`この町の荒れ地には、栄えていた頃の[[${theme}]]が眠っているはず。お題 ${n} つと、この町の出土品 ${R.n} 種を[[この町で ${R.dug} 個ずつ]]掘り出したら[[町の長]]に発表しよう！`, `This town’s wastelands should hold [[${theme}]] from Lime’s golden age. Find the ${n} targets and dig up ${R.n} of this town’s finds [[${R.dug} times each here]], then present to the [[town head]]!`);
   return t(`この町の荒れ地には、栄えていた頃の[[${theme}]]が眠っているはず。お題は ${n} つ、そろったら[[町の長]]に発表しよう！`, `This town’s wastelands should hold [[${theme}]] from Lime’s golden age. There are ${n} targets — once you have them all, present to the [[town head]]!`);
 }
 
@@ -191,6 +191,8 @@ export interface DigTip {
 export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'copied', 'present-res', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch'];
 /** 発掘の枝が雲から出たあとの 1 回だけの一言（流れを止めない助言） */
 export const BRANCH_TIP = () => t('[[発掘]]の枝ができたよ！ お金で[[追加申請]]をすると、1 回の発掘が長くなる。', 'A [[Digging]] branch appeared! Spend funds on [[Extra dig time]] to make each dig run longer.');
+/** 再発掘（ランクアップの災害のあと）で初めて RP が入ったとき（発掘画面の中に出す。発掘 v2 の 7 段目） */
+export const AGAIN_TIP = () => t('前より楽に掘れるね！ [[研究ポイント]]もまた入るよ。', 'Digging is easier than before! And [[research points]] come in again.');
 /** 「深い層の許可が要る」マスを初めて押したとき（発掘場のパネルの中に出す） */
 export const DEEP_TIP = () => t('この奥の層は国の許可が要るんだ。スキルツリーの[[深い層の許可]]で掘れるようになるよ。', 'Deeper layers need the nation’s permit. Get the [[Deep-layer permit]] in the skill tree to dig there.');
 /** 許可のある荒れ地を、この日数のあいだ掘っていなければ「15 秒だけ掘ってみよう」 */
@@ -225,19 +227,21 @@ export function digTips(s: P1State): DigTip[] {
     if (no >= 0 && s.money >= fee)
       out.push({ key: 'permit', tier: 'mid', site: no, text: fee > 0 ? t(`次の荒れ地の[[発掘許可]]を申請しよう（申請料 ${fee.toLocaleString('en-US')} G）。[[${wasteName(d.sector, no)}]]をタップ！`, `Apply for the next [[dig permit]] (${fee.toLocaleString('en-US')} G). Tap the [[${wasteName(d.sector, no)}]]!`) : t(`このセクタの 1 か所目の[[発掘許可]]は無料だよ。[[${wasteName(d.sector, no)}]]をタップして申請しよう！`, `This sector’s first [[dig permit]] is free. Tap the [[${wasteName(d.sector, no)}]] and apply!`) });
   }
-  // Uncommon（発掘 v2 の 6 段目）：お題はそろったが、発表には出土品 N 種の研究 Lv が要る
+  // Uncommon（発掘 v2 の 7 段目）：お題はそろったが、発表には この町の出土品 N 種を この町で M 個ずつ 掘り出すことが要る
   const pr = d && presentLock(s) === 'research' ? presentRes(s) : null;
   if (d && pr) {
     const open = d.sites.findIndex((x) => x.permit && !x.done);
-    out.push({ key: 'present-res', tier: 'mid', site: open >= 0 ? open : undefined, text: t(`お題はそろったね！ 発表には、この町の出土品 ${pr.need} 種を[[研究 Lv${pr.lv}]]に（いま ${pr.have} / ${pr.need}）。同じ遺物を掘り重ねよう！`, `All targets found! To present, raise ${pr.need} of this town’s finds to [[research Lv${pr.lv}]] (now ${pr.have} / ${pr.need}). Dig up the same relics again!`) });
+    const top = pr.best[pr.have];
+    const near = top ? t(`（${extName(top.id)}はこの町で ${top.n} / ${pr.dug}）`, ` (${extName(top.id)}: ${top.n} / ${pr.dug} here)`) : '';
+    out.push({ key: 'present-res', tier: 'mid', site: open >= 0 ? open : undefined, text: t(`お題はそろったね！ 発表には、この町の出土品 ${pr.need} 種を[[この町で ${pr.dug} 個ずつ]]掘り出そう（いま ${pr.have} / ${pr.need} 種${near}）。`, `All targets found! To present, dig up ${pr.need} of this town’s finds [[${pr.dug} times each here]] (now ${pr.have} / ${pr.need}${near}).`) });
   }
   if (d && presentLock(s) === 'not-yet') {
     const [a, b] = topicProgress(s);
     if (b - a === 1) {
       const rest = topicsOf(d.sector).findIndex((id) => !d.topics.includes(id));
       const id = topicsOf(d.sector)[rest];
-      const site = digLayouts(d.sector).findIndex((L) => L.topic === id);
-      const L = digLayout(d.sector, Math.max(0, site));
+      const site = digLayouts(d.sector, d.round ?? 0).findIndex((L) => L.topic === id);
+      const L = digLayout(d.sector, Math.max(0, site), d.round ?? 0);
       const f = L?.finds.find((x) => x.item.kind === 'ext' && x.item.topic && x.item.id === id);
       const layer = L ? (DIG[L.tier].layers[f?.layer ?? rest]?.name ?? '') : '';
       out.push({ key: 'topic-one', tier: 'mid', site: site >= 0 ? site : undefined, text: t(`お題はあと 1 つ（[[${extName(id)}]]）！ [[${wasteName(d.sector, site)}]]の[[${layer}]]に眠っているよ。`, `Just one target left ([[${extName(id)}]])! It lies in the [[${layer}]] of the [[${wasteName(d.sector, site)}]].`) });
@@ -246,8 +250,8 @@ export function digTips(s: P1State): DigTip[] {
   // 調査依頼状をもらったのに、まだ Uncommon のセクタに出店していない（Common のセクタにいるあいだ）
   const inU = (s.tier ?? 'C') !== 'C' || (s.land?.mine ?? []).some((id) => sectorDef(id).tier !== 'C');
   if (hasLetter(s, 'U') && !inU && s.land) {
-    const fee = Math.min(...(['u1', 'u2', 'u3', 'u4', 'u5'] as const).map((id) => sectorDef(id).fee));
-    out.push({ key: 'letter', tier: 'low', text: t(`[[調査依頼状]]があるから、Uncommon のセクタに出店できるよ。入国料は ${fee.toLocaleString('en-US')} G から、ランドマップで選ぼう！`, `With the [[survey request]] you can open in Uncommon sectors. Permits start at ${fee.toLocaleString('en-US')} G — choose on the land map!`) });
+    // 発掘 v2 の 7 段目：Uncommon へ進出すると、ランドの復興のため災害と徴収が起きる（入国料は取らない）。先に寄付で RP に
+    out.push({ key: 'letter', tier: 'low', text: t('[[調査依頼状]]があるから、Uncommon のセクタに進出できるよ。進出すると災害と[[徴収]]が起きるから、先に[[研究への寄付]]でお金を研究ポイントに変えておこう！', 'With the [[survey request]] you can expand into Uncommon sectors. Expanding brings a disaster and a [[levy]], so turn spare funds into research points with a [[research donation]] first!') });
   }
   // Common の町で発表したのに、調査依頼状まであと少し（いまいるセクタは発表済み）：別の Common の町でも発表しよう
   if (!hasLetter(s, 'U') && !inU && s.land && d && s.presented.includes(d.sector) && (s.tier ?? 'C') === 'C' && presentedOf(s, 'C') > 0)
@@ -286,9 +290,15 @@ export function digReportText(d: { found: number; lv: number; rp: number }): [st
  * 月次報告・まとめ報告の 1 行（発掘 v2 の 4 段目）：「🌱 復興 N / 4」（ダンジョンが見つかっていれば「・ダンジョン」）と「🏛 展示館：来館 N 人・収入 N G」。
  * どちらも無ければ null。[長い版, スマホの短い版]
  */
-export function reviveReportText(r: Pick<Report, 'revive' | 'museum'>): [string, string] | null {
+export function reviveReportText(r: Pick<Report, 'revive' | 'museum'> & Partial<Pick<Report, 'rebuild'>>): [string, string] | null {
   const long: string[] = [];
   const short: string[] = [];
+  // 被災した町の復興（発掘 v2 の 7 段目。ほかのセクタ）：「🏗 復興：タオックス 3 / 8 軒（+2 軒）・売上 N G」
+  const rb = rebuildText(r.rebuild);
+  if (rb) {
+    long.push(rb[0]);
+    short.push(rb[1]);
+  }
   if (r.revive && r.revive.done > 0) {
     long.push(t(`🌱 復興 ${r.revive.done} / ${r.revive.all}${r.revive.dungeon ? '（4 か所目はダンジョン）' : ''}`, `🌱 Revived ${r.revive.done} / ${r.revive.all}${r.revive.dungeon ? ' (4th: dungeon)' : ''}`));
     short.push(t(`🌱 復興 ${r.revive.done}/${r.revive.all}`, `🌱 Revived ${r.revive.done}/${r.revive.all}`));
@@ -298,6 +308,19 @@ export function reviveReportText(r: Pick<Report, 'revive' | 'museum'>): [string,
     short.push(t(`🏛 展示館 ${r.museum.visitors.toLocaleString('en-US')} 人・${r.museum.income.toLocaleString('en-US')} G`, `🏛 Museum ${r.museum.visitors.toLocaleString('en-US')} · ${r.museum.income.toLocaleString('en-US')} G`));
   }
   return long.length ? [long.join(t('　', ' · ')), short.join(t('・', ' · '))] : null;
+}
+
+/** 被災した町の復興の行（月次報告）：[長い版, 短い版]。無ければ null */
+export function rebuildText(rows: Report['rebuild']): [string, string] | null {
+  if (!rows?.length) return null;
+  const long = rows.map((x) => {
+    const name = sectorDef(x.id).name;
+    const plus = x.plus ? t(`（+${x.plus} 軒）`, ` (+${x.plus})`) : '';
+    const tail = x.out ? t('・支援金が尽きた', ' · funds ran out') : x.hero == null && x.fixed < x.all ? t('・担当なし', ' · unassigned') : '';
+    return t(`🏗 復興：${name} ${x.fixed} / ${x.all} 軒${plus}・売上 ${x.rev.toLocaleString('en-US')} G${tail}`, `🏗 Rebuild: ${name} ${x.fixed} / ${x.all}${plus} · sales ${x.rev.toLocaleString('en-US')} G${tail}`);
+  });
+  const short = rows.map((x) => `🏗 ${sectorDef(x.id).name} ${x.fixed}/${x.all}${x.plus ? `(+${x.plus})` : ''}` + (x.out ? t('・尽きた', ' · out') : ''));
+  return [long.join(t('　', ' · ')), short.join(t('・', ' · '))];
 }
 
 // ---------------------------------------------------------------- 発掘作業のまとめ報告（作業のあいだに締めた月）
@@ -369,13 +392,14 @@ export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: Dig
 /** 発表の条件の進み（Report.goal・clearGoal の形） */
 export type GoalLike = { present: boolean; got: number; all: number; res?: [number, number, number] | null };
 /**
- * 発表の条件の進み（まだ発表していないとき）：[長い版, 短い版]。「2 / 4 お題・研究 Lv3 の出土品 1 / 2」「2/4・Lv3 1/2」。
- * Uncommon（res のあるセクタ）だけ研究 Lv の条件を足す
+ * 発表の条件の進み（まだ発表していないとき）：[長い版, 短い版]。「2 / 4 お題・この町で 3 個掘った出土品 1 / 2 種」「2/4・掘 1/2」。
+ * Uncommon（res のあるセクタ）だけ、この町で掘った数の条件を足す
  */
 export function presentNeedText(g: GoalLike): [string, string] {
   const r = g.res;
-  const long = t(`${g.got} / ${g.all} お題`, `${g.got} / ${g.all} targets`) + (r ? t(`・研究 Lv${r[2]} の出土品 ${r[0]} / ${r[1]}`, ` · finds at research Lv${r[2]} ${r[0]} / ${r[1]}`) : '');
-  const short = `${g.got}/${g.all}` + (r ? t(`・Lv${r[2]} ${r[0]}/${r[1]}`, ` · Lv${r[2]} ${r[0]}/${r[1]}`) : '');
+  // 発掘 v2 の 7 段目：Uncommon の 2 つ目の条件は「この町の出土品 N 種を、この町で M 個ずつ掘り出す」（r：[いま, 要る種類, 1 種の個数]）
+  const long = t(`${g.got} / ${g.all} お題`, `${g.got} / ${g.all} targets`) + (r ? t(`・この町で ${r[2]} 個掘った出土品 ${r[0]} / ${r[1]} 種`, ` · finds dug ${r[2]}× here ${r[0]} / ${r[1]}`) : '');
+  const short = `${g.got}/${g.all}` + (r ? t(`・掘 ${r[0]}/${r[1]}`, ` · dug ${r[0]}/${r[1]}`) : '');
   return [long, short];
 }
 /** 発表の条件がそろっている（お題・Uncommon は研究 Lv も） */
@@ -399,8 +423,8 @@ export function clearWaitTip(s: P1State): string | null {
   if (!clearWaiting(s)) return null;
   const g = clearGoal(s);
   if (presentReady(g)) return t('1 位を 2 か月守ったね！ あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ。', 'Two months at #1! Present your findings to the [[town head]] and the sector is [[yours]].');
-  // Uncommon：お題はそろったが、研究 Lv の条件がまだ
-  if (g.got >= g.all && g.res) return t(`1 位を 2 か月守ったね！ 発表には出土品 ${g.res[1]} 種を[[研究 Lv${g.res[2]}]]に（いま ${g.res[0]} / ${g.res[1]}）。荒れ地を掘って研究を進めよう！`, `Two months at #1! To present, raise ${g.res[1]} finds to [[research Lv${g.res[2]}]] (now ${g.res[0]} / ${g.res[1]}). Keep digging!`);
+  // Uncommon：お題はそろったが、この町で掘った数の条件がまだ
+  if (g.got >= g.all && g.res) return t(`1 位を 2 か月守ったね！ 発表には、この町の出土品 ${g.res[1]} 種を[[この町で ${g.res[2]} 個ずつ]]掘り出そう（いま ${g.res[0]} / ${g.res[1]} 種）。荒れ地を掘ろう！`, `Two months at #1! To present, dig up ${g.res[1]} of this town’s finds [[${g.res[2]}× each here]] (now ${g.res[0]} / ${g.res[1]}). Keep digging!`);
   return t(`1 位を 2 か月守ったね！ [[制覇]]にはこのセクタの研究成果の発表も要るよ（${presentNeedText(g)[0]}）。荒れ地を掘ろう！`, `Two months at #1! To [[conquer]] you also need to present this sector’s findings (${presentNeedText(g)[0]}). Go dig!`);
 }
 
