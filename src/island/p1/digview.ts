@@ -1,6 +1,6 @@
 /**
  * 発掘場と研究ノートの表示のための純粋な関数（DOM を持たない。tests/island-p1-digui.test.ts で確かめる）。
- * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「研究ノート」。
+ * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「発掘場の画面」「研究ノート」。
  */
 import { t } from '../../i18n';
 import { DIG, DIG_AUTO, DIG_BALANCE, DIG_PANELS, DIG_SITES, relicOf, RESEARCH_NEED, SKILL, TABLETS, levelCost, maxLv, type Skill, type Tablet } from './data';
@@ -27,11 +27,12 @@ import {
   standSite,
   digSite,
   extName,
-  isDug,
+  date,
   jamOf,
+  monthRevenue,
   myShops,
-  peek,
-  reachable,
+  crackOf,
+  peekView,
   researchLeft,
   researchOf,
   speed,
@@ -41,45 +42,62 @@ import {
   type DigErr,
   type DigGot,
   type DigHit,
-  type DigItem,
+  type PeekView,
   type P1State,
   type Stage,
 } from './model';
 
-/** マス 1 つの見え方 */
+/** マス 1 つの見え方（正面の壁） */
 export interface CellView {
   x: number;
   y: number;
-  /** 層の番号（0 が表） */
+  /** いまの層（はがした枚数。0 が手前。いちばん奥まで掘ったら層の数） */
   layer: number;
-  /** dug：崩れた穴／open：手が届く（押せる）／far：まだ届かない／locked：深い層の許可が要る（ロープの下） */
-  state: 'dug' | 'open' | 'far' | 'locked';
-  /** ひび（0：無傷・1：少し・2：あと少し） */
-  crack: 0 | 1 | 2;
-  /** いまの 1 打の強さで、あと何回打てば崩れるか（崩れていれば 0） */
+  /** face：叩ける面／dug：いちばん奥まで掘った穴／locked：深い層の許可が要る（その層の面に 🔒）／wait：2 × 2 のものを、ほかのマスと待っている */
+  state: 'face' | 'dug' | 'locked' | 'wait';
+  /** ひび（いまの層の残りの硬さで 0：無傷・1・2・3：あと少し） */
+  crack: 0 | 1 | 2 | 3;
+  /** いまの 1 打の強さで、あと何回打てば 1 枚はがれるか（はがれない・待っていれば 0） */
   taps: number;
-  /** ランタンで薄く見えている中身（崩れたマスは null。中身は受け取ったあと） */
-  peek: DigItem | null;
+  /** ひびの隙間から見えるもの（無ければ null） */
+  peek: PeekView | null;
+  /** 面の色（いまの層の色。穴は荒れ地のいちばん奥の層の色） */
+  color: string;
 }
 
 /** マス (x, y) の見え方 */
 export function cellView(s: P1State, x: number, y: number): CellView {
   const L = digSite(s)!;
   const k = y * L.w + x;
-  const cell = L.cells[k];
-  const left = s.dig!.sites[L.site].hp[k];
-  if (left <= 0) return { x, y, layer: cell.layer, state: 'dug', crack: 0, taps: 0, peek: null };
-  const hurt = cell.hard - left;
-  const crack: 0 | 1 | 2 = hurt <= 0 ? 0 : left / cell.hard > 0.5 ? 1 : 2;
-  const state = !layerOpen(s, L, cell.layer) ? 'locked' : reachable(s, x, y) ? 'open' : 'far';
-  return { x, y, layer: cell.layer, state, crack, taps: Math.ceil(left / digPower(s) - 1e-9), peek: peek(s, x, y) };
+  const st = s.dig!.sites[L.site];
+  const d = st.depth[k];
+  const layers = DIG[L.tier].layers;
+  if (d >= L.depth) return { x, y, layer: d, state: 'dug', crack: 0, taps: 0, peek: null, color: layers[L.depth - 1].color };
+  const left = st.hp[k];
+  const hard = L.cells[k].hard[d];
+  const state = !layerOpen(s, L, d) ? 'locked' : left <= 0 ? 'wait' : 'face';
+  return { x, y, layer: d, state, crack: crackOf(left, hard), taps: left > 0 ? Math.ceil(left / digPower(s) - 1e-9) : 0, peek: peekView(s, x, y), color: layers[d].color };
 }
-/** いまの許可で掘れない最初の層（ロープを張る層。全部掘れるなら null） */
+/** いまの許可で掘れない最初の層（「🔒 深い層の許可が要る」の層。全部掘れるなら null） */
 export function lockedLayer(s: P1State): number | null {
   const L = digSite(s);
   if (!L) return null;
   const n = deepLayers(s, L.tier);
   return n < DIG[L.tier].layers.length ? n : null;
+}
+/**
+ * 壁に、ひびの隙間から形が分かるほど（40% 以上）見えているマスがある（初めての覗き見のマインちゃんの一言）。
+ * 無傷のマスの細いひび（12%）・ランタンのうっすら（10〜20%）では出さない：叩いて割れ目が広がったとき
+ */
+export function anyPeek(s: P1State, min = 0.4): boolean {
+  const L = digSite(s);
+  if (!L) return false;
+  for (let y = 0; y < L.h; y++)
+    for (let x = 0; x < L.w; x++) {
+      const v = cellView(s, x, y).peek;
+      if (v && !v.hint && v.frac >= min) return true;
+    }
+  return false;
 }
 
 /**
@@ -166,11 +184,11 @@ function recText(s: P1State, k: Skill, lv: number, cost: number): string {
     case 'dig_office':
       return t(`${head}で 発掘隊 ${TR.office[lv]} 人まで`, `${head}: crew up to ${TR.office[lv]}`);
     case 'dig_lamp':
-      return t(`${head}で ${lvAt(TR.lamp, lv)} 段下まで見える`, `${head}: see ${lvAt(TR.lamp, lv)} rows down`);
+      return t(`${head}で ${lvAt(TR.lamp, lv)} 枚手前から見える`, `${head}: glimpse finds ${lvAt(TR.lamp, lv)} layers ahead`);
     case 'dig_blast':
       return lv === 1 ? t(`${head}で 発破が使える`, `${head}: unlock blasting`) : t(`${head}で 発破 ${lvAt(TR.blastSize, lv)} × ${lvAt(TR.blastSize, lv)}・${lvAt(TR.blastCost, lv).toLocaleString('en-US')} G`, `${head}: ${lvAt(TR.blastSize, lv)} × ${lvAt(TR.blastSize, lv)} blast for ${lvAt(TR.blastCost, lv).toLocaleString('en-US')} G`);
     case 'dig_drill':
-      return t(`${head}で 真下に ${lvAt(TR.drill, lv)} マス`, `${head}: ${lvAt(TR.drill, lv)} cells straight down`);
+      return t(`${head}で 奥へ ${lvAt(TR.drill, lv)} 層`, `${head}: ${lvAt(TR.drill, lv)} layers deeper`);
     default: {
       const line = k.note.split(t('（', ' ('))[0];
       return t(`${head}：${line}`, `${head}: ${line}`);
@@ -178,13 +196,23 @@ function recText(s: P1State, k: Skill, lv: number, cost: number): string {
   }
 }
 
-/** パネルの上の 1 行：荒れ地の名前・掘った割合・RP・いまの層・お題の進み（SCM の詰まりは発掘作業のあいだは出さない） */
+/**
+ * 発掘画面の小さな帯：荒れ地の名前・日付（ゲーム内。時間が流れていることが分かる）・今月の売上・RP・今回の出土（新発見・Lv↑）・
+ * 掘った割合・いまの層・お題の進み（SCM の詰まりは発掘作業のあいだは出さない）
+ */
 export interface DigStatus {
   /** 荒れ地の名前（「北の荒れ地」） */
   name: string;
+  /** 日付（「1 年目 2 月 12 日」） */
+  date: string;
+  /** 今月の売上 */
+  sales: number;
   /** 掘った割合（0〜100） */
   pct: number;
   rp: number;
+  /** 今回の作業の新発見・研究 Lv ↑ */
+  found: number;
+  lvUp: number;
   layer: string;
   topics: [number, number];
   /** SCM のいちばん細い段（お店が無ければ null） */
@@ -193,10 +221,15 @@ export interface DigStatus {
 export function digStatus(s: P1State): DigStatus | null {
   const L = digSite(s);
   if (!L || !s.dig) return null;
+  const d = date(s);
   return {
     name: wasteName(L.sector, L.site),
+    date: d ? t(`${d.year} 年目 ${d.month} 月 ${d.day} 日`, `Y${d.year} M${d.month} D${d.day}`) : t(`開業準備 ${s.day + 1} 日目`, `Prep day ${s.day + 1}`),
+    sales: monthRevenue(s),
     pct: Math.round(siteProgress(s, L.site) * 100),
     rp: s.rp ?? 0,
+    found: s.digRun?.got.found ?? 0,
+    lvUp: s.digRun?.got.lv ?? 0,
     layer: DIG[L.tier].layers[digDepthLayer(s)].name,
     topics: topicProgress(s),
     jam: myShops(s).length ? jamOf(s) : null,
@@ -211,14 +244,14 @@ export function runBar(s: Pick<P1State, 'digRun'>): { sec: string; frac: number;
   return { sec: (Math.ceil(sec * 10) / 10).toFixed(1), frac: r.total > 0 ? r.left / r.total : 0, warn: sec <= 5, tick: sec <= 3 };
 }
 
-/** 発掘終了の札の行（今回の出土）：新発見・研究 Lv ↑・RP・素材・崩したマス */
+/** 発掘終了の札の行（今回の出土）：新発見・研究 Lv ↑・RP・素材・はがした層 */
 export function gotLines(g: DigGot): [string, string][] {
   return [
     [t('新発見', 'New finds'), `${g.found}`],
     [t('研究 Lv ↑', 'Research Lv ↑'), `${g.lv}`],
     [t('研究ポイント', 'RP'), `+${g.rp}`],
     [t('素材', 'Materials'), `+${g.mat}`],
-    [t('崩したマス', 'Cells cleared'), `${g.cells}`],
+    [t('はがした層', 'Layers peeled'), `${g.cells}`],
     // 復刻品のレシピが開いた（研究 Lv3）
     ...(g.recipes?.length ? [[t('新レシピ', 'New recipes'), `${g.recipes.length}`] as [string, string]] : []),
   ];
@@ -229,14 +262,14 @@ export function digErrText(e: DigErr, cost = DIG_BALANCE.tree.blastCost[0]): str
   switch (e) {
     case 'no-run':
       return t('発掘作業は終わった。荒れ地をタップすると、もう一度掘れるよ', 'The dig is over. Tap a wasteland to dig again');
-    case 'far':
-      return t('まだ手が届かない。上か隣のマスを先に掘ろう', 'Out of reach. Dig the cell above or beside it first');
+    case 'wait':
+      return t('大きな遺物（2 × 2）が埋まっている。まわりのマスも同じ深さまで掘ろう', 'A large relic (2 × 2) is buried here. Dig the other cells to the same depth');
     case 'dug':
-      return t('もう掘ったマスだよ', 'Already dug');
+      return t('このマスはいちばん奥まで掘った', 'This cell is dug to the back');
     case 'no-site':
       return t('このセクタには荒れ地が無い（Rare 以降は準備中）', 'No wasteland in this sector (Rare and up: coming soon)');
     case 'deep':
-      return t('岩盤から下は国の許可が要る（スキル → 発掘の「深い層の許可」）', 'Deeper layers need a national permit (Skills → Digging: Deep-layer permit)');
+      return t('この奥の層は国の許可が要る（スキル → 発掘の「深い層の許可」）', 'Deeper layers need a national permit (Skills → Digging: Deep-layer permit)');
     case 'no-blast':
       return t('発破が無い（スキル → 発掘の「発破」）', 'No blasting (Skills → Digging: Blasting)');
     case 'no-drill':
@@ -260,17 +293,19 @@ export function digBlock(s: P1State): DigErr | null {
 
 /**
  * 出土の演出の大きさ（憲章 3「手応えの演出は 1 つだけ大きく」）：
- * chip（打っただけ）→ crumble（崩れた）→ mat（素材）→ ext（エクステ。研究ノートへ吸い込まれる）→ tablet（石板の小さな窓）→ topic（お題。画面の中央に大きく）
+ * chip（打っただけ）→ crumble（1 枚はがれた）→ mat（素材）→ ext（エクステ。画面の中央に出て研究ノートへ吸い込まれる）→ tablet（石板の小さな窓）→
+ * epic（Epic 以上の大きな遺物（2 × 2）。画面全体）→ topic（お題。画面全体）
  */
-export type DigFx = 'chip' | 'crumble' | 'mat' | 'ext' | 'tablet' | 'topic';
-const FX_ORDER: DigFx[] = ['chip', 'crumble', 'mat', 'ext', 'tablet', 'topic'];
+export type DigFx = 'chip' | 'crumble' | 'mat' | 'ext' | 'tablet' | 'epic' | 'topic';
+const FX_ORDER: DigFx[] = ['chip', 'crumble', 'mat', 'ext', 'tablet', 'epic', 'topic'];
 export function fxOf(hit: DigHit): DigFx {
   if (!hit.broke) return 'chip';
   const it = hit.item;
   if (!it) return 'crumble';
   if (it.kind === 'mat') return 'mat';
   if (it.kind === 'tablet') return 'tablet';
-  return it.topic ? 'topic' : 'ext';
+  if (it.topic) return 'topic';
+  return hit.span && hit.span.w * hit.span.h > 1 ? 'epic' : 'ext';
 }
 /** いくつかのマスを一度に崩したとき（発破）：いちばん大きい演出 */
 export const biggestFx = (hits: DigHit[]): DigFx => hits.map(fxOf).reduce<DigFx>((a, b) => (FX_ORDER.indexOf(b) > FX_ORDER.indexOf(a) ? b : a), 'chip');
@@ -282,15 +317,6 @@ export function findLabel(hit: DigHit): string {
   if (hit.first) return t('新発見！', 'New find!');
   if (hit.lv) return t(`研究 Lv${hit.lv}`, `Research Lv${hit.lv}`);
   return t('研究ノートへ', 'To the notebook');
-}
-
-/** パネルを開いたときに見せる行：いちばん深く崩れたマスの行（まだなら 0） */
-export function focusRow(s: P1State): number {
-  const L = digSite(s);
-  if (!L || !s.dig) return 0;
-  let deep = 0;
-  for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) if (isDug(s, x, y)) deep = y;
-  return deep;
 }
 
 /** 発掘隊（発掘の担当。発掘作業のあいだ手伝う）と、作業中の 1 日に打つ回数（適性の速さ × DIG_AUTO.perDay × 発掘隊の手際） */

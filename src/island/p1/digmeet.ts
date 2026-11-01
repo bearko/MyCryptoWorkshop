@@ -39,13 +39,17 @@ export const MEET_LINES = (): string[] => [
 /** 最初の発掘作業が終わったあと（セリフ 4） */
 export const MEET_FOUND = (): string => t('遺物の[[エクステ]]を見つけると[[研究ポイント]]が貯まるよ。スキルツリーの四角いパネルを開いてみよう！', 'Finding relic [[extensions]] earns [[research points]]. Try opening a square panel in the skill tree!');
 
+/** 出会いの最初の発掘作業のあいだ、発掘画面のマインちゃんの一言（壁の掘り方） */
+export const MEET_WALL = (): string => t('壁のマスをタップすると、手前の土から 1 枚ずつはがれるよ。ひびの隙間に何か見えたら、そこを掘ってみよう！', 'Tap a cell in the wall to peel the soil off one layer at a time. If you glimpse something through a crack, dig there!');
+/** 初めて覗き見が出たとき（1 回だけ。作業を止めない小さな吹き出し） */
+export const PEEK_TIP = (): string => t('ひびの隙間に何か見える！ そのマスを掘り進めよう。', 'Something shows through the cracks! Keep digging that cell.');
 /** 出会いの途中の、地図のマインちゃんの一言（いまやること） */
 export function meetTip(s: Pick<P1State, 'flags' | 'dig' | 'digRun'>): string | null {
   const ph = s.flags.digMeet;
   // 荒れ地の無いセクタへ移ったら、荒れ地をタップ・掘る段の一言は出さない（戻れば続き）
   if ((ph === 'tap' || ph === 'open') && !s.dig) return null;
   if (ph === 'tap') return t('光っている[[荒れ地]]をタップして、「⛏ 発掘する」を押そう！', 'Tap the glowing [[wasteland]], then press “⛏ Dig”!');
-  if (ph === 'open') return s.digRun ? t('光っているマスをタップして、掘ってみよう！ 長押しで続けて打てるよ。', 'Tap a glowing cell to dig! Hold to keep swinging.') : t('光っている[[荒れ地]]をタップして、「⛏ 発掘する」を押そう！', 'Tap the glowing [[wasteland]], then press “⛏ Dig”!');
+  if (ph === 'open') return s.digRun ? MEET_WALL() : t('光っている[[荒れ地]]をタップして、「⛏ 発掘する」を押そう！', 'Tap the glowing [[wasteland]], then press “⛏ Dig”!');
   if (ph === 'skill') return t('光っている「[[スキル]]」タブから、四角い[[研究パネル]]を開いてみよう！', 'Open the glowing [[Skills]] tab and try a square [[research panel]]!');
   return null;
 }
@@ -162,7 +166,7 @@ export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'idle', 'permit',
 /** 発掘の枝が雲から出たあとの 1 回だけの一言（流れを止めない助言） */
 export const BRANCH_TIP = () => t('[[発掘]]の枝ができたよ！ お金で[[追加申請]]をすると、1 回の発掘が長くなる。', 'A [[Digging]] branch appeared! Spend funds on [[Extra dig time]] to make each dig run longer.');
 /** 「深い層の許可が要る」マスを初めて押したとき（発掘場のパネルの中に出す） */
-export const DEEP_TIP = () => t('岩盤から下は国の許可が要るんだ。スキルツリーの[[深い層の許可]]で掘れるようになるよ。', 'Below the bedrock you need the nation’s permit. Get the [[Deep-layer permit]] in the skill tree to dig there.');
+export const DEEP_TIP = () => t('この奥の層は国の許可が要るんだ。スキルツリーの[[深い層の許可]]で掘れるようになるよ。', 'Deeper layers need the nation’s permit. Get the [[Deep-layer permit]] in the skill tree to dig there.');
 /** 許可のある荒れ地を、この日数のあいだ掘っていなければ「15 秒だけ掘ってみよう」 */
 export const DIG_IDLE_DAYS = 10;
 

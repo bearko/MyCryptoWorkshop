@@ -1,10 +1,10 @@
 /**
  * 発掘場の画面・研究ノートの表示用の純粋な関数（src/island/p1/digview.ts）。
- * マスの見え方（穴・押せる・届かない・ひび・あと何回）・上の 1 行・残り時間のバー・発掘終了の札・打てない理由・演出の大きさ・研究ノートのタブと行。
+ * マスの見え方（面・穴・🔒・ひび・あと何回・覗き見）・小さな帯・残り時間のバー・発掘終了の札・打てない理由・演出の大きさ・研究ノートのタブと行。
  */
 import { describe, expect, it } from 'vitest';
-import { DIG_SITES, RESEARCH_NEED, TABLETS } from '../src/island/p1/data';
-import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from '../src/island/p1/digview';
+import { DIG, DIG_SITES, RESEARCH_NEED, TABLETS } from '../src/island/p1/data';
+import { anyPeek, autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from '../src/island/p1/digview';
 import { allowedDirs, assign, build, dig, digLayout, endRun, newP1, runTick, setLevel, startRun, type DigHit, type P1State } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
@@ -26,50 +26,63 @@ function site(sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   return s;
 }
 const hp = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
-const hit = (o: Partial<DigHit>): DigHit => ({ x: 0, y: 0, broke: true, left: 0, item: null, rp: 0, ...o });
+const dp = (s: P1State) => s.dig!.sites[s.dig!.cur].depth;
+const hit = (o: Partial<DigHit>): DigHit => ({ x: 0, y: 0, layer: 0, depth: 1, broke: true, left: 0, item: null, rp: 0, ...o });
 
-describe('マスの見え方', () => {
-  it('1 段目は押せる、2 段目からは届かない。崩れたら穴になり、下が押せる', () => {
+describe('マスの見え方（正面の壁）', () => {
+  it('どのマスも叩ける面。はがすと一段奥の層の色。いちばん奥まで掘ったら穴', () => {
     const s = site();
-    expect(cellView(s, 0, 0).state).toBe('open');
-    expect(cellView(s, 0, 1).state).toBe('far');
     const L = digLayout('c1', 0)!;
-    hp(s)[0] = 1;
+    expect(cellView(s, 0, 0)).toMatchObject({ state: 'face', layer: 0, color: DIG.C.layers[0].color, taps: L.cells[0].hard[0] });
+    expect(cellView(s, 6, 8).state).toBe('face');
     dig(s, 0, 0);
-    expect(cellView(s, 0, 0).state).toBe('dug');
-    expect(cellView(s, 0, 0).taps).toBe(0);
-    expect(cellView(s, 0, 1).state).toBe('open');
-    expect(cellView(s, 0, 1).layer).toBe(L.cells[7].layer);
+    expect(cellView(s, 0, 0)).toMatchObject({ state: 'face', layer: 1, color: DIG.C.layers[1].color });
+    dp(s)[0] = 3;
+    hp(s)[0] = 0;
+    expect(cellView(s, 0, 0)).toMatchObject({ state: 'dug', taps: 0, peek: null });
   });
-  it('ひび：打ちかけで 1、半分を切ったら 2。あと何回は 1 打の強さで割る', () => {
+  it('ひび：いまの層の残りの硬さで 0・1・2・3。あと何回は 1 打の強さで割る', () => {
     const s = site();
     const L = digLayout('c1', 0)!;
     expect(cellView(s, 0, 0).crack).toBe(0);
-    // 硬さ 3 のマス（岩盤）まで穴を開けて、残りの硬さを変えて見る
-    const k = L.cells.findIndex((c) => c.hard === 3);
-    const x = k % L.w;
-    const y = Math.floor(k / L.w);
-    for (let yy = 0; yy < y; yy++) hp(s)[yy * L.w + x] = 0;
+    // 岩盤（硬さ 3）のマスで、残りの硬さを変えて見る
+    const k = L.cells.findIndex((c) => c.hard[2] === 3);
+    const [x, y] = [k % L.w, Math.floor(k / L.w)];
+    dp(s)[k] = 2;
+    hp(s)[k] = 3;
+    expect(cellView(s, x, y)).toMatchObject({ crack: 0, taps: 3, layer: 2 });
     hp(s)[k] = 2;
-    expect(cellView(s, x, y).crack).toBe(1);
-    expect(cellView(s, x, y).taps).toBe(2);
+    expect(cellView(s, x, y)).toMatchObject({ crack: 1, taps: 2 });
     hp(s)[k] = 1;
-    expect(cellView(s, x, y).crack).toBe(2);
-    expect(cellView(s, x, y).taps).toBe(1);
+    expect(cellView(s, x, y)).toMatchObject({ crack: 2, taps: 1 });
   });
-  it('ランタンが無ければ中身は見えない。あれば手が届くマスと 1 段下が見える', () => {
+  it('深い層の許可が要る層は 🔒（locked）', () => {
+    const s = site();
+    // 深い層の許可が無い（2 層目まで）
+    s.skills = s.skills.filter((id) => id !== 'dig_deep');
+    dp(s)[3] = 2;
+    hp(s)[3] = 3;
+    expect(cellView(s, 3, 0).state).toBe('locked');
+  });
+  it('覗き見：いまの層のものだけ、無傷は細いひび（12%）。叩くと広がる。1 枚以上奥はランタンのときだけ', () => {
     const s = site();
     const L = digLayout('c1', 0)!;
-    const k = L.cells.findIndex((c, i) => i >= 7 && i < 14 && c.item);
-    expect(k).toBeGreaterThan(0);
-    const x = k % L.w;
-    expect(cellView(s, x, 1).peek).toBeNull();
-    // （発掘 v2 の 2 段目：ランタンは工房の設備投資からスキルツリーの「発掘のランタン」へ）
+    const f0 = L.finds.find((g) => g.layer === 0)!;
+    expect(cellView(s, f0.x, f0.y).peek).toMatchObject({ item: f0.item, ahead: 0, frac: 0.12 });
+    // 開いた時点では、形が分かるほど見えているマスは無い（初めての覗き見の一言はまだ）
+    expect(anyPeek(s)).toBe(false);
+    const f = L.finds.find((g) => g.layer === 1 && !L.finds.some((h) => h.x === g.x && h.y === g.y && h.layer === 0))!;
+    expect(cellView(s, f.x, f.y).peek).toBeNull();
     setLevel(s, 'dig_lamp', 1);
-    expect(cellView(s, x, 1).peek).toEqual(L.cells[k].item);
-    // 2 段下はまだ見えない
-    const k2 = L.cells.findIndex((c, i) => i >= 14 && i < 21 && c.item);
-    if (k2 >= 0) expect(cellView(s, k2 % L.w, 2).peek).toBeNull();
+    expect(cellView(s, f.x, f.y).peek).toMatchObject({ item: f.item, ahead: 1, layer: 1, frac: 0.2 });
+    // 粘土層（硬さ 2）まで 1 枚はがして 1 打：40% 以上 → 初めての覗き見
+    const t = site();
+    const g = L.finds.find((q) => q.layer === 1 && q.item.kind === 'ext' && L.cells[q.y * 7 + q.x].hard[1] === 2)!;
+    dig(t, g.x, g.y);
+    expect(cellView(t, g.x, g.y).peek).toMatchObject({ ahead: 0, frac: 0.12 });
+    dig(t, g.x, g.y);
+    expect(cellView(t, g.x, g.y).peek!.frac).toBe(0.9);
+    expect(anyPeek(t)).toBe(true);
   });
 });
 
@@ -83,8 +96,11 @@ describe('上の 1 行と、打てない理由', () => {
     expect(st.topics).toEqual([0, 3]);
     expect(st.jam).toBeNull();
     expect(st.rp).toBe(s.rp);
-    hp(s)[0] = 0;
+    // 63 マス × 3 層のうち 1 枚
+    dp(s)[0] = 1;
     expect(digStatus(s)!.pct).toBe(1);
+    expect(digStatus(s)!.date).toMatch(/年目|開業準備/);
+    expect(digStatus(s)!).toMatchObject({ sales: 0, found: 0, lvUp: 0 });
   });
   it('残り時間のバー：15.0 秒から。残り 5 秒で赤く（warn）、残り 3 秒で音（tick）。作業していなければ null', () => {
     const s = site();
@@ -96,13 +112,13 @@ describe('上の 1 行と、打てない理由', () => {
     endRun(s);
     expect(runBar(s)).toBeNull();
   });
-  it('発掘終了の札：新発見・研究 Lv ↑・RP・素材・崩したマス', () => {
+  it('発掘終了の札：新発見・研究 Lv ↑・RP・素材・はがした層', () => {
     expect(gotLines({ found: 2, lv: 1, rp: 38, mat: 6, cells: 21 })).toEqual([
       ['新発見', '2'],
       ['研究 Lv ↑', '1'],
       ['研究ポイント', '+38'],
       ['素材', '+6'],
-      ['崩したマス', '21'],
+      ['はがした層', '21'],
     ]);
   });
   it('作業が終わった・荒れ地が無いは、パネル全体の理由（工房が無くても掘れる）', () => {
@@ -119,15 +135,7 @@ describe('上の 1 行と、打てない理由', () => {
     x.dig = null;
     expect(digBlock(x)).toBe('no-site');
     expect(digStatus(x)).toBeNull();
-    for (const e of ['no-site', 'no-run', 'dug', 'far', 'no-blast', 'money'] as const) expect(digErrText(e).length).toBeGreaterThan(0);
-  });
-  it('開いたときに見せる行は、いちばん深く崩れた行', () => {
-    const s = site();
-    expect(focusRow(s)).toBe(0);
-    hp(s)[0] = 0;
-    hp(s)[7] = 0;
-    hp(s)[14] = 0;
-    expect(focusRow(s)).toBe(2);
+    for (const e of ['no-site', 'no-run', 'dug', 'deep', 'wait', 'no-blast', 'money'] as const) expect(digErrText(e).length).toBeGreaterThan(0);
   });
   it('発掘隊：発掘の担当の顔と 1 日の回数', () => {
     const s = site();
@@ -141,14 +149,16 @@ describe('上の 1 行と、打てない理由', () => {
 });
 
 describe('出土の演出は 1 つだけ大きく', () => {
-  it('打っただけ → 崩れた → 素材 → エクステ → 石板 → お題', () => {
+  it('打っただけ → はがれた → 素材 → エクステ → 石板 → 大きな遺物（2 × 2）→ お題', () => {
     expect(fxOf(hit({ broke: false }))).toBe('chip');
     expect(fxOf(hit({}))).toBe('crumble');
     expect(fxOf(hit({ item: { kind: 'mat', mat: 'iron', n: 3 } }))).toBe('mat');
     expect(fxOf(hit({ item: { kind: 'ext', id: 1011 } }))).toBe('ext');
     expect(fxOf(hit({ item: { kind: 'tablet', id: 'tab_c1' } }))).toBe('tablet');
     expect(fxOf(hit({ item: { kind: 'ext', id: 1122, topic: true } }))).toBe('topic');
-    // 発破で何マスも崩れたとき：いちばん大きいもの
+    expect(fxOf(hit({ item: { kind: 'ext', id: 4001 }, span: { x: 0, y: 0, w: 2, h: 2 } }))).toBe('epic');
+    expect(biggestFx([hit({ item: { kind: 'ext', id: 4001 }, span: { x: 0, y: 0, w: 2, h: 2 } }), hit({ item: { kind: 'tablet', id: 'tab_c1' } })])).toBe('epic');
+    // 発破で何マスもはがれたとき：いちばん大きいもの
     expect(biggestFx([hit({}), hit({ item: { kind: 'ext', id: 1011 } }), hit({ broke: false })])).toBe('ext');
     expect(biggestFx([hit({ item: { kind: 'ext', id: 1122, topic: true } }), hit({ item: { kind: 'tablet', id: 'tab_c1' } })])).toBe('topic');
   });

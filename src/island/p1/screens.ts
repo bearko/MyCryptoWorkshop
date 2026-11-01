@@ -141,7 +141,7 @@ export interface Ctx {
   /** チュートリアルのいまの段（tut.ts の id。終わっていれば null） */
   step?: () => string | null;
   /** 効果音 */
-  sfx?: (k: Sfx) => void;
+  sfx?: (k: Sfx, gain?: number, rate?: number) => void;
   /** スキルツリーを開く（focus：枝の key かスキルの id。そのパネルを真ん中に） */
   skills?: (focus?: string) => void;
   /** ほかのランドセクタへ移った（land.ts の moveTo のあと） */

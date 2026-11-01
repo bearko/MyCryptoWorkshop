@@ -26,13 +26,13 @@ import {
   blastCost,
   digLayouts,
   hasBlast,
-  lampRows,
+  findCells,
   layerOpen,
   sessionSec,
   siteDiggable,
   skillLock,
   hasLetter,
-  peek,
+  peekView,
   applyPermit,
   endRun,
   grantFirst,
@@ -40,7 +40,6 @@ import {
   siteTopic,
   startRun,
   presentLock,
-  reachable,
   topicProgress,
   present,
   batchOf,
@@ -124,7 +123,7 @@ export const SIM_TIME = {
  * - 作業の時間はひと月の時間に重なるので、実時間には足さない（荒れ地を押して始める 1 回を行動 1 回に数える）。
  * - perMonth：ひと月に始める作業の回数のめやす（前の作業が終わってから。×1 では 1 回 12.5 日なので、続けて掘っても 2.4 回まで）。
  *   null は、前の作業が終わったらすぐ次を始める（続けて掘る）。
- * - target：打つマスの選び方。know＝配置を知っている（同じセクタはいつも同じ配置）→ お題への最短の道。sweep＝上から順に（ランタンがあれば寄せる）。
+ * - target：打つマスの選び方。know＝配置を知っている（同じセクタはいつも同じ配置）→ お題の範囲を手前から。sweep（v11）＝覗き見が出ているマス → 取りかけ → 浅いマス。
  * - permit：次の荒れ地の発掘許可を申請する目安（申請料の何倍の資金があれば。最短はお題のある荒れ地だけ）。
  * - digger：発掘隊（作業のあいだだけ手伝う）の担当（0＝置かない／1＝いつも 1 人）。
  * - tree（v10）：発掘の枝のパネルの上げ方。'deep'＝お題のための「深い層の許可」Lv1 だけ（最短）／'share'＝月末に、月の売上の share（20%）を積み立てた枠で（買ったあとも 1 万 G 残るとき。研究の目利き Lv2 を先に）
@@ -277,8 +276,8 @@ export function topicLocked(s: P1State): boolean {
   if (!s.dig) return false;
   return digLayouts(s.dig.sector).some((L) => {
     if (L.topic == null || s.dig!.topics.includes(L.topic)) return false;
-    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && !!c.item.topic);
-    return k >= 0 && !layerOpen(s, L, L.cells[k].layer);
+    const f = L.finds.find((x) => x.item.kind === 'ext' && !!x.item.topic);
+    return !!f && !layerOpen(s, L, f.layer);
   });
 }
 /** 深い層の許可の次の Lv に要るもの（先に要るパネルが無ければ、その根もとから） */
@@ -318,7 +317,8 @@ interface Ctx {
   handCarry: number;
   /** v8：今月の月末に開けた研究パネルの数 */
   rpMoves: number;
-  digPath?: number[];
+  /** 最短：いま狙っているもの（DigFind の番号） */
+  digGoal?: number;
   /** v9：いまの発掘作業の残りの日数・今月始めた作業の回数 */
   runLeft: number;
   runsMonth: number;
@@ -1062,94 +1062,85 @@ function uValue(s: P1State, key: string) {
 }
 
 
-// ---------------------------------------------------------------- 発掘（v8）
+// ---------------------------------------------------------------- 発掘（v8。v11：正面の壁を手前から奥へ）
 
-/** 掘り残したマスの数（荒れ地 4 か所の合計） */
-export const digLeft = (s: P1State) => (s.dig ? s.dig.sites.reduce((a, x) => a + x.hp.filter((v) => v > 0).length, 0) : 0);
-/** いま掘っている荒れ地のマス */
-const curHp = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
+/** 掘り残したマスの数（荒れ地 4 か所の合計。いちばん奥まで掘っていないマス） */
+export const digLeft = (s: P1State) => (s.dig ? s.dig.sites.reduce((a, x, k) => a + x.depth.filter((v) => v < (digLayouts(s.dig!.sector)[k]?.depth ?? 0)).length, 0) : 0);
+/** いま掘っている荒れ地の進み */
+const curSt = (s: P1State) => s.dig!.sites[s.dig!.cur];
+/** マス k のいまの層を打てる（掘りきっていない・掘ってよい層・2 × 2 を待っていない） */
+const canHit = (s: P1State, k: number) => {
+  const L = digSite(s)!;
+  const st = curSt(s);
+  return st.depth[k] < L.depth && st.hp[k] > 0 && layerOpen(s, L, st.depth[k]);
+};
 
 /**
- * 配置を知っている人（最短）：まだのお題（なければ石板・エクステ）への、打つ回数がいちばん少ない道（1 段目から）を作り、
- * 道の上のまだ崩れていないマスを上から打つ。道は c.digPath にとっておき、行き着いたら作り直す
+ * 配置を知っている人（最短）：まだのお題（なければ石板・エクステ）のうち、取るまでに打つ回数がいちばん少ないものを狙い、
+ * その範囲のマスを手前から打つ。狙いは c.digGoal にとっておき、取れたら選び直す
  */
 function knowTarget(s: P1State, c: Ctx): [number, number] | null {
   const L = digSite(s);
   if (!L || !s.dig) return null;
-  const hp = curHp(s);
-  const W = L.w;
-  const path = (c.digPath ?? []).filter((k) => hp[k] > 0);
-  if (!path.length) {
-    // v10：深い層の許可の無い層のマスは、道にも行き先にもしない
-    const open = (k: number) => layerOpen(s, L, L.cells[k].layer);
-    const goalsOf = (f: (k: number) => boolean) => L.cells.map((_, k) => k).filter((k) => hp[k] > 0 && open(k) && f(k));
-    let goals = goalsOf((k) => L.cells[k].item?.kind === 'ext' && !!(L.cells[k].item as { topic?: boolean }).topic);
-    if (!goals.length) goals = goalsOf((k) => L.cells[k].item?.kind === 'tablet');
-    if (!goals.length) goals = goalsOf((k) => L.cells[k].item?.kind === 'ext');
-    if (!goals.length) return digNext(s);
-    // ダイクストラ（マスの重み＝崩すまでの打つ回数。崩れたマスは 0）。280 マスなので素直に
-    const pw = digPower(s);
-    const n = hp.length;
-    const cost = (k: number) => (!open(k) ? Infinity : hp[k] > 0 ? Math.ceil(hp[k] / pw) : 0);
-    const dist = new Array<number>(n).fill(Infinity);
-    const prev = new Array<number>(n).fill(-1);
-    const done = new Array<boolean>(n).fill(false);
-    for (let x = 0; x < W; x++) dist[x] = cost(x);
-    for (let k = 0; k < n; k++) if (hp[k] <= 0) dist[k] = 0;
-    for (;;) {
-      let u = -1;
-      for (let k = 0; k < n; k++) if (!done[k] && dist[k] < Infinity && (u < 0 || dist[k] < dist[u])) u = k;
-      if (u < 0) break;
-      done[u] = true;
-      const x = u % W;
-      const nb = [u - W, u + W, x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1].filter((v) => v >= 0 && v < n);
-      for (const v of nb) {
-        const d = dist[u] + cost(v);
-        if (d < dist[v]) {
-          dist[v] = d;
-          prev[v] = u;
-        }
+  const st = curSt(s);
+  const pw = digPower(s);
+  // 取るまでの打つ回数（範囲のマスの、その層まで。掘れない層があれば Infinity）
+  const cost = (i: number) => {
+    const f = L.finds[i];
+    let v = 0;
+    for (const k of findCells(L, f)) {
+      if (st.depth[k] > f.layer) return Infinity;
+      for (let n = st.depth[k]; n <= f.layer; n++) {
+        if (!layerOpen(s, L, n)) return Infinity;
+        v += Math.ceil((n === st.depth[k] ? st.hp[k] : L.cells[k].hard[n]) / pw - 1e-9);
       }
     }
-    const goal = goals.sort((a, b) => dist[a] - dist[b])[0];
-    if (dist[goal] === Infinity) return digNext(s);
-    const out: number[] = [];
-    for (let k = goal; k >= 0; k = prev[k]) if (hp[k] > 0) out.unshift(k);
-    c.digPath = out;
-    path.push(...out);
+    return v;
+  };
+  const live = (i: number) => {
+    const it = L.finds[i].item;
+    if (it.kind === 'ext' && it.topic && s.dig!.topics.includes(it.id)) return false;
+    if (it.kind === 'tablet' && s.tablets.includes(it.id)) return false;
+    return cost(i) < Infinity;
+  };
+  if (c.digGoal == null || !L.finds[c.digGoal] || !live(c.digGoal)) {
+    c.digGoal = undefined;
+    const idx = L.finds.map((_, i) => i).filter(live);
+    const rank = (i: number) => {
+      const it = L.finds[i].item;
+      return it.kind === 'ext' && it.topic ? 3 : it.kind === 'tablet' ? 2 : it.kind === 'ext' ? 1 : 0;
+    };
+    const top = Math.max(0, ...idx.map(rank));
+    const pickOne = idx.filter((i) => rank(i) === top && top > 0).sort((a, b) => cost(a) - cost(b))[0];
+    if (pickOne == null) return digNext(s);
+    c.digGoal = pickOne;
   }
-  const k = path.find((v) => reachable(s, v % W, Math.floor(v / W)));
-  return k == null ? digNext(s) : [k % W, Math.floor(k / W)];
+  const f = L.finds[c.digGoal];
+  const k = findCells(L, f).filter((x) => canHit(s, x) && st.depth[x] <= f.layer).sort((a, b) => st.depth[a] - st.depth[b])[0];
+  return k == null ? digNext(s) : [k % L.w, Math.floor(k / L.w)];
 }
 
-/** 上から順に（ランタンがあれば、薄く見えたお題 → 石板 → エクステへ寄せる） */
+/** 覗き見が出ているマス（お題 → 石板 → エクステ → 素材。手前のものほど先）→ 取りかけ・浅いマス（digNext） */
 function sweepTarget(s: P1State): [number, number] | null {
   const L = digSite(s);
   if (!L || !s.dig) return null;
-  if (lampRows(s) > 0) {
-    const rank = (k: number) => {
-      const it = L.cells[k].item;
-      if (!it) return 0;
-      return it.kind === 'ext' && it.topic ? 3 : it.kind === 'tablet' ? 2 : it.kind === 'ext' ? 1 : 0;
-    };
-    let best: [number, number] | null = null;
-    let score = 0;
-    const hp = curHp(s);
-    for (let k = 0; k < hp.length; k++) {
-      if (hp[k] <= 0 || !rank(k) || !layerOpen(s, L, L.cells[k].layer)) continue;
-      const x = k % L.w;
-      const y = Math.floor(k / L.w);
-      if (!peek(s, x, y)) continue;
-      const at: [number, number] | null = reachable(s, x, y) ? [x, y] : y > 0 && reachable(s, x, y - 1) ? [x, y - 1] : null;
-      const v = rank(k) * 1000 - y;
-      if (at && v > score) {
-        score = v;
-        best = at;
-      }
+  let best: [number, number] | null = null;
+  let score = 0;
+  for (let k = 0; k < L.w * L.h; k++) {
+    if (!canHit(s, k)) continue;
+    const x = k % L.w;
+    const y = Math.floor(k / L.w);
+    const v = peekView(s, x, y);
+    if (!v || v.hint) continue;
+    const it = v.item;
+    const rank = it.kind === 'ext' && it.topic ? 4 : it.kind === 'tablet' ? 3 : it.kind === 'ext' ? 2 : 1;
+    const sc = rank * 100 - v.ahead * 10 + v.frac;
+    if (sc > score) {
+      score = sc;
+      best = [x, y];
     }
-    if (best) return best;
   }
-  return digNext(s);
+  return best ?? digNext(s);
 }
 
 const digTarget = (s: P1State, c: Ctx) => (SIM_DIG[c.policy].target === 'know' ? knowTarget(s, c) : sweepTarget(s));
@@ -1378,7 +1369,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
           c.runLeft = runDays(p, s);
           c.runsMonth++;
           cur.dig.runs++;
-          c.digPath = undefined;
+          c.digGoal = undefined;
           res.actions.dig = (res.actions.dig ?? 0) + 1;
           cur.act++;
           if (cur.topDay == null) cur.actTop++;
@@ -1535,7 +1526,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       c.lineupDirty = true;
       c.lastBn = null;
       c.shopsThisMonth = 0;
-      c.digPath = undefined;
+      c.digGoal = undefined;
       c.dayInMonth = 0;
     }
   }
@@ -1673,7 +1664,7 @@ export function tables(rep: Report2): string {
   out.push('| 方針 | ひと月の作業 | 打つマス | 発掘許可 | 発掘隊 | 発掘の枝（v10） |');
   out.push('|---|---|---|---|---|---|');
   const per = (p: PolicyId) => (SIM_DIG[p].perMonth == null ? `前の作業が終わったらすぐ次（続けて掘る。ひと月に ${(30 / runDays(p)).toFixed(1)} 回まで）` : `${SIM_DIG[p].perMonth} 回（月の前半と後半）`);
-  const tgt = (p: PolicyId) => (SIM_DIG[p].target === 'know' ? '配置を知っている：まだのお題のある荒れ地 → お題への最短の道 → 石板 → エクステ' : 'いまの荒れ地を掘りきるまで上から順に（ランタンがあれば、薄く見えたお題・石板・エクステへ）→ お題の気配のある荒れ地');
+  const tgt = (p: PolicyId) => (SIM_DIG[p].target === 'know' ? '配置を知っている：まだのお題のある荒れ地 → お題（無ければ石板・エクステ）の範囲を、取るまでの打つ回数が少ないものから手前の層へ' : 'v11：覗き見が出ているマス（お題 → 石板 → エクステ → 素材）→ 取りかけ・打ちかけ → 浅いマス（いまの荒れ地を掘りきるまで）→ お題の気配のある荒れ地');
   const pm = (p: PolicyId) => (p === 'rta' ? `まだのお題のある荒れ地だけ（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば）` : p === 'normal' ? `掘れる荒れ地が無くなったら次の 1 か所（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば）` : `資金が申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば、月末にあるだけ`);
   const dg = (p: PolicyId) => (SIM_DIG[p].digger === 0 ? '置かない' : 'いつも 1 人');
   const tl = (p: PolicyId) => (SIM_DIG[p].tree === 'deep' ? 'お題が許可の無い層に残っていれば、深い層の許可 Lv1（根もとの追加申請・ランタンから）だけ' : SIM_DIG[p].tree === 'share' ? `月末に、月の売上の ${Math.round(SIM_DIG[p].share * 100)}% を積み立てた枠で（買ったあとも 1 万 G 残るとき）研究の目利き Lv2 → 安い順に（掘れずに止まっている・お題が許可の無い層にあれば、枠に関係なく深い層の許可を先に）。発破を持っていて依頼状を待っていれば発破` : 'ほかのスキルと同じく安い順にまとめて全部 Lv5 まで（掘れずに止まっていれば、資金をためている月も深い層の許可を先に）。資金 5 万 G 以上なら発破');

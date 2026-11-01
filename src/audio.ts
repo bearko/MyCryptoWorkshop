@@ -2,7 +2,7 @@ import { audioFiles } from './game/catalog';
 import { assetUrl } from './render/images';
 
 export type Se = 'craft' | 'rare' | 'sale' | 'unlock' | 'build' | 'fail' | 'hit' | 'buff' | 'debuff' | 'win' | 'helper' | 'clean' | 'zap';
-type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany' | 'bgmCraft';
+export type Bgm = 'bgmShop' | 'bgmTree' | 'bgmRaid' | 'bgmCompany' | 'bgmCraft' | 'bgmDig';
 
 /** Loudness of each sound at the 100% setting (the final volume is this × the setting). */
 const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0.6, fail: 0.5, clean: 0.4, zap: 0.5 };
@@ -40,6 +40,50 @@ export class Sound {
   /** いま流している（流すはずの）BGM */
   currentBgm(): Bgm | null {
     return this.bgmKey;
+  }
+
+  /** いま鳴らしている BGM のファイル（確認用。まだ鳴らしていなければ、流すはずの曲のファイル） */
+  bgmSrc(): string {
+    return this.bgm?.src ?? (this.bgmKey ? assetUrl(audioFiles[this.bgmKey]) : '');
+  }
+
+  private fadeTimer = 0;
+  /**
+   * BGM をフェードで替える（いまの曲を ms/2 で小さくして止め、次の曲を ms/2 で大きくする）。音量の設定・ミュートはいつもどおり
+   * （ミュート中・まだ鳴らせないときは、流すはずの曲だけ替える）
+   */
+  fadeBgm(key: Bgm, ms = 600): void {
+    if (this.bgmKey === key && this.bgm && !this.bgm.paused) return;
+    window.clearInterval(this.fadeTimer);
+    const half = Math.max(1, ms / 2);
+    const fadeIn = () => {
+      this.playBgm(key, true);
+      const a = this.bgm;
+      if (!a) return;
+      a.volume = 0;
+      const t0 = performance.now();
+      this.fadeTimer = window.setInterval(() => {
+        const k = Math.min(1, (performance.now() - t0) / half);
+        a.volume = clamp01(BGM_VOLUME * this.bgmLevel * k) || 0;
+        if (k >= 1 || this.bgm !== a) {
+          window.clearInterval(this.fadeTimer);
+          if (this.bgm === a) a.volume = clamp01(BGM_VOLUME * this.bgmLevel);
+        }
+      }, 30);
+    };
+    const old = this.bgm;
+    if (!old || old.paused || this.bgmLevel <= 0) return fadeIn();
+    this.bgmKey = key;
+    const v0 = old.volume;
+    const t0 = performance.now();
+    this.fadeTimer = window.setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0) / half);
+      old.volume = clamp01(v0 * (1 - k));
+      if (k >= 1) {
+        window.clearInterval(this.fadeTimer);
+        fadeIn();
+      }
+    }, 30);
   }
 
   playBgm(key: Bgm, force = false): void {

@@ -7307,41 +7307,133 @@ button.isl-mis {
   height: 9px;
 }
 
-/* ---------------------------------------------------------------- 発掘場のパネル（digui.ts。時間を止めない。スマホ：地図の下半分／PC：右の帯の横に縦長） */
-.isl-dig {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  bottom: var(--foot-h, 64px);
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  border: 2px solid var(--isl-line);
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
-  background: #1a1410;
-  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.45);
+/* ---------------------------------------------------------------- 発掘画面（digui.ts。全画面。時間を止めない。町の描画は止める） */
+/* スマホ（縦長）：上から 上の帯・小さな帯・壁（画面の大部分）・下の帯。PC（横長）：真ん中に壁、左に上の帯、右に道具 */
+#isl-ui .isl-dig {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: 'top' 'info' 'wall' 'foot';
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(80, 56, 34, 0.55), transparent 70%),
+    #120d0a;
   color: var(--isl-text);
   overflow: hidden;
-  touch-action: pan-y;
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
 }
-#isl-ui.is-rail .isl-dig {
-  left: auto;
-  right: calc(var(--rail-w, 0px) + 8px);
-  top: calc(var(--hud-h, 56px) + 2px);
-  bottom: 12px;
-  width: 372px;
-  border-bottom: 2px solid var(--isl-line);
-  border-radius: 14px;
+/* 始めと終わりは 0.3 秒の暗転 */
+.isl-dig.is-in {
+  animation: isl-dig-in 0.3s ease-out;
 }
-#isl-ui.is-dig .isl-missions {
-  display: none;
+.isl-dig.is-in::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  pointer-events: none;
+  animation: isl-dig-black 0.3s ease-out forwards;
 }
-#isl-ui.is-rail.is-dig .isl-next-month {
-  right: calc(var(--rail-w, 0px) + 392px);
+@keyframes isl-dig-in {
+  from {
+    transform: scale(1.03);
+  }
+}
+@keyframes isl-dig-black {
+  to {
+    opacity: 0;
+  }
+}
+.isl-dig.is-out {
+  animation: isl-dig-out 0.3s ease-in forwards;
+}
+@keyframes isl-dig-out {
+  0% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(0);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(0);
+  }
+}
+/* PC（横長）：真ん中に壁。左の帯に 上の帯・小さな帯・層の並び・ひとこと・道具・発掘隊・研究ノート（右は空けて、壁を真ん中に） */
+@media (min-width: 900px) and (min-aspect-ratio: 1/1) {
+  #isl-ui .isl-dig {
+    grid-template-columns: minmax(280px, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: 'top wall .' 'info wall .' 'foot wall .';
+    column-gap: 12px;
+    row-gap: 8px;
+    padding: 12px;
+  }
+  .isl-dig-top,
+  .isl-dig-info,
+  .isl-dig-foot {
+    border-radius: 12px;
+  }
+  .isl-dig-info {
+    align-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+    border-top: 0;
+    padding: 8px;
+  }
+  .isl-dig-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    padding: 12px;
+  }
+  .isl-dig-legend {
+    justify-content: flex-start;
+    padding: 0;
+  }
+  .isl-dig-why {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #1f1712;
+    text-align: left;
+    font-size: 13px;
+  }
+  .isl-dig-foot .isl-dig-tools {
+    flex: 1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+  }
+  .isl-dig-foot .isl-dig-tools .isl-btn,
+  .isl-dig-foot .isl-dig-auto {
+    width: 100%;
+    min-height: 42px;
+    justify-content: flex-start;
+    font-size: 14px;
+  }
+  .isl-dig-foot .isl-btn.isl-dig-notes {
+    margin-top: auto;
+    margin-left: 0;
+    justify-content: center;
+  }
+  .isl-dig-mine {
+    left: 12px;
+    right: auto;
+    width: min(420px, calc(50vw - 40px));
+  }
+  .isl-dig-wallbox {
+    width: min(64vw, calc((100vh - 24px) * 7 / 9));
+  }
 }
 .isl-dig.is-boom {
   animation: isl-dig-boom 0.35s ease-out;
@@ -7357,12 +7449,16 @@ button.isl-mis {
     transform: translate(2px, 1px);
   }
 }
+.isl-dig-top {
+  grid-area: top;
+  padding: 6px 0 4px;
+  background: #2a2018;
+}
 .isl-dig-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 4px 12px;
-  background: #2a2018;
+  padding: 0 8px 4px 12px;
 }
 .isl-dig-head h2 {
   flex: 1;
@@ -7383,14 +7479,14 @@ button.isl-mis {
     box-shadow: 0 0 0 4px var(--isl-gold);
   }
 }
-.isl-dig-bar {
+/* 小さな帯：日付・今月の売上・RP・今回の出土・掘った割合・お題 */
+.isl-dig-info {
+  grid-area: info;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 3px 4px;
   padding: 4px 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
   background: #241b14;
   border-top: 1px solid #3a2c20;
 }
@@ -7409,12 +7505,12 @@ button.isl-mis {
   color: var(--isl-dim);
   font-size: 11px;
 }
-.isl-dig-chip.is-zero b {
-  color: var(--isl-bad);
+.isl-dig-chip.is-date b {
+  color: #cfe4ff;
+  font-variant-numeric: tabular-nums;
 }
-.isl-dig-chip.is-full {
-  background: #6a4a10;
-  box-shadow: inset 0 0 0 2px var(--isl-gold);
+.isl-dig-chip.is-sales b {
+  color: #ffd27a;
 }
 .isl-dig-chip.is-rp b {
   color: #7fe0d0;
@@ -7422,117 +7518,41 @@ button.isl-mis {
 .isl-dig-chip.is-done {
   box-shadow: inset 0 0 0 2px var(--isl-gold);
 }
-.isl-btn.isl-dig-jam {
-  flex: none;
-  min-height: 24px;
-  padding: 0 8px;
-  border-color: #6a1414;
-  background: #c83c3c;
-  color: #fff;
-  font-size: 12px;
-}
-.isl-dig-tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px 0;
-}
-.isl-dig-tools:empty {
-  display: none;
-}
-.isl-btn.isl-dig-blast {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-.isl-btn.isl-dig-blast.is-on {
-  background: #f08a3c;
-  box-shadow: 0 0 0 3px rgba(240, 138, 60, 0.4);
-}
-.isl-dig-auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 30px;
-  margin-left: auto;
-  padding: 0 8px 0 4px;
-  border: 2px solid #4a3a28;
-  border-radius: 999px;
-  background: #2a2018;
-  color: var(--isl-text);
-  font: 700 12px/1 inherit;
-  font-family: inherit;
-  cursor: pointer;
-}
-.isl-dig-auto.is-empty {
-  padding-left: 10px;
-  border-style: dashed;
-  color: var(--isl-dim);
-}
-.isl-dig-auto .isl-hero {
-  border-radius: 50%;
-  background: #3a2c20;
-}
-.isl-dig-why {
-  margin: 0;
-  padding: 3px 10px 4px;
-  min-height: 1.4em;
-  color: var(--isl-dim);
-  font-size: 12px;
-  line-height: 1.35;
-}
-.isl-dig-why.is-bad {
-  color: #ff9a8a;
-  font-weight: 700;
-}
-.isl-dig-why.is-warn {
-  color: var(--isl-gold);
-  font-weight: 700;
-}
-.isl-dig-scroll {
+/* 壁（画面の大部分。マスは正方形。--cs は digui.ts の fitWall） */
+.isl-dig-wallbox {
+  grid-area: wall;
   position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 8px 10px;
-  touch-action: pan-y;
-}
-/* スマホ：下の帯の真ん中のボタン（スキル）が少しはみ出すので、いちばん下のマスまで送れるように */
-#isl-ui:not(.is-rail) .isl-dig-scroll {
-  padding-bottom: 34px;
-}
-.isl-dig-grid {
   display: grid;
-  grid-template-columns: repeat(var(--w, 7), 1fr);
-  gap: 2px;
-  max-width: 356px;
-  margin: 0 auto;
+  place-items: center;
+  min-height: 0;
+  padding: 6px;
+  /* 壁の大きさ（--cs）は、この箱の大きさから決める（中身で箱が伸びないように） */
+  contain: size;
+  overflow: hidden;
 }
-.isl-dig-layer {
-  grid-column: 1 / -1;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-left: 6px solid var(--lc);
-  background: rgba(26, 20, 16, 0.9);
-  color: var(--isl-dim);
-  font-size: 11px;
-  font-weight: 700;
+.isl-dig-wall {
+  display: grid;
+  grid-template-columns: repeat(var(--w, 7), var(--cs, 44px));
+  grid-auto-rows: var(--cs, 44px);
+  gap: 3px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #0b0806;
+  box-shadow:
+    0 0 0 3px #3a2a1c,
+    0 10px 30px rgba(0, 0, 0, 0.6);
 }
 .isl-dig-cell {
   position: relative;
-  aspect-ratio: 1;
   min-width: 0;
   padding: 0;
   border: 0;
   border-radius: 3px;
+  overflow: hidden;
   background-color: var(--lc);
-  /* 仮の地層のタイル（コード描画。docs/ISLAND_ART_TODO.md）：土の粒 */
+  /* 仮の壁の面（コード描画。docs/ISLAND_ART_TODO.md）：土の粒。奥の層ほど暗い色（data.ts の DIG.<ランク>.layers.color） */
   background-image:
-    radial-gradient(rgba(0, 0, 0, 0.22) 1.5px, transparent 1.6px),
+    radial-gradient(rgba(0, 0, 0, 0.24) 1.5px, transparent 1.6px),
     radial-gradient(rgba(255, 255, 255, 0.1) 1.5px, transparent 1.6px);
   background-size:
     12px 12px,
@@ -7540,46 +7560,105 @@ button.isl-mis {
   background-position:
     2px 3px,
     8px 9px;
+  /* はがれたマスは一段奥まって見える（はがした枚数 --d ほど内側の影が深い） */
   box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.12),
+    inset 0 calc(2px + var(--d, 0) * 3px) calc(var(--d, 0) * 5px) rgba(0, 0, 0, calc(0.15 + var(--d, 0) * 0.14)),
+    inset 0 0 0 calc(var(--d, 0) * 2px) rgba(0, 0, 0, 0.22),
+    inset 0 2px 0 rgba(255, 255, 255, calc(0.14 - var(--d, 0) * 0.04)),
     inset 0 -3px 0 rgba(0, 0, 0, 0.25);
   cursor: pointer;
-  touch-action: pan-y;
+  touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
 }
-.isl-dig-cell.is-far {
-  filter: brightness(0.55) saturate(0.8);
+.isl-dig-cell.is-face:not(.is-idle):hover {
+  filter: brightness(1.12);
+}
+.isl-dig-cell.is-idle {
   cursor: default;
 }
-.isl-dig-cell.is-open:not(.is-idle) {
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 226, 150, 0.75),
-    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
-}
-.isl-dig-cell.is-open:not(.is-idle):hover {
-  filter: brightness(1.15);
-}
+/* いちばん奥まで掘ったマス：真っ暗な穴（荒れ地の奥の色が少しにじむ） */
 .isl-dig-cell.is-dug {
-  background: #120d0a;
+  background: radial-gradient(circle at 50% 55%, #050302 30%, color-mix(in srgb, var(--hole, #3a3330) 40%, #050302) 100%);
   box-shadow:
-    inset 0 4px 6px rgba(0, 0, 0, 0.7),
-    inset 0 0 0 1px #2a2018;
+    inset 0 6px 10px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 1px #1d1510;
   cursor: default;
 }
-.isl-dig-cell::after {
+/* 深い層の許可が要る：暗く・🔒 */
+.isl-dig-cell.is-locked {
+  filter: brightness(0.5) saturate(0.6);
+  cursor: not-allowed;
+}
+.isl-dig-lock {
+  position: absolute;
+  right: 2px;
+  top: 1px;
+  font-size: 11px;
+  pointer-events: none;
+}
+/* 2 × 2 のものを待っている：金色の縁 */
+.isl-dig-cell.is-wait {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 210, 90, 0.85),
+    inset 0 4px 8px rgba(0, 0, 0, 0.5);
+}
+/* ランタン Lv4〜：遠くのお題の気配（金色のにじみだけ） */
+.isl-dig-cell.is-hint::before {
   content: '';
   position: absolute;
   inset: 0;
+  box-shadow: inset 0 0 calc(var(--cs, 44px) * 0.25) rgba(255, 210, 90, 0.75);
+  pointer-events: none;
+  animation: isl-dig-glow 1.6s ease-in-out infinite;
+}
+@keyframes isl-dig-glow {
+  50% {
+    opacity: 0.45;
+  }
+}
+/* 割れ目（暗い線。コード描画。docs/ISLAND_ART_TODO.md） */
+.isl-dig-crk {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
-.isl-dig-cell.is-crack1::after {
-  background: linear-gradient(135deg, transparent 46%, rgba(20, 12, 8, 0.85) 46% 54%, transparent 54%) 0 0 / 60% 60% no-repeat;
+.isl-dig-crk path {
+  fill: none;
+  stroke: rgba(14, 8, 4, 0.88);
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.isl-dig-cell.is-crack2::after {
-  background:
-    linear-gradient(135deg, transparent 46%, rgba(20, 12, 8, 0.9) 46% 54%, transparent 54%),
-    linear-gradient(45deg, transparent 47%, rgba(20, 12, 8, 0.9) 47% 53%, transparent 53%) 40% 60% / 70% 70% no-repeat;
+/* 覗き見：ひびの形のマスク（digui.ts の maskUrl）の中だけ、埋まっているもののアイコンが見える */
+.isl-dig-peek {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  pointer-events: none;
+}
+/* 無傷のマスの細いひび・ランタンのうっすら：よく見ると分かる程度 */
+.isl-dig-peek.is-faint {
+  opacity: 0.55;
+}
+.isl-dig-peek.is-big {
+  display: block;
+}
+.isl-dig-peek.is-big .isl-dig-peekic {
+  position: absolute;
+}
+.isl-dig-peek .isl-dig-peekic {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
+}
+/* お題：金色の縁がにじむ */
+.isl-dig-peek.is-topic .isl-dig-peekic {
+  filter: drop-shadow(0 0 3px #ffd25a) drop-shadow(0 0 6px rgba(255, 210, 90, 0.8));
 }
 .isl-dig-pips {
   position: absolute;
@@ -7595,25 +7674,22 @@ button.isl-mis {
   background: rgba(255, 244, 214, 0.85);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
 }
-.isl-dig-peek {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  opacity: 0.42;
-  pointer-events: none;
-}
-.isl-dig-peek.is-topic {
-  opacity: 0.6;
-  outline: 2px dashed var(--isl-gold);
-  outline-offset: -3px;
-}
 .isl-dig-cell.is-hit {
   animation: isl-dig-hit 0.18s ease-out;
 }
 @keyframes isl-dig-hit {
   50% {
     transform: translateY(2px) scale(0.96);
+  }
+}
+/* 1 枚はがれた（発破）：面が沈む */
+.isl-dig-cell.is-peel {
+  animation: isl-dig-peel 0.35s ease-out;
+}
+@keyframes isl-dig-peel {
+  0% {
+    transform: scale(1.08);
+    filter: brightness(1.6);
   }
 }
 .isl-dig-cell.is-shake {
@@ -7630,10 +7706,111 @@ button.isl-mis {
     transform: translateX(-2px);
   }
 }
-.isl-dig.is-blast .isl-dig-cell.is-open {
-  box-shadow:
-    inset 0 0 0 2px #f08a3c,
-    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+.isl-dig.is-blast .isl-dig-cell.is-face {
+  outline: 2px solid rgba(240, 138, 60, 0.85);
+  outline-offset: -2px;
+}
+.isl-dig.is-drill .isl-dig-cell.is-face {
+  outline: 2px solid rgba(127, 208, 255, 0.9);
+  outline-offset: -2px;
+}
+/* 下の帯：層の並び・ひとこと・道具・発掘隊・研究ノート */
+.isl-dig-foot {
+  grid-area: foot;
+  padding: 4px 0 calc(6px + env(safe-area-inset-bottom, 0px));
+  background: #2a2018;
+}
+.isl-dig-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 3px 5px;
+  padding: 0 8px 2px;
+  font-size: 11px;
+}
+.isl-dig-lay {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 3px;
+  border: 0;
+  border-radius: 999px;
+  background: #3a2c20;
+  color: var(--isl-text);
+  font: 700 11px/1.4 inherit;
+  font-family: inherit;
+}
+.isl-dig-lay i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--lc);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.isl-dig-lay.is-locked {
+  background: #4a2a10;
+  color: #ffd27a;
+  cursor: pointer;
+}
+.isl-dig-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 0;
+}
+.isl-btn.isl-dig-blast,
+.isl-btn.isl-dig-notes {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.isl-btn.isl-dig-notes {
+  margin-left: auto;
+}
+.isl-btn.isl-dig-blast.is-on {
+  background: #f08a3c;
+  box-shadow: 0 0 0 3px rgba(240, 138, 60, 0.4);
+}
+.isl-dig-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 8px 0 4px;
+  border: 2px solid #4a3a28;
+  border-radius: 999px;
+  background: #1f1712;
+  color: var(--isl-text);
+  font: 700 12px/1 inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.isl-dig-auto.is-empty {
+  padding-left: 10px;
+  border-style: dashed;
+  color: var(--isl-dim);
+}
+.isl-dig-auto .isl-hero {
+  border-radius: 50%;
+  background: #3a2c20;
+}
+.isl-dig-why {
+  margin: 0;
+  padding: 2px 10px 3px;
+  min-height: 1.4em;
+  color: var(--isl-dim);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+.isl-dig-why.is-bad {
+  color: #ff9a8a;
+  font-weight: 700;
+}
+.isl-dig-why.is-warn {
+  color: var(--isl-gold);
+  font-weight: 700;
 }
 /* 砕ける粒（崩れたら多めに） */
 .isl-dig-dust {
@@ -7687,10 +7864,17 @@ button.isl-mis {
   margin-left: -60px;
   margin-top: -40px;
   pointer-events: none;
-  animation: isl-dig-fly 1.3s cubic-bezier(0.5, 0, 0.6, 1) forwards;
+  animation: isl-dig-fly 1.5s cubic-bezier(0.5, 0, 0.6, 1) forwards;
 }
 .isl-dig-fly .isl-ext {
   filter: drop-shadow(0 0 6px rgba(255, 226, 150, 0.9));
+}
+/* 飛んでいるあいだも、下のマスを叩けるように */
+#isl-ui > .isl-dig-fly,
+.isl-dig-fly *,
+.isl-dig-float *,
+.isl-dig-peek * {
+  pointer-events: none;
 }
 .isl-dig-fly b {
   padding: 1px 8px;
@@ -7710,12 +7894,12 @@ button.isl-mis {
     transform: translate(0, 0) scale(0.3);
     opacity: 0;
   }
-  18% {
-    transform: translate(0, -36px) scale(1.1);
+  22% {
+    transform: translate(var(--cx), var(--cy)) scale(1.6);
     opacity: 1;
   }
-  55% {
-    transform: translate(0, -40px) scale(1);
+  58% {
+    transform: translate(var(--cx), var(--cy)) scale(1.5);
     opacity: 1;
   }
   100% {
@@ -8731,55 +8915,14 @@ button.isl-mis {
   color: #f2d9a8;
   font-weight: 700;
 }
-/* 深い層の許可が要る層：ロープと札、その下のマスは暗く */
-.isl-dig-rope {
-  grid-column: 1 / -1;
-  position: relative;
-  margin: 6px 0 2px;
-  padding: 7px 8px 5px;
-  border: 0;
-  background:
-    repeating-linear-gradient(135deg, #c99a52 0 6px, #7a5526 6px 12px) top / 100% 5px no-repeat,
-    rgba(26, 20, 16, 0.92);
-  color: #ffd27a;
-  font: 700 12px/1.3 inherit;
-  font-family: inherit;
-  text-align: center;
-  cursor: pointer;
-}
-.isl-dig-rope::before,
-.isl-dig-rope::after {
-  content: '';
-  position: absolute;
-  top: -4px;
-  width: 6px;
-  height: 14px;
-  border-radius: 2px;
-  background: #5a3b18;
-}
-.isl-dig-rope::before {
-  left: 2px;
-}
-.isl-dig-rope::after {
-  right: 2px;
-}
-.isl-dig-cell.is-locked {
-  filter: brightness(0.38) saturate(0.5);
-  cursor: not-allowed;
-}
 .isl-btn.isl-dig-drill {
-  min-height: 30px;
+  min-height: 34px;
   padding: 0 10px;
   font-size: 12px;
 }
 .isl-btn.isl-dig-drill.is-on {
   background: #4fa6d8;
   box-shadow: 0 0 0 3px rgba(79, 166, 216, 0.4);
-}
-.isl-dig.is-drill .isl-dig-cell.is-open {
-  box-shadow:
-    inset 0 0 0 3px #7fd0ff,
-    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
 }
 .isl-dig.is-drillboom {
   animation: isl-dig-drillboom 0.4s ease-out;
@@ -8795,16 +8938,17 @@ button.isl-mis {
     transform: translateY(2px);
   }
 }
+/* ドリル：同じマスが奥へ何度も沈む（はがした層の数 --n） */
 .isl-dig-cell.is-drillhit {
-  animation: isl-dig-drillhit 0.45s ease-out both;
-  animation-delay: var(--d, 0s);
+  animation: isl-dig-drillhit 0.15s ease-out calc(var(--n, 3)) both;
 }
 @keyframes isl-dig-drillhit {
   0% {
-    box-shadow: inset 0 0 0 30px rgba(127, 208, 255, 0.85);
+    transform: scale(1);
+    box-shadow: inset 0 0 0 calc(var(--cs, 44px) * 0.5) rgba(127, 208, 255, 0.85);
   }
   100% {
-    box-shadow: inset 0 0 0 0 rgba(127, 208, 255, 0);
+    transform: scale(0.9);
   }
 }
 .isl-dig-crit {

@@ -5,7 +5,7 @@
 import '../island.css';
 import './p1.css';
 import { Sound } from '../../audio';
-import { getExtension, heroById } from '../../game/catalog';
+import { allSeries, getExtension, heroById } from '../../game/catalog';
 import { isEn, setLang, t } from '../../i18n';
 import { assetUrl } from '../../render/images';
 import { icon } from '../../ui/dom';
@@ -15,6 +15,8 @@ import { cells, type Dir } from '../sim';
 import { AWARE_GOODS, BRAND, BUILD_CATS, DAY_BASE_MS, MATS, MISSIONS, P1_BUILDINGS, rewardText, P1B, PACES, PRODUCT, SIDE, SKILL, TIERS, TOP_STREAK, introFirstStep, isResearchPage, skuParts, STORE, type Mat, type Tier } from './data';
 import {
   allowedDirs,
+  digSite,
+  placeFind,
   build,
   canBuild,
   canMoveTo,
@@ -233,8 +235,16 @@ visualViewport?.addEventListener('resize', resize);
 // ---------------------------------------------------------------- お知らせ
 
 const toasts = h('div', 'isl-toasts');
+/** 発掘画面のあいだに来たお知らせ（作業のあとに出す） */
+let heldToasts: [string, string | undefined][] = [];
 /** お知らせ（icon：左に添える絵。エンブレム・ゴールドダストなど） */
 function toast(text: string, img?: string) {
+  // 発掘作業のあいだ（全画面の発掘画面）は、町で起きたことのお知らせは出さない。作業のあとにまとめて（多ければ新しい 4 つ）
+  if (digOpen()) {
+    if (!heldToasts.some((x) => x[0] === text)) heldToasts.push([text, img]);
+    if (heldToasts.length > 4) heldToasts.shift();
+    return;
+  }
   const prev = toasts.lastElementChild as HTMLElement | null;
   if (prev && prev.dataset.text === text) {
     const n = Number(prev.dataset.n ?? 1) + 1;
@@ -267,7 +277,7 @@ const ctx: Ctx = {
   },
   tip: (screen) => tutTip(screen),
   closeGlow: (screen) => !!tutStep()?.closeOn?.includes(screen),
-  sfx: (k) => sfx.play(k),
+  sfx: (k, gain, rate) => sfx.play(k, gain, rate),
   moved: (target, fresh, manager) => afterMove(target, fresh, manager),
   skills: (focus) => openSkills(ctx, focus),
   step: () => (tutOf(s) < TUT_DONE ? (TUT[tutOf(s)]?.id ?? null) : null),
@@ -1194,7 +1204,7 @@ function startDig(k: number) {
     else if (r === 'deep') toast(t('ここから下は深い層の許可が要る（スキル → 発掘の「深い層の許可」）', 'Deeper layers need a permit (Skills → Digging: Deep-layer permit)'));
     return;
   }
-  if (wasPause) toast(t('発掘を始めたので、次の月が始まったよ', 'Digging started the next month'));
+  const note = wasPause ? t('発掘を始めたので、次の月が始まったよ', 'Digging started the next month') : undefined;
   if (speed === 0) speed = 1;
   // 発掘との出会いの最初の 1 回は 1 倍で（はじめての 15 秒を落ち着いて）
   if (s.flags.digMeet === 'tap') {
@@ -1208,36 +1218,51 @@ function startDig(k: number) {
   sub = null;
   placing = null;
   sfx.play('dig');
-  openDigPanel();
+  // BGM：町の曲をフェードアウト → 発掘の曲（MCH の land）
+  sound.fadeBgm('bgmDig');
+  openDigPanel(note);
 }
-/** 発掘作業のパネルを開いて、荒れ地がパネルに隠れないように地図を寄せる（スマホ：上半分の真ん中、PC：パネルの左の真ん中） */
-function openDigPanel() {
-  openDig(ctx, {
-    end: () => finishDig(),
-    closed: () => renderAll(),
-    hit: (hits) => digHit(hits),
-    make: (key) => makeRelic(key),
-    // 発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる
-    noEnd: () => s.flags.digMeet === 'open',
-    // 発掘終了の札の「次の強化のおすすめ」・作業の外のロープ：スキルツリーのそのパネルへ（出会いの途中は、出会いの流れを優先）
-    skill: s.flags.digMeet === 'done' ? (id) => openSkills(ctx, id) : undefined,
-    deepTip: () => {
-      if (s.flags.digDeepTip) return false;
-      s.flags.digDeepTip = true;
-      save();
-      return true;
+/** 発掘画面（全画面）を開く。開いているあいだは町を描かない（ゲームの計算は進める）。閉じたら町の描画と BGM を戻す */
+function openDigPanel(note?: string) {
+  openDig(
+    ctx,
+    {
+      end: () => finishDig(),
+      closed: () => {
+        sound.fadeBgm('bgmCraft');
+        flushToasts();
+        renderAll();
+      },
+      hit: (hits) => digHit(hits),
+      make: (key) => makeRelic(key),
+      // 発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる
+      noEnd: () => s.flags.digMeet === 'open',
+      meetFirst: () => s.flags.digMeet === 'open' && !!s.digRun,
+      // 発掘終了の札の「次の強化のおすすめ」・作業の外の「🔒」：スキルツリーのそのパネルへ（出会いの途中は、出会いの流れを優先）
+      skill: s.flags.digMeet === 'done' ? (id) => openSkills(ctx, id) : undefined,
+      deepTip: () => {
+        if (s.flags.digDeepTip) return false;
+        s.flags.digDeepTip = true;
+        save();
+        return true;
+      },
+      // 初めてひびの隙間から何か見えた（1 回だけ。出会いの最初の作業では、壁の掘り方の一言を閉じたあとに）
+      peekTip: () => {
+        if (s.flags.digPeekTip) return false;
+        s.flags.digPeekTip = true;
+        save();
+        return true;
+      },
     },
-  });
+    note,
+  );
   renderAll();
-  const m = s.dig ? wasteMid(s.dig.cur) : null;
-  const r = digRect();
-  if (m && r) {
-    const hudBottom = hud.getBoundingClientRect().bottom;
-    const rail = RAIL.matches;
-    const tx = rail ? r.left / 2 : W / 2;
-    const ty = rail ? H / 2 : (hudBottom + r.top) / 2 + 30 * cam.zoom;
-    tween = { x0: cam.x, y0: cam.y, x1: (m[0] - m[1]) * 100 - (tx - W / 2) / cam.zoom, y1: (m[0] + m[1]) * 55 - (ty - H / 2) / cam.zoom, t0: performance.now() };
-  }
+}
+/** 発掘画面のあいだに来たお知らせを出す */
+function flushToasts() {
+  const xs = heldToasts;
+  heldToasts = [];
+  for (const [text, img] of xs) toast(text, img);
 }
 /** 打った：荒れ地を掘りきったら、作業を終える */
 function digHit(hits: DigHit[]) {
@@ -3723,7 +3748,8 @@ function frame(now: number) {
   // 動いているものがあるときは、30 コマ/秒ほどで描き直す
   if (!held && speed > 0 && now - lastDraw > 33 && animating()) dirty = true;
   lastWater = wf;
-  if (dirty) {
+  // 発掘作業のあいだは画面全体が発掘画面なので、町（地図・人・荷車・建物）は描かない（ゲームの計算は上で進めている）
+  if (dirty && !digOpen()) {
     dirty = false;
     // チュートリアル：建ててもらう場所に「ここに建ててみて！」
     const sp = tutSpotNow();
@@ -3764,7 +3790,7 @@ requestAnimationFrame(frame);
   menu: (m: Menu | null) => (m ? pickMenu(m) : ((menu = null), renderAll())),
   /** 下の帯の小メニューを開く（撮影スクリプト用） */
   sub: goSub,
-  bgm: () => ({ key: sound.currentBgm(), playing: sound.bgmPlaying(), sfx: sfx.info() }),
+  bgm: () => ({ key: sound.currentBgm(), src: sound.bgmSrc(), playing: sound.bgmPlaying(), sfx: sfx.info() }),
   tick: () => renderAll(),
   /** 建てる・置くモードを始める（撮影スクリプト用） */
   place: (id: string) => startPlacing(id),
@@ -3776,6 +3802,15 @@ requestAnimationFrame(frame);
   dig: (k?: number) => startDig(k ?? s.dig?.cur ?? 0),
   digEnd: () => finishDig(),
   digOpen: () => digOpen(),
+  /** 撮影スクリプト用：いまの荒れ地の壁の層 layer の (x, y) に、エクステ id（Epic なら 2 × 2）を埋める */
+  digPlace: (id: number, x: number, y: number, layer = 0) => {
+    const L = digSite(s);
+    const f = L ? placeFind(L, { kind: 'ext', id }, x, y, layer) : null;
+    refreshDig();
+    return f ? { size: f.size } : null;
+  },
+  /** 撮影スクリプト用：Epic のエクステの id（1 つ目） */
+  epicId: () => allSeries.flatMap((x) => x.items).find((e) => e.rarity === 'Epic')?.id ?? null,
   /** 荒れ地の左上のマス（撮影スクリプト用） */
   wastes: () => wasteSpots(s.sector ?? 'c1'),
   speed: (v?: number) => (v != null ? ((speed = v), renderHud()) : speed),

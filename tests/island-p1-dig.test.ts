@@ -2,6 +2,7 @@
  * 地層の発掘と研究ポイント（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）：データと仕組み。
  * 荒れ地の配置・建てられない判定・発掘許可と申請料・15 秒の発掘作業（時間の流れ・月をまたいでもポーズしない）・回数なしで打てる・
  * お題の散らばり・掘りきり・研究レベルと RP・石板・道具・発掘隊・研究／お金パネル・✨ → RP・調査依頼状・古いセーブの移し替え（版 1 → 2 → 3）。
+ * 正面の壁（v11。手前から奥へ・2 × 2 の大きいもの・覗き見）は tests/island-p1-dig2w.test.ts。
  */
 import { describe, expect, it } from 'vitest';
 import { BLAST, DIG, DIG_BALANCE, DIG_SITES, MISSIONS, MONEY_PANELS, RESEARCH_NEED, RP_GAIN, RP_PER_DUST, SECTORS, SKILL, SKILLS, START_RP, TABLETS, TIERS, WASTE, aptitude, isResearch, levelCost, maxLv, rpCost, researchLv } from '../src/island/p1/data';
@@ -62,6 +63,8 @@ import {
   wasteName,
   wasteSpots,
   type DigHit,
+  type DigItem,
+  type DigLayout,
   type P1State,
 } from '../src/island/p1/model';
 import { SECTOR_KEYS } from '../src/island/p1/land';
@@ -97,8 +100,8 @@ function run(s: P1State, k = 0): P1State {
   if (typeof r === 'string') throw new Error(r);
   return s;
 }
-const hpOf = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
-/** そのマスが崩れるまで打つ */
+const depthOf = (s: P1State) => s.dig!.sites[s.dig!.cur].depth;
+/** そのマスのいまの層が 1 枚はがれるまで打つ */
 function breakCell(s: P1State, x: number, y: number): DigHit {
   for (let k = 0; k < 20; k++) {
     const r = dig(s, x, y);
@@ -107,11 +110,15 @@ function breakCell(s: P1State, x: number, y: number): DigHit {
   }
   throw new Error('not broken');
 }
-/** (x, y) まで上から掘り進めて、そのマスを崩す */
-function digTo(s: P1State, x: number, y: number): DigHit {
-  for (let yy = 0; yy < y; yy++) if (hpOf(s)[yy * 7 + x] > 0) breakCell(s, x, yy);
-  return breakCell(s, x, y);
+/** (x, y) を手前から掘り進めて、層 layer をはがす（その層のものが取れる） */
+function digTo(s: P1State, x: number, y: number, layer: number): DigHit {
+  for (;;) {
+    const r = breakCell(s, x, y);
+    if (r.layer >= layer) return r;
+  }
 }
+/** 壁に埋まっているもの（条件に合う最初の 1 つ） */
+const findIn = (L: DigLayout, f: (it: DigItem) => boolean) => L.finds.find((x) => f(x.item));
 const digSectors = Object.keys(DIG_SITES);
 
 describe('荒れ地（未開拓エリア）の配置', () => {
@@ -180,14 +187,14 @@ describe('荒れ地（未開拓エリア）の配置', () => {
   });
 });
 
-describe('荒れ地の断面（発掘場）', () => {
-  it('Common は横 7 × 縦 20（3 層）、Uncommon は横 7 × 縦 24（4 層）が 4 か所。Rare 以降は無い', () => {
+describe('荒れ地の正面の壁（発掘場）', () => {
+  it('Common は横 7 × 縦 9 × 奥行き 3 層、Uncommon は横 7 × 縦 9 × 奥行き 4 層が 4 か所。Rare 以降は無い', () => {
     const c = digLayouts('c1');
     expect(c).toHaveLength(4);
-    for (const L of c) expect([L.tier, L.w, L.h, L.rows]).toEqual(['C', 7, 20, [0, 7, 14]]);
+    for (const L of c) expect([L.tier, L.w, L.h, L.depth, L.cells.length, L.cells[0].hard.length]).toEqual(['C', 7, 9, 3, 63, 3]);
     const u = digLayouts('u1');
     expect(u).toHaveLength(4);
-    for (const L of u) expect([L.tier, L.w, L.h, L.rows]).toEqual(['U', 7, 24, [0, 6, 12, 18]]);
+    for (const L of u) expect([L.tier, L.w, L.h, L.depth]).toEqual(['U', 7, 9, 4]);
     expect(digLayout('r1')).toBeNull();
     expect(newP1(1, 'R', 'r1').dig).toBeNull();
   });
@@ -197,8 +204,8 @@ describe('荒れ地の断面（発掘場）', () => {
     const b = newP1(987654).dig!;
     expect(a.sites.map((x) => x.hp)).toEqual(b.sites.map((x) => x.hp));
     expect(newDig('c1')!.sites.map((x) => x.hp)).toEqual(a.sites.map((x) => x.hp));
-    expect(newDig('c2')!.sites[0].hp).not.toEqual(a.sites[0].hp);
-    expect(a.sites.every((x) => !x.permit && !x.done)).toBe(true);
+    expect(digLayouts('c2')[0].finds).not.toEqual(digLayouts('c1')[0].finds);
+    expect(a.sites.every((x) => !x.permit && !x.done && x.depth.every((d) => d === 0))).toBe(true);
   });
 
   it('お題は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は Common 1 枚・Uncommon 2 枚', () => {
@@ -206,7 +213,7 @@ describe('荒れ地の断面（発掘場）', () => {
       const Ls = digLayouts(id);
       const all: number[] = [];
       for (const L of Ls) {
-        const topics = L.cells.filter((c) => c.item?.kind === 'ext' && c.item.topic);
+        const topics = L.finds.filter((f) => f.item.kind === 'ext' && f.item.topic);
         expect(topics.length, `${id} ${L.site}`).toBeLessThanOrEqual(1);
         if (topics.length) {
           const tid = (topics[0].item as { id: number }).id;
@@ -215,19 +222,26 @@ describe('荒れ地の断面（発掘場）', () => {
           all.push(tid);
         } else expect(L.topic).toBeNull();
         // お題以外の出土品は、そのセクタの finds から（何度も出る）
-        for (const c of L.cells) if (c.item?.kind === 'ext' && !c.item.topic) expect(DIG_SITES[id].finds).toContain(c.item.id);
+        for (const f of L.finds) if (f.item.kind === 'ext' && !f.item.topic) expect(DIG_SITES[id].finds).toContain(f.item.id);
+        // 1 マスの 1 つの層には 1 つまで（重ならない）。いまの荒れ地は Epic 以上が出ないので、全部 1 × 1
+        const used = new Set<string>();
+        for (const f of L.finds) {
+          expect(f.size).toEqual([1, 1]);
+          const key = `${f.x},${f.y},${f.layer}`;
+          expect(used.has(key)).toBe(false);
+          used.add(key);
+        }
       }
       expect(all.sort()).toEqual([...DIG_SITES[id].topics].sort());
-      const tabs = Ls.flatMap((L) => L.cells.filter((c) => c.item?.kind === 'tablet'));
+      const tabs = Ls.flatMap((L) => L.finds.filter((f) => f.item.kind === 'tablet'));
       expect(tabs.length, id).toBe(Ls[0].tier === 'C' ? 1 : 2);
-      // エクステ・素材の出方は今の割合（24%・14% 前後）
-      const cells = Ls.flatMap((L) => L.cells);
-      const ext = cells.filter((c) => c.item?.kind === 'ext').length / cells.length;
-      const mat = cells.filter((c) => c.item?.kind === 'mat').length / cells.length;
-      expect(ext, id).toBeGreaterThan(0.17);
-      expect(ext, id).toBeLessThan(0.32);
-      expect(mat, id).toBeGreaterThan(0.08);
-      expect(mat, id).toBeLessThan(0.21);
+      // 1 か所の出土品の数は、v10 の断面（Common 140 マス・Uncommon 168 マス × エクステ 24%・素材 14%）と同じくらい
+      const per = (k: DigItem['kind']) => Ls.flatMap((L) => L.finds).filter((f) => f.item.kind === k).length / Ls.length;
+      const old = Ls[0].tier === 'C' ? 140 : 168;
+      expect(per('ext'), id).toBeGreaterThan(old * 0.24 * 0.75);
+      expect(per('ext'), id).toBeLessThan(old * 0.24 * 1.3);
+      expect(per('mat'), id).toBeGreaterThan(old * 0.14 * 0.65);
+      expect(per('mat'), id).toBeLessThan(old * 0.14 * 1.4);
     }
   });
 
@@ -357,45 +371,53 @@ describe('15 秒の発掘作業', () => {
     expect(held).toBe(false);
   });
 
-  it('1 打の強さのぶん硬さが減り、硬さのぶん打つと崩れる（Common 1〜3・Uncommon 3〜5）', () => {
-    const cs = digLayouts('c1').flatMap((L) => L.cells);
-    expect(Math.min(...cs.map((c) => c.hard))).toBe(1);
-    expect(Math.max(...cs.map((c) => c.hard))).toBe(3);
-    const us = digLayouts('u1').flatMap((L) => L.cells);
-    expect(Math.min(...us.map((c) => c.hard))).toBe(3);
-    expect(Math.max(...us.map((c) => c.hard))).toBe(5);
+  it('1 打の強さのぶん硬さが減り、硬さのぶん打つと 1 枚はがれる。奥の層ほど硬い（Common 1 → 1〜2 → 2〜3・Uncommon 2 → 2〜3 → 3 → 3〜4）', () => {
+    const lay = (sec: string, n: number) => digLayouts(sec).flatMap((L) => L.cells.map((c) => c.hard[n]));
+    expect(DIG_BALANCE.hard.C).toEqual([[1, 1], [1, 2], [2, 3]]);
+    expect([Math.min(...lay('c1', 0)), Math.max(...lay('c1', 2))]).toEqual([1, 3]);
+    expect(Math.min(...lay('u1', 0))).toBe(2);
+    expect(Math.max(...lay('u1', 3))).toBe(4);
+    // 層ごとの平均は奥ほど上がる
+    for (const sec of ['c1', 'u1']) {
+      const L0 = digLayouts(sec)[0];
+      const avg = (n: number) => lay(sec, n).reduce((a, v) => a + v, 0) / lay(sec, n).length;
+      for (let n = 1; n < L0.depth; n++) expect(avg(n), `${sec} ${n}`).toBeGreaterThan(avg(n - 1));
+    }
     const s = run(site(), 0);
     const L = digLayout('c1', 0)!;
-    const k = L.cells.findIndex((c, i) => c.hard >= 2 && i % 7 === 0);
-    const y = Math.floor(k / 7);
-    for (let yy = 0; yy < y; yy++) if (hpOf(s)[yy * 7] > 0) breakCell(s, 0, yy);
+    const k = L.cells.findIndex((c) => c.hard[1] >= 2);
+    const [x, y] = [k % 7, Math.floor(k / 7)];
+    breakCell(s, x, y);
+    expect(depthOf(s)[k]).toBe(1);
     let hits = 0;
     let r: DigHit | string;
     do {
-      r = dig(s, 0, y);
+      r = dig(s, x, y);
       hits++;
     } while (typeof r !== 'string' && !r.broke);
-    expect(hits).toBe(L.cells[k].hard);
-    expect(digCheck(s, 0, y)).toBe('dug');
-    expect(s.digRun!.got.cells).toBeGreaterThanOrEqual(y + 1);
+    expect(hits).toBe(L.cells[k].hard[1]);
+    expect(depthOf(s)[k]).toBe(2);
+    expect(s.digRun!.got.cells).toBe(2);
+    // いちばん奥まではがすと、もう叩けない（dug）
+    digTo(s, x, y, 2);
+    expect(digCheck(s, x, y)).toBe('dug');
   });
 
-  it('届かないマスは打てない。掘り出したマスの隣は打てる（上から掘り進める）', () => {
+  it('どのマスも最初から叩ける（上や隣を先に掘らなくてよい）。壁の外は叩けない', () => {
     const s = run(site());
-    expect(digCheck(s, 0, 5)).toBe('far');
+    for (let y = 0; y < 9; y++) for (let x = 0; x < 7; x++) expect(digCheck(s, x, y)).toBeNull();
     expect(digCheck(s, 9, 0)).toBe('out');
-    breakCell(s, 3, 0);
-    expect(digCheck(s, 3, 1)).toBeNull();
-    expect(digCheck(s, 4, 1)).toBe('far');
+    breakCell(s, 3, 8);
+    expect(digCheck(s, 3, 8)).toBeNull();
   });
 
-  it('荒れ地のマスを全部崩すと「掘りきった」（done）。もう作業は始められない。割合とお題の気配', () => {
+  it('荒れ地の全部のマスをいちばん奥まではがすと「掘りきった」（done）。もう作業は始められない。割合とお題の気配', () => {
     const s = run(site(), 1);
     expect(siteProgress(s, 1)).toBe(0);
     const tp0 = siteTopic(s, 1);
     expect(['none', 'hidden']).toContain(tp0);
     let last: DigHit | null = null;
-    for (let k = 0; k < 2000; k++) {
+    for (let k = 0; k < 3000; k++) {
       const at = digNext(s);
       if (!at) break;
       const r = dig(s, at[0], at[1]);
@@ -403,13 +425,14 @@ describe('15 秒の発掘作業', () => {
     }
     expect(last?.done).toBe(true);
     expect(s.dig!.sites[1].done).toBe(true);
+    expect(s.dig!.sites[1].depth.every((d) => d === 3)).toBe(true);
     expect(siteProgress(s, 1)).toBe(1);
     if (tp0 === 'hidden') expect(siteTopic(s, 1)).toBe('found');
     expect(endRun(s)!.done).toBe(true);
     expect(runLock(s, 1)).toBe('done');
   });
 
-  it('発掘終了の札の数：新発見・研究 Lv ↑・RP・素材・崩したマス（作業ごと）', () => {
+  it('発掘終了の札の数：新発見・研究 Lv ↑・RP・素材・はがした層（作業ごと）', () => {
     const s = run(site());
     for (let k = 0; k < 60; k++) {
       const at = digNext(s)!;
@@ -435,24 +458,22 @@ describe('研究レベルと研究ポイント', () => {
   it('新しいエクステを初めて掘ると +15 RP、Lv が上がると +8・+15・+20・+25（研究 Lv は会社で共有）', () => {
     const s = run(site(), 0);
     const L = digLayout('c1', 0)!;
-    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && !c.item.topic);
-    const id = (L.cells[k].item as { id: number }).id;
+    const exts = L.finds.filter((f) => f.item.kind === 'ext' && !f.item.topic);
+    const f0 = exts[0];
+    const id = (f0.item as { id: number }).id;
     const rp0 = s.rp;
-    const r = digTo(s, k % 7, Math.floor(k / 7));
+    const r = digTo(s, f0.x, f0.y, f0.layer);
+    expect(r.item).toEqual(f0.item);
     expect(r.first).toBe(true);
     expect(r.rp).toBe(RP_GAIN.C.first);
     expect(researchOf(s, id)).toBe(1);
     expect(researchLeft(s, id)).toBe(1);
     expect(s.rp - rp0).toBeGreaterThanOrEqual(RP_GAIN.C.first);
-    // 重なりで Lv が上がる：Lv2（+5）・Lv5（+20）。別のセクタで同じエクステが出ても続きから（会社で共有）
-    const others = L.cells.map((c, i) => [c, i] as const).filter(([c, i]) => i > k && c.item?.kind === 'ext' && !c.item.topic).map(([, i]) => i);
-    const hitAt = (i: number, have: number) => {
-      const x = i % 7;
-      const y = Math.floor(i / 7);
-      for (let yy = 0; yy < y; yy++) if (hpOf(s)[yy * 7 + x] > 0) breakCell(s, x, yy);
-      const eid = (L.cells[i].item as { id: number }).id;
-      s.research[eid] = have;
-      return breakCell(s, x, y);
+    // 重なりで Lv が上がる：Lv2（+8）・Lv5（+25）。別のセクタで同じエクステが出ても続きから（会社で共有）
+    const others = exts.filter((f) => !(f.x === f0.x && f.y === f0.y));
+    const hitAt = (f: (typeof exts)[number], have: number) => {
+      s.research[(f.item as { id: number }).id] = have;
+      return digTo(s, f.x, f.y, f.layer);
     };
     const r2 = hitAt(others[0], 1);
     expect([r2.lv, r2.rp, r2.first]).toEqual([2, RP_GAIN.C.lv[0], undefined]);
@@ -463,11 +484,10 @@ describe('研究レベルと研究ポイント', () => {
     // 別のセクタ（ユーホタウン）でも、鏡（1105）は続きから
     const c2 = site(1, 'c2');
     c2.research[1105] = 6;
-    const L2 = digLayouts('c2').find((L) => L.cells.some((c) => c.item?.kind === 'ext' && c.item.id === 1105))!;
+    const L2 = digLayouts('c2').find((L) => L.finds.some((f) => f.item.kind === 'ext' && f.item.id === 1105))!;
     run(c2, L2.site);
-    const m = L2.cells.findIndex((c) => c.item?.kind === 'ext' && c.item.id === 1105);
-    expect(m).toBeGreaterThanOrEqual(0);
-    expect(digTo(c2, m % 7, Math.floor(m / 7)).lv).toBe(4);
+    const m = L2.finds.find((f) => f.item.kind === 'ext' && f.item.id === 1105)!;
+    expect(digTo(c2, m.x, m.y, m.layer).lv).toBe(4);
     expect(s.dig!.month.found).toBeGreaterThan(0);
   });
 
@@ -475,8 +495,8 @@ describe('研究レベルと研究ポイント', () => {
     expect(RP_GAIN.U).toEqual({ first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 });
     const s = run(site(4, 'u1', 'U'), 0);
     const L = digLayout('u1', 0)!;
-    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && !c.item.topic);
-    const r = digTo(s, k % 7, Math.floor(k / 7));
+    const f = findIn(L, (it) => it.kind === 'ext' && !it.topic)!;
+    const r = digTo(s, f.x, f.y, f.layer);
     expect(r.rp).toBe(25);
   });
 
@@ -485,50 +505,49 @@ describe('研究レベルと研究ポイント', () => {
     expect(topicProgress(s)).toEqual([0, 3]);
     expect(presentLock(s)).toBe('not-yet');
     for (const L of digLayouts('c1')) {
-    run(s, L.site);
-    L.cells.forEach((c, k) => {
-      if (c.item?.kind !== 'ext' || !c.item.topic) return;
+      run(s, L.site);
+      const f = findIn(L, (it) => it.kind === 'ext' && !!it.topic);
+      if (!f) continue;
       const rp0 = s.rp;
-      const r = digTo(s, k % 7, Math.floor(k / 7));
+      const r = digTo(s, f.x, f.y, f.layer);
       expect(r.item).toMatchObject({ topic: true });
       expect(r.lv).toBe(5);
       expect(s.rp - rp0).toBeGreaterThanOrEqual(RP_GAIN.C.topic);
-      expect(researchOf(s, c.item.id)).toBe(5);
-    });
+      expect(researchOf(s, (f.item as { id: number }).id)).toBe(5);
     }
     expect(topicProgress(s)).toEqual([3, 3]);
     expect(s.dig!.topics).toEqual(expect.arrayContaining(DIG_SITES.c1.topics));
   });
 
-  it('石板を掘ると +20 RP、研究ノートに残る（読み物）', () => {
+  it('石板を掘ると +20 RP、研究ノートに残る（読み物）。読んだ石板は二度と出ない', () => {
     const s = site();
-    const L = digLayouts('c1').find((x) => x.cells.some((c) => c.item?.kind === 'tablet'))!;
+    const L = digLayouts('c1').find((x) => x.finds.some((f) => f.item.kind === 'tablet'))!;
     run(s, L.site);
-    const k = L.cells.findIndex((c) => c.item?.kind === 'tablet');
-    const r = digTo(s, k % 7, Math.floor(k / 7));
+    const f = findIn(L, (it) => it.kind === 'tablet')!;
+    const r = digTo(s, f.x, f.y, f.layer);
     expect(r.item).toEqual({ kind: 'tablet', id: 'tab_c1' });
     expect(r.rp).toBe(RP_GAIN.C.tablet);
     expect(s.tablets).toEqual(['tab_c1']);
   });
 
-  it('素材のマスは、そのセクタの素材が増える（Common：鉄・木材・粘土・ガラス）', () => {
+  it('素材は、そのセクタの素材が増える（Common：鉄・木材・粘土・ガラス）', () => {
     const s = run(site(1, 'c2'), 0);
     const L = digLayout('c2', 0)!;
-    const k = L.cells.findIndex((c) => c.item?.kind === 'mat');
-    const it = L.cells[k].item as { mat: 'glass'; n: number };
+    const f = findIn(L, (it) => it.kind === 'mat')!;
+    const it = f.item as { mat: 'glass'; n: number };
     const m0 = s.mats[it.mat] ?? 0;
-    digTo(s, k % 7, Math.floor(k / 7));
+    digTo(s, f.x, f.y, f.layer);
     expect(s.mats[it.mat]).toBeGreaterThanOrEqual(m0 + it.n);
     expect(DIG.C.mats).toContain(it.mat);
-    // 湖の町（ガラス・粘土が特産）は、ガラスと粘土のマスが多め
-    const mats = digLayouts('c2').flatMap((x) => x.cells).filter((c) => c.item?.kind === 'mat').map((c) => (c.item as { mat: string }).mat);
+    // 湖の町（ガラス・粘土が特産）は、ガラスと粘土が多め
+    const mats = digLayouts('c2').flatMap((x) => x.finds).filter((f) => f.item.kind === 'mat').map((f) => (f.item as { mat: string }).mat);
     const n = (m: string) => mats.filter((x) => x === m).length;
     expect(n('glass') + n('clay')).toBeGreaterThan(n('iron') + n('wood'));
   });
 });
 
 describe('道具（発掘 v2 の 2 段目でスキルツリーの発掘の枝へ移した）', () => {
-  it('ツルハシの鍛え直し：1 打の強さ +1（Lv1）・+2（Lv3）。工房の設備投資からは消えた', () => {
+  it('ツルハシの鍛え直し：1 打の強さ +1（Lv1）・+2（Lv3）。工房の設備投資からは消えた。1 打で 1 枚まで（余った力は奥へ届かない）', () => {
     const s = run(site());
     expect(digPower(s)).toBe(1);
     const ws = myWorkshop(s)!;
@@ -537,28 +556,37 @@ describe('道具（発掘 v2 の 2 段目でスキルツリーの発掘の枝へ
     expect(digPower(s)).toBe(2);
     setLevel(s, 'dig_power', 3);
     expect(digPower(s)).toBe(3);
-    // 硬さ 3 のマスが 1 打で崩れる（会心は崩れるのを早めるだけ）
+    // 硬さ 3 の岩盤が 1 打ではがれる（会心は早めるだけ）
     const L = digLayout('c1', 0)!;
-    const k = L.cells.findIndex((c) => c.hard === 3);
-    for (let yy = 0; yy < Math.floor(k / 7); yy++) if (hpOf(s)[yy * 7 + (k % 7)] > 0) breakCell(s, k % 7, yy);
-    const r = dig(s, k % 7, Math.floor(k / 7));
-    expect(typeof r !== 'string' && r.broke).toBe(true);
+    const k = L.cells.findIndex((c) => c.hard[2] === 3);
+    const [x, y] = [k % 7, Math.floor(k / 7)];
+    const r1 = breakCell(s, x, y);
+    expect(r1.depth).toBe(1);
+    breakCell(s, x, y);
+    const r = dig(s, x, y);
+    expect(typeof r !== 'string' && r.broke && r.layer === 2).toBe(true);
   });
 
-  it('ランタン：手が届くマスの 1 段下の出土品が見える（無いと見えない）', () => {
+  it('ランタン：ふだんは いまの層だけ、ランタン Lv2 で 2 枚手前から、ひびの隙間に見える', () => {
     const s = run(site());
     const L = digLayout('c1', 0)!;
-    // 1 段目のどこかを崩す → その下（2 段目）は手が届く、3 段目はランタンで見える
-    breakCell(s, 0, 0);
-    const want = (y: number) => L.cells[y * 7].item;
-    expect(peek(s, 0, 2)).toBeNull();
+    // 層 2 に埋まっていて、層 0・1 には何も無いマス
+    const f = L.finds.find((g) => g.layer === 2 && !L.finds.some((h) => h.x === g.x && h.y === g.y && h.layer < 2))!;
+    expect(f).toBeTruthy();
+    expect(peek(s, f.x, f.y)).toBeNull();
     setLevel(s, 'dig_lamp', 1);
-    expect(peek(s, 0, 2)).toEqual(want(2));
-    expect(peek(s, 0, 1)).toEqual(want(1));
-    expect(peek(s, 0, 4)).toBeNull();
+    expect(peek(s, f.x, f.y)).toBeNull();
+    setLevel(s, 'dig_lamp', 2);
+    expect(peek(s, f.x, f.y)).toEqual(f.item);
+    // ランタンが無いと、1 枚はがしても（1 枚手前）見えない。2 枚はがして そのものの層になると見える
+    const t = run(site());
+    breakCell(t, f.x, f.y);
+    expect(peek(t, f.x, f.y)).toBeNull();
+    breakCell(t, f.x, f.y);
+    expect(peek(t, f.x, f.y)).toEqual(f.item);
   });
 
-  it('発破：火薬代で 3 × 3 を一度に崩す（発破のパネルが無いと使えない。回数は使わない）', () => {
+  it('発破：火薬代で 3 × 3 の いまの層を 1 枚ずつはがす（発破のパネルが無いと使えない。回数は使わない）', () => {
     const s = run(site());
     expect(blast(s, 3, 0)).toBe('no-blast');
     setLevel(s, 'dig_blast', 1);
@@ -566,7 +594,7 @@ describe('道具（発掘 v2 の 2 段目でスキルツリーの発掘の枝へ
     const r = blast(s, 3, 0);
     if (typeof r === 'string') throw new Error(r);
     expect(r).toHaveLength(6);
-    expect(r.every((x) => x.broke)).toBe(true);
+    expect(r.every((x) => x.broke && x.layer === 0 && x.depth === 1)).toBe(true);
     expect(s.money).toBe(m0 - BLAST.cost);
   });
 });
@@ -588,7 +616,8 @@ describe('発掘隊（仕事「発掘」）', () => {
     const n = res.dug?.length ?? 0;
     expect(n).toBeGreaterThanOrEqual(1);
     expect(n).toBeLessThanOrEqual(6);
-    expect(s.dig!.sites[2].hp.some((v, k) => v < digLayout('c1', 2)!.cells[k].hard)).toBe(true);
+    const st2 = s.dig!.sites[2];
+    expect(st2.hp.some((v, k) => st2.depth[k] > 0 || v < digLayout('c1', 2)!.cells[k].hard[0])).toBe(true);
     expect(s.dig!.sites[0].hp).toEqual(newDig('c1')!.sites[0].hp);
     expect(st.stamina).toBeLessThan(sta0 + 1e-9);
     endRun(s);
@@ -679,9 +708,8 @@ describe('調査依頼状', () => {
     for (const L of digLayouts(s.dig!.sector)) {
       if (L.topic == null) continue;
       run(s, L.site);
-      L.cells.forEach((c, k) => {
-        if (c.item?.kind === 'ext' && c.item.topic && hpOf(s)[k] > 0) digTo(s, k % 7, Math.floor(k / 7));
-      });
+      const f = findIn(L, (it) => it.kind === 'ext' && !!it.topic);
+      if (f && !s.dig!.topics.includes(L.topic)) digTo(s, f.x, f.y, f.layer);
       endRun(s);
     }
   };
@@ -720,9 +748,9 @@ describe('調査依頼状', () => {
 });
 
 describe('セーブ', () => {
-  it('新しいゲームは版 4・30 RP。発掘の進み・許可・研究ノートはセーブに残る', () => {
+  it('新しいゲームは版 5・30 RP。発掘の進み・許可・研究ノートはセーブに残る', () => {
     const s = run(site());
-    expect([s.v, s.rp]).toEqual([4, 30]);
+    expect([s.v, s.rp]).toEqual([5, 30]);
     breakCell(s, 0, 0);
     endRun(s);
     s.research[1011] = 3;
@@ -753,8 +781,8 @@ describe('セーブ', () => {
     delete o.dig;
     const m0 = o.money;
     const old = deserializeP1(JSON.stringify(o))!;
-    // 版 1 → 2 → 3 → 4 と順に移す
-    expect(old.v).toBe(4);
+    // 版 1 → 2 → 3 → 4 → 5 と順に移す
+    expect(old.v).toBe(5);
     expect(old.dig!.sites).toHaveLength(4);
     expect(old.skills).toEqual(expect.arrayContaining(['host', 'golden', 'jig', 'lounge', 'd_shop']));
     expect([lvOf(old, 'host'), lvOf(old, 'golden'), lvOf(old, 'lounge'), lvOf(old, 'd_shop')]).toEqual([3, 1, 1, 1]);
@@ -794,7 +822,7 @@ describe('セーブ', () => {
     o.tablets = ['tab_c1'];
     o.presented = [];
     const back = deserializeP1(JSON.stringify(o))!;
-    expect(back.v).toBe(4);
+    expect(back.v).toBe(5);
     expect(back.rp).toBe(333);
     expect(back.research).toEqual({ [found]: 11, 1011: 4 });
     expect(back.tablets).toEqual(['tab_c1']);
@@ -811,8 +839,8 @@ describe('セーブ', () => {
     const L = digLayouts('c1').find((x) => x.topic === found)!;
     expect(siteTopic(back, L.site)).toBe('found');
     run(back, L.site);
-    const tk = L.cells.findIndex((c) => c.item?.kind === 'ext' && c.item.topic);
-    const r = digTo(back, tk % 7, Math.floor(tk / 7));
+    const tk = findIn(L, (it) => it.kind === 'ext' && !!it.topic)!;
+    const r = digTo(back, tk.x, tk.y, tk.layer);
     expect(r.item).toBeNull();
     expect(r.rp).toBe(0);
     expect(back.dig!.topics).toEqual([found]);
