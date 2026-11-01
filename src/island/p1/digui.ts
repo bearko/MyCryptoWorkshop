@@ -1,13 +1,15 @@
 /**
- * 発掘場のパネルと研究ノート（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「研究ノート」）。
+ * 発掘画面と研究ノート（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「発掘場の画面」「研究ノート」）。
  *
- * - 地図の荒れ地をタップ → 吹き出しの「⛏ 発掘する（15 秒）」で、その荒れ地の断面のパネルを開く（発掘作業）。
- *   **発掘作業のあいだは時間を止めない**（憲章 1-2 の例外）。シート（screens.ts の open）ではなく、地図の上に重ねるパネル。
- *   スマホは地図の下半分、PC は右の帯の横に縦長。パネルの上に残り時間のバー（現実の秒。残り 5 秒で赤く点滅）。
+ * - 地図の荒れ地をタップ → 吹き出しの「⛏ 発掘する（15 秒）」で、**画面全体が発掘画面** になる（発掘作業）。
+ *   町の描画は止める（main.ts。ゲームの計算はふだんどおり進む）。作業の始めと終わりは 0.3 秒の暗転。
+ *   **発掘作業のあいだは時間を止めない**（憲章 1-2 の例外）。シート（screens.ts の open）ではなく、全部を覆う画面。
+ * - 正面の壁（横 7 × 縦 9）：マスを叩くと手前の層から 1 枚ずつはがれる（どのマスも最初から叩ける。奥ほど硬い）。
+ *   埋まっているものは、ひびの隙間から少しずつ見える（覗き見）。2 × 2 の大きいもの（Epic 以上）は 4 マスとも掘ると取れる。
  * - 片手のタップで 1 打、長押しで同じマスを連続で打つ（回数の制限は無い。打てるのは作業のあいだだけ）。
- * - 時間切れか「発掘を終える」で、パネルの中に「発掘終了」の札（今回の出土）。月をまたいでいたら、そのあと main.ts がまとめ報告を出す。
- * - 出土の演出は 1 つだけ大きく（憲章 3）：崩れたら小さく砕ける粒、エクステは絵が飛び出して研究ノートのボタンへ吸い込まれる、
- *   お題のときだけ画面の中央に大きく。石板は読み物の小さな窓。
+ * - 時間切れか「発掘を終える」で、画面の中に「発掘終了」の札（今回の出土）。月をまたいでいたら、そのあと main.ts がまとめ報告を出す。
+ * - 出土の演出は 1 つだけ大きく（憲章 3）：はがれたら小さく砕ける粒、エクステは画面の中央に大きく出て研究ノートのボタンへ吸い込まれる、
+ *   お題と大きな遺物（2 × 2）は画面全体。石板は読み物の小さな窓。
  * 表示の計算は digview.ts（純粋な関数）。
  */
 import { t } from '../../i18n';
@@ -15,17 +17,17 @@ import { assetUrl } from '../../render/images';
 import { icon } from '../../ui/dom';
 import { DIG, PRODUCT, TABLET, type Mat } from './data';
 import { assign, blast, blastCost, blastSize, dig, digRepeatMs, digSite, drill, drillLen, DRILL_FUEL, extName, hasBlast, hasDrill, sessionSec, type DigErr, type DigHit, type DigItem, type RunEnd } from './model';
-import { DEEP_LOCK, autoDiggers, biggestFx, cellView, crewCount, digBlock, digErrText, digRec, digSpec, digSpecText, digStatus, findLabel, focusRow, fxOf, gotLines, lockedLayer, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars } from './digview';
-import { DEEP_TIP } from './digmeet';
+import { DEEP_LOCK, anyPeek, autoDiggers, biggestFx, cellView, crewCount, digBlock, digErrText, digRec, digSpec, digSpecText, digStatus, findLabel, fxOf, gotLines, lockedLayer, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars, type CellView } from './digview';
+import { DEEP_TIP, MEET_WALL, PEEK_TIP } from './digmeet';
 import { pickHero } from './heroui';
 import { open, refreshSheet, sheetOpen, type Ctx } from './screens';
 import { btn, extImage, h, heroIcon, heroName, matIcon, money, rich } from './ui';
 
-/** 発掘場からほかの画面へ（main.ts が渡す） */
+/** 発掘画面からほかの画面へ（main.ts が渡す） */
 export interface DigHooks {
   /** 「発掘を終える」を押した（main.ts が endRun と発掘終了の札・まとめ報告を出す） */
   end: () => void;
-  /** 閉じた（地図の UI を描き直す） */
+  /** 閉じた（町の描画と地図の UI を戻す） */
   closed: () => void;
   /** 打った（掘りきった・発掘との出会い） */
   hit?: (hits: DigHit[]) => void;
@@ -33,10 +35,14 @@ export interface DigHooks {
   noEnd?: () => boolean;
   /** 復刻品を工房で作る（発掘終了の札の「工房で作る」。市場データの「工房で作る」と同じ動き） */
   make?: (key: string) => void;
-  /** スキルツリーのそのパネルへ（発掘終了の札の「次の強化のおすすめ」・作業の外でロープを押した） */
+  /** スキルツリーのそのパネルへ（発掘終了の札の「次の強化のおすすめ」・作業の外で「🔒 深い層の許可が要る」を押した） */
   skill?: (id: string) => void;
   /** 「深い層の許可が要る」マスを初めて押した（マインちゃんの一言を出したら true を返す。main.ts が flags に記録） */
   deepTip?: () => boolean;
+  /** 初めてひびの隙間から何か見えた（マインちゃんの一言を出したら true を返す。main.ts が flags に記録） */
+  peekTip?: () => boolean;
+  /** 発掘との出会いの最初の作業（壁の掘り方の一言を出す） */
+  meetFirst?: () => boolean;
 }
 
 /** エクステの絵（MCH の 64×64。整数倍か半分で） */
@@ -58,7 +64,41 @@ function itemIcon(it: DigItem, size: number): HTMLElement {
   return tabletIcon(size);
 }
 
-// ---------------------------------------------------------------- 発掘場のパネル
+// ---------------------------------------------------------------- ひび（仮。コードで描く割れ目。docs/ISLAND_ART_TODO.md）
+
+/** 割れ目の形（48 × 48 の中の 3 本。1 本目がいちばん大きい）。マスごとに 4 つの形から選ぶ */
+const CRACKS: string[][] = [
+  ['M6 3 L17 15 L14 25 L24 33 L21 45', 'M41 5 L32 17 L37 26', 'M45 31 L34 35 L30 42'],
+  ['M25 2 L22 14 L31 22 L26 32 L33 46', 'M3 19 L14 24 L22 22', 'M36 29 L46 24'],
+  ['M2 10 L14 14 L21 26 L34 30 L46 40', 'M30 3 L28 14 L37 18', 'M9 41 L18 34 L25 37'],
+  ['M45 4 L34 14 L36 24 L26 30 L20 45', 'M4 6 L12 17 L20 18', 'M7 32 L18 30 L22 39'],
+];
+const crackOfCell = (x: number, y: number) => CRACKS[(x * 7 + y * 3) % CRACKS.length];
+/** 見える割合 → 割れ目の幅（48 の中で。12% は髪の毛ほど・40% で細く・90% でほぼ全部） */
+const maskWidth = (frac: number) => Math.round((1 + frac * frac * 36) * 10) / 10;
+/** 割れ目のマスク（白い線。この線の中だけアイコンが見える） */
+function maskUrl(paths: string[], w: number): string {
+  const d = paths.join(' ');
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path d='${d}' fill='none' stroke='white' stroke-width='${w}' stroke-linecap='round' stroke-linejoin='round'/></svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+/** マスの面の割れ目（暗い線）：n 本・幅 w */
+function crackSvg(paths: string[], n: number, w: number): SVGSVGElement {
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('viewBox', '0 0 48 48');
+  svg.setAttribute('class', 'isl-dig-crk');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of paths.slice(0, n)) {
+    const path = document.createElementNS(SVGNS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('stroke-width', String(w));
+    svg.append(path);
+  }
+  return svg;
+}
+
+// ---------------------------------------------------------------- 発掘画面（全画面）
 
 interface Panel {
   ctx: Ctx;
@@ -69,44 +109,51 @@ interface Panel {
   timer: HTMLElement;
   fill: HTMLElement;
   sec: HTMLElement;
-  bar: HTMLElement;
+  info: HTMLElement;
   spec: HTMLElement;
   tools: HTMLElement;
   why: HTMLElement;
-  scroll: HTMLElement;
-  grid: HTMLElement;
+  wallBox: HTMLElement;
+  wall: HTMLElement;
+  legend: HTMLElement;
   notes: HTMLButtonElement;
   cells: HTMLButtonElement[];
+  /** マス 1 つの大きさ（px） */
+  cs: number;
   sector: string;
   site: number;
   /** 次に押したマスで発破を使う */
   blastArm: boolean;
-  /** 次に押したマスから掘削ドリル（真下へ） */
+  /** 次に押したマスで掘削ドリル（奥へ） */
   drillArm: boolean;
   /** この作業で「深い層の許可が要る」マスを押した（終わりの札のおすすめを深い層の許可に） */
   deepHit: boolean;
-  /** いまロープを張っている層（変わったらマス目を作り直す） */
-  lock: number | null;
-  /** 直前の「打てない理由」（数秒だけ出す） */
-  err: { text: string; until: number } | null;
+  /** 直前の「打てない理由」・お知らせ（数秒だけ出す） */
+  err: { text: string; until: number; good?: boolean } | null;
   /** 残り 3 秒の音を鳴らした秒 */
   ticked: number;
   /** 発掘終了の札を出している */
   over: boolean;
+  resize: () => void;
 }
 let P: Panel | null = null;
 let saveTimer = 0;
 
 export const digOpen = () => !!P;
 
+/** 発掘画面を閉じる（0.3 秒で暗転して町へ。町の描画は main.ts が戻す） */
 export function closeDig() {
   if (!P) return;
-  const hooks = P.hooks;
+  const p = P;
+  const hooks = p.hooks;
   flushSave();
   stopHold();
-  P.el.remove();
+  removeEventListener('resize', p.resize);
   document.querySelector('.isl-dig-big')?.remove();
   P = null;
+  p.el.classList.add('is-out');
+  p.el.style.pointerEvents = 'none';
+  window.setTimeout(() => p.el.remove(), 300);
   hooks.closed();
 }
 
@@ -125,93 +172,138 @@ function soonSave() {
   }, 800);
 }
 
-/** 発掘作業のパネルを開く（発掘作業のあいだだけ。s.digRun の荒れ地の断面） */
-export function openDig(ctx: Ctx, hooks: DigHooks) {
+/** 発掘画面を開く（発掘作業のあいだだけ。s.digRun の荒れ地の壁）。note：最初に出すひとこと */
+export function openDig(ctx: Ctx, hooks: DigHooks, note?: string) {
   const s = ctx.s();
   if (!digSite(s) || !s.dig) {
     ctx.toast(digErrText('no-site'));
     return;
   }
-  if (P) closeDig();
-  const el = h('section', 'isl-dig');
+  let fresh = true;
+  if (P) {
+    fresh = false;
+    const old = P;
+    P = null;
+    removeEventListener('resize', old.resize);
+    old.el.remove();
+  }
+  const el = h('section', `isl-dig ${fresh ? 'is-in' : ''}`);
   el.setAttribute('aria-label', t('発掘作業', 'Digging'));
   // 地図のドラッグ・タップに渡さない
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+  // 1. 上の帯：荒れ地の名前・残り時間のバー・「発掘を終える」
+  const top = h('div', 'isl-dig-top');
   const head = h('div', 'isl-dig-head');
   const title = h('h2', '');
-  const notes = btn(t('📖 研究ノート', '📖 Notebook'), () => openNotes(ctx, { fromDig: hooks }), 'isl-dig-notes');
   const endBtn = btn(t('発掘を終える', 'Stop digging'), () => (P?.over ? closeDig() : hooks.end()), 'isl-dig-end');
-  head.append(title, notes, endBtn);
-  // 残り時間のバー（現実の秒）
+  head.append(title, endBtn);
   const timer = h('div', 'isl-dig-timer');
   const fill = h('i', 'isl-dig-timer-fill');
   const sec = h('b', 'isl-dig-timer-sec');
   timer.append(fill, h('span', 'isl-dig-timer-k', t('⏱ 残り', '⏱ Left')), sec);
-  const bar = h('div', 'isl-dig-bar');
   const spec = h('div', 'isl-dig-spec');
-  const tools = h('div', 'isl-dig-tools');
+  top.append(head, timer, spec);
+  // 2. 小さな帯：日付・今月の売上・RP・今回の出土・掘った割合・お題
+  const info = h('div', 'isl-dig-info');
+  // 3. 壁
+  const wallBox = h('div', 'isl-dig-wallbox');
+  const wall = h('div', 'isl-dig-wall');
+  const legend = h('div', 'isl-dig-legend');
+  wallBox.append(wall);
+  // 4. 下の帯：ひとこと・道具・発掘隊・研究ノート
+  const foot = h('div', 'isl-dig-foot');
   const why = h('p', 'isl-dig-why');
-  const scroll = h('div', 'isl-dig-scroll');
-  const grid = h('div', 'isl-dig-grid');
-  scroll.append(grid);
-  el.append(head, timer, spec, bar, tools, why, scroll);
+  const tools = h('div', 'isl-dig-tools');
+  const notes = btn(t('📖 研究ノート', '📖 Notebook'), () => openNotes(ctx, { fromDig: hooks }), 'isl-dig-notes');
+  foot.append(legend, why, tools);
+  el.append(top, info, wallBox, foot);
   ctx.root.append(el);
-  P = { ctx, hooks, el, title, endBtn, timer, fill, sec, bar, spec, tools, why, scroll, grid, notes, cells: [], sector: s.dig.sector, site: s.dig.cur, blastArm: false, drillArm: false, deepHit: false, lock: lockedLayer(s), err: null, ticked: 99, over: false };
-  buildGrid();
+  const resize = () => fitWall();
+  P = { ctx, hooks, el, title, endBtn, timer, fill, sec, info, spec, tools, why, wallBox, wall, legend, notes, cells: [], cs: 40, sector: s.dig.sector, site: s.dig.cur, blastArm: false, drillArm: false, deepHit: false, err: note ? { text: note, until: performance.now() + 3500, good: true } : null, ticked: 99, over: false, resize };
+  addEventListener('resize', resize);
+  buildWall();
   refreshDig();
   refreshTimer();
+  fitWall();
+  requestAnimationFrame(() => fitWall());
   // 上の帯・吹き出し・「次の月へ」の位置を合わせる
   ctx.refresh();
-  // いちばん深く掘ったあたりを、上から 3 分の 1 に
-  requestAnimationFrame(() => {
-    if (!P) return;
-    const row = focusRow(s);
-    const c = P.cells[row * digSite(s)!.w];
-    if (c) P.scroll.scrollTop = Math.max(0, c.offsetTop - P.scroll.clientHeight / 3);
-  });
+  // 発掘との出会いの最初の作業：壁の掘り方（作業を止めない小さな吹き出し）
+  if (hooks.meetFirst?.()) mineSay(MEET_WALL(), 9000);
 }
 
-/** パネルの外枠の位置（地図のカメラを合わせるのに使う） */
+/** 発掘画面の外枠（main.ts が「次の月へ」の位置に使う） */
 export const digRect = () => P?.el.getBoundingClientRect() ?? null;
 
-function buildGrid() {
+/** 壁のマスの大きさを、画面の幅・高さいっぱいの正方形に合わせる */
+function fitWall() {
+  const p = P;
+  if (!p) return;
+  const L = digSite(p.ctx.s());
+  if (!L) return;
+  // （開くときの拡大の動きに左右されないように、変形の前の大きさで）
+  const r = { width: p.wallBox.clientWidth, height: p.wallBox.clientHeight };
+  // 箱の余白（6 × 2）と壁のふち（6 × 2）・マスの間（3）を除いた、いっぱいの正方形
+  const gap = 3;
+  const pad = 26;
+  const cs = Math.max(24, Math.floor(Math.min((r.width - pad - gap * (L.w - 1)) / L.w, (r.height - pad - gap * (L.h - 1)) / L.h)));
+  if (cs === p.cs && p.wall.style.getPropertyValue('--cs')) return;
+  p.cs = cs;
+  p.wall.style.setProperty('--cs', `${cs}px`);
+  // 覗き見のアイコンの大きさが変わるので描き直す
+  for (const c of p.cells) delete c.dataset.k;
+  paintCells();
+}
+
+function buildWall() {
   const p = P!;
   const s = p.ctx.s();
   const L = digSite(s)!;
-  p.grid.replaceChildren();
-  p.grid.style.setProperty('--w', String(L.w));
+  p.wall.replaceChildren();
+  p.wall.style.setProperty('--w', String(L.w));
+  p.wall.style.setProperty('--h', String(L.h));
+  p.wall.style.setProperty('--hole', DIG[L.tier].layers[L.depth - 1].color);
   p.cells = [];
-  p.lock = lockedLayer(s);
-  for (let y = 0; y < L.h; y++) {
-    const layer = L.cells[y * L.w].layer;
-    // 深い層の許可が要る層の上に、ロープと札（押すとトースト・作業の外ならスキルツリーの「深い層の許可」へ）
-    if (L.rows[layer] === y && p.lock != null && layer === p.lock) {
-      const rope = h('button', 'isl-dig-rope', DEEP_LOCK());
-      rope.type = 'button';
-      rope.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deepPressed();
-      });
-      p.grid.append(rope);
-    }
-    if (L.rows[layer] === y) {
-      const st = DIG[L.tier].layers[layer];
-      const lab = h('div', 'isl-dig-layer', st.name);
-      lab.style.setProperty('--lc', st.color);
-      p.grid.append(lab);
-    }
+  for (let y = 0; y < L.h; y++)
     for (let x = 0; x < L.w; x++) {
       const b = h('button', 'isl-dig-cell');
       b.type = 'button';
       b.dataset.x = String(x);
       b.dataset.y = String(y);
-      b.style.setProperty('--lc', DIG[L.tier].layers[layer].color);
       bindHold(b, x, y);
       p.cells.push(b);
-      p.grid.append(b);
+      p.wall.append(b);
     }
-  }
+}
+
+/** 層の並び（手前 → 奥。掘れない層は 🔒。押すと「深い層の許可が要る」） */
+function paintLegend() {
+  const p = P!;
+  const s = p.ctx.s();
+  const L = digSite(s)!;
+  const lock = lockedLayer(s);
+  const key = `${L.tier}|${lock}`;
+  if (p.legend.dataset.k === key) return;
+  p.legend.dataset.k = key;
+  p.legend.replaceChildren(h('small', 'isl-dim', t('手前', 'Front')));
+  DIG[L.tier].layers.forEach((st, n) => {
+    const locked = lock != null && n >= lock;
+    const c = h(locked ? 'button' : 'span', `isl-dig-lay ${locked ? 'is-locked' : ''}`);
+    c.style.setProperty('--lc', st.color);
+    c.append(h('i'), document.createTextNode(`${locked ? '🔒' : ''}${st.name}`));
+    if (locked && c instanceof HTMLButtonElement) {
+      c.type = 'button';
+      c.title = DEEP_LOCK();
+      c.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deepPressed();
+      });
+    }
+    if (n > 0) p.legend.append(h('small', 'isl-dim', '›'));
+    p.legend.append(c);
+  });
+  p.legend.append(h('small', 'isl-dim', t('奥', 'Back')));
 }
 
 /** 毎フレーム（main.ts）：残り時間のバー。残り 5 秒で赤く点滅、残り 3 秒から 1 秒ごとに音 */
@@ -238,50 +330,54 @@ export function refreshTimer() {
   }
 }
 
-/** 1 日ごと・打つたびに：上の 1 行・道具・マス目を描き直す（パネルを作り直さない） */
+/** 1 日ごと・打つたびに：帯・道具・壁を描き直す（画面を作り直さない） */
 export function refreshDig() {
   const p = P;
   if (!p) return;
   const s = p.ctx.s();
   if (!s.dig || !digSite(s)) return closeDig();
-  if (s.dig.sector !== p.sector || s.dig.cur !== p.site || lockedLayer(s) !== p.lock) {
+  if (s.dig.sector !== p.sector || s.dig.cur !== p.site) {
     p.sector = s.dig.sector;
     p.site = s.dig.cur;
-    buildGrid();
+    buildWall();
+    fitWall();
   }
-  // 上の 1 行（小さく）：作業時間・1 打の強さ・掘れる層・研究 Lv の上限
+  // 上の帯の小さな 1 行：作業時間・1 打の強さ・掘れる層・研究 Lv の上限
   const sp = digSpec(s);
   p.spec.replaceChildren(...(sp ? digSpecText(sp).map((x) => h('b', '', x)) : []));
   const st = digStatus(s)!;
   p.title.textContent = t(`⛏ ${st.name}`, `⛏ ${st.name}`);
   // 「発掘を終える」：作業のあいだ（出会いの最初の 1 回は出さない）。札を出したあとは ✕（町に戻る）
-  p.endBtn.textContent = p.over ? '✕' : t('発掘を終える', 'Stop digging');
+  p.endBtn.textContent = p.over ? t('✕ 町に戻る', '✕ Back to town') : t('発掘を終える', 'Stop digging');
   p.endBtn.hidden = !p.over && !!p.hooks.noEnd?.();
   p.endBtn.setAttribute('aria-label', p.over ? t('町に戻る', 'Back to town') : t('発掘を終える', 'Stop digging'));
-  // 上の 1 行：掘った割合・RP・いまの層・お題の進み（SCM の詰まりは、作業のあいだは出さない：発掘に集中）
-  p.bar.replaceChildren();
+  // 小さな帯：日付（時間が流れている）・今月の売上・RP・今回の出土・掘った割合・お題（SCM の詰まりは、作業のあいだは出さない：発掘に集中）
+  p.info.replaceChildren();
   const chip = (cls: string, k: string, v: string) => {
     const c = h('span', `isl-dig-chip ${cls}`);
-    c.append(h('small', '', k), h('b', '', v));
-    p.bar.append(c);
+    if (k) c.append(h('small', '', k));
+    c.append(h('b', '', v));
+    p.info.append(c);
     return c;
   };
-  chip('', t('掘った', 'Dug'), `${st.pct}%`);
+  chip('is-date', '📅', st.date);
+  chip('is-sales', t('売上', 'Sales'), money(st.sales));
   chip('is-rp', t('研', 'RP'), `${st.rp}`);
-  chip('', t('層', 'Layer'), st.layer);
+  chip('is-got', t('出土', 'Finds'), t(`新 ${st.found}・Lv↑ ${st.lvUp}`, `New ${st.found} · Lv↑ ${st.lvUp}`));
+  chip('', t('掘った', 'Dug'), `${st.pct}%`);
   chip(st.topics[0] >= st.topics[1] ? 'is-done' : '', t('お題', 'Targets'), `${st.topics[0]} / ${st.topics[1]}`);
-  // 道具：発破・掘削ドリル（スキル → 発掘で開いていれば）・発掘隊
+  // 道具：発破・掘削ドリル（スキル → 発掘で開いていれば）・発掘隊・研究ノート
   p.tools.replaceChildren();
   if (hasBlast(s)) {
     const bc = blastCost(s);
     const n = blastSize(s);
-    const b = btn(p.blastArm ? t('💥 発破：掘るマスを押す（やめる）', '💥 Blast: tap a cell (cancel)') : t(`💥 発破 ${n}×${n}（${money(bc)}）`, `💥 Blast ${n}×${n} (${money(bc)})`), () => {
+    const b = btn(p.blastArm ? t('💥 発破：マスを押す（やめる）', '💥 Blast: tap a cell (cancel)') : t(`💥 発破 ${n}×${n}（${money(bc)}）`, `💥 Blast ${n}×${n} (${money(bc)})`), () => {
       p.blastArm = !p.blastArm;
       p.drillArm = false;
       p.ctx.sfx?.('tap');
       refreshDig();
     }, `isl-dig-blast ${p.blastArm ? 'is-on' : ''}`);
-    b.title = t(`火薬代で、押したマスを真ん中に ${n} × ${n} を一度に崩す`, `Pay for powder to clear ${n} × ${n} around the cell`);
+    b.title = t(`火薬代で、押したマスを真ん中に ${n} × ${n} の いまの層を 1 枚ずつ一度にはがす`, `Pay for powder to peel one layer off the ${n} × ${n} around the cell`);
     if (s.money < bc) {
       b.disabled = true;
       b.title = digErrText('money', bc);
@@ -290,13 +386,13 @@ export function refreshDig() {
   }
   if (hasDrill(s)) {
     const n = drillLen(s);
-    const b = btn(p.drillArm ? t('🔩 ドリル：始めるマスを押す（やめる）', '🔩 Drill: tap a cell (cancel)') : t(`🔩 ドリル ↓${n}（${money(DRILL_FUEL)}）`, `🔩 Drill ↓${n} (${money(DRILL_FUEL)})`), () => {
+    const b = btn(p.drillArm ? t('🔩 ドリル：マスを押す（やめる）', '🔩 Drill: tap a cell (cancel)') : t(`🔩 ドリル 奥へ ${n}（${money(DRILL_FUEL)}）`, `🔩 Drill ${n} deep (${money(DRILL_FUEL)})`), () => {
       p.drillArm = !p.drillArm;
       p.blastArm = false;
       p.ctx.sfx?.('tap');
       refreshDig();
     }, `isl-dig-drill ${p.drillArm ? 'is-on' : ''}`);
-    b.title = t(`燃料代で、押したマスから真下に ${n} マスを一度に崩す`, `Pay for fuel to clear ${n} cells straight down`);
+    b.title = t(`燃料代で、押したマス 1 つを奥へ ${n} 層一気にはがす`, `Pay for fuel to peel ${n} layers off one cell`);
     if (s.money < DRILL_FUEL) {
       b.disabled = true;
       b.title = digErrText('money', DRILL_FUEL);
@@ -310,33 +406,52 @@ export function refreshDig() {
     for (const a of auto.slice(0, 2)) who.append(heroIcon(a.hero, 28));
     const per = auto.reduce((v, a) => v + (a.resting ? 0 : a.perDay), 0);
     const [cn, cap] = crewCount(s);
-    who.append(h('span', '', t(`発掘隊 ${cn}/${cap} 人・1 日 ${Math.round(per * 10) / 10} 回`, `Crew ${cn}/${cap} · ${Math.round(per * 10) / 10}/day`)));
+    who.append(h('span', '', t(`発掘隊 ${cn}/${cap}・1 日 ${Math.round(per * 10) / 10} 打`, `Crew ${cn}/${cap} · ${Math.round(per * 10) / 10}/day`)));
     if (auto.every((a) => a.resting)) who.append(h('small', 'isl-bad', t('休憩中', 'Resting')));
-  } else who.append(h('span', '', t('＋ 発掘隊の担当', '+ Dig crew')));
+  } else who.append(h('span', '', t('＋ 発掘隊', '+ Dig crew')));
   who.addEventListener('click', (e) => {
     e.stopPropagation();
     pickDigger();
   });
-  p.tools.append(who);
-  // 打てない理由（パネル全体：作業が終わった など）。直前に押したマスの理由は数秒だけ
+  p.tools.append(who, p.notes);
+  // ひとこと：打てない理由（画面全体：作業が終わった など）・直前に押したマスの理由（数秒だけ）・道具の使い方・掘り方
   const block = p.over ? null : digBlock(s);
   const now = performance.now();
   const bn = blastSize(s);
-  const msg =
-    p.err && p.err.until > now
-      ? p.err.text
-      : block
-        ? digErrText(block)
-        : p.blastArm
-          ? t(`発破：手が届くマスを押すと、まわり ${bn} × ${bn} も一度に崩れる`, `Blast: tap a reachable cell to clear the ${bn} × ${bn} around it`)
-          : p.drillArm
-            ? t(`ドリル：手が届くマスを押すと、そこから真下に ${drillLen(s)} マス崩れる`, `Drill: tap a reachable cell to clear ${drillLen(s)} cells straight down`)
-            : t('光っているマスをタップで 1 打、長押しで続けて打つ（何回でも打てる）', 'Tap a lit cell to strike, hold to keep striking (no limit)');
+  const live = p.err && p.err.until > now;
+  const msg = live
+    ? p.err!.text
+    : block
+      ? digErrText(block)
+      : p.blastArm
+        ? t(`発破：マスを押すと、まわり ${bn} × ${bn} の いまの層が 1 枚ずつはがれる`, `Blast: tap a cell to peel one layer off the ${bn} × ${bn} around it`)
+        : p.drillArm
+          ? t(`ドリル：マスを押すと、そのマスが奥へ ${drillLen(s)} 層はがれる`, `Drill: tap a cell to peel ${drillLen(s)} layers off it`)
+          : t('マスをタップで 1 打（手前の層から 1 枚ずつはがれる）・長押しで続けて打つ', 'Tap a cell to strike (peels one layer at a time) · hold to keep striking');
   p.why.textContent = msg;
-  p.why.className = `isl-dig-why ${(p.err && p.err.until > now) || block ? 'is-bad' : ''}`;
+  p.why.className = `isl-dig-why ${live && p.err!.good ? 'is-warn' : live || block ? 'is-bad' : ''}`;
   p.el.classList.toggle('is-blast', p.blastArm);
   p.el.classList.toggle('is-drill', p.drillArm);
+  paintLegend();
   paintCells();
+  // 初めてひびの隙間から何か見えた：マインちゃんの小さな一言（1 回だけ・作業は止めない）
+  if (!p.over && s.digRun && !p.el.querySelector('.isl-dig-mine') && anyPeek(s) && p.hooks.peekTip?.()) mineSay(PEEK_TIP(), 6000);
+}
+
+/** 発掘画面の中のマインちゃんの小さな吹き出し（作業を止めない。OK か時間で消える） */
+function mineSay(text: string, ms: number) {
+  const p = P;
+  if (!p) return;
+  p.el.querySelector('.isl-dig-mine')?.remove();
+  const w = h('div', 'isl-dig-mine');
+  const mi = h('img');
+  mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
+  mi.alt = '';
+  const txt = h('p');
+  txt.append(rich(text));
+  w.append(mi, txt, btn('OK', () => w.remove(), 'is-on'));
+  p.el.append(w);
+  window.setTimeout(() => w.isConnected && w.remove(), ms);
 }
 
 /**
@@ -407,34 +522,67 @@ export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => v
   }, 1200);
 }
 
+/** マス 1 つを描く（面の色・奥まった影・ひび・覗き見・あと何回・🔒） */
+function paintCell(b: HTMLButtonElement, v: CellView, idle: boolean, cs: number) {
+  const pk = v.peek;
+  const key = `${v.state}|${v.layer}|${v.crack}|${v.taps}|${pk ? `${pk.item.kind}${'id' in pk.item ? pk.item.id : ''}${'mat' in pk.item ? pk.item.mat : ''}:${pk.frac}:${pk.part}:${pk.hint ? 1 : 0}` : ''}|${idle}|${cs}`;
+  if (b.dataset.k === key) return;
+  b.dataset.k = key;
+  b.className = `isl-dig-cell is-${v.state} ${idle ? 'is-idle' : ''} ${pk?.hint ? 'is-hint' : ''} ${pk && !pk.hint ? 'is-peek' : ''}`;
+  b.style.setProperty('--lc', v.color);
+  b.style.setProperty('--d', String(Math.min(4, v.layer)));
+  b.replaceChildren();
+  b.disabled = v.state === 'dug';
+  b.setAttribute(
+    'aria-label',
+    v.state === 'dug'
+      ? t('いちばん奥まで掘ったマス', 'Dug to the back')
+      : v.state === 'locked'
+        ? t('深い層の許可が要る', 'Needs a deep-layer permit')
+        : v.state === 'wait'
+          ? t('大きな遺物：まわりのマスも掘ろう', 'Large relic: dig the cells around it')
+          : t(`あと ${v.taps} 回で 1 枚はがれる`, `${v.taps} more strikes to peel`),
+  );
+  if (v.state === 'dug') return;
+  const [x, y] = [v.x, v.y];
+  const paths = crackOfCell(x, y);
+  const seen = pk && !pk.hint ? pk : null;
+  // 割れ目：いまの層の残りの硬さで 1〜3 本。無傷でも中身があれば細いひび 1 本（よく見ると分かる程度）。見える割合が大きいほど幅が広い
+  const lines = Math.max(v.crack, seen ? 1 : 0, seen && seen.frac >= 0.4 ? 2 : 0, seen && seen.frac >= 0.7 ? 3 : 0);
+  const mw = seen ? maskWidth(seen.frac) : 0;
+  const faint = !!seen && seen.frac < 0.3;
+  if (lines) b.append(crackSvg(paths, lines, seen && !faint ? mw + 3 : faint ? 1.4 : 1.6 + v.crack * 0.9));
+  if (seen) {
+    const wrap = h('span', `isl-dig-peek ${seen.item.kind === 'ext' && seen.item.topic ? 'is-topic' : ''} is-${seen.item.kind} ${faint ? 'is-faint' : ''}`);
+    const m = maskUrl(paths.slice(0, lines), mw);
+    wrap.style.setProperty('mask-image', m);
+    wrap.style.setProperty('-webkit-mask-image', m);
+    const big = seen.size[0] > 1 || seen.size[1] > 1;
+    const sz = seen.item.kind === 'ext' ? Math.round(cs * (big ? 2 : 1) * 0.92 + (big ? 3 : 0)) : Math.round(cs * 0.72);
+    const ic = itemIcon(seen.item, sz);
+    ic.classList.add('isl-dig-peekic');
+    if (big) {
+      ic.style.left = `${Math.round(-seen.part[0] * (cs + 3) + cs * 0.04)}px`;
+      ic.style.top = `${Math.round(-seen.part[1] * (cs + 3) + cs * 0.04)}px`;
+      wrap.classList.add('is-big');
+    }
+    wrap.append(ic);
+    b.append(wrap);
+  }
+  if (v.state === 'locked') b.append(h('span', 'isl-dig-lock', '🔒'));
+  if (v.state === 'face' && v.crack > 0) {
+    const pips = h('span', 'isl-dig-pips');
+    for (let i = 0; i < Math.min(5, v.taps); i++) pips.append(h('i'));
+    b.append(pips);
+  }
+}
+
 function paintCells() {
   const p = P!;
   const s = p.ctx.s();
   const L = digSite(s)!;
   const none = !!digBlock(s);
-  for (let k = 0; k < p.cells.length; k++) {
-    const x = k % L.w;
-    const y = Math.floor(k / L.w);
-    const v = cellView(s, x, y);
-    const b = p.cells[k];
-    const key = `${v.state}|${v.crack}|${v.taps}|${v.peek ? JSON.stringify(v.peek) : ''}|${none}`;
-    if (b.dataset.k === key) continue;
-    b.dataset.k = key;
-    b.className = `isl-dig-cell is-${v.state} ${v.crack ? `is-crack${v.crack}` : ''} ${none && v.state === 'open' ? 'is-idle' : ''}`;
-    b.replaceChildren();
-    b.disabled = v.state === 'dug';
-    b.setAttribute('aria-label', v.state === 'dug' ? t('掘ったマス', 'Dug') : v.state === 'open' ? t(`あと ${v.taps} 回で崩れる`, `${v.taps} more strikes`) : v.state === 'locked' ? t('深い層の許可が要る', 'Needs a deep-layer permit') : t('まだ手が届かない', 'Out of reach'));
-    if (v.peek) {
-      const pk = h('span', `isl-dig-peek ${v.peek.kind === 'ext' && v.peek.topic ? 'is-topic' : ''}`);
-      pk.append(itemIcon(v.peek, 32));
-      b.append(pk);
-    }
-    if (v.state === 'open') {
-      const pips = h('span', 'isl-dig-pips');
-      for (let i = 0; i < Math.min(5, v.taps); i++) pips.append(h('i'));
-      b.append(pips);
-    }
-  }
+  for (let k = 0; k < p.cells.length; k++) paintCell(p.cells[k], cellView(s, k % L.w, Math.floor(k / L.w)), none, p.cs);
 }
 
 // ---------------------------------------------------------------- 打つ（タップで 1 打・長押しで連続）
@@ -450,7 +598,7 @@ function bindHold(b: HTMLButtonElement, x: number, y: number) {
     if (e.button !== 0) return;
     stopHold();
     hold = { timer: 0, x, y, px: e.clientX, py: e.clientY, repeating: false, id: e.pointerId };
-    // 長押し：少し待ってから、同じマスを続けて打つ（崩れたら止まる）
+    // 長押し：少し待ってから、同じマスを続けて打つ（その層がはがれたら止まる）
     const loop = () => {
       if (!hold) return;
       hold.repeating = true;
@@ -467,7 +615,7 @@ function bindHold(b: HTMLButtonElement, x: number, y: number) {
     if (!hold) return;
     const rep = hold.repeating;
     stopHold();
-    // 長押しで打っていなければ、指を離したときに 1 打（スクロールしようとしたときは打たない）
+    // 長押しで打っていなければ、指を離したときに 1 打
     if (!rep) strike(x, y);
   });
   b.addEventListener('pointercancel', () => stopHold());
@@ -479,7 +627,7 @@ function bindHold(b: HTMLButtonElement, x: number, y: number) {
   });
 }
 
-/** 打つ：'more'（まだ崩れていない）／'broke'／'err' */
+/** 打つ：'more'（まだはがれていない）／'broke'／'err' */
 function strike(x: number, y: number): 'more' | 'broke' | 'err' {
   const p = P;
   if (!p || p.over) return 'err';
@@ -502,14 +650,16 @@ function strike(x: number, y: number): 'more' | 'broke' | 'err' {
   soonSave();
   showHits(hits, useBlast, useDrill);
   p.hooks.hit?.(hits);
-  // 上の帯（RP・資金）と吹き出しを描き直す
+  // 資金・RP の帯と吹き出しを描き直す
   p.ctx.refresh();
   refreshDig();
-  return hits.some((h2) => h2.broke) ? 'broke' : 'more';
+  const main = hits[0];
+  if (main?.wait) p.err = { text: digErrText('wait'), until: performance.now() + 2200 };
+  return hits.some((h2) => h2.broke) ? 'broke' : main?.wait ? 'err' : 'more';
 }
 
 /**
- * 「深い層の許可が要る」マス・ロープを押した：トーストと、初めてならパネルの中にマインちゃんの一言。
+ * 「深い層の許可が要る」マス・層の札を押した：画面のひとことと、初めてならマインちゃんの一言。
  * 作業の外（札のあと）なら、スキルツリーの「深い層の許可」へ。作業のあいだは、終わりの札のおすすめを深い層の許可にする
  */
 function deepPressed(x?: number, y?: number) {
@@ -524,7 +674,6 @@ function deepPressed(x?: number, y?: number) {
   }
   p.deepHit = true;
   p.ctx.sfx?.('error');
-  p.ctx.toast(DEEP_LOCK());
   if (x != null && y != null) {
     const c = cellAt(x, y);
     if (c) {
@@ -533,19 +682,8 @@ function deepPressed(x?: number, y?: number) {
       c.classList.add('is-shake');
     }
   }
-  p.err = { text: digErrText('deep'), until: performance.now() + 2600 };
-  if (p.hooks.deepTip?.()) {
-    p.el.querySelector('.isl-dig-mine')?.remove();
-    const w = h('div', 'isl-dig-mine');
-    const mi = h('img');
-    mi.src = assetUrl('mch/Image/Characters/navi_ain_speak_00_talk.png');
-    mi.alt = '';
-    const txt = h('p');
-    txt.append(rich(DEEP_TIP()));
-    w.append(mi, txt, btn('OK', () => w.remove(), 'is-on'));
-    p.el.append(w);
-    window.setTimeout(() => w.isConnected && w.remove(), 7000);
-  }
+  p.err = { text: `${DEEP_LOCK()}　${digErrText('deep')}`, until: performance.now() + 2600 };
+  if (p.hooks.deepTip?.()) mineSay(DEEP_TIP(), 7000);
   refreshDig();
   window.setTimeout(() => P && refreshDig(), 2700);
 }
@@ -588,22 +726,22 @@ function showHits(hits: DigHit[], wasBlast: boolean, wasDrill = false) {
     p.el.append(f);
     window.setTimeout(() => f.remove(), 800);
   }
-  // ドリル：上から順にマスが光る（発破と同じくらいの大きさの演出を縦に）
+  // ドリル：同じマスが奥へ何度も沈む（発破と同じくらいの大きさの演出）
   if (wasDrill) {
     p.el.classList.add('is-drillboom');
     window.setTimeout(() => P?.el.classList.remove('is-drillboom'), 450);
-    hits.forEach((hit, k) => {
-      const c = cellAt(hit.x, hit.y);
-      if (!c) return;
-      c.style.setProperty('--d', `${k * 0.06}s`);
+    const c = cellAt(hits[0]?.x ?? 0, hits[0]?.y ?? 0);
+    if (c) {
+      c.style.setProperty('--n', String(hits.length));
       c.classList.remove('is-drillhit');
       void c.offsetWidth;
       c.classList.add('is-drillhit');
-    });
+    }
   }
-  // 音：打つたびに「ゴツッ」。エクステ・石板は宝箱の音、お題は採掘完了の音（大きい演出のときだけ）
-  p.ctx.sfx?.('dig');
-  if (big === 'topic') window.setTimeout(() => p.ctx.sfx?.('mining'), 120);
+  // 音：はがれるたびに「ゴツッ」（奥の層ほど低く硬い音）。エクステ・石板は宝箱の音、お題・大きな遺物は採掘完了の音（大きい演出のときだけ）
+  const deep = Math.max(0, ...hits.map((x) => x.layer));
+  p.ctx.sfx?.('dig', 1 + deep * 0.18, 1 - deep * 0.13);
+  if (big === 'topic' || big === 'epic') window.setTimeout(() => p.ctx.sfx?.('mining'), 120);
   else if (big === 'ext' || big === 'tablet') window.setTimeout(() => p.ctx.sfx?.('treasure'), 90);
   else if (big === 'mat') window.setTimeout(() => p.ctx.sfx?.('check'), 90);
   if (wasBlast) p.el.classList.add('is-boom');
@@ -619,22 +757,28 @@ function showHits(hits: DigHit[], wasBlast: boolean, wasDrill = false) {
       continue;
     }
     dust(c, 8, true);
+    if (wasBlast) {
+      c.classList.remove('is-peel');
+      void c.offsetWidth;
+      c.classList.add('is-peel');
+    }
     if (f === 'mat' && hit.item?.kind === 'mat') floatUp(c, matIcon(hit.item.mat as Mat, 24), `+${hit.mat ?? hit.item.n}`);
     else if (f === 'ext' && hit.item?.kind === 'ext') {
       const it = hit.item;
       window.setTimeout(() => flyToNotes(c, it.id, findLabel(hit), hit.rp), delay);
-      delay += 160;
+      delay += 220;
     }
     // 復刻品のレシピが開いた：作業を止めない小さな札（まとめは発掘終了の札）
     if (hit.recipe) {
       const key = hit.recipe;
       window.setTimeout(() => recipePing(key), delay + 600);
-    } else if (f === 'tablet' && hit.item?.kind === 'tablet') {
+    }
+    if (f === 'tablet' && hit.item?.kind === 'tablet') {
       const id = hit.item.id;
       window.setTimeout(() => readTablet(id, hit.rp), 350);
-    } else if (f === 'topic' && hit.item?.kind === 'ext') {
+    } else if ((f === 'topic' || f === 'epic') && hit.item?.kind === 'ext') {
       const it = hit.item;
-      window.setTimeout(() => bigTopic(it.id, hit.rp), 250);
+      window.setTimeout(() => bigFind(it.id, hit.rp, f === 'topic', hit), 250);
     }
   }
 }
@@ -644,7 +788,7 @@ function shake(c: HTMLElement) {
   void c.offsetWidth;
   c.classList.add('is-hit');
 }
-/** 砕ける粒（崩れたら多めに、層の色で） */
+/** 砕ける粒（はがれたら多めに、層の色で） */
 function dust(c: HTMLElement, n: number, broke: boolean) {
   const p = P!;
   const r = c.getBoundingClientRect();
@@ -674,7 +818,7 @@ function floatUp(c: HTMLElement, ic: HTMLElement, text: string) {
   p.el.append(f);
   window.setTimeout(() => f.remove(), 1200);
 }
-/** エクステ：絵が飛び出して、研究ノートのボタンへ吸い込まれる（＋RP） */
+/** エクステ：マスから画面の中央に大きく出て（札と RP）、研究ノートのボタンへ吸い込まれる */
 function flyToNotes(c: HTMLElement, id: number, label: string, rp: number) {
   const p = P;
   if (!p) return;
@@ -686,6 +830,8 @@ function flyToNotes(c: HTMLElement, id: number, label: string, rp: number) {
   const sy = r.top + r.height / 2;
   f.style.left = `${sx}px`;
   f.style.top = `${sy}px`;
+  f.style.setProperty('--cx', `${Math.round(innerWidth / 2 - sx)}px`);
+  f.style.setProperty('--cy', `${Math.round(innerHeight * 0.42 - sy)}px`);
   f.style.setProperty('--tx', `${Math.round(nb.left + nb.width / 2 - sx)}px`);
   f.style.setProperty('--ty', `${Math.round(nb.top + nb.height / 2 - sy)}px`);
   p.ctx.root.append(f);
@@ -695,9 +841,9 @@ function flyToNotes(c: HTMLElement, id: number, label: string, rp: number) {
     P.notes.classList.remove('is-gulp');
     void P.notes.offsetWidth;
     P.notes.classList.add('is-gulp');
-  }, 1300);
+  }, 1500);
 }
-/** 新しいレシピ（作業中）：パネルの上に小さく「📜 新しいレシピ！『復刻 ○○』」。作業は止めない */
+/** 新しいレシピ（作業中）：画面の上に小さく「📜 新しいレシピ！『復刻 ○○』」。作業は止めない */
 function recipePing(key: string) {
   const p = P;
   if (!p) return;
@@ -724,7 +870,7 @@ export function recipeCards(keys: string[], make: (key: string) => void): HTMLEl
   }
   return box;
 }
-/** 石板：読み物の小さな窓（パネルの中。時間は止めない） */
+/** 石板：読み物の小さな窓（画面の中。時間は止めない） */
 function readTablet(id: string, rp: number) {
   const p = P;
   if (!p) return;
@@ -739,18 +885,21 @@ function readTablet(id: string, rp: number) {
   w.append(btn(t('閉じる', 'Close'), () => w.remove(), 'is-on'));
   p.el.append(w);
 }
-/** お題：画面の中央に大きく（絵・名前・「お題を発見！」・RP・進み）。タップで閉じる（時間は止めない） */
-function bigTopic(id: number, rp: number) {
+/** お題・大きな遺物（2 × 2）：画面全体に大きく（絵・名前・札・RP・進み）。タップで閉じる（時間は止めない） */
+function bigFind(id: number, rp: number, topic: boolean, hit: DigHit) {
   const p = P;
   if (!p) return;
   document.querySelector('.isl-dig-big')?.remove();
   const s = p.ctx.s();
   const st = digStatus(s);
-  const w = h('div', 'isl-dig-big');
+  const w = h('div', `isl-dig-big ${topic ? '' : 'is-epic'}`);
   const box = h('div', 'isl-dig-big-box');
   const rays = h('i', 'isl-dig-big-rays');
-  box.append(rays, h('span', 'isl-dig-big-tag', t('お題を発見！', 'Target found!')), extIcon(id, 128), h('b', 'isl-dig-big-name', extName(id)), h('span', 'isl-dig-big-rp', t(`研究 Lv5・研究ポイント +${rp}`, `Research Lv5 · RP +${rp}`)));
-  if (st) box.append(h('small', 'isl-dig-big-prog', st.topics[0] >= st.topics[1] ? t(`お題 ${st.topics[0]} / ${st.topics[1]}：全部そろった！ 町の長に発表しよう`, `Targets ${st.topics[0]} / ${st.topics[1]}: all found! Present to the town head`) : t(`お題 ${st.topics[0]} / ${st.topics[1]}`, `Targets ${st.topics[0]} / ${st.topics[1]}`)));
+  const tag = topic ? t('お題を発見！', 'Target found!') : t('大きな遺物を発見！', 'A large relic!');
+  const sub = topic ? t(`研究 Lv5・研究ポイント +${rp}`, `Research Lv5 · RP +${rp}`) : `${findLabel(hit)}${rp ? t(`・研究ポイント +${rp}`, ` · RP +${rp}`) : ''}`;
+  box.append(rays, h('span', 'isl-dig-big-tag', tag), extIcon(id, 128), h('b', 'isl-dig-big-name', extName(id)), h('span', 'isl-dig-big-rp', sub));
+  if (topic && st) box.append(h('small', 'isl-dig-big-prog', st.topics[0] >= st.topics[1] ? t(`お題 ${st.topics[0]} / ${st.topics[1]}：全部そろった！ 町の長に発表しよう`, `Targets ${st.topics[0]} / ${st.topics[1]}: all found! Present to the town head`) : t(`お題 ${st.topics[0]} / ${st.topics[1]}`, `Targets ${st.topics[0]} / ${st.topics[1]}`)));
+  if (!topic) box.append(h('small', 'isl-dig-big-prog', t('4 マスぶんの大きな遺物（Epic 以上）', 'A 4-cell relic (Epic or above)')));
   box.append(h('small', 'isl-dig-big-tap', t('▶ タップで閉じる', '▶ Tap to close')));
   w.append(box);
   const close = () => w.remove();
@@ -782,9 +931,10 @@ function pickDigger() {
       } else {
         if (full && cur != null && hero !== cur && s.staff.find((x) => x.hero === hero)?.task !== 'dig') assign(s, cur, null);
         const e = assign(s, hero, 'dig', null);
-        if (e === 'crew-full') p.ctx.toast(t(`発掘隊は ${cap} 人まで（スキル → 発掘の「発掘隊の役所」で増える）`, `Crew limit is ${cap} (raise it with Dig crew office)`));
-        else if (e) p.ctx.toast(t('この人は、いまは発掘の担当にできません', 'This hero can’t dig right now'));
-        else p.ctx.toast(t(`${heroName(hero)}が発掘隊になりました`, `${heroName(hero)} joined the dig crew`));
+        const say = (text: string, good = false) => P && (P.err = { text, until: performance.now() + 2600, good });
+        if (e === 'crew-full') say(t(`発掘隊は ${cap} 人まで（スキル → 発掘の「発掘隊の役所」で増える）`, `Crew limit is ${cap} (raise it with Dig crew office)`));
+        else if (e) say(t('この人は、いまは発掘の担当にできません', 'This hero can’t dig right now'));
+        else say(t(`${heroName(hero)}が発掘隊になりました`, `${heroName(hero)} joined the dig crew`), true);
       }
       p.ctx.save();
       p.ctx.refresh();

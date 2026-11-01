@@ -55,8 +55,8 @@ export class IslandSfx {
     return { state: this.ctx?.state ?? 'none', loaded: this.buf.size, total: ALL.length };
   }
 
-  /** gain：その場だけの大きさ（1 が標準） */
-  play(k: Sfx, gain = 1): void {
+  /** gain：その場だけの大きさ（1 が標準）・rate：再生の速さ（1 が標準。下げると低く重い音。発掘の奥の層） */
+  play(k: Sfx, gain = 1, rate = 1): void {
     const ctx = this.ctx;
     const b = this.buf.get(k);
     if (!ctx || !b || this.level <= 0 || ctx.state !== 'running') return;
@@ -66,6 +66,7 @@ export class IslandSfx {
     this.last.set(k, now);
     const src = ctx.createBufferSource();
     src.buffer = b;
+    if (rate !== 1) src.playbackRate.value = Math.max(0.5, Math.min(2, rate));
     const g = ctx.createGain();
     g.gain.value = Math.min(1, (GAIN[k] ?? 0.6) * this.level * gain);
     src.connect(g).connect(ctx.destination);

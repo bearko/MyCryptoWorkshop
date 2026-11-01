@@ -898,7 +898,7 @@ export const FX_LABEL: Record<FxKind, string> = {
   'dig.crew': t('発掘隊の 1 日に打つ回数', 'Dig crew strikes a day'),
   'dig.autoSpeed': t('常駐の速さ', 'Standing crew speed'),
   'dig.relay': t('常駐で働く日のスタミナの減り', 'Stamina drain on standing days'),
-  'dig.mat': t('崩したマスの素材', 'Materials from cleared cells'),
+  'dig.mat': t('掘り出した素材', 'Materials dug up'),
 };
 /** 発掘の枝の効き目の単位（% でないもの）と、そのものの値で見せるもの（長押しの間隔：170 ms から引いた値） */
 const DIG_UNIT: Partial<Record<FxKind, { suf?: string; pct?: boolean; disp?: (v: number) => number; bare?: boolean }>> = {
@@ -1199,7 +1199,7 @@ export interface DigTree {
 
 /**
  * 地層の発掘と研究ポイントの、自動プレイ（`npm run island:sim`）で直す数字はここにまとめる（docs/ISLAND_BALANCE.md「v8」「v9」）。
- * 使う所：研究パネルの値段（RP_PRICE）・RP の入り方（RP_GAIN）・地層の硬さと荒れ地の断面の行数（DIG）・自動発掘の速さ（DIG_AUTO）・
+ * 使う所：研究パネルの値段（RP_PRICE）・RP の入り方（RP_GAIN）・地層の硬さと荒れ地の壁のマス目・出土品の割合（DIG）・自動発掘の速さ（DIG_AUTO）・
  * 発掘作業の長さ（sessionSec）・長押しの間隔（repeatMs）・発掘許可の申請料（permitFee）・自動プレイの打つ速さ（simTapsPerSec）・
  * 発掘のスキルツリー（tree。発掘 v2 の 2 段目：パネルの値段とレベルごとの効き目。以前の工房の設備投資「ツルハシ・ランタン・発破の道具」はここへ移した）。
  * v8 で直したもの（前 → 後）：Common の粘土層の硬さ 1〜2 → 1〜3・岩盤 2〜3 → 3（掘り尽くすのを Common の 1 か所目の滞在に合わせる）／
@@ -1207,13 +1207,17 @@ export interface DigTree {
  * ツルハシの新調 5,000・15,000 → 10,000・30,000 G（1 か所目のはじめに買って、すぐ掘り尽くさない）／発破の火薬代 1,000 → 2,000 G（余ったお金の使い道）。
  * v9（発掘 v2 の 1 段目）：ツルハシの回数をやめ、荒れ地 4 か所 × 15 秒の発掘作業に（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
  * v10（発掘 v2 の 2 段目）：発掘のスキルツリー（9 本目の枝「発掘」。tree）。道具の値段（tools）・火薬代（blastCost）は tree へ
+ * v11（発掘画面の作り直し）：上から掘る断面（rows）をやめ、正面の壁（wall。横 7 × 縦 9）を手前から奥へ。硬さ（hard）は奥ほど硬く・出土品の割合（odds）は 1 か所の数がそろうように
  */
 export const DIG_BALANCE: {
   rpPrice: Record<Tier, { lo: number; hi: number; big: number; step: number }>;
   rpGain: Record<'C' | 'U', { first: number; lv: [number, number, number, number]; topic: number; tablet: number; present: number }>;
+  /** 地層の硬さ（層ごと。手前 → 奥。奥ほど硬い） */
   hard: Record<'C' | 'U', [number, number][]>;
-  /** 荒れ地 1 か所の断面の、層ごとの行数（横は DIG.<ランク>.w） */
-  rows: Record<'C' | 'U', number[]>;
+  /** 荒れ地 1 か所の正面の壁のマス目（横 × 縦）。各マスに奥行きの層が DIG.<ランク>.layers の数だけ */
+  wall: Record<'C' | 'U', [number, number]>;
+  /** 壁に埋まっているものの割合（マス × 層 1 枚あたり。お題・石板のほかに）：エクステ・素材。残りは土だけ */
+  odds: Record<'C' | 'U', { ext: number; mat: number }>;
   autoPerDay: number;
   /** 発掘のスキルツリー（9 本目の枝「発掘」）。表は Lv1〜5（[0] が Lv1）。deep・study・office は Lv0〜5（[0] が未取得） */
   tree: DigTree;
@@ -1245,22 +1249,24 @@ export const DIG_BALANCE: {
     C: { first: 15, lv: [8, 15, 20, 25], topic: 40, tablet: 20, present: 60 },
     U: { first: 25, lv: [12, 25, 38, 50], topic: 100, tablet: 50, present: 150 },
   },
-  // 地層の硬さ（層ごと。1 打の強さ 1 のときに打つ回数の範囲）
+  // 地層の硬さ（層ごと・手前 → 奥。1 打の強さ 1 のときに打つ回数の範囲）。v11：正面の壁を手前から奥へ。奥ほど硬い
   hard: {
     C: [
       [1, 1],
-      [1, 3],
-      [3, 3],
+      [1, 2],
+      [2, 3],
     ],
     U: [
+      [2, 2],
+      [2, 3],
       [3, 3],
       [3, 4],
-      [4, 4],
-      [4, 5],
     ],
   },
-  // 荒れ地 1 か所の断面の、層ごとの行数（Common 横 7 × 縦 20・Uncommon 横 7 × 縦 24）
-  rows: { C: [7, 7, 6], U: [6, 6, 6, 6] },
+  // 荒れ地 1 か所の正面の壁（横 7 × 縦 9。スマホの縦長の全画面に合う形）
+  wall: { C: [7, 9], U: [7, 9] },
+  // 壁に埋まっているもの（マス × 層 1 枚あたり）。v10 の断面（Common 140 マス・Uncommon 168 マス × エクステ 24%・素材 14%）と、1 か所の出土の数がそろうように
+  odds: { C: { ext: 0.178, mat: 0.104 }, U: { ext: 0.16, mat: 0.093 } },
   // 自動発掘：適性の速さ 1.0 で 1 日に打つ回数
   autoPerDay: 3,
   // 発掘のスキルツリー（仮。Lv が上がるほど levelCost で ×2・×3.5・×5.5・×8）
@@ -1299,7 +1305,7 @@ export const DIG_BALANCE: {
     // 広く掘る：隣のマスへの力（打った強さの割合）と向き（lr 左右・lrd 左右と下・all 上下左右）
     reach: [0.25, 0.35, 0.45, 0.5, 0.6],
     reachDir: ['lr', 'lr', 'lrd', 'all', 'all'],
-    // 発掘のランタン：見える深さ（段）。Lv4 でお題の気配が さらに 2 段先まで、Lv5 で石板も
+    // 発掘のランタン：ひびの隙間から見え始める深さ（何枚手前から。ふだんは いまの層だけ）。Lv4 でお題の気配が さらに 2 枚先から、Lv5 で石板も
     lamp: [1, 2, 3, 3, 3],
     hint: 2,
     // 深い層の許可：掘れる層の数（Lv0〜5）。Lv4・5 は 4 段目のダンジョン用の深さ（準備中）
@@ -1310,7 +1316,7 @@ export const DIG_BALANCE: {
     // 発破：火薬代（G）と大きさ（N × N）
     blastCost: [2000, 1500, 1000, 1000, 1000],
     blastSize: [3, 3, 3, 4, 5],
-    // 掘削ドリル：押したマスから真下に N マス・1 回の燃料代（G）
+    // 掘削ドリル：押したマス 1 つを奥へ N 層・1 回の燃料代（G）
     drill: [3, 4, 5, 6, 7],
     drillFuel: 1000,
     // 発掘隊の役所：隊の人数の上限（Lv0〜5）・発掘隊の手際：1 日に打つ回数 +20%／Lv
@@ -1358,14 +1364,14 @@ export const DIG_SKILLS: Skill[] = [
     ],
   }),
   dig_('dig_speed', t('手早い掘り方', 'Quick swings'), t('長押しで続けて打つ間隔 170 → 150・130・115・100・90 ms', 'Hold-strike interval 170 → 150, 130, 115, 100, 90 ms'), { requires: ['dig_power'], fx: [{ kind: 'dig.repeat', v: DT.repeat[0], at: DT.repeat }] }),
-  dig_('dig_reach', t('広く掘る', 'Wide digging'), t('打ったマスの隣にも力の一部（Lv1：左右に 25% … Lv5：上下左右に 60%。崩れたら中身も出る）', 'Part of each strike hits neighbours (Lv1: sides 25% … Lv5: all 4 sides 60%; their contents come out too)'), {
+  dig_('dig_reach', t('広く掘る', 'Wide digging'), t('打ったマスの隣の、いまの層にも力の一部（Lv1：左右に 25% … Lv5：上下左右に 60%。はがれたら中身も出る）', 'Part of each strike hits the neighbours’ current layer (Lv1: sides 25% … Lv5: all 4 sides 60%; their contents come out too)'), {
     requires: ['dig_speed'],
     fx: [{ kind: 'dig.reach', v: DT.reach[0], at: DT.reach }],
     show: [dShow(t('力が届く向き', 'Directions'), DT.reachDir.map((d) => REACH_DIR[d]))],
   }),
-  dig_('dig_lamp', t('発掘のランタン', 'Dig lantern'), t('手が届くマスの下まで中身が薄く見える（1 → 3 段）・Lv4 でお題の気配（金の点線）が 2 段先まで・Lv5 で石板も', 'See contents below reachable cells (1 → 3 rows); Lv4: target hints 2 rows further; Lv5: tablets too'), {
+  dig_('dig_lamp', t('発掘のランタン', 'Dig lantern'), t('ひびの隙間から、奥に埋まっているものがうっすら見える（ふだんは いまの層だけ → 1・2・3 枚手前から）・Lv4 でお題の気配（金色のにじみ）が さらに 2 枚先から・Lv5 で石板も', 'Faintly glimpse finds deeper in (normally only the current layer → 1, 2, 3 layers ahead); Lv4: target glow 2 layers further; Lv5: tablets too'), {
     requires: ['dig_ext'],
-    show: [dShow(t('見える深さ', 'Sight'), lvTxt((v) => t(`${v} 段下まで`, `${v} row(s) down`), DT.lamp)), dShow(t('お題の気配', 'Target hints'), [t('なし', 'none'), t('なし', 'none'), t('なし', 'none'), t(`さらに ${DT.hint} 段先まで`, `${DT.hint} more rows`), t(`さらに ${DT.hint} 段先まで（石板も）`, `${DT.hint} more rows (tablets too)`)])],
+    show: [dShow(t('見え始める深さ', 'Sight'), lvTxt((v) => t(`${v} 枚手前から`, `${v} layer(s) ahead`), DT.lamp)), dShow(t('お題の気配', 'Target hints'), [t('なし', 'none'), t('なし', 'none'), t('なし', 'none'), t(`さらに ${DT.hint} 枚先から`, `${DT.hint} more layers`), t(`さらに ${DT.hint} 枚先から（石板も）`, `${DT.hint} more layers (tablets too)`)])],
   }),
   dig_('dig_deep', t('深い層の許可', 'Deep-layer permit'), t('掘れる層の上限：はじめは 2 層目まで（岩盤は国の許可が要る）。Lv1 で岩盤（Common の 3 層目）・Uncommon は Lv2 で 3 層目・Lv3 で 4 層目。Lv4・5 はダンジョン用の深さ（準備中）', 'Deepest layer you may dig: layer 2 at first (bedrock needs a permit). Lv1: bedrock (Common layer 3); Uncommon layer 3 at Lv2, layer 4 at Lv3. Lv4–5: dungeon depth (coming soon)'), {
     requires: ['dig_lamp'],
@@ -1375,13 +1381,13 @@ export const DIG_SKILLS: Skill[] = [
     requires: ['dig_deep'],
     show: [dShow(t('研究 Lv の上限', 'Research cap'), DT.cap.slice(1).map((n) => t(`Lv${n}`, `Lv${n}`))), dShow(t('深い層の倍率', 'Depth multiplier'), DT.deepMul.slice(1).map((m) => (m ? `×${m}` : t('なし', 'none'))))],
   }),
-  dig_('dig_blast', t('発破', 'Blasting'), t('発破が使える（手が届くマスを真ん中に 3 × 3 を一度に崩す・1 回ごとに火薬代）。Lv で火薬代 2,000 → 1,500・1,000 G、Lv4 で 4 × 4・Lv5 で 5 × 5', 'Unlocks blasting (clear 3 × 3 around a reachable cell; powder each time). Powder 2,000 → 1,500 → 1,000 G; 4 × 4 at Lv4, 5 × 5 at Lv5'), {
+  dig_('dig_blast', t('発破', 'Blasting'), t('発破が使える（押したマスを真ん中に 3 × 3 の、いまの層を 1 枚ずつ一度にはがす・硬さに関係なく・1 回ごとに火薬代）。Lv で火薬代 2,000 → 1,500・1,000 G、Lv4 で 4 × 4・Lv5 で 5 × 5', 'Unlocks blasting (peel one layer off the 3 × 3 around the cell at once, however hard; powder each time). Powder 2,000 → 1,500 → 1,000 G; 4 × 4 at Lv4, 5 × 5 at Lv5'), {
     requires: ['dig_power'],
     show: [dShow(t('火薬代', 'Powder'), DT.blastCost.map((v) => `${v.toLocaleString('en-US')} G`)), dShow(t('大きさ', 'Size'), DT.blastSize.map((v) => `${v} × ${v}`))],
   }),
-  dig_('dig_drill', t('掘削ドリル', 'Drill'), t('押したマスから真下に N マスを一度に崩す（Lv1：3 マス … Lv5：7 マス）。1 回ごとに燃料代 1,000 G', 'Clear N cells straight down from the tapped cell (Lv1: 3 … Lv5: 7). 1,000 G fuel each time'), {
+  dig_('dig_drill', t('掘削ドリル', 'Drill'), t('押したマス 1 つを奥へ N 層一気にはがす（Lv1：3 層 … Lv5：7 層）。1 回ごとに燃料代 1,000 G', 'Peel N layers off the tapped cell at once (Lv1: 3 … Lv5: 7). 1,000 G fuel each time'), {
     requires: ['dig_blast'],
-    show: [dShow(t('真下に', 'Straight down'), lvTxt((v) => t(`${v} マス`, `${v} cells`), DT.drill))],
+    show: [dShow(t('奥へ', 'Deeper by'), lvTxt((v) => t(`${v} 層`, `${v} layers`), DT.drill))],
   }),
   dig_('dig_office', t('発掘隊の役所', 'Dig crew office'), t('発掘隊の人数の上限 1 → 2・3・3・4・5 人', 'Dig crew size limit 1 → 2, 3, 3, 4, 5'), {
     requires: ['dig_ext'],
@@ -1405,7 +1411,7 @@ export const DIG_SKILLS: Skill[] = [
     show: [dShow(t('マスの選び方', 'Targeting'), [t('お題の気配を優先', 'targets first'), t('お題の気配を優先', 'targets first'), t('＋研究 Lv の低いもの', '+ low research'), t('＋研究 Lv の低いもの', '+ low research'), t('＋重なりを避ける', '+ avoid maxed')])],
   }),
   dig_('u_dig_relay', t('常駐の交代制', 'Crew shifts'), t('常駐で働く日のスタミナの減り −15%／Lv', 'Stamina drain on standing days −15% per level'), { tier: 'U', requires: ['u_dig_auto'], fx: [{ kind: 'dig.relay', v: DT.relay[0], at: DT.relay }] }),
-  dig_('u_dig_mat', t('素材の選り分け', 'Material sorting'), t('崩したマスの素材 +20%／Lv（端数は持ち越し）', 'Materials from cleared cells +20% per level (fractions carry over)'), { tier: 'U', fx: [{ kind: 'dig.mat', v: DT.mat[0], at: DT.mat }] }),
+  dig_('u_dig_mat', t('素材の選り分け', 'Material sorting'), t('掘り出した素材 +20%／Lv（端数は持ち越し）', 'Materials dug up +20% per level (fractions carry over)'), { tier: 'U', fx: [{ kind: 'dig.mat', v: DT.mat[0], at: DT.mat }] }),
 ];
 SKILLS.push(...DIG_SKILLS);
 /** 発掘の枝のパネル（すべてお金パネル） */
@@ -1589,37 +1595,39 @@ export const MOVE = { rate: 0.5, min: 2000, days: 0.5, refund: 0.3 };
 export type DigTier = 'C' | 'U';
 export interface Stratum {
   name: string;
-  /** 層の行数 */
-  rows: number;
   /** 1 マスの硬さ（打つ回数。1 打の強さ 1 のとき）の範囲 */
   hard: [number, number];
   /** コードで描くときの色（仮。docs/ISLAND_ART_TODO.md） */
   color: string;
 }
 /**
- * 荒れ地 1 か所の発掘場（断面）：横 w × 縦（層の行数の合計。DIG_BALANCE.rows）。上から掘り進める（1 段目か、崩れたマスの隣だけ打てる）。
- * mat：素材のマスで出る数。セクタの地図に荒れ地が 4 か所（WASTE）あり、1 か所に 1 つの断面
+ * 荒れ地 1 か所の発掘場（正面の壁）：横 w × 縦 h のマス目。各マスに奥行きの層が layers の数だけ（手前 → 奥）。
+ * 叩くと手前の層から 1 枚ずつはがれる（どのマスも最初から叩ける）。奥の層ほど硬い。
+ * layers の color は壁の面の色（仮。手前ほど明るい土、奥ほど暗く硬そうな岩。docs/ISLAND_ART_TODO.md）。
+ * mat：素材が出たときの数。セクタの地図に荒れ地が 4 か所（WASTE）あり、1 か所に 1 枚の壁
  */
-export const DIG: Record<DigTier, { w: number; layers: Stratum[]; mat: number; mats: Mat[] }> = {
+export const DIG: Record<DigTier, { w: number; h: number; layers: Stratum[]; mat: number; mats: Mat[] }> = {
   C: {
-    w: 7,
+    w: DIG_BALANCE.wall.C[0],
+    h: DIG_BALANCE.wall.C[1],
     mat: 3,
     mats: ['iron', 'wood', 'clay', 'glass'],
     layers: [
-      { name: t('表土', 'Topsoil'), rows: DIG_BALANCE.rows.C[0], hard: DIG_BALANCE.hard.C[0], color: '#8a6a44' },
-      { name: t('粘土層', 'Clay layer'), rows: DIG_BALANCE.rows.C[1], hard: DIG_BALANCE.hard.C[1], color: '#a0704a' },
-      { name: t('岩盤', 'Bedrock'), rows: DIG_BALANCE.rows.C[2], hard: DIG_BALANCE.hard.C[2], color: '#6f6a66' },
+      { name: t('表土', 'Topsoil'), hard: DIG_BALANCE.hard.C[0], color: '#a77d4e' },
+      { name: t('粘土層', 'Clay layer'), hard: DIG_BALANCE.hard.C[1], color: '#8a5f3c' },
+      { name: t('岩盤', 'Bedrock'), hard: DIG_BALANCE.hard.C[2], color: '#615b57' },
     ],
   },
   U: {
-    w: 7,
+    w: DIG_BALANCE.wall.U[0],
+    h: DIG_BALANCE.wall.U[1],
     mat: 2,
     mats: ['cloth', 'paper', 'gem'],
     layers: [
-      { name: t('岩盤', 'Bedrock'), rows: DIG_BALANCE.rows.U[0], hard: DIG_BALANCE.hard.U[0], color: '#6f6a66' },
-      { name: t('古い港の跡', 'Old harbor ruins'), rows: DIG_BALANCE.rows.U[1], hard: DIG_BALANCE.hard.U[1], color: '#5a6e7a' },
-      { name: t('古い街道の跡', 'Old highway ruins'), rows: DIG_BALANCE.rows.U[2], hard: DIG_BALANCE.hard.U[2], color: '#6b5d74' },
-      { name: t('大地のつなぎ目', 'Seam of the lands'), rows: DIG_BALANCE.rows.U[3], hard: DIG_BALANCE.hard.U[3], color: '#4c4a5e' },
+      { name: t('岩盤', 'Bedrock'), hard: DIG_BALANCE.hard.U[0], color: '#77706b' },
+      { name: t('古い港の跡', 'Old harbor ruins'), hard: DIG_BALANCE.hard.U[1], color: '#566a76' },
+      { name: t('古い街道の跡', 'Old highway ruins'), hard: DIG_BALANCE.hard.U[2], color: '#54495e' },
+      { name: t('大地のつなぎ目', 'Seam of the lands'), hard: DIG_BALANCE.hard.U[3], color: '#38364a' },
     ],
   },
 };
@@ -1628,8 +1636,8 @@ export const DIG: Record<DigTier, { w: number; layers: Stratum[]; mat: number; m
  * 置き場所は区画の内側（道路に面していないマス＝町の 1 マスの建物が建たない所）から、セクタの id で決める（model.ts の wasteSpots）
  */
 export const WASTE = { count: 4, size: 2 };
-/** マスの中身の割合（お題・石板のほかに）：エクステ・素材。残りは土だけ */
-export const DIG_ODDS = { ext: 0.24, mat: 0.14 };
+/** 壁に埋まっているものの割合（マス × 層 1 枚あたり。お題・石板のほかに）：エクステ・素材。残りは土だけ */
+export const DIG_ODDS = DIG_BALANCE.odds;
 /** 石板を置く層（Common 1 枚・Uncommon 2 枚） */
 export const TABLET_LAYERS: Record<DigTier, number[]> = { C: [2], U: [1, 3] };
 /** 発掘隊（仕事「発掘」）：発掘作業のあいだだけ、適性の速さ 1.0 で 1 日に打つ回数（手で掘るほうが速い） */

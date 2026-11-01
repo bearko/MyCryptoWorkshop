@@ -35,7 +35,6 @@ function run(s: P1State, k: number) {
   if (s.digRun) endRun(s);
   if (typeof startRun(s, k) === 'string') throw new Error('run');
 }
-const hp = (s: P1State) => s.dig!.sites[s.dig!.cur].hp;
 function breakCell(s: P1State, x: number, y: number): DigHit {
   for (let k = 0; k < 20; k++) {
     const r = dig(s, x, y);
@@ -44,9 +43,12 @@ function breakCell(s: P1State, x: number, y: number): DigHit {
   }
   throw new Error('not broken');
 }
-const digTo = (s: P1State, x: number, y: number) => {
-  for (let yy = 0; yy < y; yy++) if (hp(s)[yy * 7 + x] > 0) breakCell(s, x, yy);
-  return breakCell(s, x, y);
+/** (x, y) を手前から掘り進めて、層 layer をはがす */
+const digTo = (s: P1State, x: number, y: number, layer: number) => {
+  for (;;) {
+    const r = breakCell(s, x, y);
+    if (r.layer >= layer) return r;
+  }
 };
 /** いまのセクタのお題を n 個（上の層から）掘る（お題のある荒れ地で作業して、終える） */
 function topics(s: P1State, n = 99) {
@@ -55,8 +57,8 @@ function topics(s: P1State, n = 99) {
   for (const L of digLayouts(sec)) {
     if (L.topic == null || !want.includes(L.topic) || s.dig!.topics.includes(L.topic)) continue;
     run(s, L.site);
-    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && c.item.topic);
-    digTo(s, k % 7, Math.floor(k / 7));
+    const f = L.finds.find((g) => g.item.kind === 'ext' && !!g.item.topic)!;
+    digTo(s, f.x, f.y, f.layer);
     endRun(s);
   }
 }

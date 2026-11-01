@@ -273,11 +273,13 @@ export interface Flags {
   digBranch?: 'new' | 'seen';
   /** 「深い層の許可が要る」マスを初めて押した（マインちゃんの一言を出した） */
   digDeepTip?: boolean;
+  /** 発掘画面で、初めてひびの隙間から何かが見えた（マインちゃんの一言を出した） */
+  digPeekTip?: boolean;
 }
 
 export interface P1State {
-  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー。1〜3 のセーブは deserializeP1 で順に移す） */
-  v: 1 | 2 | 3 | 4;
+  /** セーブの版（2：地層の発掘と研究ポイント／3：荒れ地と発掘許可・15 秒の発掘／4：発掘のスキルツリー／5：発掘の正面の壁。1〜4 のセーブは deserializeP1 で順に移す） */
+  v: 1 | 2 | 3 | 4 | 5;
   kind: 'p1';
   seed: number;
   n: number;
@@ -527,7 +529,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
   const n = tier === 'C' ? N : T.n;
   const g = groundOf(n);
   const s: P1State = {
-    v: 4,
+    v: 5,
     kind: 'p1',
     seed,
     n,
@@ -3109,7 +3111,7 @@ export function serializeP1(s: P1State): string {
 export function deserializeP1(json: string): P1State | null {
   try {
     const o = JSON.parse(json) as Omit<P1State, 'ground'>;
-    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4) || o.kind !== 'p1') return null;
+    if ((o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== 4 && o.v !== 5) || o.kind !== 'p1') return null;
     const g = groundOf(o.n);
     const open = o.open ?? (o.buildings.some((b) => b.owner === 'me' && b.left <= 0 && P1B[b.id]?.kind === 'shop') ? o.day - (o.day % DAYS) : null);
     const s: P1State = { ...extras(), ...o, open, ground: g };
@@ -3132,7 +3134,10 @@ export function deserializeP1(json: string): P1State | null {
     s.tablets ??= [];
     s.letters ??= [];
     s.presented ??= [];
+    // 版 3 の断面で掘っていた深さ（版 3 → 4 で、掘れる層の下限に残す）。壁で作り直す前に数える
+    const oldDeep = o.v === 3 ? oldDigDeep(s) : {};
     // 版 2 → 3：荒れ地 4 か所の発掘場に作り直す（研究ノート・RP・お題の発見はそのまま。1 か所目の許可は済み。ツルハシの回数は捨てる）
+    // 版 4 → 5：上から掘る断面を、正面の壁で作り直す（掘りかけの進みは捨てる。許可・掘りきりの印はそのまま）
     ensureDig(s);
     // 発掘作業の途中で閉じた：作業は終わり。月をまたいでいたら、月末ポーズから
     if (s.digRun) {
@@ -3140,9 +3145,9 @@ export function deserializeP1(json: string): P1State | null {
       s.digRun = null;
     }
     // 版 3 → 4：発掘の道具（工房の設備投資）を発掘の枝のパネルへ。研究 Lv・掘れる層は、いままでの深さを下限に
-    if (o.v !== 4) migrateDigTree(s);
+    if (o.v < 4) migrateDigTree(s, oldDeep);
     s.resCapPaid ??= researchCap(s);
-    s.v = 4;
+    s.v = 5;
     if (s.gateOpen && !s.land) s.land = newLand(s.sector);
     // 以前のセーブ：卸問屋が無ければ建てておく
     if (!s.buildings.some((b) => b.id === 'wholesale')) placeTown(s, 'wholesale', rng(s.seed + 11), 'town', [1, 14]);
@@ -3920,16 +3925,21 @@ export function matDays(s: P1State): number | null {
 
 // ---------------------------------------------------------------- 地層の発掘と研究ポイント（docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」）
 
-/** マスの中身：エクステ（topic＝お題）・素材・石板 */
+/** 壁に埋まっているもの：エクステ（topic＝お題）・素材・石板 */
 export type DigItem = { kind: 'ext'; id: number; topic?: boolean } | { kind: 'mat'; mat: Mat; n: number } | { kind: 'tablet'; id: string };
-export interface DigCell {
-  /** 硬さ（打つ回数。1 打の強さ 1 のとき） */
-  hard: number;
-  /** 層の番号（0 が表） */
+/** 壁に埋まっているもの 1 つ：層 layer（0 が手前）の、左上のマス (x, y) から size（横 × 縦）の範囲。Epic 以上のエクステは 2 × 2 */
+export interface DigFind {
+  item: DigItem;
+  x: number;
+  y: number;
+  size: [number, number];
   layer: number;
-  item: DigItem | null;
 }
-/** 荒れ地 1 か所の断面（発掘場） */
+export interface DigCell {
+  /** 層ごとの硬さ（手前 → 奥。打つ回数。1 打の強さ 1 のとき） */
+  hard: number[];
+}
+/** 荒れ地 1 か所の正面の壁（発掘場）。叩くと手前の層から 1 枚ずつはがれる */
 export interface DigLayout {
   sector: string;
   tier: DigTier;
@@ -3937,19 +3947,25 @@ export interface DigLayout {
   site: number;
   w: number;
   h: number;
+  /** 奥行きの層の数（Common 3・Uncommon 4） */
+  depth: number;
   cells: DigCell[];
-  /** 層ごとのはじめの行 */
-  rows: number[];
+  /** 埋まっているもの */
+  finds: DigFind[];
+  /** マス k の層 n に埋まっているもの（finds の番号。無ければ -1）。添え字は k × depth + n */
+  at: number[];
   /** この荒れ地に眠っているお題（エクステの id。無ければ null。1 か所に 1 つまで） */
   topic: number | null;
 }
 /** 荒れ地 1 か所の進み具合 */
 export interface DigSiteState {
-  /** マスごとの残りの硬さ（0 で崩れた） */
+  /** マスごとの、はがした枚数（0〜層の数。層の数なら、いちばん奥まで掘りきったマス） */
+  depth: number[];
+  /** マスごとの、いまの層の残りの硬さ（掘りきったマスは 0。2 × 2 のものの層を叩いて 0 にして、ほかのマスを待っているあいだも 0） */
   hp: number[];
   /** 国の発掘許可をもらった（一度もらえば何度でも掘れる） */
   permit: boolean;
-  /** 掘りきった（マスを全部崩した。復興は 4 段目） */
+  /** 掘りきった（全部のマスを、いちばん奥まではがした。復興は 4 段目） */
   done: boolean;
 }
 /** このセクタの発掘場（荒れ地 4 か所。セクタごと。SECTOR_KEYS の dig） */
@@ -3977,6 +3993,7 @@ export interface DigGot {
   lv: number;
   rp: number;
   mat: number;
+  /** はがした層の枚数（マス × 層） */
   cells: number;
   /** 開いた復刻品のレシピ（商品キー。以前の作業には無い） */
   recipes?: string[];
@@ -3995,12 +4012,20 @@ export interface DigRun {
 export interface DigHit {
   x: number;
   y: number;
-  /** このマスが崩れた */
+  /** 叩いた層（0 が手前） */
+  layer: number;
+  /** このマスの層が 1 枚はがれた */
   broke: boolean;
-  /** 残りの硬さ */
+  /** 打ったあとの、はがした枚数 */
+  depth: number;
+  /** 残りの硬さ（はがれたら、次の層の硬さ） */
   left: number;
-  /** 崩れて出てきたもの */
+  /** はがれて出てきたもの */
   item: DigItem | null;
+  /** 2 × 2 のものの層を 0 にしたが、ほかのマスがまだ（4 マスとも掘ると取れる） */
+  wait?: boolean;
+  /** 大きいもの（2 × 2）が取れた：その範囲（まとめて次の層へ） */
+  span?: { x: number; y: number; w: number; h: number };
   /** 入った研究ポイント */
   rp: number;
   /** はじめて掘ったエクステ */
@@ -4020,8 +4045,8 @@ export interface DigHit {
   /** 広く掘る：同じ 1 打で隣のマスにも当たった結果 */
   extra?: DigHit[];
 }
-/** 打てない理由。deep：深い層の許可が要る（スキル → 発掘）／no-drill：掘削ドリルが無い */
-export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'deep' | 'far' | 'no-blast' | 'no-drill' | 'money';
+/** 打てない理由。dug：いちばん奥まで掘った／deep：深い層の許可が要る（スキル → 発掘）／wait：2 × 2 のものの層を叩ききって、ほかのマスを待っている／no-drill：掘削ドリルが無い */
+export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'deep' | 'wait' | 'no-blast' | 'no-drill' | 'money';
 
 /** 文字列の種（セクタの id → 発掘場の配置の種。同じセクタは何度遊んでも同じ配置） */
 function strSeed(x: string): number {
@@ -4113,12 +4138,56 @@ export function wasteName(sector: string, k: number): string {
   return WASTE_NAMES()[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
 }
 
-// ---------------------------------------------------------------- 荒れ地の断面（発掘場）
+// ---------------------------------------------------------------- 荒れ地の正面の壁（発掘場）
+
+/** エクステのランク（カタログの全シリーズから。見つからなければ Common） */
+let extRar: Map<number, string> | null = null;
+export function extRarity(id: number): string {
+  extRar ??= new Map(allSeries.flatMap((x) => x.items.map((e) => [e.id, e.rarity] as const)));
+  return extRar.get(id) ?? 'Common';
+}
+/** 埋まっているものの大きさ（横 × 縦）：Epic 以上のエクステは 2 × 2（4 マス）、ほかは 1 × 1 */
+export function findSize(it: DigItem): [number, number] {
+  if (it.kind !== 'ext') return [1, 1];
+  const r = extRarity(it.id);
+  return r === 'Epic' || r === 'Legendary' ? [2, 2] : [1, 1];
+}
+/** 埋まっているものの範囲のマス（k） */
+export const findCells = (L: Pick<DigLayout, 'w'>, f: Pick<DigFind, 'x' | 'y' | 'size'>): number[] => {
+  const out: number[] = [];
+  for (let dy = 0; dy < f.size[1]; dy++) for (let dx = 0; dx < f.size[0]; dx++) out.push((f.y + dy) * L.w + f.x + dx);
+  return out;
+};
+/**
+ * 壁の層 layer の (x, y) に、大きさ findSize(item) で埋める（範囲が壁からはみ出すなら false）。範囲の同じ層にあったものは取り除く。
+ * 配置（digLayouts）と、4 段目のダンジョンの奥の Epic（2 × 2）・テストで使う
+ */
+export function placeFind(L: DigLayout, item: DigItem, x: number, y: number, layer: number): DigFind | null {
+  const size = findSize(item);
+  if (x < 0 || y < 0 || x + size[0] > L.w || y + size[1] > L.h || layer < 0 || layer >= L.depth) return null;
+  const f: DigFind = { item, x, y, size, layer };
+  const cells = findCells(L, f);
+  const gone = new Set(cells.map((k) => L.at[k * L.depth + layer]).filter((i) => i >= 0));
+  if (gone.size) {
+    const keep = L.finds.filter((_, i) => !gone.has(i));
+    L.finds.length = 0;
+    L.finds.push(...keep);
+  }
+  L.finds.push(f);
+  // 番号を付け直す
+  L.at.fill(-1);
+  L.finds.forEach((g, i) => {
+    for (const k of findCells(L, g)) L.at[k * L.depth + g.layer] = i;
+  });
+  return f;
+}
 
 const layoutCache = new Map<string, DigLayout[]>();
 /**
- * セクタの荒れ地 4 か所の断面（Common・Uncommon で出土品の決まったセクタだけ。無ければ []）。seed から決めるので、いつも同じ。
- * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は決まった層に（お題と別のマス）
+ * セクタの荒れ地 4 か所の正面の壁（Common・Uncommon で出土品の決まったセクタだけ。無ければ []）。seed から決めるので、いつも同じ。
+ * 横 w × 縦 h のマス目、各マスに奥行きの層（手前 → 奥。奥ほど硬い）。埋まっているものは、ある層のある範囲（1 × 1。Epic 以上は 2 × 2）。
+ * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は決まった層に（お題と別のマス）。
+ * 1 マスの 1 つの層には 1 つまで（重ならない）。ほかはマス × 層ごとに DIG_ODDS の割合でエクステ・素材
  */
 export function digLayouts(sector: string): DigLayout[] {
   const hit = layoutCache.get(sector);
@@ -4131,6 +4200,7 @@ export function digLayouts(sector: string): DigLayout[] {
     return [];
   }
   const D = DIG[tier];
+  const odds = DIG_ODDS[tier];
   const r = rng(strSeed(`dig:${sector}`));
   const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
   const shuffle = <T>(xs: T[]) => {
@@ -4146,6 +4216,7 @@ export function digLayouts(sector: string): DigLayout[] {
   const special = new Set<Mat>([...(prof.cheap ?? []), ...(tier === 'U' ? (prof.routes ?? []) : [])]);
   const matBag = D.mats.flatMap((m) => (special.has(m) ? [m, m, m] : [m]));
   const n = wasteSpots(sector).length;
+  const depth = D.layers.length;
   // どの荒れ地にどのお題があるか（1 か所に 1 つまで）と、石板を置く荒れ地
   const order = shuffle(Array.from({ length: n }, (_, k) => k));
   const topicAt = new Map<number, number>();
@@ -4155,50 +4226,49 @@ export function digLayouts(sector: string): DigLayout[] {
   const out: DigLayout[] = [];
   for (let sk = 0; sk < n; sk++) {
     const cells: DigCell[] = [];
-    const rows: number[] = [];
-    let y0 = 0;
+    for (let k = 0; k < D.w * D.h; k++) cells.push({ hard: D.layers.map((L) => L.hard[0] + Math.floor(r() * (L.hard[1] - L.hard[0] + 1))) });
     const tk = topicAt.get(sk);
-    D.layers.forEach((L, layer) => {
-      rows.push(y0);
-      for (let y = 0; y < L.rows; y++)
-        for (let x = 0; x < D.w; x++) {
-          const hard = L.hard[0] + Math.floor(r() * (L.hard[1] - L.hard[0] + 1));
-          const roll = r();
-          const item: DigItem | null = roll < DIG_ODDS.ext ? { kind: 'ext', id: pick(site.finds) } : roll < DIG_ODDS.ext + DIG_ODDS.mat ? { kind: 'mat', mat: pick(matBag), n: D.mat } : null;
-          cells.push({ hard, layer, item });
-        }
-      // この層のどこか（1 段目は避ける）
-      const at = (taken: number[]) => {
-        for (;;) {
-          const k = (y0 + 1 + Math.floor(r() * Math.max(1, L.rows - 1))) * D.w + Math.floor(r() * D.w);
-          if (!taken.includes(k)) return k;
-        }
-      };
-      const taken: number[] = [];
-      if (tk === layer) {
-        const k = at(taken);
-        taken.push(k);
-        cells[k].item = { kind: 'ext', id: site.topics[layer], topic: true };
+    const L: DigLayout = { sector, tier, site: sk, w: D.w, h: D.h, depth, cells, finds: [], at: new Array<number>(D.w * D.h * depth).fill(-1), topic: tk != null ? site.topics[tk] : null };
+    // 空いている所（その層で、範囲のどのマスにもまだ何も無い）にランダムに
+    const putSomewhere = (item: DigItem, layer: number) => {
+      const [sw, sh] = findSize(item);
+      for (let guard = 0; guard < 200; guard++) {
+        const x = Math.floor(r() * (D.w - sw + 1));
+        const y = Math.floor(r() * (D.h - sh + 1));
+        if (findCells(L, { x, y, size: [sw, sh] }).every((k) => L.at[k * depth + layer] < 0)) return placeFind(L, item, x, y, layer);
       }
-      const ti = TABLET_LAYERS[tier].indexOf(layer);
-      if (ti >= 0 && tabs[ti] && tabSites[ti % n] === sk) cells[at(taken)].item = { kind: 'tablet', id: tabs[ti].id };
-      y0 += L.rows;
+      return null;
+    };
+    if (tk != null) putSomewhere({ kind: 'ext', id: site.topics[tk], topic: true }, tk);
+    TABLET_LAYERS[tier].forEach((layer, ti) => {
+      if (tabs[ti] && tabSites[ti % n] === sk) putSomewhere({ kind: 'tablet', id: tabs[ti].id }, layer);
     });
-    out.push({ sector, tier, site: sk, w: D.w, h: y0, cells, rows, topic: tk != null ? site.topics[tk] : null });
+    // ほか：マス × 層ごとに
+    for (let layer = 0; layer < depth; layer++)
+      for (let k = 0; k < D.w * D.h; k++) {
+        const roll = r();
+        const item: DigItem | null = roll < odds.ext ? { kind: 'ext', id: pick(site.finds) } : roll < odds.ext + odds.mat ? { kind: 'mat', mat: pick(matBag), n: D.mat } : null;
+        if (!item || L.at[k * depth + layer] >= 0) continue;
+        const f: DigFind = { item, x: k % D.w, y: Math.floor(k / D.w), size: findSize(item), layer };
+        if (findCells(L, f).every((c) => c < D.w * D.h && L.at[c * depth + layer] < 0) && f.x + f.size[0] <= D.w) placeFind(L, item, f.x, f.y, layer);
+      }
+    out.push(L);
   }
   layoutCache.set(sector, out);
   return out;
 }
-/** 荒れ地 k の断面（無ければ null） */
+/** 荒れ地 k の壁（無ければ null） */
 export const digLayout = (sector: string, k = 0): DigLayout | null => digLayouts(sector)[k] ?? null;
 
+/** まだ掘っていない荒れ地 1 か所（どのマスも 0 枚・手前の層の硬さ） */
+const freshSite = (L: DigLayout): DigSiteState => ({ depth: L.cells.map(() => 0), hp: L.cells.map((c) => c.hard[0]), permit: false, done: false });
 /** 新しい発掘場（荒れ地 4 か所。そのセクタに発掘場が無ければ null）。許可はまだ（1 か所目は申請料なし） */
 export function newDig(sector: string): DigState | null {
   const Ls = digLayouts(sector);
   if (!Ls.length) return null;
-  return { sector, sites: Ls.map((L) => ({ hp: L.cells.map((c) => c.hard), permit: false, done: false })), cur: 0, topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 } };
+  return { sector, sites: Ls.map(freshSite), cur: 0, topics: [], carry: 0, month: { found: 0, lv: 0, rp: 0 } };
 }
-/** いま掘っている荒れ地の断面 */
+/** いま掘っている荒れ地の壁 */
 export const digSite = (s: Pick<P1State, 'dig'>) => (s.dig ? digLayout(s.dig.sector, s.dig.cur) : null);
 /** いま掘っている荒れ地の進み具合 */
 const curSite = (s: Pick<P1State, 'dig'>) => s.dig?.sites[s.dig.cur] ?? null;
@@ -4222,7 +4292,7 @@ export const digRepeatMs = (s: P1State) => DIG_BALANCE.repeatMs - fxSum(s, 'dig.
 /** 掘れる層の数（深い層の許可。はじめは 2 層目まで。古いセーブは掘っていた深さを下限に） */
 export const deepLayers = (s: P1State, tier: DigTier) => Math.max(DT.deep[tier][Math.min(5, lvOf(s, 'dig_deep'))], s.digOld?.deep?.[tier] ?? 0);
 /**
- * 画面に依存しない値（発掘画面の作り直しでもそのまま使う）：掘ってよい深さの上限（層の数）・ドリル 1 回で深さ方向に崩す数・
+ * 画面に依存しない値（発掘画面の作り直しでもそのまま使う）：掘ってよい深さの上限（層の数）・ドリル 1 回で奥へはがす層の数・
  * 発破 1 回の広さ（N × N）・見える深さ（段）。断面の描き方は digui.ts だけが知っている
  */
 export const digDepthLimit = (s: P1State, tier: DigTier) => deepLayers(s, tier);
@@ -4251,59 +4321,114 @@ export const crewMul = (s: P1State) => 1 + fxSum(s, 'dig.crew');
 export const hasAuto = (s: P1State) => lvOf(s, 'u_dig_auto') > 0;
 /** 常駐の速さ（作業中の何割）：常駐の Lv の表 ×（1 ＋ 段取りの +10%／Lv） */
 export const autoRate = (s: P1State) => atLv(DT.auto, lvOf(s, 'u_dig_auto')) * (1 + fxSum(s, 'dig.autoSpeed'));
-/** そのマスは崩れている */
+/** そのマスは、いちばん奥まで掘りきった */
 export const isDug = (s: Pick<P1State, 'dig'>, x: number, y: number) => {
   const L = digSite(s);
-  return !!L && x >= 0 && y >= 0 && x < L.w && y < L.h && curSite(s)!.hp[y * L.w + x] <= 0;
+  return !!L && x >= 0 && y >= 0 && x < L.w && y < L.h && curSite(s)!.depth[y * L.w + x] >= L.depth;
 };
-/** そのマスに手が届く（1 段目か、上下左右のどこかが崩れている） */
-export function reachable(s: Pick<P1State, 'dig'>, x: number, y: number): boolean {
-  if (y === 0) return true;
-  return isDug(s, x, y - 1) || isDug(s, x - 1, y) || isDug(s, x + 1, y) || isDug(s, x, y + 1);
+/** そのマスの、はがした枚数（＝いまの層の番号。いちばん奥まで掘ったら層の数） */
+export const cellDepth = (s: Pick<P1State, 'dig'>, x: number, y: number) => {
+  const L = digSite(s);
+  return L ? (curSite(s)!.depth[y * L.w + x] ?? 0) : 0;
+};
+/** マス k の層 layer に埋まっているもの（もう見つけたお題・もう読んだ石板は出ない：見つけ済みのものは、作り直した壁にも置かない） */
+function findAt(s: Pick<P1State, 'dig'> & Partial<Pick<P1State, 'tablets'>>, L: DigLayout, k: number, layer: number): DigFind | null {
+  // （掘り出した瞬間は、まだ topics・tablets に入っていないので出る）
+  const i = L.at[k * L.depth + layer];
+  if (i == null || i < 0) return null;
+  const f = L.finds[i];
+  const it = f.item;
+  if (it.kind === 'ext' && it.topic && s.dig?.topics.includes(it.id)) return null;
+  if (it.kind === 'tablet' && s.tablets?.includes(it.id)) return null;
+  return f;
 }
-/** マスの中身（もう見つけたお題は、ほかの荒れ地で二度と出ない：古いセーブの移し替えで配置が変わったとき） */
-function itemAt(s: Pick<P1State, 'dig'>, L: DigLayout, k: number): DigItem | null {
-  // （掘り出した瞬間は、まだ topics に入っていないので出る）
-  const it = L.cells[k].item;
-  if (it?.kind === 'ext' && it.topic && s.dig?.topics.includes(it.id)) return null;
-  return it;
+/** いま掘っている荒れ地の、マス (x, y) の層 layer に埋まっているもの（見つけ済みのお題・読んだ石板は null） */
+export function findOf(s: P1State, x: number, y: number, layer: number): DigFind | null {
+  const L = digSite(s);
+  if (!L || x < 0 || y < 0 || x >= L.w || y >= L.h || layer < 0 || layer >= L.depth) return null;
+  return findAt(s, L, y * L.w + x, layer);
 }
-/** そのマスの、手が届くマスからの深さ（同じ列で上へ何段。0 は手が届く。届かなければ Infinity） */
-function depthFromReach(s: Pick<P1State, 'dig'>, x: number, y: number, max: number): number {
-  for (let dy = 0; dy <= max; dy++) {
-    const yy = y - dy;
-    if (yy < 0) break;
-    if (!isDug(s, x, yy) && reachable(s, x, yy)) return dy;
-  }
-  return Infinity;
+
+/** 覗き見（ひびの隙間から見える、埋まっているもの） */
+export interface PeekView {
+  item: DigItem;
+  /** 埋まっている層 */
+  layer: number;
+  /** いまの層から何枚奥か（0：いまの層＝その層をはがせば取れる・1 以上はランタンのときだけ） */
+  ahead: number;
+  /** 見える割合（0〜1。ひびの隙間から見えるアイコンの面積） */
+  frac: number;
+  /** 大きいもの（2 × 2）のうち、このマスに見える部分（範囲の左上からのずれ） */
+  part: [number, number];
+  size: [number, number];
+  /** ランタン Lv4〜：遠くのお題（Lv5 は石板も）の気配だけ（金色のにじみ） */
+  hint?: boolean;
+}
+/** ひびの隙間から見え始める深さ（何枚手前から）：ふだんは いまの層だけ（0）・ランタン Lv1・2・3 で 1・2・3 枚手前から */
+export const peekAhead = (s: P1State) => lampRows(s);
+/**
+ * 覗き見の見える割合（純粋な関数）：ahead（何枚手前か）と、いまの層の残りの硬さ（left / hard・1 打の強さ power）。
+ * そのものの層（ahead 0）：無傷は 12%（細いひび 1 本。「何かある」程度で形は分からない）→ 叩いて残りが減るほど 40% → 90%（残り 1 打）・
+ * 2 × 2 を待っている（0）は 95%／1 枚以上手前（ランタンのときだけ）：うっすら 20%・15%・10%
+ */
+export function peekFrac(ahead: number, left: number, hard: number, power: number): number {
+  if (ahead >= 1) return Math.max(0.1, Math.round((0.25 - 0.05 * ahead) * 100) / 100);
+  if (left <= 0) return 0.95;
+  if (left >= hard) return 0.12;
+  const full = Math.max(1, Math.ceil(hard / power - 1e-9));
+  const now = Math.max(1, Math.ceil(left / power - 1e-9));
+  // 叩いたあとの段階：1 段目 40% … 残り 1 打 90%
+  const m = full - 1;
+  const i = Math.max(1, full - now);
+  return m <= 1 ? 0.9 : Math.round((0.4 + (0.5 * (i - 1)) / (m - 1)) * 100) / 100;
+}
+/** ひびの段階（純粋な関数）：いまの層の残りの硬さに合わせて 0（無傷）・1・2・3（あと少し・待っている） */
+export function crackOf(left: number, hard: number): 0 | 1 | 2 | 3 {
+  if (left >= hard) return 0;
+  if (left <= 0) return 3;
+  const d = 1 - left / hard;
+  return d < 0.34 ? 1 : d < 0.67 ? 2 : 3;
 }
 /**
- * ランタン（発掘のランタン）：手が届くマスから lampRows 段下まで、中身が薄く見える。
- * Lv4 からはお題の気配（金の点線）が さらに 2 段先まで、Lv5 は石板も
+ * マス (x, y) の覗き見（無ければ null）：そのマスの、いまの層（ランタンがあれば peekAhead 枚奥まで）に埋まっているもの（いちばん手前の 1 つ）。
+ * ランタン Lv4 からは、お題の気配が さらに 2 枚先から（Lv5 は石板も。気配だけ）
  */
-export function peek(s: P1State, x: number, y: number): DigItem | null {
+export function peekView(s: P1State, x: number, y: number): PeekView | null {
   const L = digSite(s);
   if (!L || x < 0 || y < 0 || x >= L.w || y >= L.h) return null;
-  if (isDug(s, x, y)) return L.cells[y * L.w + x].item;
-  const rows = lampRows(s);
-  if (rows <= 0) return null;
-  const it = itemAt(s, L, y * L.w + x);
+  const k = y * L.w + x;
+  const st = curSite(s)!;
+  const d = st.depth[k];
+  if (d >= L.depth) return null;
+  const ahead = peekAhead(s);
   const lv = lvOf(s, 'dig_lamp');
-  const far = lv >= 4 ? rows + DT.hint : rows;
-  const d = depthFromReach(s, x, y, far);
-  if (d <= rows) return it;
-  if (d <= far && it && ((it.kind === 'ext' && it.topic) || (lv >= 5 && it.kind === 'tablet'))) return it;
+  const far = lv >= 4 ? ahead + DT.hint : ahead;
+  for (let n = d; n < L.depth && n - d <= far; n++) {
+    const f = findAt(s, L, k, n);
+    if (!f) continue;
+    const a = n - d;
+    const base = { item: f.item, layer: n, ahead: a, part: [x - f.x, y - f.y] as [number, number], size: f.size };
+    if (a <= ahead) return { ...base, frac: peekFrac(a, st.hp[k], L.cells[k].hard[d], digPower(s)) };
+    if ((f.item.kind === 'ext' && f.item.topic) || (lv >= 5 && f.item.kind === 'tablet')) return { ...base, frac: 0.1, hint: true };
+  }
   return null;
 }
-/** そのマスを打てない理由（null なら打てる）。打てるのは発掘作業のあいだだけ（回数の制限は無い） */
+/** ランタンで薄く見えている中身（覗き見の中身だけ。気配は除く） */
+export function peek(s: P1State, x: number, y: number): DigItem | null {
+  const v = peekView(s, x, y);
+  return v && !v.hint ? v.item : null;
+}
+/** そのマスを打てない理由（null なら打てる）。どのマスも最初から叩ける。打てるのは発掘作業のあいだだけ（回数の制限は無い） */
 export function digCheck(s: P1State, x: number, y: number): DigErr | null {
   const L = digSite(s);
   if (!L || !s.dig) return 'no-site';
   if (!s.digRun || s.digRun.site !== s.dig.cur) return 'no-run';
   if (x < 0 || y < 0 || x >= L.w || y >= L.h) return 'out';
-  if (curSite(s)!.hp[y * L.w + x] <= 0) return 'dug';
-  if (!layerOpen(s, L, L.cells[y * L.w + x].layer)) return 'deep';
-  if (!reachable(s, x, y)) return 'far';
+  const k = y * L.w + x;
+  const st = curSite(s)!;
+  if (st.depth[k] >= L.depth) return 'dug';
+  if (!layerOpen(s, L, st.depth[k])) return 'deep';
+  if (st.hp[k] <= 0) return 'wait';
   return null;
 }
 /** お題のエクステ（その場で研究 Lv5。研究 Lv の上限に掛からない） */
@@ -4367,11 +4492,10 @@ function countLv(s: P1State) {
   s.dig!.month.lv++;
   if (s.digRun) s.digRun.got.lv++;
 }
-/** マスが崩れた：中身を受け取る（研究レベル・RP・素材・石板・お題） */
-function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
-  const it = itemAt(s, L, k);
+/** 層がはがれて、埋まっていたものが取れた：中身を受け取る（研究レベル・RP・素材・石板・お題） */
+function reveal(s: P1State, L: DigLayout, f: DigFind, hit: DigHit) {
+  const it = f.item;
   hit.item = it;
-  if (!it) return;
   const G = RP_GAIN[L.tier];
   if (it.kind === 'mat') {
     // 素材の選り分け：+20%／Lv（端数は持ち越し）
@@ -4411,7 +4535,7 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
   }
   // 深い層ほど研究が進みやすい（研究の目利きの Lv3〜）：層 n で 1 + 0.25 × (n − 1) × 倍率 個ぶん（端数は持ち越し）
   s.resCarry ??= {};
-  const add = researchGain(s, L.cells[k].layer) + (s.resCarry[it.id] ?? 0);
+  const add = researchGain(s, f.layer) + (s.resCarry[it.id] ?? 0);
   const whole = Math.max(1, Math.floor(add + 1e-9));
   s.resCarry[it.id] = Math.max(0, add - whole);
   const n = before + whole;
@@ -4443,21 +4567,50 @@ function gotRecipe(s: P1State, id: number, hit: DigHit) {
   hit.recipe = key;
   if (s.digRun) (s.digRun.got.recipes ??= []).push(key);
 }
-/** 1 マスを強さ power で打つ。崩れたら中身が出る。全部崩れたら、その荒れ地は掘りきった（done） */
+/** マス k の層を 1 枚はがして、次の層へ（いちばん奥なら硬さ 0） */
+function peel(L: DigLayout, st: DigSiteState, k: number) {
+  st.depth[k]++;
+  st.hp[k] = st.depth[k] < L.depth ? L.cells[k].hard[st.depth[k]] : 0;
+}
+/**
+ * 1 マスのいまの層を強さ power で打つ（余った力は奥の層に届かない：1 打で 1 枚まで）。0 で 1 枚はがれて次の層へ。
+ * 埋まっていたものは、その範囲の全部のマスがその層まではがれた（その層を叩いて 0 にした）ときに取れる（取れたら範囲のマスはまとめて次の層へ）。
+ * 全部のマスがいちばん奥まではがれたら、その荒れ地は掘りきった（done）
+ */
 function strike(s: P1State, L: DigLayout, x: number, y: number, power: number): DigHit {
   const k = y * L.w + x;
   const st = s.dig!.sites[L.site];
-  const hp = st.hp;
+  const layer = st.depth[k];
+  const hit: DigHit = { x, y, layer, broke: false, depth: layer, left: st.hp[k], item: null, rp: 0 };
+  if (layer >= L.depth || st.hp[k] <= 0) return hit;
   // 隣への力（広く掘る）は端数になるので、小数 2 桁で丸める
-  hp[k] = Math.max(0, Math.round((hp[k] - power) * 100) / 100);
-  const hit: DigHit = { x, y, broke: hp[k] <= 0, left: hp[k], item: null, rp: 0 };
-  if (hit.broke) {
-    if (s.digRun) s.digRun.got.cells++;
-    reveal(s, L, k, hit);
-    if (!st.done && hp.every((v) => v <= 0)) {
-      st.done = true;
-      hit.done = true;
+  st.hp[k] = Math.max(0, Math.round((st.hp[k] - power) * 100) / 100) || 0;
+  hit.left = st.hp[k];
+  if (st.hp[k] > 0) return hit;
+  const f = findAt(s, L, k, layer);
+  if (f && f.size[0] * f.size[1] > 1) {
+    // 大きいもの（2 × 2）：範囲の 4 マスとも、その層を叩いて 0 にするまで待つ
+    const cells = findCells(L, f);
+    if (!cells.every((c) => st.depth[c] === layer && st.hp[c] <= 0)) {
+      hit.wait = true;
+      return hit;
     }
+    for (const c of cells) peel(L, st, c);
+    if (s.digRun) s.digRun.got.cells += cells.length;
+    hit.span = { x: f.x, y: f.y, w: f.size[0], h: f.size[1] };
+    hit.broke = true;
+    reveal(s, L, f, hit);
+  } else {
+    peel(L, st, k);
+    if (s.digRun) s.digRun.got.cells++;
+    hit.broke = true;
+    if (f) reveal(s, L, f, hit);
+  }
+  hit.depth = st.depth[k];
+  hit.left = st.hp[k];
+  if (!st.done && st.depth.every((v) => v >= L.depth)) {
+    st.done = true;
+    hit.done = true;
   }
   return hit;
 }
@@ -4486,7 +4639,9 @@ const REACH_DIRS: Record<'lr' | 'lrd' | 'all', [number, number][]> = {
     [0, 1],
   ],
 };
-/** 1 打（会心・広く掘るを含む）：そのマスを power で打ち、隣のマスにも力の一部（掘ってよい層のマスだけ） */
+/** マス k のいまの層を打てる（いちばん奥まで掘っていない・掘ってよい層・待っていない） */
+const open1 = (s: P1State, L: DigLayout, st: DigSiteState, k: number) => st.depth[k] < L.depth && st.hp[k] > 0 && layerOpen(s, L, st.depth[k]);
+/** 1 打（会心・広く掘るを含む）：そのマスを power で打ち、隣のマスの いまの層 にも力の一部（掘ってよい層のマスだけ） */
 function strikeAt(s: P1State, L: DigLayout, x: number, y: number, power: number): DigHit {
   const crit = rollCrit(s);
   const p = crit ? power * DT.critMul : power;
@@ -4495,11 +4650,11 @@ function strikeAt(s: P1State, L: DigLayout, x: number, y: number, power: number)
   const lv = lvOf(s, 'dig_reach');
   const r = fxSum(s, 'dig.reach');
   if (lv > 0 && r > 0) {
-    const hp = s.dig!.sites[L.site].hp;
+    const st = s.dig!.sites[L.site];
     for (const [dx, dy] of REACH_DIRS[DT.reachDir[Math.min(5, lv) - 1]]) {
       const X = x + dx;
       const Y = y + dy;
-      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0 || !layerOpen(s, L, L.cells[Y * L.w + X].layer)) continue;
+      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || !open1(s, L, st, Y * L.w + X)) continue;
       const h2 = strike(s, L, X, Y, p * r);
       h2.splash = true;
       (hit.extra ??= []).push(h2);
@@ -4508,7 +4663,7 @@ function strikeAt(s: P1State, L: DigLayout, x: number, y: number, power: number)
   }
   return hit;
 }
-/** 打つ：そのマスを 1 打（1 打の強さ digPower・会心・広く掘る）。崩れたら中身が出る。発掘作業のあいだは何回でも打てる。打てなければ理由（DigErr） */
+/** 打つ：そのマスを 1 打（1 打の強さ digPower・会心・広く掘る）。その層がはがれたら中身が出る。発掘作業のあいだは何回でも打てる。打てなければ理由（DigErr） */
 export function dig(s: P1State, x: number, y: number): DigHit | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
@@ -4516,45 +4671,47 @@ export function dig(s: P1State, x: number, y: number): DigHit | DigErr {
 }
 /** 発破が使えるか（スキル「発破」） */
 export const hasBlast = (s: P1State) => lvOf(s, 'dig_blast') > 0;
-/** 発破：火薬代で、(x, y) を真ん中に N × N マスを一度に崩す（(x, y) に手が届くこと。深い層の許可が無い層は崩さない） */
+/** 発破：火薬代で、(x, y) を真ん中に N × N マスの いまの層を 1 枚ずつ はがす（硬さに関係なく 1 枚。深い層の許可が無い層・待っているマスははがさない） */
 export function blast(s: P1State, x: number, y: number): DigHit[] | DigErr {
   const e = digCheck(s, x, y);
-  if (e) return e;
+  // 真ん中のマスが掘りきっていても、まわりがはがせれば使える
+  if (e && e !== 'dug' && e !== 'deep' && e !== 'wait') return e;
   if (!hasBlast(s)) return 'no-blast';
-  const cost = blastCost(s);
-  if (s.money < cost) return 'money';
   const L = digSite(s)!;
-  s.money -= cost;
-  spend(s, 'build', cost);
-  const hp = curSite(s)!.hp;
-  const out: DigHit[] = [];
+  const st = curSite(s)!;
   const n = blastSize(s);
   const lo = -Math.floor((n - 1) / 2);
+  const targets: [number, number][] = [];
   for (let dy = lo; dy < lo + n; dy++)
     for (let dx = lo; dx < lo + n; dx++) {
       const X = x + dx;
       const Y = y + dy;
-      if (X < 0 || Y < 0 || X >= L.w || Y >= L.h || hp[Y * L.w + X] <= 0 || !layerOpen(s, L, L.cells[Y * L.w + X].layer)) continue;
-      out.push(strike(s, L, X, Y, Infinity));
+      if (X >= 0 && Y >= 0 && X < L.w && Y < L.h && open1(s, L, st, Y * L.w + X)) targets.push([X, Y]);
     }
-  return out;
+  if (!targets.length) return e ?? 'dug';
+  const cost = blastCost(s);
+  if (s.money < cost) return 'money';
+  s.money -= cost;
+  spend(s, 'build', cost);
+  return targets.map(([X, Y]) => strike(s, L, X, Y, Infinity));
 }
-/** 掘削ドリル：燃料代で、(x, y) から真下に N マスを一度に崩す（(x, y) に手が届くこと。深い層の許可が無い層で止まる） */
+/** 掘削ドリル：燃料代で、(x, y) のマス 1 つを 奥へ N 層 一気にはがす（深い層の許可が無い層・2 × 2 のものを待つところで止まる） */
 export function drill(s: P1State, x: number, y: number): DigHit[] | DigErr {
   const e = digCheck(s, x, y);
   if (e) return e;
   if (!hasDrill(s)) return 'no-drill';
   if (s.money < DRILL_FUEL) return 'money';
   const L = digSite(s)!;
+  const st = curSite(s)!;
   s.money -= DRILL_FUEL;
   spend(s, 'build', DRILL_FUEL);
-  const hp = curSite(s)!.hp;
+  const k = y * L.w + x;
   const out: DigHit[] = [];
-  for (let k = 0; k < drillLen(s); k++) {
-    const Y = y + k;
-    if (Y >= L.h || !layerOpen(s, L, L.cells[Y * L.w + x].layer)) break;
-    if (hp[Y * L.w + x] <= 0) continue;
-    out.push(strike(s, L, x, Y, Infinity));
+  for (let i = 0; i < drillLen(s); i++) {
+    if (!open1(s, L, st, k)) break;
+    const h = strike(s, L, x, y, Infinity);
+    out.push(h);
+    if (!h.broke || h.done) break;
   }
   return out;
 }
@@ -4563,34 +4720,44 @@ export function siteDiggable(s: P1State, k: number): boolean {
   const L = s.dig ? digLayout(s.dig.sector, k) : null;
   const st = s.dig?.sites[k];
   if (!L || !st) return false;
-  return st.hp.some((v, i) => v > 0 && layerOpen(s, L, L.cells[i].layer));
+  return st.depth.some((d, i) => d < L.depth && st.hp[i] > 0 && layerOpen(s, L, d));
 }
 /**
- * 次に打つマス（発掘隊）：打ちかけのマス → 浅いマス → 左から（深い層の許可が無い層は打たない）。
- * stand（常駐で働く日）は常駐の段取りで選び方が変わる：Lv1 お題の気配のある所へ・Lv3 研究 Lv の低いエクステを先に・Lv5 研究 Lv の上限に達したエクステを避ける
+ * 次に打つマス（発掘隊）：取りかけのもの（2 × 2 の範囲のどこかを、その層まで叩いている）の範囲 → 打ちかけのマス → 浅いマス → 左上から
+ * （深い層の許可が無い層・待っているマスは打たない）。
+ * stand（常駐で働く日）は常駐の段取りで選び方が変わる（層の番号で）：Lv1 お題の気配のある所（お題の範囲の、お題の層まで）を先に・
+ * Lv3 いまの層に研究 Lv の低いエクステがあるマスを先に・Lv5 研究 Lv の上限に達したエクステのマスを後回し
  */
 export function digNext(s: P1State, stand = false): [number, number] | null {
   const L = digSite(s);
   const st = curSite(s);
   if (!L || !st) return null;
   const rl = stand ? lvOf(s, 'u_dig_route') : 0;
-  // お題の気配（まだ見つけていないお題のマス）
-  const tk = rl >= 1 && L.topic != null && !s.dig!.topics.includes(L.topic) ? L.cells.findIndex((c) => c.item?.kind === 'ext' && !!c.item.topic) : -1;
+  const bonus = new Map<number, number>();
+  const add = (k: number, v: number) => bonus.set(k, Math.min(bonus.get(k) ?? 0, v));
+  for (const f of L.finds) {
+    const cells = findCells(L, f);
+    if (cells.some((c) => st.depth[c] > f.layer) || !findAt(s, L, cells[0], f.layer)) continue;
+    // 取りかけの大きいもの
+    if (f.size[0] * f.size[1] > 1 && cells.some((c) => st.depth[c] === f.layer && st.hp[c] < L.cells[c].hard[f.layer])) for (const c of cells) add(c, -2e6);
+    // 常駐の段取り Lv1：お題の気配
+    if (rl >= 1 && f.item.kind === 'ext' && f.item.topic) for (const c of cells) add(c, -1.5e6);
+  }
   const cap = researchCap(s);
   let best: [number, number] | null = null;
   let score = Infinity;
   for (let y = 0; y < L.h; y++)
     for (let x = 0; x < L.w; x++) {
       const k = y * L.w + x;
-      const hp = st.hp[k];
-      if (hp <= 0 || !layerOpen(s, L, L.cells[k].layer) || !reachable(s, x, y)) continue;
-      let v = (hp < L.cells[k].hard ? -1e6 : 0) + (tk >= 0 ? (Math.abs(x - (tk % L.w)) + Math.abs(y - Math.floor(tk / L.w))) * 100 : y * 100) + x;
-      const it = itemAt(s, L, k);
+      if (!open1(s, L, st, k)) continue;
+      const d = st.depth[k];
+      let v = (bonus.get(k) ?? 0) + (st.hp[k] < L.cells[k].hard[d] ? -1e6 : 0) + d * 1000 + y * L.w + x;
+      const it = findAt(s, L, k, d)?.item;
       if (it?.kind === 'ext' && !it.topic) {
         // Lv3：研究 Lv の低いエクステほど先に（上限に達したものは数えない）・Lv5：上限に達したエクステは後回し
         const lv = researchOf(s, it.id);
-        if (rl >= 3 && lv < cap) v -= 200 * (cap - lv);
-        if (rl >= 5 && lv >= cap) v += 1000;
+        if (rl >= 3 && lv < cap) v -= 1500 * (cap - lv);
+        if (rl >= 5 && lv >= cap) v += 1e5;
       }
       if (v < score) {
         score = v;
@@ -4693,11 +4860,12 @@ export function grantFirst(s: P1State): number {
   if (permitCount(s) === 0 && s.dig.sites[k]) s.dig.sites[k].permit = true;
   return k;
 }
-/** 荒れ地 k の掘った割合（0〜1） */
+/** 荒れ地 k の掘った割合（0〜1。はがした層の枚数 / マス × 層の数） */
 export function siteProgress(s: Pick<P1State, 'dig'>, k: number): number {
   const st = s.dig?.sites[k];
-  if (!st || !st.hp.length) return 0;
-  return st.hp.filter((v) => v <= 0).length / st.hp.length;
+  const L = s.dig ? digLayout(s.dig.sector, k) : null;
+  if (!st || !L || !st.depth?.length) return 0;
+  return st.depth.reduce((a, v) => a + Math.min(L.depth, v), 0) / (st.depth.length * L.depth);
 }
 /** 荒れ地 k のお題：'none'（無い）／'hidden'（まだ眠っている）／'found'（見つけ済み） */
 export function siteTopic(s: Pick<P1State, 'dig'>, k: number): 'none' | 'hidden' | 'found' {
@@ -4770,14 +4938,12 @@ export function topicProgress(s: Pick<P1State, 'dig'>): [number, number] {
   if (!s.dig) return [0, 0];
   return [s.dig.topics.length, topicsOf(s.dig.sector).length];
 }
-/** いまの層（いま掘っている荒れ地の、いちばん深く崩れたマスの層。まだ掘っていなければ 0） */
+/** いまの層（いま掘っている荒れ地の、いちばん奥まで進んだマスのいまの層。まだ掘っていなければ 0） */
 export function digDepthLayer(s: Pick<P1State, 'dig'>): number {
   const L = digSite(s);
   const st = curSite(s);
   if (!L || !st) return 0;
-  let deep = -1;
-  for (let k = 0; k < st.hp.length; k++) if (st.hp[k] <= 0) deep = Math.max(deep, Math.floor(k / L.w));
-  return deep < 0 ? 0 : L.cells[deep * L.w].layer;
+  return Math.min(L.depth - 1, Math.max(0, ...st.depth));
 }
 /** 発表すると受け取る調査依頼状（Common → Uncommon。Uncommon → Rare は枠だけ） */
 const NEXT_TIER: Partial<Record<Tier, Tier>> = { C: 'U', U: 'R' };
@@ -4834,12 +5000,55 @@ export function upgradeDig(old: OldDig, s: Pick<P1State, 'buildings'>): DigState
   d.cur = k;
   return d;
 }
-/** いまのセクタの発掘場を、いまの形にそろえる（無い・別のセクタ → 新しく。版 2 の形 → 作り直す） */
+/**
+ * 版 4 → 5（docs/ISLAND_PHASE1.md「セーブの引き継ぎ（版 5）」）：上から掘る断面（マスごとの残りの硬さだけ）を、正面の壁で作り直す。
+ * 掘りかけの進みは捨てる。許可・掘りきりの印はそのまま（掘りきった荒れ地は、全部のマスをいちばん奥まで掘ったことに）。
+ * 研究・RP・お題の発見・石板・レシピは会社のもの（そのまま）。見つけ済みのお題・読んだ石板は、新しい壁にも出ない（findAt）
+ */
+function rebuildWalls(d: DigState) {
+  const old = d.sites ?? [];
+  d.sites = digLayouts(d.sector).map((L, k) => {
+    const st = freshSite(L);
+    st.permit = !!old[k]?.permit;
+    st.done = !!old[k]?.done;
+    if (st.done) {
+      st.depth.fill(L.depth);
+      st.hp.fill(0);
+    }
+    return st;
+  });
+}
+/** いまのセクタの発掘場を、いまの形にそろえる（無い・別のセクタ → 新しく。版 2 の形 → 作り直す。版 4 までの断面 → 正面の壁で作り直す） */
 export function ensureDig(s: P1State) {
   const sec = s.sector ?? 'c1';
   const d = s.dig as (DigState & Partial<OldDig>) | null | undefined;
   if (d === undefined || (d && d.sector !== sec)) s.dig = newDig(sec);
   else if (d && !Array.isArray(d.sites)) s.dig = upgradeDig(d as OldDig, s);
+  else if (d && d.sites.some((x) => !Array.isArray(x.depth))) rebuildWalls(d);
+}
+/** 版 3 の断面（横 7・上から掘る形）の、層ごとの行数 */
+const OLD_ROWS: Record<DigTier, number[]> = { C: [7, 7, 6], U: [6, 6, 6, 6] };
+/** 版 3・4 の断面（上から掘る形）で崩していた、いちばん深い層の数（掘れる層の下限に残す。版 3 → 4 の移し替えで使う） */
+export function oldDigDeep(s: Pick<P1State, 'dig'>): Partial<Record<DigTier, number>> {
+  const out: Partial<Record<DigTier, number>> = {};
+  const d = s.dig;
+  const tier = d && Array.isArray(d.sites) ? digTierOf(d.sector) : null;
+  if (!d || !tier) return out;
+  const layerOfRow = (row: number) => {
+    let acc = 0;
+    for (let n = 0; n < OLD_ROWS[tier].length; n++) {
+      acc += OLD_ROWS[tier][n];
+      if (row < acc) return n;
+    }
+    return OLD_ROWS[tier].length - 1;
+  };
+  for (const st of d.sites) {
+    if (Array.isArray(st.depth)) continue;
+    (st.hp ?? []).forEach((v, i) => {
+      if (v <= 0) out[tier] = Math.max(out[tier] ?? 0, layerOfRow(Math.floor(i / 7)) + 1);
+    });
+  }
+  return out;
 }
 
 /**
@@ -4848,7 +5057,7 @@ export function ensureDig(s: P1State) {
  * いまのセクタと、ほかのセクタの写しの工房のうち、いちばん進んだ段で渡す（写しの設備投資からも外す）。
  * 版 3 までは研究 Lv の上限・掘れる層の制限が無かったので、上げていた研究 Lv（お題を除く）・掘っていた層を下限に残す（下がらない）
  */
-export function migrateDigTree(s: P1State) {
+export function migrateDigTree(s: P1State, oldDeep: Partial<Record<DigTier, number>> = oldDigDeep(s)) {
   const lv: Record<string, number> = {};
   const strip = (b: { id?: string; owner?: string; inv?: Partial<Record<string, number>> }) => {
     if (b.id !== 'workshop' || !b.inv) return;
@@ -4863,19 +5072,8 @@ export function migrateDigTree(s: P1State) {
   for (const [id, n] of Object.entries(lv)) if (lvOf(s, id) < n) setLevel(s, id, n);
   // 研究 Lv の下限（お題を除く。版 3 は Lv5 まで上がっていた）
   const top = Math.max(0, ...Object.entries(s.research ?? {}).filter(([id]) => !TOPIC_IDS.has(Number(id))).map(([, n]) => researchLv(n)));
-  const deep: Partial<Record<DigTier, number>> = {};
-  // 掘れる層の下限：いまのセクタの荒れ地で、崩したマスのいちばん深い層まで
-  if (s.dig) {
-    const tier = digTierOf(s.dig.sector);
-    if (tier)
-      s.dig.sites.forEach((st, k) => {
-        const L = digLayout(s.dig!.sector, k);
-        if (!L) return;
-        st.hp.forEach((v, i) => {
-          if (v <= 0) deep[tier] = Math.max(deep[tier] ?? 0, L.cells[i].layer + 1);
-        });
-      });
-  }
+  // 掘れる層の下限：いまのセクタの荒れ地で、崩したマスのいちばん深い層まで（版 3 の断面で数える。oldDigDeep）
+  const deep: Partial<Record<DigTier, number>> = { ...oldDeep };
   if (top > DT.cap[0] || Object.keys(deep).length) s.digOld = { ...(top > DT.cap[0] ? { cap: top } : {}), ...(Object.keys(deep).length ? { deep } : {}) };
   s.resCapPaid = researchCap(s);
 }

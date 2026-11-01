@@ -33,9 +33,11 @@ import {
   serializeP1,
   setShelf,
   startCraft,
+  setLevel,
   startRun,
   step,
   tutSpot,
+  type DigFind,
   type DigHit,
   type P1State,
 } from '../src/island/p1/model';
@@ -142,7 +144,8 @@ describe('レシピの開き方', () => {
     s.dig!.sites[0].permit = true;
     const r = startRun(s, 0);
     if (typeof r === 'string') throw new Error(r);
-    const hpOf = () => s.dig!.sites[0].hp;
+    // （お題が岩盤にあっても掘れるように、深い層の許可 Lv1）
+    setLevel(s, 'dig_deep', 1);
     const breakCell = (x: number, y: number): DigHit => {
       for (let k = 0; k < 20; k++) {
         const h = dig(s, x, y);
@@ -151,22 +154,23 @@ describe('レシピの開き方', () => {
       }
       throw new Error('not broken');
     };
-    const digTo = (k: number) => {
-      const x = k % L.w;
-      const y = Math.floor(k / L.w);
-      for (let yy = 0; yy < y; yy++) if (hpOf()[yy * L.w + x] > 0) breakCell(x, yy);
-      return breakCell(x, y);
+    /** 埋まっているもの f の層まで、手前から掘る */
+    const digTo = (f: DigFind) => {
+      for (;;) {
+        const h = breakCell(f.x, f.y);
+        if (h.layer >= f.layer) return h;
+      }
     };
     // 出土品：あと 1 個で Lv3 にしておく
-    const k = L.cells.findIndex((c) => c.item?.kind === 'ext' && !c.item.topic);
-    const id = (L.cells[k].item as { id: number }).id;
+    const f = L.finds.find((g) => g.item.kind === 'ext' && !g.item.topic)!;
+    const id = (f.item as { id: number }).id;
     s.research[id] = LV3 - 1;
-    const hit = digTo(k);
+    const hit = digTo(f);
     expect(hit.recipe).toBe(relicKey(id));
     // お題：掘った時点で Lv5 → 即
     if (L.topic) {
-      const kt = L.cells.findIndex((c) => c.item?.kind === 'ext' && c.item.topic);
-      expect(digTo(kt).recipe).toBe(relicKey(L.topic));
+      const ft = L.finds.find((g) => g.item.kind === 'ext' && !!g.item.topic)!;
+      expect(digTo(ft).recipe).toBe(relicKey(L.topic));
     }
     const end = endRun(s)!;
     expect(end.got.recipes).toEqual(L.topic ? [relicKey(id), relicKey(L.topic)] : [relicKey(id)]);
