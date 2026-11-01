@@ -8,7 +8,7 @@ import { DEF } from '../src/island/defs';
 import { DIG_BALANCE, DIG_REQUEST, DIG_SITES, DIG_THEME, MISSIONS, RP_GAIN, SECTOR_CHIEF, rewardText } from '../src/island/p1/data';
 import { DIG_IDLE_DAYS, DIG_TIP_ORDER, MEET_FOUND, MEET_IDLE_DAYS, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digReportLine, digReportText, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage } from '../src/island/p1/digmeet';
 import { LETTER_LOCK, letterLocked, moveTo } from '../src/island/p1/land';
-import { accept, allowedDirs, build, claim, dig, digLayouts, endRun, missionMet, newP1, openGate, present, startRun, step, type DigHit, type P1State, type Report } from '../src/island/p1/model';
+import { accept, allowedDirs, build, claim, dig, digLayouts, endRun, missionMet, newP1, openGate, present, setLevel, startRun, step, type DigHit, type P1State, type Report } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
   for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
@@ -21,6 +21,9 @@ function month2(seed = 1, sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   const b = build(s, 'workshop', ...lot(s, 'workshop'));
   if (typeof b === 'string') throw new Error(b);
   b.left = 0;
+  // 1 段目のテスト：全部の層を掘れる・研究 Lv5 まで（発掘の枝の制限は tests/island-p1-dig2b.test.ts）
+  setLevel(s, 'dig_deep', 3);
+  setLevel(s, 'dig_study', 2);
   s.tut = 99;
   s.reports.push({ month: 1, revenue: 0, bySeries: {}, costs: { materials: 0, wages: 0, part: 0, upkeep: 0, build: 0, ads: 0 }, profit: 0, area: [], rank: 4, news: [] });
   s.monthPause = false;
@@ -187,7 +190,7 @@ describe('町の長と研究成果の発表', () => {
 
 describe('マインちゃんの助言（発掘）の優先順', () => {
   it('並びは 発表できる（high）→ 復刻品の独占があと 1 か月（mid）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
-    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'idle', 'permit', 'topic-one', 'letter']);
+    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'idle', 'permit', 'topic-one', 'letter', 'branch']);
     expect(DIG_IDLE_DAYS).toBe(10);
     const s = month2(5);
     s.money = 0;

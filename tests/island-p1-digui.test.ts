@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIG_SITES, RESEARCH_NEED, TABLETS } from '../src/island/p1/data';
 import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from '../src/island/p1/digview';
-import { allowedDirs, assign, build, dig, digLayout, endRun, newP1, runTick, startRun, type DigHit, type P1State } from '../src/island/p1/model';
+import { allowedDirs, assign, build, dig, digLayout, endRun, newP1, runTick, setLevel, startRun, type DigHit, type P1State } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
   for (let j = 0; j < s.n; j++) for (let i = 0; i < s.n; i++) { const d = allowedDirs(s, id, i, j); if (d.length) return [i, j, d[0]]; }
@@ -17,6 +17,9 @@ function site(sector = 'c1', tier: 'C' | 'U' = 'C'): P1State {
   const b = build(s, 'workshop', ...lot(s, 'workshop'));
   if (typeof b === 'string') throw new Error(b);
   b.left = 0;
+  // 1 段目のテスト：全部の層を掘れる・研究 Lv5 まで（発掘の枝の制限は tests/island-p1-dig2b.test.ts）
+  setLevel(s, 'dig_deep', 3);
+  setLevel(s, 'dig_study', 2);
   // 北の荒れ地（0）で発掘作業を始めておく
   s.dig!.sites[0].permit = true;
   startRun(s, 0);
@@ -61,8 +64,8 @@ describe('マスの見え方', () => {
     expect(k).toBeGreaterThan(0);
     const x = k % L.w;
     expect(cellView(s, x, 1).peek).toBeNull();
-    const ws = s.buildings.find((b) => b.id === 'workshop')!;
-    ws.inv = { lantern: 1 };
+    // （発掘 v2 の 2 段目：ランタンは工房の設備投資からスキルツリーの「発掘のランタン」へ）
+    setLevel(s, 'dig_lamp', 1);
     expect(cellView(s, x, 1).peek).toEqual(L.cells[k].item);
     // 2 段下はまだ見えない
     const k2 = L.cells.findIndex((c, i) => i >= 14 && i < 21 && c.item);

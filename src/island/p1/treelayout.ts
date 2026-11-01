@@ -1,6 +1,7 @@
 /**
  * スキルツリー v2 の配置（DOM なし。tree.ts とテストが使う）。
- * 8 本の枝を 45° ずつ、内側（Common）の段を根もとから外へ、外周（U・R・E・L）は同じ半径の同心円に並べる。
+ * 9 本の枝：もとの 8 本は 41.75° ずつ（もとの 45° から少し詰めて、最大 11.4° 回した）、そのあいだ（③ 物流とシステムのあいだ）に
+ * 細めの 9 本目「発掘」（26°。外周のパネルは 1 段 3 枚まで）。内側（Common）の段を根もとから外へ、外周（U・R・E・L）は同じ半径の同心円に並べる。
  * docs/ISLAND_PHASE1.md「スキルツリー」。
  */
 import { t } from '../../i18n';
@@ -12,15 +13,21 @@ const tierOf = (k: { tier?: Tier }): Tier => k.tier ?? 'C';
 
 /** 枝の向き（度。0 = 右、90 = 下）と、内側（Common）の段（根もとから外へ。段ごとに横へ広げる）。外周のパネルはデータの tier から自動で並べる */
 export const LAYOUT: Record<Branch, { angle: number; rows: string[][]; color: string; stage?: string }> = {
-  buy: { angle: 180, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['stock1', 'bulk'], ['route_cloth', 'swift', 'eye'], ['route_paper', 'abc', 'stock2', 'bulk2'], ['scoutmap', 'route_gem', 'stock3']] },
-  tech: { angle: -135, color: '#e6d36a', rows: [['t_wood', 't_paper'], ['t_metal', 't_clay', 't_glass'], ['t_textile', 't_jewel', 't_master']] },
-  craft: { angle: -90, color: '#f2b544', stage: t('② 製造', '② Craft'), rows: [['jig', 'pot'], ['jig2', 'lot', 'five_s'], ['kaizen', 'chair']] },
-  logi: { angle: -45, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['loading'], ['shortcut', 'timetable'], ['route_opt', 'hub']] },
-  sys: { angle: 0, color: '#5fe0d0', rows: [['pos'], ['auto_order', 'inventory']] },
-  shop: { angle: 45, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['host', 'display'], ['shop2', 'vmd', 'pop'], ['shop3', 'golden', 'point', 'hours'], ['set']] },
-  ops: { angle: 90, color: '#c49bff', rows: [['pace1', 'budget'], ['pace2', 'pdca']] },
-  people: { angle: 135, color: '#ff8fb0', rows: [['hire', 'lounge'], ['manual', 'slots', 'shift'], ['ojt', 'incentive', 'welfare']] },
+  buy: { angle: 178.4, color: '#6fc6f0', stage: t('① 調達', '① Buy'), rows: [['stock1', 'bulk'], ['route_cloth', 'swift', 'eye'], ['route_paper', 'abc', 'stock2', 'bulk2'], ['scoutmap', 'route_gem', 'stock3']] },
+  tech: { angle: -139.9, color: '#e6d36a', rows: [['t_wood', 't_paper'], ['t_metal', 't_clay', 't_glass'], ['t_textile', 't_jewel', 't_master']] },
+  craft: { angle: -98.1, color: '#f2b544', stage: t('② 製造', '② Craft'), rows: [['jig', 'pot'], ['jig2', 'lot', 'five_s'], ['kaizen', 'chair']] },
+  logi: { angle: -56.4, color: '#7ee08f', stage: t('③ 物流', '③ Haul'), rows: [['loading'], ['shortcut', 'timetable'], ['route_opt', 'hub']] },
+  // 発掘（9 本目。発掘 v2 の 2 段目）：根もと＝追加申請・ツルハシ。左（物流の側）が深さと発掘隊、右（システムの側）が威力・速さ・仕掛け
+  dig: { angle: -22.5, color: '#d0945a', rows: [['dig_ext', 'dig_power'], ['dig_lamp', 'dig_office', 'dig_speed'], ['dig_deep', 'dig_crew', 'dig_reach', 'dig_blast'], ['dig_study', 'dig_drill']] },
+  sys: { angle: 11.4, color: '#5fe0d0', rows: [['pos'], ['auto_order', 'inventory']] },
+  shop: { angle: 53.1, color: '#ff9f5a', stage: t('④ 販売', '④ Sell'), rows: [['host', 'display'], ['shop2', 'vmd', 'pop'], ['shop3', 'golden', 'point', 'hours'], ['set']] },
+  ops: { angle: 94.9, color: '#c49bff', rows: [['pace1', 'budget'], ['pace2', 'pdca']] },
+  people: { angle: 136.6, color: '#ff8fb0', rows: [['hire', 'lounge'], ['manual', 'slots', 'shift'], ['ojt', 'incentive', 'welfare']] },
 };
+/** 枝ごとの外周の 1 段の枚数（無ければランクの ROW_CAP）。細い発掘の枝は 3 枚ずつ */
+export const BR_CAP: Partial<Record<Branch, number>> = { dig: 3 };
+/** もとの 8 本の枝の幅（度）。外周の段の半径は、ROW_CAP 枚がこの幅に収まる大きさから */
+export const WEDGE = 41.75;
 
 
 export const UNIT = 96;
@@ -46,13 +53,14 @@ export const RING_OUT = { C: R0 + STEP * 3 } as Record<Tier, number>;
 export const RING_EDGE = { C: 0 } as Record<Tier, number>;
 /** 外周のパネルの並び（枝・ランクごと。既存のパネル → 追加のパネル → ✨） */
 const outerList = (br: Branch, tier: Tier) => [...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && !k.big), ...SKILLS.filter((k) => k.branch === br && tierOf(k) === tier && k.big)].map((k) => k.id);
+const capOf = (br: Branch, tier: Tier) => BR_CAP[br] ?? ROW_CAP[tier as Exclude<Tier, 'C'>];
 {
   let r = 9.0;
-  const SPAN = Math.PI / 4;
+  const SPAN = (WEDGE * Math.PI) / 180;
   for (const tier of OUTER) {
     const cap = ROW_CAP[tier as Exclude<Tier, 'C'>];
     r = Math.max(r, (GAP * (cap - 1) + 1.15) / SPAN);
-    const rows = Math.max(1, ...(Object.keys(LAYOUT) as Branch[]).map((br) => Math.ceil(outerList(br, tier).length / cap)));
+    const rows = Math.max(1, ...(Object.keys(LAYOUT) as Branch[]).map((br) => Math.ceil(outerList(br, tier).length / capOf(br, tier))));
     RING_EDGE[tier] = r - 0.85;
     RING_R[tier] = r;
     RING_ROWS[tier] = Array.from({ length: rows }, (_, k) => r + STEP * k);
@@ -61,7 +69,7 @@ const outerList = (br: Branch, tier: Tier) => [...SKILLS.filter((k) => k.branch 
   }
 }
 /** エリアの札を置く向き（枝と枝のあいだ：製造と物流のあいだ） */
-export const LABEL_A = (-67.5 * Math.PI) / 180;
+export const LABEL_A = (-76.5 * Math.PI) / 180;
 /** 木の上の位置（単位：UNIT）。本社が (0, 0) */
 export const POS = new Map<string, { x: number; y: number }>();
 export const HUBPOS = new Map<Branch, { x: number; y: number }>();
@@ -72,7 +80,7 @@ for (const [br, L] of Object.entries(LAYOUT) as [Branch, (typeof LAYOUT)[Branch]
   const row = (ids: string[], r: number) => ids.forEach((id, i) => POS.set(id, polar(a + ((i - (ids.length - 1) / 2) * GAP) / r, r)));
   L.rows.forEach((ids, k) => row(ids, R0 + STEP * k));
   for (const tier of OUTER) {
-    const cap = ROW_CAP[tier as Exclude<Tier, 'C'>];
+    const cap = capOf(br, tier);
     const ids = outerList(br, tier);
     RING_ROWS[tier].forEach((r, k) => row(ids.slice(k * cap, (k + 1) * cap), r));
   }

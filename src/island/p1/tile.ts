@@ -5,12 +5,13 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { INTEL, P1B, PRODUCT, STORE, rivalDef, sku, skuParts } from './data';
-import { permitFee, permitLock, presentLock, runLock, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
+import { permitFee, permitLock, presentLock, runLock, sessionSec, siteProgress, siteTopic, topicProgress, topicsOf, wasteAt, wasteName, extName, gateToll, invLv, isGate, poolCap, poolUsed, allowedDirs, assign, demolish, ground, intelLv, moveCost, occupant, oneWay, myShops, refundOf, shopArea, sidePay, speed, staffOf, storageCap, type P1State, type PBuilding } from './model';
 import { pickHero } from './heroui';
 import { investList, openBuy, openShop, openWorkshop, pickClerk, rivalName, shopView, type Ctx } from './screens';
 import { bar, btn, h, heroIcon, heroName, money, skuIcon, skuName } from './ui';
 import { canPresent, chiefOf, digMet, isChiefHome } from './digmeet';
 import { extIcon } from './digui';
+import { DEEP_LOCK, standing } from './digview';
 
 export interface TileHooks {
   /** 移転先を選ぶモードへ */
@@ -142,6 +143,9 @@ function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): H
   stat(grid, t('掘った割合', 'Dug'), `${Math.round(siteProgress(s, k) * 100)}%`);
   const tp = siteTopic(s, k);
   if (tp !== 'none') stat(grid, t('お題', 'Target'), tp === 'found' ? t('見つけ済み', 'Found') : t('？ 何かが眠っている気配', '? Something sleeps here'), tp === 'found' ? '' : 'isl-gold');
+  // 常駐（自動化）：作業していない日も、この荒れ地を発掘隊が掘っている
+  const sd = standing(s);
+  if (sd && sd.site === k && !s.digRun) stat(grid, t('発掘隊', 'Dig crew'), t(`常駐中：1 日 ${sd.perDay} 打`, `Standing: ${sd.perDay} strikes/day`), 'isl-good');
   body.append(grid);
   const acts = h('div', 'isl-row isl-pop-acts');
   if (st.done) {
@@ -160,9 +164,13 @@ function wastePop(s: P1State, k: number, body: HTMLElement, hooks: TileHooks): H
     return body;
   } else {
     const meet = (s.flags.digMeet === 'tap' || (s.flags.digMeet === 'open' && !s.digRun)) && runLock(s, k) === null;
-    const go = btn(t('⛏ 発掘する（15 秒）', '⛏ Dig (15 s)'), () => hooks.dig?.(k), `isl-pop-dig is-on ${meet ? 'is-guide' : ''}`);
-    go.disabled = runLock(s, k) !== null;
+    const sec = sessionSec(s);
+    const go = btn(t(`⛏ 発掘する（${sec} 秒）`, `⛏ Dig (${sec} s)`), () => hooks.dig?.(k), `isl-pop-dig is-on ${meet ? 'is-guide' : ''}`);
+    const rl = runLock(s, k);
+    go.disabled = rl !== null;
     acts.append(go);
+    // いまの許可で掘れるマスが残っていない：深い層の許可が要る
+    if (rl === 'deep') body.append(h('small', 'isl-warn', DEEP_LOCK()));
     if (hooks.notes) acts.append(btn(t('📖 研究ノート', '📖 Notebook'), () => hooks.notes?.()));
     if (s.monthPause) body.append(h('small', 'isl-warn', t('発掘を始めると、次の月が始まるよ（作業のあいだは時間が流れる）。', 'Digging starts the next month (time flows while you dig).')));
   }

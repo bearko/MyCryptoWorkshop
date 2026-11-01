@@ -9,7 +9,7 @@
  * docs/ISLAND_PHASE1.md「投資の効き目の監査」
  */
 import { writeFileSync } from 'node:fs';
-import { ADS, DIG_BALANCE, DIG_SITES, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, RESEARCH_NEED, SKILL, aptitude, isResearch, relicKey, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
+import { ADS, DIG_BALANCE, DIG_SITES, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, RESEARCH_NEED, SKILL, aptitude, isResearch, relicKey, sku, skuParts, type DigFxKind, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
 import {
   LEARNABLE,
   allowedDirs,
@@ -524,7 +524,7 @@ export const SKILL_SPEC: Record<string, SkillSpec> = {
  * 汎用の効き目（fx）のパネル：fx の種類から、効くはずの段と基準を自動で決める（docs/ISLAND_PHASE1.md「汎用の効き目」）。
  * お金（給料・維持費・素材の値段）は「90 日の利益が増える」、ブランド力は「★ が増える」、マネージャーは対象外（ほかのセクタ）。
  */
-const FX_SPEC: Record<FxKind, SkillSpec> = {
+const FX_SPEC: Record<Exclude<FxKind, DigFxKind>, SkillSpec> = {
   pull: { expect: ['sell'] },
   price: { expect: ['sell'], check: 'yen', note: '値段' },
   demand: { expect: ['sell'] },
@@ -554,11 +554,13 @@ const rings = (s: P1State) => void (s.flags.rings = ['U', 'R']);
 export function specOf(k: Skill): SkillSpec | undefined {
   const tier = skillTier(k);
   if (tier === 'E' || tier === 'L') return { expect: [], out: `まだ遊べない（${tier === 'E' ? 'Epic' : 'Legendary'} のセクタが無い）` };
+  // 発掘の枝：SCM の段には効かない（発掘の速さ・深さ・研究の進み）。効き目は vitest で全部確かめる
+  if (k.branch === 'dig') return { expect: [], out: '発掘（tests/island-p1-dig2b.test.ts で確認）' };
   const hand = SKILL_SPEC[k.id];
   if (hand) return hand;
   const f = k.fx?.[0];
   if (!f) return undefined;
-  const base = FX_SPEC[f.kind];
+  const base = FX_SPEC[f.kind as Exclude<FxKind, DigFxKind>];
   return { ...base, setup: (s) => (rings(s), base.setup?.(s)), note: [`汎用の効き目（${f.kind}）`, base.note].filter(Boolean).join('：') };
 }
 /**
@@ -581,10 +583,7 @@ export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base'];
   tools: { expect: ['craft'] },
   breakroom: { expect: ['craft'], note: 'スタミナ → 稼働率' },
   rack: { expect: ['buy'], base: 'j_trip', setup: (s) => (warehouse(s), void (s.mats.clay = (s.mats.clay ?? 0) + 190)), note: '倉庫があって、置き場所がいっぱいに近いとき（使わない素材 190）' },
-  // 発掘の道具：SCM の段ではなく、発掘の速さ（研究ポイントの入り方）に効く。tests/island-p1-dig.test.ts で確かめる
-  pick: { expect: [], out: '発掘の道具（1 打の強さ +1）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
-  lantern: { expect: [], out: '発掘の道具（1 段下の出土品が見える）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
-  blast: { expect: [], out: '発掘の道具（3 × 3 を一度に）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
+  // 発掘の道具（ツルハシ・ランタン・発破）は、発掘 v2 の 2 段目でスキルツリーの発掘の枝へ移した（監査では「発掘」の対象外）
 };
 /** 空いた棚に並べる商品：マインちゃんのおすすめ（いま作れるもの） */
 /** 監査で開く復刻品（ユーホタウンの出土品のはじめ。Common の素材だけ） */
