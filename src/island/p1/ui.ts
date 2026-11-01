@@ -1,5 +1,5 @@
 /** フェーズ 1 の画面の小さな道具（DOM・数の書式・アイコン） */
-import { getExtension, heroById } from '../../game/catalog';
+import { allSeries, extensionById, heroById } from '../../game/catalog';
 import { isEn } from '../../i18n';
 import { icon } from '../../ui/dom';
 import { PRODUCT, skuParts, type Mat, type Sku } from './data';
@@ -59,15 +59,26 @@ export function matIcon(m: Mat, size = 24): HTMLImageElement {
   return im;
 }
 
+/** エクステの絵（ゲームで使うシリーズに無いエクステ＝発掘の遺物の一部も、カタログの全シリーズから） */
+let allImages: Map<number, string> | null = null;
+export function extImage(id: number): string {
+  const e = extensionById.get(id);
+  if (e) return e.image;
+  allImages ??= new Map(allSeries.flatMap((x) => x.items.map((y) => [y.id, y.image] as const)));
+  return allImages.get(id) ?? '';
+}
+
 export function skuName(x: Sku): string {
   const [k, r] = skuParts(x);
-  const e = getExtension(PRODUCT[k].ext[r]);
-  return e.name;
+  const p = PRODUCT[k];
+  // 復刻品は「復刻 ○○」
+  if (p.relic) return p.name;
+  return extensionById.get(p.ext[r])?.name ?? p.name;
 }
 
 export function skuIcon(x: Sku, size = 40): HTMLElement {
   const [k, r] = skuParts(x);
-  const e = icon(getExtension(PRODUCT[k].ext[r]).image, 'px isl-ext');
+  const e = icon(extImage(PRODUCT[k].ext[r]), 'px isl-ext');
   e.style.width = `${size}px`;
   e.style.height = `${size}px`;
   return e;

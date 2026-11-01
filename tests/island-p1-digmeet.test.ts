@@ -186,8 +186,8 @@ describe('町の長と研究成果の発表', () => {
 });
 
 describe('マインちゃんの助言（発掘）の優先順', () => {
-  it('並びは 発表できる（high）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
-    expect(DIG_TIP_ORDER).toEqual(['present', 'idle', 'permit', 'topic-one', 'letter']);
+  it('並びは 発表できる（high）→ 復刻品の独占があと 1 か月（mid）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
+    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'idle', 'permit', 'topic-one', 'letter']);
     expect(DIG_IDLE_DAYS).toBe(10);
     const s = month2(5);
     s.money = 0;

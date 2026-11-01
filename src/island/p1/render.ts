@@ -2,7 +2,6 @@
  * フェーズ 1 の地図：草地と道路、建物、持ち主の縁（自社は青緑・他社は赤）、運搬の荷車。
  * 絵の置き方は ../render.ts と同じ規格。
  */
-import { getExtension } from '../../game/catalog';
 import { t } from '../../i18n';
 import { drawRef } from '../../render/images';
 import { DEF } from '../defs';
@@ -13,6 +12,7 @@ import { COIN_KEEP, COIN_MS, PLUS_MS, along, drawRing, drawWalker, floatText, ty
 import { craftDays, doorOf, facilityStatus, ground, isRoad, myWorkshop, reach, roadPath, speed, staffOf, wasteSpots, type P1State, type Stop } from './model';
 import { bounds, cacheScale, covered, drawBorders, drawWorld, roadAt, type World } from './worldrender';
 
+import { extImage } from './ui';
 export interface P1Ghost {
   id: string;
   i: number;
@@ -409,7 +409,7 @@ function drawBubbles(ctx: CanvasRenderingContext2D, s: P1State, cam: Camera, w: 
       const { x, y } = bubble(ctx, sx, sy, bw, bh, st.kind === 'craft' ? BUBBLE.craft : BUBBLE.sell);
       st.items.forEach((k: Sku, n2) => {
         const [key, r] = skuParts(k);
-        drawRef(ctx, getExtension(PRODUCT[key].ext[r]).image, x + pad + n2 * (icon + 2), y + pad, icon, icon);
+        drawRef(ctx, extImage(PRODUCT[key].ext[r]), x + pad + n2 * (icon + 2), y + pad, icon, icon);
       });
       // 製造：1 ロットの秒数で枠を分けて、進んだぶん色を付ける
       if (st.kind === 'craft' && anim) {

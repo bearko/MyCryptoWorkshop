@@ -10,15 +10,14 @@
  *   お題のときだけ画面の中央に大きく。石板は読み物の小さな窓。
  * 表示の計算は digview.ts（純粋な関数）。
  */
-import { getExtension } from '../../game/catalog';
 import { t } from '../../i18n';
 import { icon } from '../../ui/dom';
-import { BLAST, DIG, TABLET, type Mat } from './data';
+import { BLAST, DIG, PRODUCT, TABLET, type Mat } from './data';
 import { assign, blast, dig, digRepeatMs, digSite, extName, hasBlast, type DigErr, type DigHit, type DigItem, type RunEnd } from './model';
-import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, runBar, stars } from './digview';
+import { autoDiggers, biggestFx, cellView, digBlock, digErrText, digStatus, findLabel, focusRow, fxOf, gotLines, nextLvText, noteEntries, noteTablets, noteTabs, noteTotals, relicLine, runBar, stars } from './digview';
 import { pickHero } from './heroui';
 import { open, refreshSheet, sheetOpen, type Ctx } from './screens';
-import { btn, h, heroIcon, heroName, matIcon, money } from './ui';
+import { btn, extImage, h, heroIcon, heroName, matIcon, money } from './ui';
 
 /** 発掘場からほかの画面へ（main.ts が渡す） */
 export interface DigHooks {
@@ -30,11 +29,13 @@ export interface DigHooks {
   hit?: (hits: DigHit[]) => void;
   /** 「発掘を終える」を出さない（発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる） */
   noEnd?: () => boolean;
+  /** 復刻品を工房で作る（発掘終了の札の「工房で作る」。市場データの「工房で作る」と同じ動き） */
+  make?: (key: string) => void;
 }
 
 /** エクステの絵（MCH の 64×64。整数倍か半分で） */
 export function extIcon(id: number, size = 64): HTMLElement {
-  const e = icon(getExtension(id).image, 'px isl-ext');
+  const e = icon(extImage(id), 'px isl-ext');
   e.style.width = `${size}px`;
   e.style.height = `${size}px`;
   return e;
@@ -306,6 +307,9 @@ export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => v
   }
   box.append(g);
   if (end.done) box.append(h('p', 'isl-gold', t('この荒れ地は掘りきった！（復興は近日）', 'This wasteland is fully dug! (Revival coming soon)')));
+  // 新しいレシピ（復刻品）：エクステの絵 64px と「工房で作る」
+  const recipes = end.got.recipes ?? [];
+  if (recipes.length) box.append(recipeCards(recipes, (key) => p.hooks.make?.(key)));
   const acts = h('div', 'isl-row isl-dig-endacts');
   box.append(acts);
   card.append(box);
@@ -323,9 +327,11 @@ export function showEndCard(end: RunEnd, o: { then?: () => void; again?: () => v
     if (o.again && !end.done) acts.append(btn(t('⛏ もう一度（15 秒）', '⛏ Again (15 s)'), () => o.again?.(), 'is-on'));
     acts.append(btn(t('町に戻る', 'Back to town'), () => closeDig()));
     o.after?.();
-    window.setTimeout(() => {
-      if (P === p && p.over && p.el.isConnected) closeDig();
-    }, 6000);
+    // 新しいレシピがあるときは、自分で閉じるまで残す（「工房で作る」を押せるように）
+    if (!recipes.length)
+      window.setTimeout(() => {
+        if (P === p && p.over && p.el.isConnected) closeDig();
+      }, 6000);
   }, 1200);
 }
 
@@ -475,6 +481,11 @@ function showHits(hits: DigHit[], wasBlast: boolean) {
       const it = hit.item;
       window.setTimeout(() => flyToNotes(c, it.id, findLabel(hit), hit.rp), delay);
       delay += 160;
+    }
+    // 復刻品のレシピが開いた：作業を止めない小さな札（まとめは発掘終了の札）
+    if (hit.recipe) {
+      const key = hit.recipe;
+      window.setTimeout(() => recipePing(key), delay + 600);
     } else if (f === 'tablet' && hit.item?.kind === 'tablet') {
       const id = hit.item.id;
       window.setTimeout(() => readTablet(id, hit.rp), 350);
@@ -542,6 +553,33 @@ function flyToNotes(c: HTMLElement, id: number, label: string, rp: number) {
     void P.notes.offsetWidth;
     P.notes.classList.add('is-gulp');
   }, 1300);
+}
+/** 新しいレシピ（作業中）：パネルの上に小さく「📜 新しいレシピ！『復刻 ○○』」。作業は止めない */
+function recipePing(key: string) {
+  const p = P;
+  if (!p) return;
+  const prod = PRODUCT[key];
+  if (!prod?.relic) return;
+  p.ctx.sfx?.('check');
+  const f = h('div', 'isl-dig-recipe');
+  f.append(extIcon(prod.relic.ext, 32), h('b', '', t(`📜 新しいレシピ！「${prod.name}」`, `📜 New recipe! ${prod.name}`)));
+  p.el.append(f);
+  window.setTimeout(() => f.remove(), 2600);
+}
+/** 新しいレシピの札（発掘終了の札の中）：エクステの絵 64px・「『復刻 ○○』を工房で作れるようになった」・「工房で作る」 */
+export function recipeCards(keys: string[], make: (key: string) => void): HTMLElement {
+  const box = h('div', 'isl-dig-recipes');
+  box.append(h('b', 'isl-gold', t(`📜 新しいレシピ！（${keys.length}）`, `📜 New recipes! (${keys.length})`)));
+  for (const key of keys) {
+    const prod = PRODUCT[key];
+    if (!prod?.relic) continue;
+    const row = h('div', 'isl-dig-recipe-row');
+    const txt = h('div', 'isl-col');
+    txt.append(h('b', '', prod.name), h('small', '', t(`「${prod.name}」を工房で作れるようになった`, `You can now make ${prod.name} in the workshop`)));
+    row.append(extIcon(prod.relic.ext, 64), txt, btn(t('工房で作る', 'Make it'), () => make(key), 'is-on'));
+    box.append(row);
+  }
+  return box;
 }
 /** 石板：読み物の小さな窓（パネルの中。時間は止めない） */
 function readTablet(id: string, rp: number) {
@@ -697,6 +735,9 @@ function noteCard(e: ReturnType<typeof noteEntries>[number]): HTMLElement {
   const pic = h('span', 'isl-note-pic');
   pic.append(extIcon(e.id, 64));
   c.append(pic, h('b', 'isl-note-name', e.n ? e.name : t('？？？', '???')), h('span', `isl-note-stars ${e.lv >= 5 ? 'is-max' : ''}`, stars(e.lv)), h('small', 'isl-dim', nextLvText(e)));
+  // 復刻品：研究 Lv3 でレシピ（見つけたものだけ）
+  const rl = e.n ? relicLine(e) : null;
+  if (rl) c.append(h('small', `isl-note-relic ${rl[1] ? 'is-on' : ''}`, rl[0]));
   if (e.n) c.title = t(`研究 Lv${e.lv}（掘った数 ${e.n}）`, `Research Lv${e.lv} (dug ${e.n})`);
   return c;
 }

@@ -95,6 +95,7 @@ import {
   type PBuilding,
   type Report,
   type Stage,
+  productsOf,
 } from '../../src/island/p1/model';
 
 // ---------------------------------------------------------------- 実時間の単価（docs/ISLAND_UX_CHARTER.md「5. 進行とテンポ」）
@@ -162,6 +163,9 @@ export interface SectorRun {
   pauseTop: number;
   act: number;
   pause: number;
+  /** v10c：着いてから離れるまでの売上の合計・うち復刻品 */
+  allRev: number;
+  relicRev: number;
   /** v9：発掘（打った数：手・自動（発掘隊）・発破、作業の回数・許可の数、入った RP、研究パネルを開けた枚数、RP が足りなくて止まった月） */
   dig: DigRec;
   /** 月ごとの締め（順位・売上・資金・ボトルネック） */
@@ -210,6 +214,8 @@ export interface RunResult {
   spend: { money: number; tools: number; fees: number; end: number };
   /** v8：研究パネルを開けた枚数（ランクごと）・C の研究パネルがそろったときにいたセクタの番号（1 始まり） */
   research: { C: number; U: number; allC: number | null };
+  /** v10c：開いた復刻品のレシピの数（最後） */
+  recipes: number;
 }
 
 // ---------------------------------------------------------------- 方針
@@ -334,14 +340,15 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
   const tier = s.tier ?? 'C';
   const nU = uCrafters(s).length;
   const cands: { x: Sku; v: number; key: string }[] = [];
-  for (const p of PRODUCTS) {
+  // v10c：通常・100% は、開いた復刻品も並べる候補に（遺物のランクだけ。技・魔法の釜・商品開発は要らない）
+  for (const p of c.policy === 'rta' ? PRODUCTS : productsOf(s)) {
     if (!techOk(s, p.key) || !tierOk(p, tier)) continue;
-    for (const r of ['C', 'U'] as const) {
+    for (const r of p.relic ? [p.relic.rank] : (['C', 'U'] as const)) {
       // 売れる見込み：飽和（他店で供給が足りている）を入れた見込み
       const est = Math.max(r === 'U' ? 4 : 1, sellEstimate(s, p.key, r));
       const x = sku(p.key, r);
       if (!routesOk(s, x)) continue;
-      if (r === 'U' && (!has(s, 'pot') || !s.dev.includes(p.key) || nU === 0)) continue;
+      if (r === 'U' && (p.relic ? nU === 0 : !has(s, 'pot') || !s.dev.includes(p.key) || nU === 0)) continue;
       const pull = r === 'U' ? UNCOMMON.pull : TIERS[tier].commonPull;
       const perBench = ((30 * 0.85) / craftDays(s, x)) * batchOf(x);
       const units = Math.min(est * pull, perBench);
@@ -1181,8 +1188,8 @@ export interface RunOpts {
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
   const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, runLeft: 0, runsMonth: 0 };
-  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null } };
-  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, dig: newDigRec(), log: [] });
+  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0 };
+  const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, allRev: 0, relicRev: 0, dig: newDigRec(), log: [] });
   const D = SIM_DIG[p];
   const cResearch = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && !skillSoon(k)).map((k) => k.id);
   let progress = { got: -1, claimed: -1, day: 0 };
@@ -1361,6 +1368,8 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       }
       cur.pause++;
       if (cur.topDay == null) cur.pauseTop++;
+      cur.allRev += r.revenue;
+      cur.relicRev += r.relic ?? 0;
       // v8：月の締め。RP が足りなくて止まった月＝詰まりの段に効く研究パネルがあるのに、どれも RP が足りない
       c.dayInMonth = 0;
       c.runsMonth = 0;
@@ -1477,6 +1486,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   }
   res.days = s.day;
   res.spend.end = Math.round(s.money);
+  res.recipes = Object.keys(s.recipes ?? {}).length;
   res.research.C = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && has(s, k.id)).length;
   res.research.U = SKILLS.filter((k) => skillTier(k) === 'U' && isResearch(k) && has(s, k.id)).length;
   if (p === 'full') {
@@ -1571,6 +1581,23 @@ export function tables(rep: Report2): string {
     out.push(
       `| ${POLICY_NAME[p]} | 制覇 ${visited.toFixed(1)} / ${routeOf(p).length}（完走 ${done}/${runs.length}） | ${mean(months).toFixed(1)}（${range(months.map((v) => Math.round(v)))}） | ${Math.round(mean(acts))} | ${fmtH(m)}（${range(tot, fmtH)}） | ${fmtH(mean(byTier('C')))} | ${fmtH(mean(byTier('U')))} | — | ${tg.label} | ${fmtH(tg.cu[0])}〜${fmtH(tg.cu[1])} | ${diff} |`,
     );
+  }
+  out.push('');
+  // v10c：復刻品（研究 Lv3 で開く新商品）の売上の割合
+  out.push('### 表 3：復刻品（v10c。研究 Lv3 で開く新商品）');
+  out.push('');
+  out.push('開いたレシピの数（最後）と、売上の合計（着いてから離れるまで）のうち復刻品の割合。最短は復刻品を並べない（いままでどおり）。');
+  out.push('');
+  out.push('| 方針 | 開いたレシピ | 復刻品の売上（合計） | 売上の合計 | 復刻品の割合 | うち Common | うち Uncommon |');
+  out.push('|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    const sum = (f: (r: SectorRun) => number, tier?: Tier) => mean(runs.map((x) => x.sectors.filter((r) => !tier || r.tier === tier).reduce((a, r) => a + f(r), 0)));
+    const pct = (tier?: Tier) => {
+      const all = sum((r) => r.allRev, tier);
+      return all > 0 ? `${((sum((r) => r.relicRev, tier) / all) * 100).toFixed(1)}%` : '—';
+    };
+    out.push(`| ${POLICY_NAME[p]} | ${mean(runs.map((x) => x.recipes)).toFixed(1)}（${range(runs.map((x) => x.recipes))}） | ${fmtG(sum((r) => r.relicRev))} | ${fmtG(sum((r) => r.allRev))} | ${pct()} | ${pct('C')} | ${pct('U')} |`);
   }
   out.push('');
   out.push('実時間の単価（`SIM_TIME`）：');

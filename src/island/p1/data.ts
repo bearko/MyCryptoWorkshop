@@ -2,6 +2,7 @@
  * フェーズ 1「新天地で実績を上げろ」の数値（docs/ISLAND_PHASE1.md）。
  * 素材 → クラフト → 運搬 → 陳列 → 販売。商品は MCH の Common エクステ 5 シリーズ。
  */
+import { allSeries } from '../../game/catalog';
 import { t } from '../../i18n';
 import { OUTER_SKILLS } from './skillsx';
 
@@ -53,6 +54,8 @@ export interface ProductDef {
   tech?: TechKey;
   /** この商品が主役になる最小のランク（無ければ C）。それより下のセクタでは需要が無く、市場データにも出さない */
   tier?: Tier;
+  /** 復刻品（発掘 v2 の 3 段目）：もとの遺物（エクステの id）・作るランク（出たセクタのランク）。docs/ISLAND_PHASE1.md「3. 復刻品」 */
+  relic?: { ext: number; rank: Rar };
 }
 
 export const PRODUCTS: ProductDef[] = [
@@ -76,7 +79,12 @@ export const PRODUCTS: ProductDef[] = [
   { key: 'Quill', name: t('ペン', 'Quill'), ext: { C: 1003, U: 2003 }, price: 800, batch: 4, days: 3, recipe: { C: { paper: 4, iron: 1 }, U: { paper: 4, iron: 1, gem: 1 } }, demand: 24, tech: 'paper' },
   { key: 'MusicBox', name: t('オルゴール', 'Music Box'), ext: { C: 1165, U: 2165 }, price: 2600, batch: 3, days: 4, recipe: { C: { wood: 4, iron: 3, gem: 1 }, U: { wood: 4, iron: 3, gem: 1, paper: 2 } }, demand: 6, tech: 'jewel', tier: 'U' },
 ];
+/**
+ * 商品の定義（キー → 定義）。いまの 17 商品に、復刻品（RELICS。下の「復刻品」）も入る。
+ * 商品を引くときは productOf（ここ 1 か所の入口）。会社で開いた復刻品だけの一覧は model.ts の productsOf
+ */
 export const PRODUCT: Record<string, ProductDef> = Object.fromEntries(PRODUCTS.map((p) => [p.key, p]));
+export const productOf = (key: string): ProductDef | undefined => PRODUCT[key];
 
 /** Uncommon は値段 2.5 倍、売り場での強さ 1.3 倍。作るには工房の設備と製造の適性 60 以上が要る */
 export const UNCOMMON = { price: 2.5, pull: 1.3, minCraft: 31 };
@@ -1136,6 +1144,12 @@ export const DIG_BALANCE: {
   permitFee: Record<'C' | 'U', number>;
   /** 自動プレイ（scripts/island/sim.ts）で、1 秒に打てる数の仮定 */
   simTapsPerSec: number;
+  /**
+   * 復刻品（発掘 v2 の 3 段目。docs/ISLAND_PHASE1.md「3. 復刻品」）：レシピが開く研究 Lv・売値の倍率（同じランクの商品の平均に掛ける）・
+   * 独占の月数（初めて売った月から、どのセクタでも他社が真似しない）・需要（1 種類の月の需要。ランクの需要と町の大きさを掛ける。
+   * 同じランクの gap の商品の 0.6 倍くらい）・作る手間（日数・1 ロットの数）
+   */
+  relic: { openLv: number; priceMul: number; monopolyMonths: number; demandBase: number; days: [number, number]; batch: number };
 } = {
   // 研究パネルの RP の値段：根もと lo 〜 枝先 hi（平均は (lo + hi) / 2）・大きめの研究パネル big・丸める単位 step
   rpPrice: {
@@ -1179,6 +1193,8 @@ export const DIG_BALANCE: {
   permitFee: { C: 2000, U: 8000 },
   // 自動プレイ：1 秒に 4 打
   simTapsPerSec: 4,
+  // 復刻品：研究 Lv3 で開く・売値 ×1.25・独占 4 か月・需要 12 個（gap の商品の平均 20.5 の 0.6 倍）・3〜4 日・1 ロット 4 個（アンコモンは半分）
+  relic: { openLv: 3, priceMul: 1.25, monopolyMonths: 4, demandBase: 12, days: [3, 4], batch: 4 },
 };
 
 // ---------------------------------------------------------------- スキルツリーの 2 区分（研究パネル・お金パネル）
@@ -1440,6 +1456,76 @@ export const DIG_SITES: Record<string, { topics: number[]; finds: number[] }> = 
   u4: { topics: [2141, 2193, 2043, 2044], finds: [2096, 2031, 2077, 2007, 2180, 2174, 2016, 2112, 2139, 2184] },
   u5: { topics: [2182, 2041, 2039, 2046], finds: [2118, 2129, 2154, 2142, 2115, 2186, 2130, 2158, 2161, 2121] },
 };
+
+// ---------------------------------------------------------------- 復刻品（発掘 v2 の 3 段目。docs/ISLAND_PHASE1.md「3. 復刻品」）
+
+/** 復刻品の商品キー（「Relic-1122」。SKU は「Relic-1122:C」。いまの 17 商品のキーと重ならない） */
+export const relicKey = (ext: number) => `Relic-${ext}`;
+export const isRelic = (key: string) => key.startsWith('Relic-');
+/** 遺物の id から決まる種（同じ遺物はいつも同じレシピ・値段・日数） */
+const relicHash = (ext: number) => {
+  let x = (ext * 2654435761) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 2246822519) >>> 0;
+  return (x ^ (x >>> 13)) >>> 0;
+};
+/** 遺物のエクステの名前（カタログの全シリーズから。日本語・英語） */
+let relicNames: Map<number, [string, string]> | null = null;
+const relicName = (ext: number): [string, string] => {
+  relicNames ??= new Map(allSeries.flatMap((x) => x.items.map((e) => [e.id, [e.name, e.nameEn] as [string, string]] as const)));
+  return relicNames.get(ext) ?? [`#${ext}`, `#${ext}`];
+};
+/**
+ * 復刻品のレシピ：そのセクタの発掘の素材から、遺物の id で決める（同じ遺物はいつも同じ）。
+ * Common：鉄・木材・粘土・ガラスから 2 種（4 個と 2 個。ガラスは高いので 2 個のほう）。
+ * Uncommon：布・紙・宝石から 1〜2 種（3 個・2 個目は 1 個）＋ Common の素材 1 種（4 個）。数はいまの同じランクの商品と同じくらい（C 6.7・U 8.5 個）
+ */
+export function relicRecipe(ext: number, rank: Rar): Partial<Record<Mat, number>> {
+  const hsh = relicHash(ext);
+  const cm = DIG.C.mats;
+  if (rank === 'C') {
+    const a = cm[hsh % cm.length];
+    const rest = cm.filter((m) => m !== a);
+    const b = rest[Math.floor(hsh / 7) % rest.length];
+    const [big, small] = a === 'glass' ? [b, a] : [a, b];
+    return { [big]: 4, [small]: 2 };
+  }
+  const um = DIG.U.mats;
+  const u1 = um[hsh % um.length];
+  const two = Math.floor(hsh / 5) % 2 === 1;
+  const u2 = um.filter((m) => m !== u1)[Math.floor(hsh / 11) % (um.length - 1)];
+  const c = cm.filter((m) => m !== 'glass')[Math.floor(hsh / 13) % 3];
+  return { [c]: 4, [u1]: 3, ...(two ? { [u2]: 1 } : {}) };
+}
+/** 同じランクのいまの商品の平均の値段（Common の商品。アンコモンは SKU の値段で ×UNCOMMON.price） */
+const AVG_PRICE = PRODUCTS.filter((p) => !p.tier).reduce((a, p) => a + p.price, 0) / PRODUCTS.filter((p) => !p.tier).length;
+/** 復刻品 1 つの定義（遺物の id・出たセクタのランク） */
+function relicDef(ext: number, rank: Rar): ProductDef {
+  const hsh = relicHash(ext);
+  const B = DIG_BALANCE.relic;
+  const [ja, en] = relicName(ext);
+  // 値段：平均 × 1.25 を中心に ±10%（遺物ごとに少しずつ違う）
+  const price = Math.round((AVG_PRICE * B.priceMul * (0.9 + 0.1 * (hsh % 3))) / 10) * 10;
+  const recipe = relicRecipe(ext, rank);
+  return { key: relicKey(ext), name: t(`復刻 ${ja}`, `Revival ${en}`), ext: { C: ext, U: ext }, price, batch: B.batch, days: B.days[(hsh >>> 3) % B.days.length], recipe: { C: recipe, U: recipe }, demand: B.demandBase, relic: { ext, rank } };
+}
+/**
+ * 復刻品（発掘で出るエクステ 1 つにつき 1 つ。DIG_SITES の全セクタの topics と finds）。ランクは出たセクタのランク。
+ * いまの 17 商品と同じエクステ（シリーズ）は作らない（いまの DIG_SITES には無い。足したときのため）
+ */
+export const RELICS: ProductDef[] = (() => {
+  const own = new Set(PRODUCTS.flatMap((p) => [p.ext.C % 1000, p.ext.U % 1000]));
+  const out = new Map<number, ProductDef>();
+  for (const [sec, d] of Object.entries(DIG_SITES)) {
+    const tier = SECTORS.find((x) => x.id === sec)?.tier;
+    if (tier !== 'C' && tier !== 'U') continue;
+    for (const id of [...d.topics, ...d.finds]) if (!out.has(id) && !own.has(id % 1000)) out.set(id, relicDef(id, tier));
+  }
+  return [...out.values()];
+})();
+for (const p of RELICS) PRODUCT[p.key] = p;
+/** その遺物（エクステの id）の復刻品。無ければ undefined */
+export const relicOf = (ext: number): ProductDef | undefined => PRODUCT[relicKey(ext)];
 
 /** 石板（読み物）。Common：栄えていた頃の Lime の職人の町／Uncommon：Lime がほかの国とつながって交易していた頃（9 つのランドの謎は伏線）／Rare 以降：枠だけ */
 export interface Tablet {

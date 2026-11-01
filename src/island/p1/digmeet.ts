@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { DIG, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
 import { sectorDef } from './company';
-import { digLayout, digLayouts, extName, hasLetter, permitFee, presentLock, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
+import { digLayout, digLayouts, extName, hasLetter, monopolyLeft, openRelics, permitFee, presentLock, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
 
 // ---------------------------------------------------------------- 発掘との出会い（2 か月目の途中、初めて手が空いたとき）
 
@@ -143,7 +143,7 @@ export function topicsPage(sector: string): string | null {
 
 // ---------------------------------------------------------------- マインちゃんの助言（発掘）
 
-export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter';
+export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'relic';
 /**
  * 発掘の助言。tier は、いまの助言の並び（main.ts の tutorial）のどこに入れるか：
  * - high：受け取れるもの（お題がそろって発表できる）。依頼の報酬の受け取りと同じ所（休業・倉庫の「止まっている」の後）
@@ -158,7 +158,7 @@ export interface DigTip {
   text: string;
   site?: number;
 }
-export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'idle', 'permit', 'topic-one', 'letter'];
+export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'idle', 'permit', 'topic-one', 'letter'];
 /** 許可のある荒れ地を、この日数のあいだ掘っていなければ「15 秒だけ掘ってみよう」 */
 export const DIG_IDLE_DAYS = 10;
 
@@ -168,6 +168,14 @@ export function digTips(s: P1State): DigTip[] {
   const out: DigTip[] = [];
   if (canPresent(s)) out.push({ key: 'present', tier: 'high', text: t('お題が全部そろったね！ [[町の長]]の家で、研究成果を発表しよう。', 'All targets found! Present your findings at the [[town head]]’s house.') });
   const d = s.dig;
+  // 復刻品の独占があと 1 か月：次の遺物を掘って、新しい復刻品を用意しよう（許可のある荒れ地へ）
+  const ending = d && !s.digRun ? relicEnding(s) : null;
+  if (d && ending) {
+    const site = d.sites.findIndex((x, k) => k === d.cur && x.permit && !x.done);
+    const any = d.sites.findIndex((x) => x.permit && !x.done);
+    const k = site >= 0 ? site : any;
+    if (k >= 0) out.push({ key: 'relic', tier: 'mid', site: k, text: t(`「${ending.name}」の独占はあと 1 か月。次の遺物を掘って、新しい[[復刻品]]を用意しよう！`, `The monopoly on ${ending.name} ends in a month. Dig up the next relic and get a new [[revival]] ready!`) });
+  }
   if (d && !s.digRun) {
     const open = d.sites.map((x, k) => ({ x, k })).filter(({ x }) => x.permit && !x.done);
     if (open.length && s.day - (d.last ?? -1e9) >= DIG_IDLE_DAYS) {
@@ -197,6 +205,11 @@ export function digTips(s: P1State): DigTip[] {
     out.push({ key: 'letter', tier: 'low', text: t(`[[調査依頼状]]があるから、Uncommon のセクタに出店できるよ。入国料は ${fee.toLocaleString('en-US')} G から、ランドマップで選ぼう！`, `With the [[survey request]] you can open in Uncommon sectors. Permits start at ${fee.toLocaleString('en-US')} G — choose on the land map!`) });
   }
   return out.filter((x) => !s.digRun || x.key === 'present');
+}
+
+/** 独占が残り 1 か月の復刻品（売り始めて独占中のもの。いくつかあれば先に開いたもの） */
+export function relicEnding(s: P1State) {
+  return openRelics(s).find((p) => s.recipes[p.key]?.sold != null && monopolyLeft(s, p.key) === 1) ?? null;
 }
 
 // ---------------------------------------------------------------- 月次報告の「今月の出土品」
@@ -233,6 +246,8 @@ export interface DigSummary {
   got: DigGot;
   /** 期間のうちに制覇した（2 か月続けて 1 位） */
   conquered: boolean;
+  /** 期間の売上のうち復刻品のぶん */
+  relic: number;
   /** 最新の月の報告（「くわしい報告を見る」・詰まり） */
   latest: Report;
 }
@@ -259,6 +274,7 @@ export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: Dig
     money: first.money && latest.money ? { start: first.money.start, end: latest.money.end } : null,
     got,
     conquered: held.some((r) => (r.streak ?? 0) >= TOP_STREAK),
+    relic: held.reduce((v, r) => v + (r.relic ?? 0), 0),
     latest,
   };
 }
