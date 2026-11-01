@@ -58,6 +58,9 @@ import {
   P1B,
   PRODUCT,
   PRODUCTS,
+  RELICS,
+  isRelic,
+  relicOf,
   RIVAL_GROWTH,
   SHOP,
   CHEAP_RATE,
@@ -219,6 +222,8 @@ export interface Report {
   forecast?: { sales: number; profit: number };
   /** 今月の出土品：新発見・研究 Lv が上がった数・入った RP（発掘場のあるセクタ） */
   dig?: { found: number; lv: number; rp: number };
+  /** 売上のうち復刻品のぶん（G。売っていなければ無い） */
+  relic?: number;
 }
 
 export interface Flags {
@@ -259,6 +264,8 @@ export interface Flags {
    * 'open'（開いた。最初の出土を待つ）→ 'skill'（研究ポイントの説明のあと、スキルツリーを開くまで）→ 'done'。無ければまだ出会っていない
    */
   digMeet?: 'tap' | 'open' | 'skill' | 'done';
+  /** 初めて復刻品のレシピが開いたときのマインちゃんの会話を見た */
+  relicTalk?: boolean;
 }
 
 export interface P1State {
@@ -384,6 +391,17 @@ export interface P1State {
   dustShop?: number | null;
   /** きのう売れた数（商品ごと。POS レジで市場データに出す） */
   yday?: Partial<Record<string, number>>;
+  /**
+   * 復刻品のレシピ（会社で共有。商品キー → 開いた日・初めて売った日＝独占の始まり）。研究 Lv3 で開く。
+   * docs/ISLAND_PHASE1.md「3. 復刻品」
+   */
+  recipes: Record<string, RelicRec>;
+}
+
+/** 復刻品のレシピ 1 つ：開いた日（並びの順）・初めて売った日（独占はここから DIG_BALANCE.relic.monopolyMonths か月） */
+export interface RelicRec {
+  at: number;
+  sold?: number;
 }
 
 /** 技の修行：スキル・修行に出た職人・残りの日数・はじめの日数・修行の前の担当（同じセクタなら、空いていれば戻す） */
@@ -544,6 +562,7 @@ export function newP1(seed = Math.floor(Math.random() * 1e9), tier: Tier = 'C', 
     dig: newDig(sector),
     dustShop: null,
     yday: {},
+    recipes: {},
     ...extras(),
   };
   populate(s);
@@ -560,6 +579,8 @@ export const tierOk = (p: ProductDef, tier: Tier) => TIER_ORDER.indexOf(p.tier ?
  */
 export function baseDemand(p: ProductDef, tier: Tier, prof?: SectorProfile): number {
   if (!tierOk(p, tier)) return 0;
+  // 復刻品：どのセクタでも売れる（昔の Lime の品として人気）。ランクの需要 × 町の大きさ（家の数）に比例
+  if (p.relic) return p.demand * TIERS[tier].demand * (prof?.homes ?? 1);
   const niche = p.tech && !prof?.gap?.includes(p.key) ? MARKET.niche : 1;
   return p.demand * TIERS[tier].demand * (prof?.demand?.[p.key] ?? 1) * niche;
 }
@@ -1148,7 +1169,7 @@ export const gateOf = (s: P1State) => s.buildings.find(isGate) ?? null;
 /** 他社のひと月の売上の見込み（自社が無いとき）。先月の締めがまだ無いときに使う */
 export function rivalMonthGuess(s: P1State): Record<string, number> {
   const out: Record<string, number> = Object.fromEntries(s.rivals.map((r) => [r.id, r.base]));
-  for (const p of PRODUCTS) {
+  for (const p of productsOf(s)) {
     const rv = rivalOffers(s, p.key);
     const month = capture(s, p.key, rv);
     rv.forEach((o, n) => (out[o.rid] += month[n] * p.price));
@@ -1586,10 +1607,18 @@ export const recipeOf = (x: Sku) => {
 /** その職人で作れるか（レアリティ・材料・設備） */
 export function craftCheck(s: P1State, x: Sku, worker: number | null): string | null {
   const [k, r] = skuParts(x);
+  // 復刻品：レシピが開いていれば、技・魔法の釜・商品開発は要らない（研究したこと自体が開発）。アンコモンの職人の適性は要る
+  if (isRelic(k)) {
+    if (!s.recipes?.[k]) return 'relic';
+    if (r === 'U') {
+      const st = worker != null ? staffOf(s, worker) : null;
+      if (!st || aptOf(s, st, 'craft') < UNCOMMON.minCraft) return 'skill';
+    }
+  }
   // 技が要る商品（スキルツリーの技の枝）
   const tech = PRODUCT[k]?.tech;
   if (tech && !has(s, techSkill(tech))) return 'tech';
-  if (r === 'U') {
+  if (r === 'U' && !isRelic(k)) {
     if (!has(s, 'pot')) return 'pot';
     if (!s.dev.includes(skuParts(x)[0])) return 'dev';
     const st = worker != null ? staffOf(s, worker) : null;
@@ -2492,7 +2521,8 @@ export function step(s: P1State): DayResult {
   }
   // 売れる：住む場所ごとに、近くて強いお店へお客さんが分かれる（棚が空のお店には来ない＝他社へ流れる）
   const today: Partial<Record<string, number>> = {};
-  for (const p of PRODUCTS) {
+  syncRelics(s);
+  for (const p of productsOf(s)) {
     const mine = s.holdSales ? [] : myOffers(s, p.key, true);
     const rv = rivalOffers(s, p.key);
     const month = capture(s, p.key, [...mine, ...rv]);
@@ -2518,6 +2548,9 @@ export function step(s: P1State): DayResult {
       }
       s.monthUnits[p.key] = (s.monthUnits[p.key] ?? 0) + sold;
       if (skuParts(o.x)[1] === 'U') s.unitsU += sold;
+      // 復刻品：初めて売れた日から独占（どのセクタでも他社が真似しない）
+      const rec = sold > 0 && p.relic ? s.recipes?.[p.key] : undefined;
+      if (rec && rec.sold == null) rec.sold = s.day;
     });
     // 新商品の認知：棚に並んでいる日に育つ（宣伝が効いている日はさらに）。最初の町は育てない（いつも 1）
     if (!s.holdSales && !sectorProfile(s)?.noSaturation && mine.length) {
@@ -2614,9 +2647,11 @@ export function endMonth(s: P1State): Report {
   const costs = { ...s.monthCost };
   const sold = Object.values(s.monthUnits).reduce<number>((a, v) => a + (v ?? 0), 0);
   const brandStart = s.brandStart ?? s.brand ?? 0;
+  const relicRev = Object.entries(s.monthSales).reduce<number>((a, [k, v]) => a + (isRelic(k) ? (v ?? 0) : 0), 0);
   const report: Report = {
     month,
     revenue: Math.round(revenue),
+    ...(relicRev > 0 ? { relic: Math.round(relicRev) } : {}),
     bySeries: { ...s.monthSales },
     costs,
     profit: Math.round(revenue - Object.values(costs).reduce<number>((a, v) => a + v, 0)),
@@ -2633,11 +2668,19 @@ export function endMonth(s: P1State): Report {
   // gap の商品も同じ。2 社目が入ると飽和（saturated）になるので、次の gap を探す理由になる。
   // 最初の町（noSaturation）はいままでどおり、誰も売っていない商品に 1 社だけ
   const noSat = !!sectorProfile(s)?.noSaturation;
-  for (const p of PRODUCTS) {
+  for (const p of productsOf(s)) {
     const sold = (s.monthSales[p.key] ?? 0) > 0;
     const n = sellersOf(s, p.key);
     const room = noSat ? n === 0 : n < MARKET.satAt;
     s.alone[p.key] = sold && room ? (s.alone[p.key] ?? 0) + 1 : 0;
+    // 復刻品：売れた月なのに独占の始まりが無ければ（日を回さずに締めたとき）、この月から
+    const rr = p.relic && sold ? s.recipes?.[p.key] : undefined;
+    if (rr && rr.sold == null) rr.sold = s.day;
+    // 復刻品の独占のあいだは、どの他社も真似しない（数えるのは続ける。切れた月の締めで 1 社目が真似を始める）
+    if (p.relic && monopolyLeft(s, p.key) > 0) {
+      s.alone[p.key] = Math.min(ENTRY_AFTER, s.alone[p.key] ?? 0);
+      continue;
+    }
     if ((s.alone[p.key] ?? 0) >= ENTRY_AFTER) {
       const next = s.rivals.filter((r) => !((r.sells[p.key] ?? 0) > 0) && !r.quit?.includes(p.key)).sort((a, b) => rivals[a.id] - rivals[b.id])[0];
       s.alone[p.key] = 0;
@@ -2645,7 +2688,7 @@ export function endMonth(s: P1State): Report {
         next.sells[p.key] = 0.8;
         (next.pull0 ??= {})[p.key] = 0.8;
         (next.follow ??= {})[p.key] = 0;
-        news.push(`${rivalDef(next.id)?.name ?? ''}|${p.name}`);
+        news.push(`${rivalDef(next.id)?.name ?? ''}|${p.name}${p.relic ? '|copy' : ''}`);
       }
     }
   }
@@ -2872,6 +2915,11 @@ export type Need = { kind: 'tech'; skill: string } | { kind: 'route'; skill: str
 export function needFor(s: P1State, key: string): Need | null {
   const p = PRODUCT[key];
   if (!p) return null;
+  // 復刻品：素材のルートだけ（技・魔法の釜・商品開発は要らない）
+  if (p.relic) {
+    for (const m of Object.keys(p.recipe[p.relic.rank]) as Mat[]) if (!hasRoute(s, m)) return { kind: 'route', skill: `route_${m}`, mat: m };
+    return null;
+  }
   if (p.tech && !has(s, techSkill(p.tech))) return { kind: 'tech', skill: techSkill(p.tech) };
   const wantU = (s.tier ?? 'C') !== 'C';
   const mats = Object.keys({ ...p.recipe.C, ...(wantU ? p.recipe.U : {}) }) as Mat[];
@@ -2928,6 +2976,89 @@ export function recommend(s: P1State): string {
   // gap を並べ終えたら：いま作れて供給が足りていないもの → いま作れるもの → なんでも
   const best = pick(free.filter((r) => gapKeys.includes(r.p.key))) ?? pick(free.filter((r) => !r.need && !r.saturated)) ?? pick(free.filter((r) => !r.need)) ?? pick(free);
   return (best ?? rows[0]).p.key;
+}
+
+// ---------------------------------------------------------------- 復刻品（発掘 v2 の 3 段目。docs/ISLAND_PHASE1.md「3. 復刻品」）
+
+/** 会社で開いた復刻品（開いた順） */
+export function openRelics(s: Pick<P1State, 'recipes'>): ProductDef[] {
+  const r = s.recipes ?? {};
+  return Object.keys(r)
+    .filter((k) => PRODUCT[k]?.relic)
+    .sort((a, b) => r[a].at - r[b].at || a.localeCompare(b))
+    .map((k) => PRODUCT[k]);
+}
+/** 売り買いする商品の一覧（いまの 17 商品＋会社で開いた復刻品）。市場・販売・他社の計算はここを通る */
+export const productsOf = (s: Pick<P1State, 'recipes'>): ProductDef[] => (s.recipes && Object.keys(s.recipes).length ? [...PRODUCTS, ...openRelics(s)] : PRODUCTS);
+/** 復刻品の SKU（作るランク：遺物が出たセクタのランク） */
+export const relicSku = (key: string): Sku => sku(key, PRODUCT[key]?.relic?.rank ?? 'C');
+/** その商品を作るときの SKU（復刻品はそのランク・ほかは Common） */
+export const makeSku = (key: string): Sku => (isRelic(key) ? relicSku(key) : sku(key, 'C'));
+/** 復刻品のこのセクタの需要（無ければ足す）。開いたとき・セクタを移ったとき・以前のセーブ */
+function relicDemand(s: P1State) {
+  for (const p of openRelics(s)) if (s.demand[p.key] === undefined) s.demand[p.key] = baseDemand(p, s.tier ?? 'C', sectorProfile(s));
+}
+/**
+ * 遺物の研究 Lv が DIG_BALANCE.relic.openLv（3）以上になったら、その復刻品のレシピを会社で開く。
+ * 新しく開いたら商品キー（開いていた・復刻品が無いなら null）
+ */
+export function openRelic(s: P1State, ext: number): string | null {
+  const p = relicOf(ext);
+  if (!p || researchLv(s.research?.[ext] ?? 0) < DIG_BALANCE.relic.openLv) return null;
+  s.recipes ??= {};
+  if (s.recipes[p.key]) return null;
+  s.recipes[p.key] = { at: s.day };
+  relicDemand(s);
+  return p.key;
+}
+/** 研究 Lv3 以上なのにまだ開いていない復刻品を開き、このセクタの需要をそろえる（以前のセーブ・セクタの移動） */
+export function syncRelics(s: P1State) {
+  s.recipes ??= {};
+  for (const [id, n] of Object.entries(s.research ?? {})) if (researchLv(n ?? 0) >= DIG_BALANCE.relic.openLv) openRelic(s, Number(id));
+  relicDemand(s);
+}
+/** 独占が切れる日（まだ売っていなければ null） */
+export const monopolyEnd = (s: Pick<P1State, 'recipes'>, key: string): number | null => {
+  const sold = s.recipes?.[key]?.sold;
+  return sold == null ? null : sold + DIG_BALANCE.relic.monopolyMonths * DAYS;
+};
+/** 独占の残りの月（切り上げ）。まだ売っていなければ monopolyMonths（売った月から始まる）、切れたら 0 */
+export function monopolyLeft(s: Pick<P1State, 'recipes' | 'day'>, key: string): number {
+  if (!s.recipes?.[key]) return 0;
+  const end = monopolyEnd(s, key);
+  if (end == null) return DIG_BALANCE.relic.monopolyMonths;
+  return Math.max(0, Math.ceil((end - s.day) / DAYS));
+}
+/** 市場データの復刻品の 1 枚 */
+export interface RelicRow {
+  p: ProductDef;
+  /** 作る SKU（遺物のランク） */
+  x: Sku;
+  demand: number;
+  sellers: number;
+  saturated: boolean;
+  /** 自社の棚に並べている */
+  mine: boolean;
+  need: Need | null;
+  known: number;
+  /** 独占の残りの月（0 で切れた）・まだ売っていない（独占はこれから） */
+  left: number;
+  started: boolean;
+}
+/** 市場データの「復刻品」（開いた順。純粋な関数） */
+export function relicMarket(s: P1State): RelicRow[] {
+  return openRelics(s).map((p) => {
+    const sellers = sellersOf(s, p.key);
+    const mine = Object.values(s.shops).some((sh) => sh.shelves.some((x) => x && skuParts(x)[0] === p.key));
+    return { p, x: relicSku(p.key), demand: Math.round(s.demand[p.key] ?? baseDemand(p, s.tier ?? 'C', sectorProfile(s))), sellers, saturated: saturated(s, p.key), mine, need: needFor(s, p.key), known: knownOf(s, p.key), left: monopolyLeft(s, p.key), started: s.recipes[p.key]?.sold != null };
+  });
+}
+/** まだ開いていない復刻品のうち、研究 Lv が高い順（市場データの「研究 Lv3 で開く」のシルエット） */
+export function relicsSoon(s: Pick<P1State, 'recipes' | 'research'>, n = 3): { p: ProductDef; lv: number }[] {
+  return RELICS.filter((p) => !s.recipes?.[p.key] && (s.research?.[p.relic!.ext] ?? 0) > 0)
+    .map((p) => ({ p, lv: researchLv(s.research[p.relic!.ext] ?? 0) }))
+    .sort((a, b) => b.lv - a.lv || a.p.key.localeCompare(b.p.key))
+    .slice(0, n);
 }
 
 export const skuOf = (key: string, r: Rar = 'C') => sku(key, r);
@@ -3001,6 +3132,9 @@ export function deserializeP1(json: string): P1State | null {
     s.monthCost.ads ??= 0;
     // 以前のセーブ：あとから足した商品の需要（セクタのはじめの値）
     for (const p of PRODUCTS) if (s.demand[p.key] === undefined) s.demand[p.key] = baseDemand(p, s.tier ?? 'C', sectorProfile(s));
+    // 以前のセーブ：復刻品のレシピ（研究 Lv3 以上の遺物は開いている）
+    s.recipes ??= {};
+    syncRelics(s);
     for (const sh of Object.values(s.shops)) {
       sh.cost ??= 0;
       sh.last ??= null;
@@ -3151,7 +3285,7 @@ function potentialOf(s: P1State, mul = 1) {
     [true, 1 - u],
   ] as [boolean, number][]) {
     if (k <= 0) continue;
-    for (const p of PRODUCTS) {
+    for (const p of productsOf(s)) {
       const mine = myOffers(s, p.key, false, away).map((o) => ({ ...o, w: o.w * mul }));
       if (!mine.length) continue;
       const month = capture(s, p.key, [...mine, ...rivalOffers(s, p.key)]);
@@ -3271,7 +3405,7 @@ export function sellInfo(s: P1State): SellInfo {
   const capacity = displayCap(s);
   const { list, total } = sources(s);
   const goods: SellGoods[] = [];
-  for (const p of PRODUCTS) {
+  for (const p of productsOf(s)) {
     const mine = myOffers(s, p.key, false);
     if (!mine.length) continue;
     const demand = (s.demand[p.key] ?? 0) * MARKET.pot;
@@ -3808,6 +3942,8 @@ export interface DigGot {
   rp: number;
   mat: number;
   cells: number;
+  /** 開いた復刻品のレシピ（商品キー。以前の作業には無い） */
+  recipes?: string[];
 }
 /** 発掘作業（15 秒・現実の秒）。作業のあいだは時間が流れ、月をまたいでも月末ポーズと月次報告の画面は出さない */
 export interface DigRun {
@@ -3837,6 +3973,8 @@ export interface DigHit {
   lv?: number;
   /** この 1 打で、荒れ地を掘りきった */
   done?: boolean;
+  /** 研究 Lv3 になって、復刻品のレシピが開いた（商品キー） */
+  recipe?: string;
 }
 export type DigErr = 'no-site' | 'no-run' | 'out' | 'dug' | 'far' | 'no-blast' | 'money';
 
@@ -4117,6 +4255,7 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
     }
     hit.rp += G.topic;
     gainRp(s, G.topic);
+    gotRecipe(s, it.id, hit);
     return;
   }
   const n = before + 1;
@@ -4135,6 +4274,14 @@ function reveal(s: P1State, L: DigLayout, k: number, hit: DigHit) {
     hit.rp += v;
     gainRp(s, v);
   }
+  gotRecipe(s, it.id, hit);
+}
+/** 研究 Lv3 になったら復刻品のレシピを開く（発掘作業の出土にも数える） */
+function gotRecipe(s: P1State, id: number, hit: DigHit) {
+  const key = openRelic(s, id);
+  if (!key) return;
+  hit.recipe = key;
+  if (s.digRun) (s.digRun.got.recipes ??= []).push(key);
 }
 /** 1 マスを強さ power で打つ。崩れたら中身が出る。全部崩れたら、その荒れ地は掘りきった（done） */
 function strike(s: P1State, L: DigLayout, x: number, y: number, power: number): DigHit {

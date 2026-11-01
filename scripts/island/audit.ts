@@ -9,7 +9,7 @@
  * docs/ISLAND_PHASE1.md「投資の効き目の監査」
  */
 import { writeFileSync } from 'node:fs';
-import { ADS, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, SKILL, aptitude, isResearch, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
+import { ADS, DIG_BALANCE, DIG_SITES, HIRE_POOL, INVEST, INVESTS, MONEY_PANELS, P1B, PRODUCT, RESEARCH_NEED, SKILL, aptitude, isResearch, relicKey, sku, skuParts, type FxKind, type Mat, type Skill, type Sku, type Task } from '../../src/island/p1/data';
 import {
   LEARNABLE,
   allowedDirs,
@@ -28,6 +28,8 @@ import {
   myShops,
   myWorkshop,
   newP1,
+  openRelic,
+  relicSku,
   oneWay,
   pathLen,
   raise,
@@ -585,6 +587,13 @@ export const INVEST_SPEC: Record<string, { expect: Stage[]; base?: Item['base'];
   blast: { expect: [], out: '発掘の道具（3 × 3 を一度に）。SCM の段には効かない（tests/island-p1-dig.test.ts）' },
 };
 /** 空いた棚に並べる商品：マインちゃんのおすすめ（いま作れるもの） */
+/** 監査で開く復刻品（ユーホタウンの出土品のはじめ。Common の素材だけ） */
+const RELIC_AUDIT = DIG_SITES.c2.finds[0];
+/** 研究を Lv3 にして、復刻品のレシピを開く */
+function openRelicFor(s: P1State, ext: number) {
+  s.research[ext] = Math.max(s.research[ext] ?? 0, RESEARCH_NEED[DIG_BALANCE.relic.openLv - 1]);
+  openRelic(s, ext);
+}
 function recommendable(s: P1State): Sku {
   const on = (k: string) => myShops(s).some((b) => s.shops[b.uid].shelves.some((y) => y && skuParts(y)[0] === k));
   const can = (k: string) => !PRODUCT[k]?.tech && Object.keys(PRODUCT[k]?.recipe.C ?? {}).every((m) => hasRoute(s, m as Mat));
@@ -737,6 +746,20 @@ export function items(): Item[] {
     base: 'j_new',
     setup: second('Monocle:C', { stock: false }),
     apply: (s) => second('Monocle:C')(s),
+  });
+  // 復刻品（発掘 v2 の 3 段目）：ユーホタウンの出土品の研究を Lv3 にしてレシピを開き、空いた棚に並べる（独占のうちは他社がいない）
+  out.push({
+    id: 'goods_relic',
+    group: '商品',
+    name: '棚に復刻品を並べる（ユーホタウンの遺物を研究 Lv3 に）',
+    expect: ['sell'],
+    base: 'j_new',
+    setup: (s) => {
+      openRelicFor(s, RELIC_AUDIT);
+      second(relicSku(relicKey(RELIC_AUDIT)), { stock: false })(s);
+    },
+    apply: (s) => second(relicSku(relicKey(RELIC_AUDIT)))(s),
+    note: '売値 ×1.25・独占 4 か月',
   });
   out.push({ id: 'goods_u', group: '商品', name: 'アンコモンに替える', expect: ['sell'], check: 'yen', setup: uncommonReady, apply: toU, note: '値段 ×2.5・売り場の強さ ×1.3' });
   return out;

@@ -3,7 +3,7 @@
  * 画面は digui.ts。仕様は docs/ISLAND_PHASE1.md「地層の発掘と研究ポイント」の「15 秒の発掘」「研究ノート」。
  */
 import { t } from '../../i18n';
-import { BLAST, DIG, DIG_AUTO, DIG_SITES, RESEARCH_NEED, TABLETS, type Tablet } from './data';
+import { BLAST, DIG, DIG_AUTO, DIG_BALANCE, DIG_SITES, relicOf, RESEARCH_NEED, TABLETS, type Tablet } from './data';
 import { sectorDef } from './company';
 import {
   digDepthLayer,
@@ -98,6 +98,8 @@ export function gotLines(g: DigGot): [string, string][] {
     [t('研究ポイント', 'RP'), `+${g.rp}`],
     [t('素材', 'Materials'), `+${g.mat}`],
     [t('崩したマス', 'Cells cleared'), `${g.cells}`],
+    // 復刻品のレシピが開いた（研究 Lv3）
+    ...(g.recipes?.length ? [[t('新レシピ', 'New recipes'), `${g.recipes.length}`] as [string, string]] : []),
   ];
 }
 
@@ -209,6 +211,11 @@ export function noteEntries(s: P1State, sector: string): NoteEntry[] {
   if (!site) return [];
   const one = (id: number, topic: boolean): NoteEntry => ({ id, name: extName(id), topic, n: s.research?.[id] ?? 0, lv: researchOf(s, id), left: researchLeft(s, id) });
   return [...site.topics.map((id) => one(id, true)), ...site.finds.map((id) => one(id, false))];
+}
+/** 研究ノートの復刻品の 1 行（研究 Lv3 で開く／開いた）。復刻品の無い遺物は null。[文, 開いた] */
+export function relicLine(e: Pick<NoteEntry, 'id' | 'lv'>): [string, boolean] | null {
+  if (!relicOf(e.id)) return null;
+  return e.lv >= DIG_BALANCE.relic.openLv ? [t('復刻品：作れる', 'Revival: can make'), true] : [t(`Lv${DIG_BALANCE.relic.openLv} で復刻品のレシピ`, `Revival recipe at Lv${DIG_BALANCE.relic.openLv}`), false];
 }
 /** 「次のレベルまで」の文 */
 export function nextLvText(e: NoteEntry): string {

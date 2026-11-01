@@ -79,6 +79,7 @@ import {
   wasteSpots,
   type DigHit,
   type RunEnd,
+  openRelics,
 } from './model';
 import { along, newAnim, type Walker } from './anim';
 import { drawP1, type P1Ghost } from './render';
@@ -98,6 +99,7 @@ import {
   openShop,
   openStaff,
   openWorkshop,
+  makeInWorkshop,
   refreshSheet,
   rivalName,
   sheetOpen,
@@ -1213,6 +1215,7 @@ function openDigPanel() {
     end: () => finishDig(),
     closed: () => renderAll(),
     hit: (hits) => digHit(hits),
+    make: (key) => makeRelic(key),
     // 発掘との出会いの最初の 1 回は、時間切れの「発掘終了」を見せる
     noEnd: () => s.flags.digMeet === 'open',
   });
@@ -1256,6 +1259,7 @@ function finishDig() {
     after: () => {
       flushHeld();
       if (meetFirst) meetAfterDig();
+      else relicTalkOnce(end);
     },
   });
   renderAll();
@@ -1270,6 +1274,7 @@ function showDigSummary(end: RunEnd) {
     flushHeld();
     afterReport();
     if (s.flags.digMeet === 'open') meetAfterDig();
+    else relicTalkOnce(end);
     renderAll();
   };
   openDigSummary(
@@ -1335,6 +1340,26 @@ function checkMeet() {
 }
 
 /** 最初の発掘作業が終わった（発掘終了の札のあと）：セリフ 4（スキルツリーの四角いパネルへ） */
+/** 復刻品を工房で作る（発掘終了の札・マインちゃんの会話）：発掘のパネルを閉じて、市場データの「工房で作る」と同じ動き */
+function makeRelic(key: string) {
+  if (digOpen()) closeDig();
+  makeInWorkshop(ctx, key, t('新しいレシピ', 'New recipe'));
+}
+/** 初めて復刻品のレシピが開いたあと（1 回だけ）のマインちゃん：独占のうちに売り込もう（ボタン「工房で作る」） */
+function relicTalkOnce(end: RunEnd) {
+  if (s.flags.relicTalk) return;
+  const key = end.got.recipes?.[0] ?? openRelics(s)[0]?.key;
+  const p = key ? PRODUCT[key] : undefined;
+  if (!key || !p?.relic) return;
+  s.flags.relicTalk = true;
+  save();
+  const ext = p.relic.ext;
+  talk(
+    [{ text: t('遺物を研究したら、昔の Lime の作り方が分かったよ！ [[復刻品]]は、しばらくはどこの会社も作れない。いまのうちに売り込もう！', 'Researching the relic taught us how old Lime made it! For a while no other company can make this [[revival]]. Sell it while you can!'), el: () => extIcon(ext, 64) }],
+    t('工房で作る', 'Make it'),
+    () => makeRelic(key),
+  );
+}
 function meetAfterDig() {
   if (s.flags.digMeet !== 'open') return;
   talk([{ text: MEET_FOUND() }], t('わかった', 'Got it'), () => {
@@ -2608,6 +2633,14 @@ function digAct(x: DigTip): [string, () => void] {
   if (x.key === 'present') return [t('町の長の家へ', 'To the town head'), () => showChief()];
   if (x.key === 'letter') return [t('ランドマップを開く', 'Open land map'), () => openLand(ctx)];
   if (x.key === 'permit') return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? 0)];
+  if (x.key === 'relic')
+    return [
+      t('荒れ地へ', 'To the wasteland'),
+      () => {
+        showWaste(x.site ?? s.dig?.cur ?? 0);
+        focusWaste(x.site ?? s.dig?.cur ?? 0);
+      },
+    ];
   return [t('荒れ地を見る', 'View wasteland'), () => showWaste(x.site ?? s.dig?.cur ?? 0)];
 }
 
@@ -3527,6 +3560,8 @@ function reportNews(rep: NonNullable<ReturnType<typeof step>['report']>) {
   for (const n of rep.news) {
     const [who, what, kind] = n.split('|');
     if (kind === 'out') toast(plain(t(`${who}が[[${what}]]から撤退した（売れなかった）`, `${who} pulled out of [[${what}]] (it didn't sell)`)));
+    // 復刻品の独占が切れて、他社が後追いしてきた
+    else if (kind === 'copy') toast(plain(t(`${who}が「${what}」を真似しはじめた`, `${who} started copying “${what}”`)));
     else toast(plain(t(`${who}が[[${what}]]を売り始めた`, `${who} started selling [[${what}]]`)));
   }
   // OJT：担当のある人の能力が上がった

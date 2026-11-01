@@ -399,6 +399,8 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       }
       if (r.brand) sub.append(h('small', 'isl-rp-brand', `★ +${r.brand}`));
       if (sub.childElementCount) right.append(sub);
+      // 売上のうち復刻品のぶん（1 行）
+      if (r.relic) left.append(h('small', 'isl-rp-relic', t(`うち復刻品 ${money(r.relic)}`, `incl. revivals ${money(r.relic)}`)));
       grid.append(left, right);
       c1.append(grid);
       // 月次 PDCA（スキル）：来月の見込み
@@ -422,6 +424,7 @@ export function openMonthReport(ctx: Ctx, r: Report, hooks: ReportHooks, then?: 
       for (const n of r.news) {
         const [who, what, kind] = n.split('|');
         if (kind === 'out') detail.append(h('p', 'isl-good', t(`${who}が「${what}」から撤退しました。`, `${who} pulled out of ${what}.`)));
+        else if (kind === 'copy') detail.append(h('p', 'isl-warn', t(`${who}が「${what}」を真似しはじめました（独占が終わった）。`, `${who} started copying ${what} (the monopoly ended).`)));
         else detail.append(h('p', 'isl-warn', t(`${who}が「${what}」の販売を始めました。`, `${who} started selling ${what}.`)));
       }
       c1.append(detail);
@@ -616,6 +619,8 @@ export function openDigSummary(ctx: Ctx, sum: DigSummary, hooks: DigSummaryHooks
       }
       top.append(bars);
       c1.append(top);
+      // 売上のうち復刻品のぶん
+      if (sum.relic) c1.append(h('small', 'isl-rp-relic', t(`うち復刻品 ${money(sum.relic)}`, `incl. revivals ${money(sum.relic)}`)));
       const row = h('div', 'isl-ds-row');
       // 順位の変化
       const rk = h('span', 'isl-ds-chip');

@@ -5,7 +5,7 @@
 import { t, isEn } from '../../i18n';
 import type { Sfx } from './sfx';
 import { assetUrl, drawRef } from '../../render/images';
-import { getExtension, heroById, heroFacesRight } from '../../game/catalog';
+import { heroById, heroFacesRight } from '../../game/catalog';
 import raw from '../../generated/catalog.json';
 import { DEF } from '../defs';
 import {
@@ -98,6 +98,11 @@ import {
   myShops,
   partMax,
   recommend,
+  relicMarket,
+  relicsSoon,
+  openRelics,
+  relicSku,
+  makeSku,
   tierOk,
   setPart,
   setRest,
@@ -115,7 +120,7 @@ import {
   scoutMul,
 } from './model';
 import { sectorDef, sectorProfile } from './company';
-import { bar, btn, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
+import { bar, btn, extImage, fmt, h, heroIcon, heroName, matIcon, money, sheet, skuIcon, skuName, rich } from './ui';
 import { bomRow, extCard, extSlot, jobLabel, knownBar, lotsFromStock, needText, pickExt, pickHero, profitPerDay, radar, rankEl, slot, techNeed } from './heroui';
 
 export interface Ctx {
@@ -356,6 +361,7 @@ const CRAFT_ERR: Record<string, string> = {
   full: t('置き場所がいっぱいで、できた商品を置けません（倉庫を建てるか、お店へ運びましょう）', 'No room for finished goods (build a warehouse or haul to shops)'),
   worker: t('職人を割り当ててください', 'Assign a crafter first'),
   busy: t('作業中です', 'Already working'),
+  relic: t('この復刻品のレシピはまだ分かっていません（遺物の研究 Lv3 で開く）', 'This revival recipe is not known yet (research the relic to Lv3)'),
 };
 /** 作れない理由（技が要るものは、その技の名前） */
 const craftErr = (x: Sku, e: string, s?: P1State) => (e === 'tech' ? techNeed(skuParts(x)[0], s) : null) ?? CRAFT_ERR[e] ?? e;
@@ -371,6 +377,8 @@ export function craftable(s: P1State, tut = false): Sku[] {
   const out: Sku[] = list.filter((p) => ready(p.key)).map((p) => sku(p.key, 'C'));
   out.push(...list.filter((p) => s.dev.includes(p.key) && ready(p.key)).map((p) => sku(p.key, 'U')));
   out.push(...list.filter((p) => !ready(p.key)).map((p) => sku(p.key, 'C')));
+  // 復刻品（会社で開いたもの。遺物のランクで作る）。チュートリアルのあいだは出さない
+  if (!tut) out.push(...openRelics(s).map((p) => relicSku(p.key)));
   return out;
 }
 
@@ -408,7 +416,7 @@ function flashTo(el: HTMLElement | null) {
  * make：その商品を作るものとして選んだ状態で開く（市場データの「工房で作る」）。空いている作業台があればそこに入れ、
  * 無ければ 1 台目の作るものの選択をその商品を先頭にして開く。作る数のところへスクロールして光らせる
  */
-export function openWorkshop(ctx: Ctx, opt: boolean | { invest?: boolean; make?: Sku } = false) {
+export function openWorkshop(ctx: Ctx, opt: boolean | { invest?: boolean; make?: Sku; from?: string } = false) {
   const o = typeof opt === 'boolean' ? { invest: opt } : opt;
   const toInvest = !!o.invest;
   const s0 = ctx.s();
@@ -543,7 +551,7 @@ export function openWorkshop(ctx: Ctx, opt: boolean | { invest?: boolean; make?:
         items: craftable(s0, !!ctx.step?.()),
         current: s0.slots[0].sku,
         worker: s0.slots[0].worker,
-        badge: { x, text: t('市場データで選んだ', 'Picked from market data') },
+        badge: { x, text: o.from ?? t('市場データで選んだ', 'Picked from market data') },
         note: t('作業台は全部ふさがっています。作業台 1 の作るものを替えるなら、ここで選びましょう。', 'Every bench is busy. Choose here to switch what bench 1 makes.'),
         onPick: (v) => {
           if (!v) return;
@@ -749,7 +757,7 @@ export function shopScene(s: P1State, uid: number, onPay?: (yen: number) => void
       if (!x) return;
       const n = Math.min(6, (sh.shelf[x] ?? 0) + (reserved.get(x) ?? 0));
       const [key, r] = skuParts(x);
-      const ref = getExtension(PRODUCT[key].ext[r]).image;
+      const ref = extImage(PRODUCT[key].ext[r]);
       for (let i = 0; i < n; i++) drawRef(ctx, ref, 22 + i * 23, 52 + k * 20, 20, 20);
     });
     // 店員はレジの後ろ（足もとはレジに隠れる）。お客さんと同じ大きさ
@@ -817,7 +825,7 @@ export function shopScene(s: P1State, uid: number, onPay?: (yen: number) => void
       // 持っている商品
       if (w.held && w.buy) {
         const [key, r] = skuParts(w.buy);
-        drawRef(ctx, getExtension(PRODUCT[key].ext[r]).image, w.x - 9 + (w.facing ?? -1) * 8, FLOOR + 16 - hop, 18, 18);
+        drawRef(ctx, extImage(PRODUCT[key].ext[r]), w.x - 9 + (w.facing ?? -1) * 8, FLOOR + 16 - hop, 18, 18);
       }
     }
     // 店員の頭の上に「+N GUM」
@@ -1423,15 +1431,7 @@ export function openData(ctx: Ctx) {
     const rb = rallyBadge(s);
     if (rb) body.append(rb);
     /** 市場データから工房へ：その商品を作るものとして選んだ状態で工房を開く（工房が無ければトースト） */
-    const makeIt = (key: string) => {
-      if (!myWorkshop(s)) {
-        ctx.sfx?.('error');
-        ctx.toast(t('先に工房を建てよう', 'Build the workshop first'));
-        return;
-      }
-      ctx.sfx?.('tap');
-      openWorkshop(ctx, { make: sku(key, 'C') });
-    };
+    const makeIt = (key: string) => makeInWorkshop(ctx, key);
     if (need && need.kind !== 'dev' && ctx.skills) {
       const go = need.skill;
       body.append(btn(t('スキルツリーで見る', 'Open skill tree'), () => ctx.skills?.(go), 'is-on'));
@@ -1484,12 +1484,85 @@ export function openData(ctx: Ctx) {
       row.append(n, d, sellers, ...(pos ? [yd] : []), h('span', '', money(r.p.price)), mats);
       table.append(row);
     }
+    body.append(table);
+    // 復刻品（開いた順）：独占の残り・他社・工房で作る。まだ開いていないものは「研究 Lv3 で開く」のシルエットを数個
+    const relics = relicSection(ctx, s);
+    if (relics) body.append(relics);
     const satNames = all.filter((r) => r.saturated).map((r) => r.p.name);
     const note = satNames.length
       ? t(`他店で供給が足りている商品（${satNames.join('・')}）は、並べてもあまり売れません。まだ誰も売っていない商品を探しましょう。`, `Goods other shops already supply (${satNames.join(', ')}) barely sell. Look for goods nobody sells yet.`)
       : t('売れ筋：他社がよく売っているのはランタンと鋏。競争が激しいので、最初は避けるのがおすすめです。', 'Best sellers: rivals sell many lanterns and scissors. Competition is tough there, so avoid them at first.');
-    body.append(table, h('p', 'isl-dim', note));
+    body.append(h('p', 'isl-dim', note));
   });
+}
+
+/** 市場データ・研究ノート・発掘の札から工房へ：その商品（復刻品はそのランク）を作るものとして選んだ状態で開く。工房が無ければトースト */
+export function makeInWorkshop(ctx: Ctx, key: string, from?: string) {
+  const s = ctx.s();
+  if (!myWorkshop(s)) {
+    ctx.sfx?.('error');
+    ctx.toast(t('先に工房を建てよう', 'Build the workshop first'));
+    return;
+  }
+  ctx.sfx?.('tap');
+  openWorkshop(ctx, { make: makeSku(key), from });
+}
+
+/** 独占の札（「独占 あと N か月」「独占 4 か月（売ったら始まる）」「他社 1 社」） */
+export function relicBadge(r: { left: number; started: boolean; sellers: number }): HTMLElement {
+  if (r.left > 0) return h('span', 'isl-tag is-gold isl-relic-mono', r.started ? t(`独占 あと ${r.left} か月`, `Monopoly: ${r.left} mo left`) : t(`独占 ${r.left} か月（売ったら始まる）`, `Monopoly ${r.left} mo (starts at first sale)`));
+  return h('span', 'isl-tag is-warn isl-relic-mono', r.sellers ? t(`他社 ${r.sellers} 社`, `${r.sellers} rival${r.sellers > 1 ? 's' : ''}`) : t('独占は終わり', 'Monopoly over'));
+}
+
+/** 市場データの「復刻品」のまとまり（開いたものが無く、研究中の遺物も無ければ null） */
+function relicSection(ctx: Ctx, s: P1State): HTMLElement | null {
+  const rows = relicMarket(s);
+  const soon = relicsSoon(s, rows.length ? 2 : 3);
+  if (!rows.length && !soon.length) return null;
+  const box = h('div', 'isl-card2 isl-relic-box');
+  box.append(h('h3', '', t('📜 復刻品（遺物の研究 Lv3 で作れる）', '📜 Revivals (research a relic to Lv3)')));
+  if (rows.length) box.append(h('p', 'isl-dim', t('昔の Lime の品。初めて売った月から 4 か月は、どの会社も真似できない。', 'Goods of old Lime. For 4 months from the first sale, no rival can copy them.')));
+  const grid = h('div', 'isl-relic-grid');
+  const maxD = Math.max(1, ...rows.map((r) => r.demand));
+  for (const r of rows) {
+    const c = h('div', `isl-relic-card ${r.saturated ? 'is-sat' : ''}`);
+    const top = h('div', 'isl-row');
+    const nm = h('div', 'isl-col');
+    nm.append(h('b', '', r.p.name), h('small', 'isl-gold', money(skuPrice(r.x))));
+    top.append(skuIcon(r.x, 40), nm);
+    const tags = h('div', 'isl-relic-tags');
+    tags.append(h('span', 'isl-tag isl-relic-tag', t('復刻', 'Revival')), relicBadge(r));
+    c.append(top, tags);
+    const d = h('div', 'isl-col');
+    d.append(bar(r.demand / maxD, 'var(--isl-gold)'), h('small', '', t(`ニーズ ${r.demand} 個／月`, `Demand ${r.demand} / mo`)));
+    c.append(d);
+    const mats = h('div', 'isl-row');
+    for (const [m, q] of Object.entries(r.p.recipe[skuParts(r.x)[1]])) {
+      const ch = h('span', 'isl-chip');
+      ch.append(matIcon(m as Mat, 18), h('small', '', `×${q}`));
+      mats.append(ch);
+    }
+    c.append(mats);
+    if (r.known < 1) c.append(knownBar(r.known));
+    c.append(h('small', r.need ? 'isl-warn' : 'isl-good', r.need ? needText(r.need, s) : t('✓ 作れる（技・開発は要らない）', '✓ You can make it (no skill or dev needed)')));
+    if (!r.need) {
+      const mk = btn(t('工房で作る', 'Make it'), () => makeInWorkshop(ctx, r.p.key), 'isl-data-make');
+      if (s.slots.some((sl) => sl.sku && skuParts(sl.sku)[0] === r.p.key)) mk.classList.add('is-making');
+      c.append(mk);
+    }
+    grid.append(c);
+  }
+  for (const x of soon) {
+    const c = h('div', 'isl-relic-card is-soon');
+    const top = h('div', 'isl-row');
+    const ic = skuIcon(relicSku(x.p.key), 40);
+    ic.classList.add('is-silhouette');
+    top.append(ic, h('b', '', t('？？？', '???')));
+    c.append(top, h('small', 'isl-dim', t(`研究 Lv3 で開く（いま Lv${x.lv}）`, `Opens at research Lv3 (now Lv${x.lv})`)));
+    grid.append(c);
+  }
+  box.append(grid);
+  return box;
 }
 
 // ---------------------------------------------------------------- ランキング
@@ -1580,6 +1653,7 @@ export function openReport(ctx: Ctx, r: Report, then?: () => void) {
       for (const n of r.news) {
         const [who, what, kind] = n.split('|');
         if (kind === 'out') body.append(h('p', 'isl-good', t(`${who}が「${what}」から撤退しました。`, `${who} pulled out of ${what}.`)));
+        else if (kind === 'copy') body.append(h('p', 'isl-warn', t(`${who}が「${what}」を真似しはじめました（独占が終わった）。`, `${who} started copying ${what} (the monopoly ended).`)));
         else body.append(h('p', 'isl-warn', t(`${who}が「${what}」の販売を始めました。`, `${who} started selling ${what}.`)));
       }
     },

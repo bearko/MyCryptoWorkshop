@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { MATS, PRODUCT, rivalDef, SECTORS, SKILL, TASKS, UNCOMMON, aptitude, skuParts, skuPrice, techSkill, type Mat, type Sku, type Task } from './data';
-import { assign, canSwap, DAYS, releaseForSwap, restDaysLeft, swapStops, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
+import { assign, canSwap, DAYS, releaseForSwap, restDaysLeft, swapStops, sellEstimate, batchOf, craftCheck, craftDays, has, knownOf, monopolyLeft, recipeOf, saturated, staffOf, trainingOf, unitCost, type Need, type P1State, type Staff } from './model';
 import { bar, btn, h, heroIcon, heroName, matIcon, money, skuIcon, skuName } from './ui';
 
 export const TASK_NAME: Record<Task, string> = { ...(Object.fromEntries(TASKS.map((x) => [x.key, x.name])) as Record<Task, string>), side: t('バイト', 'Part-time'), manager: t('セクタマネージャー', 'Sector manager'), train: t('修行', 'Training'), dig: t('発掘', 'Digging') };
@@ -459,6 +459,12 @@ export function extCard(s: P1State, x: Sku, o: { worker?: number | null; on?: bo
   left.append(top);
   const tags = h('div', 'isl-ext-tags');
   if (o.making) tags.append(h('span', 'isl-tag is-good', t('工房で作っている', 'Being crafted')));
+  // 復刻品：「復刻」の札と独占の残り（遺物の絵のまま。docs/ISLAND_ART_TODO.md）
+  if (PRODUCT[k]?.relic) {
+    tags.append(h('span', 'isl-tag isl-relic-tag', t('復刻', 'Revival')));
+    const left = monopolyLeft(s, k);
+    if (left > 0) tags.append(h('span', 'isl-tag is-gold', s.recipes?.[k]?.sold != null ? t(`独占 あと ${left} か月`, `Monopoly ${left} mo`) : t(`独占 ${left} か月`, `Monopoly ${left} mo`)));
+  }
   const err = craftCheck(s, x, o.worker ?? null);
   if (err === 'tech') tags.append(h('span', 'isl-tag is-bad', techNeed(k, s) ?? ''));
   if (r === 'U' && err === 'skill') tags.append(h('span', 'isl-tag is-bad', t(`製造の適性 ${UNCOMMON.minCraft} 以上が要る`, `Needs aptitude ${UNCOMMON.minCraft}+`)));
