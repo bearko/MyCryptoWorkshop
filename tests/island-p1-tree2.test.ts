@@ -83,6 +83,7 @@ describe('エンブレム・研究ポイント', () => {
     for (const r of s.rivals) r.base = 0;
     s.open = 0;
     s.topStreak = TOP_STREAK - 1;
+    s.presented.push(s.sector ?? 'c1');
     s.monthSales = { Sensu: 50000 };
     const r = endMonth(s);
     expect(s.cleared).toBe(true);

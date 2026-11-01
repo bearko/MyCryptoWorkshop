@@ -208,7 +208,7 @@ describe('荒れ地の正面の壁（発掘場）', () => {
     expect(a.sites.every((x) => !x.permit && !x.done && x.depth.every((d) => d === 0))).toBe(true);
   });
 
-  it('お題は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は Common 1 枚・Uncommon 2 枚', () => {
+  it('お題は 4 か所に散らばる（1 か所に 1 つまで。お題 k は DIG_BALANCE.topicLayer の層。v13）。石板は Common 1 枚・Uncommon 2 枚', () => {
     for (const id of digSectors) {
       const Ls = digLayouts(id);
       const all: number[] = [];
@@ -218,7 +218,7 @@ describe('荒れ地の正面の壁（発掘場）', () => {
         if (topics.length) {
           const tid = (topics[0].item as { id: number }).id;
           expect(L.topic).toBe(tid);
-          expect(topics[0].layer, `${id} ${tid}`).toBe(DIG_SITES[id].topics.indexOf(tid));
+          expect(topics[0].layer, `${id} ${tid}`).toBe(DIG_BALANCE.topicLayer[id.startsWith('u') ? 'U' : 'C'][DIG_SITES[id].topics.indexOf(tid)]);
           all.push(tid);
         } else expect(L.topic).toBeNull();
         // お題以外の出土品は、そのセクタの finds から（何度も出る）
@@ -371,12 +371,12 @@ describe('15 秒の発掘作業', () => {
     expect(held).toBe(false);
   });
 
-  it('1 打の強さのぶん硬さが減り、硬さのぶん打つと 1 枚はがれる。奥の層ほど硬い（Common 1 → 1〜2 → 2〜3・Uncommon 2 → 2〜3 → 3 → 3〜4）', () => {
+  it('1 打の強さのぶん硬さが減り、硬さのぶん打つと 1 枚はがれる。奥の層ほど硬い（Common 1 → 1〜2 → 2〜3・Uncommon 2〜3 → 3 → 3〜4 → 4〜5。v13）', () => {
     const lay = (sec: string, n: number) => digLayouts(sec).flatMap((L) => L.cells.map((c) => c.hard[n]));
     expect(DIG_BALANCE.hard.C).toEqual([[1, 1], [1, 2], [2, 3]]);
     expect([Math.min(...lay('c1', 0)), Math.max(...lay('c1', 2))]).toEqual([1, 3]);
     expect(Math.min(...lay('u1', 0))).toBe(2);
-    expect(Math.max(...lay('u1', 3))).toBe(4);
+    expect(Math.max(...lay('u1', 3))).toBe(5);
     // 層ごとの平均は奥ほど上がる
     for (const sec of ['c1', 'u1']) {
       const L0 = digLayouts(sec)[0];
@@ -714,15 +714,17 @@ describe('調査依頼状', () => {
     }
   };
 
-  it('調査依頼状が無いと Uncommon に出店できない。Common のお題をそろえて発表すると +60 RP と調査依頼状', () => {
+  it('調査依頼状が無いと Uncommon に出店できない。Common の 2 つ目の町でお題をそろえて発表すると +60 RP と調査依頼状', () => {
     const s = site(5);
     openGate(s);
     expect(hasLetter(s, 'U')).toBe(false);
     expect(moveTo(s, 'u1', null)).toBe('letter');
     expect(present(s)).toBe('not-yet');
     allTopics(s);
+    // 1 つ目の Common の町（ユーホタウン）は発表済み（発掘 v2 の 5 段目：依頼状は Common 2 つで）
+    s.presented.push('c2');
     const rp0 = s.rp;
-    expect(present(s)).toEqual({ rp: RP_GAIN.C.present, letter: 'U' });
+    expect(present(s)).toEqual({ rp: RP_GAIN.C.present, letter: 'U', conquered: false });
     expect(s.rp - rp0).toBe(60);
     expect(present(s)).toBe('done');
     expect(hasLetter(s, 'U')).toBe(true);

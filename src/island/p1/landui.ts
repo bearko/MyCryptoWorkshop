@@ -4,10 +4,11 @@
  */
 import { t } from '../../i18n';
 import { assetUrl } from '../../render/images';
-import { BRAND, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
+import { BRAND, DIG_SITES, MANAGER, SECTORS, SKILLS, TIERS, aptitude, type SectorDef } from './data';
 import { CAPITAL, TIER_NAME, brandPull, emptyLedger, managerRate, pl, quarters, sectorDef, sectorState, sumLedger, tierLabel, type Balance, type Ledger, type SectorState } from './company';
-import { LETTER_LOCK, crowned, hasBusiness, lastRank, letterLocked, moveTo, recOf, type MoveErr } from './land';
-import { balance, date, lvMul, staffOf, type P1State } from './model';
+import { crowned, letterLock, hasBusiness, lastRank, letterLocked, moveTo, recOf, type MoveErr } from './land';
+import { balance, clearGoal, clearWaiting, date, lvMul, staffOf, type P1State } from './model';
+import { clearCondText } from './digmeet';
 import { pickHero, rankEl } from './heroui';
 import { adjacent } from './world';
 import { after, open, type Ctx } from './screens';
@@ -81,7 +82,7 @@ const ERR: Record<MoveErr, string> = {
   cloud: t('雲に覆われていて、まだ行けません', 'Still under clouds'),
   locked: t('まだ開放されていません', 'Not unlocked yet'),
   soon: t('このセクタは準備中です', 'This sector is coming soon'),
-  letter: LETTER_LOCK,
+  letter: '',
   money: t('資金が足りません', 'Not enough funds'),
   manager: t('セクタマネージャーを選んでください', 'Pick a sector manager'),
   busy: t('そのヒーローは、ほかのセクタのマネージャーです', 'That hero manages another sector'),
@@ -97,7 +98,7 @@ export function startMove(ctx: Ctx, target: string) {
     const gated = SECTORS.filter((x) => x.need && sectorState(s.land!, x.id) === 'locked').map((x) => x.id);
     const e = moveTo(s, target, hero);
     if (e) {
-      ctx.toast(ERR[e]);
+      ctx.toast(e === 'letter' ? letterLock(s) : ERR[e]);
       ctx.sfx?.('error');
       return;
     }
@@ -193,7 +194,9 @@ export function openLand(ctx: Ctx) {
         const rk = lastRank(s, d.id);
         const crown = crowned(s, d.id);
         // 札の右上：KGI（1 位）を達成したセクタは 👑 だけ、まだなら最新の順位
-        if (rk || crown) ico.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : t(`${rk} 位`, `#${rk}`)));
+        // 1 位を 2 か月続けたのに発表がまだ（いまいるセクタ）：「👑 発表待ち」
+        const wait = st === 'here' && clearWaiting(s);
+        if (rk || crown) ico.append(h('small', `isl-land-kgi ${crown ? 'is-crown' : ''}`, crown ? t('👑 達成', '👑 Done') : wait ? t('👑 発表待ち', '👑 Present') : t(`${rk} 位`, `#${rk}`)));
       }
       if (st === 'here') n.append(h('span', 'isl-land-pin', '📍'));
       const noLetter = letterLocked(s, d.id);
@@ -206,7 +209,7 @@ export function openLand(ctx: Ctx) {
         tip.append(h('b', '', d.name), h('small', 'isl-dim', stateText(s, d, st)));
         if (d.profile.tag) tip.append(h('span', 'isl-land-tag', d.profile.tag));
         if (st === 'locked') tip.append(h('span', 'isl-warn', needText(s, d)));
-        if (noLetter) tip.append(h('span', 'isl-warn', LETTER_LOCK));
+        if (noLetter) tip.append(h('span', 'isl-warn', letterLock(s)));
       }
       n.append(tip);
       n.addEventListener('click', () => {
@@ -242,7 +245,14 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
   if (d.teaser) box.append(h('p', 'isl-gold', d.teaser));
   if (st === 'here' || st === 'mine') {
     const rk = lastRank(s, id);
-    box.append(h('p', crowned(s, id) ? 'isl-good' : 'isl-dim', crowned(s, id) ? t(`👑 このセクタを制覇しました（2 か月続けて 1 位。最新 ${rk ?? 1} 位）`, `👑 Conquered: #1 two months running (latest #${rk ?? 1})`) : rk ? t(`目標：2 か月続けてエリア 1 位（最新 ${rk} 位）`, `Goal: #1 in the area two months running (latest #${rk})`) : t('目標：2 か月続けてエリア 1 位（まだ月の締めがありません）', 'Goal: #1 in the area two months running (no monthly close yet)')));
+    box.append(h('p', crowned(s, id) ? 'isl-good' : 'isl-dim', crowned(s, id) ? t(`👑 このセクタを制覇しました（2 か月続けて 1 位＋研究成果の発表。最新 ${rk ?? 1} 位）`, `👑 Conquered: #1 two months running + findings (latest #${rk ?? 1})`) : rk ? t(`目標：2 か月続けてエリア 1 位＋研究成果の発表（最新 ${rk} 位）`, `Goal: #1 in the area two months running + present findings (latest #${rk})`) : t('目標：2 か月続けてエリア 1 位＋研究成果の発表（まだ月の締めがありません）', 'Goal: #1 in the area two months running + present findings (no monthly close yet)')));
+    // 制覇の条件の進み（発掘 v2 の 5 段目）：いまいるセクタは「1 位を 2 か月 ✔／研究成果の発表 1 / 3 お題」、ほかのセクタは発表済みか
+    if (!crowned(s, id)) {
+      if (st === 'here') {
+        const g = clearGoal(s);
+        if (g.all > 0) box.append(h('p', g.top && !g.present ? 'isl-gold' : 'isl-dim', clearCondText(g.streak, g)[0]));
+      } else if (DIG_SITES[id]) box.append(h('p', 'isl-dim', s.presented.includes(id) ? t('研究成果の発表 ✔（あとは 1 位を 2 か月）', 'Findings presented ✔ (now #1 for 2 months)') : t('研究成果の発表：まだ（このセクタのお題をそろえよう）', 'Findings: not yet (find this sector’s targets)')));
+    }
   }
   const grid = h('div', 'isl-land-stats');
   const stat = (k: string, v: string) => {
@@ -263,7 +273,7 @@ function detail(ctx: Ctx, s: P1State, id: string): HTMLElement {
     const b = btn(t(`出店する（出店許可申請 ${money(d.fee)}）`, `Open here (permit ${money(d.fee)})`), () => undefined);
     b.disabled = true;
     row.append(b);
-    box.append(h('p', 'isl-warn', LETTER_LOCK));
+    box.append(h('p', 'isl-warn', letterLock(s)));
   } else if (st === 'open') {
     const b = btn(t(`出店する（出店許可申請 ${money(d.fee)}）`, `Open here (permit ${money(d.fee)})`), () => startMove(ctx, id), 'is-on');
     b.disabled = s.money < d.fee;

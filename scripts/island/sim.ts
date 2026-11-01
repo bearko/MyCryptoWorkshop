@@ -33,6 +33,8 @@ import {
   hasBlast,
   findCells,
   layerOpen,
+  clearGoal,
+  clearWaiting,
   sessionSec,
   siteDiggable,
   skillLock,
@@ -116,10 +118,15 @@ import {
  * normal は ×1 でひと月 36 秒、行動 1 回 4 秒、月末ポーズ 60 秒、チュートリアル 10 分。full は normal と同じ単価。
  */
 export const SIM_TIME = {
-  rta: { month: 9, action: 2, pause: 10, tutorial: 0, talk: 3 },
-  normal: { month: 36, action: 4, pause: 60, tutorial: 600, talk: 20 },
-  full: { month: 36, action: 4, pause: 60, tutorial: 600, talk: 20 },
+  rta: { month: 9, action: 2, pause: 10, tutorial: 0, talk: 3, digOpen: 2 },
+  normal: { month: 36, action: 4, pause: 60, tutorial: 600, talk: 20, digOpen: 6 },
+  full: { month: 36, action: 4, pause: 60, tutorial: 600, talk: 20, digOpen: 6 },
 } as const;
+/*
+ * v13：digOpen＝発掘作業 1 回の「開く・閉じる」の秒数（荒れ地の吹き出し → 全画面の発掘画面が開くまでと、
+ * 終わりの札（出土品・新レシピ）を読んで閉じるまで。作業の 15 秒〜はゲームの時間が流れるのでひと月の時間に重なるが、
+ * 終わりの札のあいだは時間が止まるので、ここは足す）。作業を始める操作（行動 1 回）とは別
+ */
 
 /**
  * v9：発掘作業の仮定（docs/ISLAND_BALANCE.md「v9 の計算・方針の変更」）。v10：発掘のスキルツリー（tree）。
@@ -136,10 +143,14 @@ export const SIM_TIME = {
  *   以前の道具（ツルハシ・ランタン・発破の道具）はパネルに移ったので、道具は買わない。発破は「発破」のパネルがあれば使う。
  */
 export const SIM_DIG = {
-  rta: { perMonth: null as number | null, target: 'know', permit: 2, digger: 0, tree: 'deep' as 'deep' | 'share' | 'all', share: 0, dungeon: 0, museum: null as number | null },
-  normal: { perMonth: 2 as number | null, target: 'sweep', permit: 5, digger: 0, tree: 'share' as 'deep' | 'share' | 'all', share: 0.2, dungeon: 1, museum: 40000 as number | null },
-  full: { perMonth: null as number | null, target: 'sweep', permit: 1.5, digger: 1, tree: 'all' as 'deep' | 'share' | 'all', share: 0, dungeon: 3, museum: 20000 as number | null },
+  rta: { perMonth: null as number | null, pending: 0, target: 'know', permit: 2, digger: 0, tree: 'deep' as 'deep' | 'share' | 'all', share: 0, dungeon: 0, museum: null as number | null },
+  normal: { perMonth: 2 as number | null, pending: 1, target: 'sweep', permit: 5, digger: 0, tree: 'share' as 'deep' | 'share' | 'all', share: 0.2, dungeon: 1, museum: 40000 as number | null },
+  full: { perMonth: null as number | null, pending: 0, target: 'sweep', permit: 1.5, digger: 1, tree: 'all' as 'deep' | 'share' | 'all', share: 0, dungeon: 3, museum: 20000 as number | null },
 } as const;
+/*
+ * v13（発掘 v2 の 5 段目）：pending＝お題がまだ（研究成果を発表していない）セクタで、ひと月の作業を何回増やすか（通常 2 → 3 回）。
+ * 1 位を 2 か月続けたのに発表がまだ（制覇待ち）のあいだは、どの方針も続けて掘る（perMonth が null と同じ）
+ */
 /*
  * v12（発掘 v2 の 4 段目）：dungeon＝ひと月に潜る回数のめやす（掘れる荒れ地が無いときだけ。最短は潜らない＝今どおり）。
  * museum＝遺物の展示館を建てる目安（建てたあとも残る資金。null は建てない）。建てたら月末に価値の高い遺物から飾る（autoExhibit）。
@@ -205,6 +216,9 @@ export interface DigRec {
   /** 会話（発掘との出会い・研究成果の発表）の数 */
   talks: number;
   talksTop: number;
+  /** v13：制覇までの発掘作業の回数（実時間の「開く・閉じる」に使う）・1 位を 2 か月続けたのに発表を待った月の締め */
+  runsTop: number;
+  waitPresent: number;
   /** お題がそろった月（着いてからの月の締めの回数）・依頼状を待った月（制覇のあと、依頼状が無くて移れなかった月） */
   topicsAt: number | null;
   letterWait: number;
@@ -212,7 +226,7 @@ export interface DigRec {
   done: number;
   left: number;
 }
-const newDigRec = (): DigRec => ({ mid: 0, runs: 0, permits: 0, auto: 0, blast: 0, rp: 0, research: 0, rpBlocked: 0, talks: 0, talksTop: 0, topicsAt: null, letterWait: 0, done: 0, left: 0 });
+const newDigRec = (): DigRec => ({ mid: 0, runs: 0, permits: 0, auto: 0, blast: 0, rp: 0, research: 0, rpBlocked: 0, talks: 0, talksTop: 0, runsTop: 0, waitPresent: 0, topicsAt: null, letterWait: 0, done: 0, left: 0 });
 
 export interface RunResult {
   policy: PolicyId;
@@ -234,6 +248,8 @@ export interface RunResult {
   research: { C: number; U: number; allC: number | null };
   /** v10c：開いた復刻品のレシピの数（最後） */
   recipes: number;
+  /** v13：RP の余り（最後に残った RP・C と U の研究パネルを全部開けたあとに入った RP・そのときにいたセクタ） */
+  rpLeft: { end: number; afterAll: number; allAt: string | null };
   /** v12：復興・ダンジョン・展示館（最後に：復興した荒れ地の合計・ダンジョンの数・潜った回数・最深・見つけた上のランクの種類と数・展示館の収入の合計・節目） */
   v12: { revived: number; dungeons: number; dives: number; best: number; found: Record<'U' | 'R' | 'E' | 'L', number>; got: Record<'U' | 'R' | 'E' | 'L', number>; museum: boolean; income: number; marks: number };
 }
@@ -291,6 +307,14 @@ export function topicLocked(s: P1State): boolean {
     const f = L.finds.find((x) => x.item.kind === 'ext' && !!x.item.topic);
     return !!f && !layerOpen(s, L, f.layer);
   });
+}
+/**
+ * v13（最短）：お題のための発掘の支度でお金を残す（発表がまだのセクタで、お題が許可の無い層に眠っている・お題のある荒れ地の発掘許可がまだ）。
+ * 出会いの前・発表済みは false
+ */
+export function digSave(s: P1State): boolean {
+  if (!s.flags.digMeet || !s.dig || clearGoal(s).present) return false;
+  return topicLocked(s) || s.dig.sites.some((x, k) => !x.permit && siteTopic(s, k) === 'hidden');
 }
 /** 深い層の許可の次の Lv に要るもの（先に要るパネルが無ければ、その根もとから） */
 export const DEEP_CHAIN = ['dig_ext', 'dig_lamp', 'dig_deep'];
@@ -379,6 +403,13 @@ const techOk = (s: P1State, key: string) => !PRODUCT[key].tech || has(s, techSki
 /** アンコモンを作れる職人（いまいる人） */
 const uCrafters = (s: P1State) => crew(s).filter((x) => aptitude(x.stats, 'craft') >= UNCOMMON.minCraft);
 
+/** v13：品ぞろえの点（売れる見込み × 粗利）。純粋な関数 */
+export const lineupScore = (o: { units: number; margin: number }) => o.units * o.margin;
+/** v13：品ぞろえの候補を点の大きい順に（同じ点なら SKU の順。純粋な関数） */
+export function rankLineup<T extends { x: Sku; units: number; margin: number }>(cands: T[]): T[] {
+  return [...cands].sort((a, b) => lineupScore(b) - lineupScore(a) || a.x.localeCompare(b.x));
+}
+
 /** 作業台ごとに作るもの：売れる見込み × 利益（作業台 1 つの月の量で頭打ち）の大きい順。アンコモンは作れるときだけ */
 function chooseLineup(s: P1State, c: Ctx): Sku[] {
   const benches = Math.max(1, s.slots.length);
@@ -388,7 +419,7 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
   const kinds = Math.max(1, Math.min(benches, Math.max(1, ...shopBs.map((b) => shelfCount(s, b)))));
   const tier = s.tier ?? 'C';
   const nU = uCrafters(s).length;
-  const cands: { x: Sku; v: number; key: string }[] = [];
+  const cands: { x: Sku; units: number; margin: number; key: string }[] = [];
   // v10c：通常・100% は、開いた復刻品も並べる候補に（遺物のランクだけ。技・魔法の釜・商品開発は要らない）
   for (const p of c.policy === 'rta' ? PRODUCTS : productsOf(s)) {
     if (!techOk(s, p.key) || !tierOk(p, tier)) continue;
@@ -401,10 +432,13 @@ function chooseLineup(s: P1State, c: Ctx): Sku[] {
       const pull = r === 'U' ? UNCOMMON.pull : TIERS[tier].commonPull;
       const perBench = ((30 * 0.85) / craftDays(s, x)) * batchOf(x);
       const units = Math.min(est * pull, perBench);
-      cands.push({ x, v: units * (priceOf(s, x) - unitCost(s, x)), key: p.key });
+      cands.push({ x, units, margin: priceOf(s, x) - unitCost(s, x), key: p.key });
     }
   }
-  cands.sort((a, b) => b.v - a.v);
+  // v13：毎月の締めで見直す（lineupDirty）。売れる見込み（飽和・後追い・他社の反撃を入れた sellEstimate）× 粗利の大きい順。
+  // 真似されて見込みが落ちた商品は、ほかの商品・新しい復刻品より下がって棚から外れる
+  const ranked = rankLineup(cands);
+  cands.splice(0, cands.length, ...ranked);
   const out: Sku[] = [];
   let usedU = 0;
   // 依頼で要る商品（100% だけ）：受けている依頼の商品を 1 台ぶん入れる
@@ -761,7 +795,8 @@ export function policy(s: P1State, c: Ctx): Action[] {
   }
   const wantU = (s.tier ?? 'C') !== 'C' || c.policy === 'rta';
   if (c.policy === 'rta') {
-    if (!saving) {
+    // v13：制覇に研究成果の発表が要るので、お題が許可の無い層・まだ許可の無い荒れ地にあるあいだは、投資の順番より発掘の支度（深い層の許可・発掘許可）のお金を先に残す
+    if (!saving && !digSave(s)) {
       // 決まった順に 1 つずつ。資金が足りない所で止まって貯める（安いものに流れない）
       type Step = () => 'skip' | 'wait';
       const sk = (id: string): Step => () => {
@@ -807,7 +842,15 @@ export function policy(s: P1State, c: Ctx): Action[] {
         return 'skip';
       };
       const queue: Step[] = [sk('hire'), shopUpTo(2, false), sk('@shelves:1'), sk('@bench:1'), sk('pot'), sk('route_cloth'), sk('route_paper'), dev1, sk('@shelves:1'), sk('host'), shopUpTo(5, true), sk('loading'), sk('@carts:1'), sk('stock1'), ad('poster'), sk('jig'), sk('bulk'), sk('@stockroom:1'), sk('b_sign'), sk('shop2'), sk('route_gem'), devMore, signs, ...RTA_SKILLS.map(sk), ad('flyer')];
-      for (const q of queue) if (q() === 'wait') break;
+      let waited = false;
+      for (const q of queue)
+        if (q() === 'wait') {
+          waited = true;
+          break;
+        }
+      // v13：決まった順を取り終えたら（資金が余っていく）、月末に通常と同じ「見込み（whatIf）の大きい順」に詰まりの段の手を
+      // （v12 までは何もしないまま。Common をもう 1 つ回るようになり、Uncommon で順位が止まって資金だけ増えるシードが出た）
+      if (!waited && c.monthEnd) byWhatIf(s, c, c.lastBn ?? 'sell', budget * 0.6, { take, spend, budget: () => budget, reserve, acts, hired: () => hired, setHired: () => (hired = true), buildShop: () => buildShop(shopKind()) });
     }
     // アンコモンの職人がいなければ、候補から雇っておく
     if (has(s, 'pot') && uCrafters(s).length < Math.min(2, s.slots.length) && !hired && budget > 4000) hireU(s, acts, () => (hired = true));
@@ -1216,6 +1259,8 @@ function pickSite(s: P1State, p: PolicyId, c?: Ctx): number | null {
   if (!open.length) return c && d.dungeon && (c.divesMonth ?? 0) < SIM_DIG[p].dungeon ? DUNGEON : null;
   const hidden = open.filter((k) => siteTopic(s, k) === 'hidden');
   if (p === 'rta') return hidden[0] ?? open.find((k) => k === d.cur) ?? open[0];
+  // v13：発表がまだなら、お題の眠っている荒れ地を先に（いまの荒れ地を掘りきるのは、そのあと）
+  if (!clearGoal(s).present && hidden.length) return hidden.includes(d.cur) ? d.cur : hidden[0];
   if (open.includes(d.cur)) return d.cur;
   return hidden[0] ?? open[0];
 }
@@ -1226,7 +1271,9 @@ function askPermits(s: P1State, p: PolicyId, rate: number): number {
   for (let guard = 0; guard < 4; guard++) {
     const open = d.sites.filter((x, k) => x.permit && !x.done && siteDiggable(s, k)).length;
     const cand = d.sites.map((x, k) => ({ x, k })).filter(({ x }) => !x.permit);
-    const pick = p === 'rta' ? cand.find(({ k }) => siteTopic(s, k) === 'hidden') : open === 0 || p === 'full' ? cand.find(({ k }) => siteTopic(s, k) === 'hidden') ?? cand[0] : undefined;
+    // v13：発表がまだで、許可のある荒れ地にもうお題が無ければ、お題のある荒れ地を（通常も）申請する
+    const topicNeed = !clearGoal(s).present && !d.sites.some((x, k) => x.permit && !x.done && siteTopic(s, k) === 'hidden') ? cand.find(({ k }) => siteTopic(s, k) === 'hidden') : undefined;
+    const pick = p === 'rta' ? cand.find(({ k }) => siteTopic(s, k) === 'hidden') : open === 0 || p === 'full' ? cand.find(({ k }) => siteTopic(s, k) === 'hidden') ?? cand[0] : topicNeed;
     if (!pick) break;
     const fee = permitFee(s);
     if (fee > 0 && s.money < fee * rate + 5000) break;
@@ -1240,7 +1287,8 @@ function askPermits(s: P1State, p: PolicyId, rate: number): number {
 
 const byFee = (tier: Tier) => SECTORS.filter((x) => x.tier === tier && !x.cloud && !x.soon && x.id !== 'c1').sort((a, b) => a.fee - b.fee || a.id.localeCompare(b.id)).map((x) => x.id);
 export function routeOf(p: PolicyId): string[] {
-  if (p === 'rta') return ['c1', byFee('U')[0]];
+  // v13：Uncommon の調査依頼状は Common の 2 つの町の発表で届くので、最短も Common をもう 1 つ（出店許可のいちばん安い町）
+  if (p === 'rta') return ['c1', byFee('C')[0], byFee('U')[0]];
   if (p === 'normal') return ['c1', ...byFee('C').slice(0, 2), ...byFee('U').slice(0, 2)];
   return ['c1', ...byFee('C'), ...byFee('U')];
 }
@@ -1258,12 +1306,14 @@ export interface RunOpts {
 export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   const s = newP1(seed);
   const c: Ctx = { policy: p, route: routeOf(p), at: 0, lineup: [], lineupDirty: true, shopsThisMonth: 0, monthEnd: null, lastBn: null, ban: new Set(o.ban ?? []), onlyFirst: !!o.onlyFirst, dayInMonth: 0, handCarry: 0, rpMoves: 0, runLeft: 0, runsMonth: 0, divesMonth: 0 };
-  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0, v12: { revived: 0, dungeons: 0, dives: 0, best: 0, found: { U: 0, R: 0, E: 0, L: 0 }, got: { U: 0, R: 0, E: 0, L: 0 }, museum: false, income: 0, marks: 0 } };
+  const res: RunResult = { policy: p, seed, sectors: [], actions: {}, days: 0, done: false, skillsAt: [], spend: { money: 0, tools: 0, fees: 0, end: 0 }, research: { C: 0, U: 0, allC: null }, recipes: 0, rpLeft: { end: 0, afterAll: 0, allAt: null }, v12: { revived: 0, dungeons: 0, dives: 0, best: 0, found: { U: 0, R: 0, E: 0, L: 0 }, got: { U: 0, R: 0, E: 0, L: 0 }, museum: false, income: 0, marks: 0 } };
   /** v12：復興した荒れ地（セクタを離れるときに足す） */
   let revivedDone = 0;
   const newRun = (id: string): SectorRun => ({ id, tier: sectorDef(id).tier, arrived: s.day, open: null, topDay: null, left: null, months: null, first: null, rev: 0, money: 0, skills: 0, actTop: 0, pauseTop: 0, act: 0, pause: 0, allRev: 0, relicRev: 0, dig: newDigRec(), log: [] });
   const D = SIM_DIG[p];
   const cResearch = SKILLS.filter((k) => skillTier(k) === 'C' && isResearch(k) && !skillSoon(k)).map((k) => k.id);
+  /** v13：いま取れる C・U の研究パネル（全部開けたあとに入る RP は、使い道の無い余り） */
+  const cuResearch = fullSkills().filter((k) => isResearch(k)).map((k) => k.id);
   let progress = { got: -1, claimed: -1, day: 0 };
   let cur = newRun('c1');
   res.sectors.push(cur);
@@ -1395,7 +1445,9 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
       }
       // 発掘許可：資金に余裕があれば、次の荒れ地を申請する（月末か、掘れる荒れ地が無くなったとき）
-      if (!s.digRun && (atPause || pickSite(s, p) == null)) {
+      // v13：お題のある荒れ地の許可がまだで、許可のある荒れ地にはもうお題が無い（発表に要る）ときも、作業のあいだに申請する
+      const topicPermit = !clearGoal(s).present && !s.dig.sites.some((x, k) => x.permit && !x.done && siteTopic(s, k) === 'hidden') && s.dig.sites.some((x, k) => !x.permit && siteTopic(s, k) === 'hidden');
+      if (!s.digRun && (atPause || pickSite(s, p) == null || topicPermit)) {
         const n = askPermits(s, p, D.permit);
         if (n) {
           cur.dig.permits += n;
@@ -1405,8 +1457,15 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         }
       }
       // 発掘隊（作業のあいだだけ手伝う）
-      const want = D.digger;
+      // v13：作業台に人のいない台があるあいだは発掘隊を置かない（人が足りない＝雇えないとき、職人を先に。
+      // 置き場所が発掘の素材であふれ、職人がいなくて使えず、布・紙が買えなくなって止まるシードが出た）
+      const benchShort = s.slots.some((sl) => sl.worker == null);
+      const want = benchShort ? 0 : D.digger;
       const diggers = s.staff.filter((x) => x.task === 'dig').length;
+      if (benchShort && diggers > 0) {
+        const dg = s.staff.find((x) => x.task === 'dig');
+        if (dg && assign(s, dg.hero, null) == null) cur.act++;
+      }
       if (diggers < want && s.money > 20000) {
         const idle = crew(s).filter((x) => x.task == null).sort((a, b) => aptitude(b.stats, 'dig') - aptitude(a.stats, 'dig'))[0];
         let hero = idle?.hero ?? null;
@@ -1426,7 +1485,10 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       // 発破を使う（「発破」のパネルがあれば）：依頼状を待っていてお題が残っている（最短・通常）／資金に余裕がある（100%）
       const useBlast = () => (p === 'full' ? s.money > 50000 : waiting && s.money > blastCost(s) + (p === 'rta' ? 3000 : 10000));
       // 発掘作業を始める：前の作業が終わっていて、今月の回数のめやすに届いていない（null は続けて）。通常は月の前半と後半に 1 回ずつ
-      const due = D.perMonth == null || (c.runsMonth < D.perMonth && c.dayInMonth >= c.runsMonth * (30 / D.perMonth) + 2);
+      // v13：制覇に研究成果の発表が要るので、お題がまだのセクタでは作業の回数を増やす（通常：月 2 → 3 回。1 位を 2 か月続けて発表を待っているあいだは続けて掘る）
+      const goal = clearGoal(s);
+      const per = D.perMonth == null ? null : !goal.present && goal.top ? null : !goal.present ? D.perMonth + D.pending : D.perMonth;
+      const due = per == null || (c.runsMonth < per && c.dayInMonth >= c.runsMonth * (30 / per) + 2);
       if (!s.digRun && due) {
         const k = pickSite(s, p, c);
         if (k != null && typeof startRun(s, k) !== 'string') {
@@ -1437,6 +1499,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
             res.v12.dives++;
           }
           cur.dig.runs++;
+          if (cur.topDay == null) cur.dig.runsTop++;
           c.digGoal = undefined;
           res.actions.dig = (res.actions.dig ?? 0) + 1;
           cur.act++;
@@ -1474,6 +1537,8 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
       }
     }
     cur.dig.rp += (s.rp ?? 0) - rpStart + rpSpent;
+    if (res.rpLeft.allAt == null && cuResearch.every((id) => has(s, id))) res.rpLeft.allAt = cur.id;
+    else if (res.rpLeft.allAt != null) res.rpLeft.afterAll += Math.max(0, (s.rp ?? 0) - rpStart + rpSpent);
     c.dayInMonth++;
     if (d.developed.length || d.finished.length) c.lineupDirty = true;
     if (cur.open == null && s.open != null) cur.open = s.open;
@@ -1502,6 +1567,7 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
         const nextId = c.route[c.at + 1];
         if (s.cleared && cur.topDay != null && nextId && sectorDef(nextId).tier === 'U' && !hasLetter(s, 'U')) cur.dig.letterWait++;
       }
+      if (cur.topDay == null && clearWaiting(s)) cur.dig.waitPresent++;
       cur.log.push({ m: r.month, rank: r.rank, rev: r.revenue, top: Math.max(...r.area.filter((x) => !x.me).map((x) => x.sales)), money: Math.round(s.money), bn: r.bottleneck, read: readBn(s) });
       o.onMonth?.(s, cur.id, r.month);
       c.monthEnd = r;
@@ -1610,6 +1676,8 @@ export function runOnce(p: PolicyId, seed: number, o: RunOpts = {}): RunResult {
   res.days = s.day;
   res.spend.end = Math.round(s.money);
   res.recipes = Object.keys(s.recipes ?? {}).length;
+  res.rpLeft.end = Math.round(s.rp ?? 0);
+  res.rpLeft.afterAll = Math.round(res.rpLeft.afterAll);
   // v12：復興・ダンジョン・見つけた上のランクの遺物（研究ノート：種類と、掘った数）・展示館
   res.v12.revived = revivedDone + (s.dig?.sites.filter((x) => x.revived).length ?? 0);
   res.v12.dungeons = s.dungeons?.length ?? 0;
@@ -1641,7 +1709,7 @@ export function secOf(p: PolicyId, r: SectorRun, until: 'top' | 'left'): number 
   if (end == null) return null;
   const days = end - r.arrived;
   // v9：発掘作業（15 秒）のあいだも時間は流れるので、ひと月の時間に重なる（始める操作は行動 1 回）。足すのは会話（出会い・発表）
-  const dig = (until === 'top' ? r.dig.talksTop : r.dig.talks) * T.talk;
+  const dig = (until === 'top' ? r.dig.talksTop : r.dig.talks) * T.talk + (until === 'top' ? r.dig.runsTop : r.dig.runs) * T.digOpen;
   return (days / 30) * T.month + (until === 'top' ? r.actTop : r.act) * T.action + (until === 'top' ? r.pauseTop : r.pause) * T.pause + dig;
 }
 export const totalSec = (x: RunResult) => SIM_TIME[x.policy].tutorial + x.sectors.reduce((a, r) => a + (secOf(x.policy, r, 'left') ?? 0), 0);
@@ -1719,6 +1787,28 @@ export function tables(rep: Report2): string {
     );
   }
   out.push('');
+  // v13：ランクの順（Common 1 セクタの平均 < Uncommon 1 セクタの平均）と、制覇の 2 つ目の条件（研究成果の発表）
+  out.push('### 表 5：1 セクタの平均の実時間（ランクの順）と、研究成果の発表（v13。発掘 v2 の 5 段目）');
+  out.push('');
+  out.push('1 セクタの平均は「着いてから離れるまで」（Common はタオックスを含む。チュートリアルは含まない）。「タオックスを除く」は 2 か所目からの Common。「発表待ち」は 1 位を 2 か月続けたのに研究成果の発表がまだで制覇にならなかった月の締め（制覇まで・回ったセクタの合計）。');
+  out.push('');
+  out.push('| 方針 | Common 1 セクタの平均 | うちタオックスを除く | Uncommon 1 セクタの平均 | ランクの順（C < U） | 発表待ちの月（合計） | 最後に残った RP | C・U の研究パネルを全部開けたあとに入った RP（そのときのセクタ） |');
+  out.push('|---|---|---|---|---|---|---|---|');
+  for (const p of pols) {
+    const runs = rep.runs.filter((r) => r.policy === p);
+    const per = (f: (r: SectorRun) => boolean) => {
+      const xs = runs.flatMap((x) => x.sectors.filter(f).map((r) => secOf(p, r, 'left') ?? 0));
+      return xs.length ? mean(xs) : null;
+    };
+    const c = per((r) => r.tier === 'C');
+    const c2 = per((r) => r.tier === 'C' && r.id !== 'c1');
+    const u = per((r) => r.tier === 'U');
+    const at = runs.map((x) => x.rpLeft.allAt).filter((v): v is string => !!v);
+    out.push(
+      `| ${POLICY_NAME[p]} | ${c != null ? fmtMin(c) : '—'} | ${c2 != null ? fmtMin(c2) : '—'} | ${u != null ? fmtMin(u) : '—'} | ${c != null && u != null ? (c < u ? '○' : '×（C ≧ U）') : '—'} | ${mean(runs.map((x) => x.sectors.reduce((a, r) => a + r.dig.waitPresent, 0))).toFixed(1)} | ${Math.round(mean(runs.map((x) => x.rpLeft.end))).toLocaleString('en-US')} | ${at.length ? `${Math.round(mean(runs.map((x) => x.rpLeft.afterAll))).toLocaleString('en-US')}（${[...new Set(at)].map(sectorName).join('・')}。${at.length}/${runs.length}）` : '—（全部は開けない）'} |`,
+    );
+  }
+  out.push('');
   // v10c：復刻品（研究 Lv3 で開く新商品）の売上の割合
   out.push('### 表 3：復刻品（v10c。研究 Lv3 で開く新商品）');
   out.push('');
@@ -1753,19 +1843,19 @@ export function tables(rep: Report2): string {
   out.push('');
   out.push('実時間の単価（`SIM_TIME`）：');
   out.push('');
-  out.push('| 方針 | ひと月 | 行動 1 回 | 月末ポーズ | チュートリアル | 会話 1 回（v8） | 発掘作業 1 回（v9） |');
-  out.push('|---|---|---|---|---|---|---|');
-  for (const p of pols) out.push(`| ${POLICY_NAME[p]} | ${SIM_TIME[p].month} 秒 | ${SIM_TIME[p].action} 秒 | ${SIM_TIME[p].pause} 秒 | ${SIM_TIME[p].tutorial / 60} 分 | ${SIM_TIME[p].talk} 秒 | ${DIG_BALANCE.sessionSec} 秒（ゲームの ${runDays(p).toFixed(1)} 日） |`);
+  out.push('| 方針 | ひと月 | 行動 1 回 | 月末ポーズ | チュートリアル | 会話 1 回（v8） | 発掘作業 1 回（v9） | 発掘画面を開く・閉じる（v13） |');
+  out.push('|---|---|---|---|---|---|---|---|');
+  for (const p of pols) out.push(`| ${POLICY_NAME[p]} | ${SIM_TIME[p].month} 秒 | ${SIM_TIME[p].action} 秒 | ${SIM_TIME[p].pause} 秒 | ${SIM_TIME[p].tutorial / 60} 分 | ${SIM_TIME[p].talk} 秒 | ${DIG_BALANCE.sessionSec} 秒〜（ゲームの ${runDays(p).toFixed(1)} 日） | ${SIM_TIME[p].digOpen} 秒 |`);
   out.push('');
-  out.push('発掘作業（15 秒）のあいだも時間は流れるので、ひと月の時間に重なる（荒れ地を押して始める 1 回を行動 1 回に数える）。会話は発掘との出会いと研究成果の発表。');
+  out.push('発掘作業（15 秒〜。追加申請で延びる）とダンジョンに潜るあいだも時間は流れるので、作業の秒数はひと月の時間に重なる（実時間に入っている。荒れ地を押して始める 1 回を行動 1 回に数える）。v13 から、時間の止まる「開く・閉じる」（終わりの札を読んで閉じるまで）を 1 回ごとに足す。会話は発掘との出会いと研究成果の発表。');
   out.push('');
   out.push(`発掘作業の仮定（\`SIM_DIG\`。1 回 ${DIG_BALANCE.sessionSec} 秒 × 1 秒に ${DIG_BALANCE.simTapsPerSec} 打 ＝ ${runTaps()} 打を、作業の日数に均して打つ）：`);
   out.push('');
   out.push('| 方針 | ひと月の作業 | 打つマス | 発掘許可 | 発掘隊 | 発掘の枝（v10） |');
   out.push('|---|---|---|---|---|---|');
-  const per = (p: PolicyId) => (SIM_DIG[p].perMonth == null ? `前の作業が終わったらすぐ次（続けて掘る。ひと月に ${(30 / runDays(p)).toFixed(1)} 回まで）` : `${SIM_DIG[p].perMonth} 回（月の前半と後半）`);
+  const per = (p: PolicyId) => (SIM_DIG[p].perMonth == null ? `前の作業が終わったらすぐ次（続けて掘る。ひと月に ${(30 / runDays(p)).toFixed(1)} 回まで）` : `${SIM_DIG[p].perMonth} 回（月の前半と後半）。v13：発表がまだのセクタは ${SIM_DIG[p].perMonth + SIM_DIG[p].pending} 回、1 位を 2 か月続けて発表を待っているあいだは続けて掘る`);
   const tgt = (p: PolicyId) => (SIM_DIG[p].target === 'know' ? '配置を知っている：まだのお題のある荒れ地 → お題（無ければ石板・エクステ）の範囲を、取るまでの打つ回数が少ないものから手前の層へ' : 'v11：覗き見が出ているマス（お題 → 石板 → エクステ → 素材）→ 取りかけ・打ちかけ → 浅いマス（いまの荒れ地を掘りきるまで）→ お題の気配のある荒れ地');
-  const pm = (p: PolicyId) => (p === 'rta' ? `まだのお題のある荒れ地だけ（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば）` : p === 'normal' ? `掘れる荒れ地が無くなったら次の 1 か所（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば）` : `資金が申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば、月末にあるだけ`);
+  const pm = (p: PolicyId) => (p === 'rta' ? `まだのお題のある荒れ地だけ（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば。v13：作業のあいまにも。お金は投資の順番より先に残す）` : p === 'normal' ? `掘れる荒れ地が無くなったら次の 1 か所（申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば）。v13：発表がまだで、許可のある荒れ地にお題が残っていなければ、お題のある荒れ地を先に` : `資金が申請料の ${SIM_DIG[p].permit} 倍＋5,000 G あれば、月末にあるだけ`);
   const dg = (p: PolicyId) => (SIM_DIG[p].digger === 0 ? '置かない' : 'いつも 1 人');
   const tl = (p: PolicyId) => (SIM_DIG[p].tree === 'deep' ? 'お題が許可の無い層に残っていれば、深い層の許可 Lv1（根もとの追加申請・ランタンから）だけ' : SIM_DIG[p].tree === 'share' ? `月末に、月の売上の ${Math.round(SIM_DIG[p].share * 100)}% を積み立てた枠で（買ったあとも 1 万 G 残るとき）研究の目利き Lv2 → 安い順に（掘れずに止まっている・お題が許可の無い層にあれば、枠に関係なく深い層の許可を先に）。発破を持っていて依頼状を待っていれば発破` : 'ほかのスキルと同じく安い順にまとめて全部 Lv5 まで（掘れずに止まっていれば、資金をためている月も深い層の許可を先に）。資金 5 万 G 以上なら発破');
   for (const p of pols) out.push(`| ${POLICY_NAME[p]} | ${per(p)} | ${tgt(p)} | ${pm(p)} | ${dg(p)} | ${tl(p)} |`);

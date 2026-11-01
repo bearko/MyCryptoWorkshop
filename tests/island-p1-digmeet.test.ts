@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { heroById } from '../src/game/catalog';
 import { DEF } from '../src/island/defs';
 import { DIG_BALANCE, DIG_REQUEST, DIG_SITES, DIG_THEME, MISSIONS, RP_GAIN, SECTOR_CHIEF, rewardText } from '../src/island/p1/data';
-import { DIG_IDLE_DAYS, DIG_TIP_ORDER, MEET_FOUND, MEET_IDLE_DAYS, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digReportLine, digReportText, digSummary, digTips, letterToGet, meetReady, meetTip, presentAfter, presentPages, topicsPage } from '../src/island/p1/digmeet';
-import { LETTER_LOCK, letterLocked, moveTo } from '../src/island/p1/land';
+import { DIG_IDLE_DAYS, DIG_TIP_ORDER, MEET_FOUND, MEET_IDLE_DAYS, MEET_LINES, canPresent, chiefHome, chiefOf, digMet, digReportLine, digReportText, digSummary, digTips, letterToGet, lettersLeft, meetReady, meetTip, presentAfter, presentPages, topicsPage } from '../src/island/p1/digmeet';
+import { letterLock, letterLocked, moveTo } from '../src/island/p1/land';
 import { accept, allowedDirs, build, claim, dig, digLayouts, endRun, missionMet, newP1, openGate, present, setLevel, startRun, step, type DigHit, type P1State, type Report } from '../src/island/p1/model';
 
 const lot = (s: P1State, id: string): [number, number, 'rd' | 'ld' | 'lu' | 'ru'] => {
@@ -148,27 +148,56 @@ describe('町の長と研究成果の発表', () => {
     expect(chiefHome(month2(3))!.uid).toBe(home.uid);
   });
 
-  it('お題がそろうまでは発表できない。そろうと 3 枚の会話（マインちゃん → 町の長 → 町の長）→ +60 RP と Uncommon の調査依頼状', () => {
+  it('お題がそろうまでは発表できない。そろうと 3 枚の会話（マインちゃん → 町の長 → 町の長）→ +60 RP。Common の 1 つ目の発表では依頼状は届かない（あと 1 つ）', () => {
     const s = month2(5);
     s.flags.digMeet = 'done';
     openGate(s);
     expect(canPresent(s)).toBe(false);
     expect(letterLocked(s, 'u1')).toBe(true);
-    expect(LETTER_LOCK).toContain('調査依頼状が要る');
+    expect(letterLock(s)).toBe('🔒 調査依頼状が要る（Common の 2 つの町で研究を発表しよう。いま 0 / 2）');
     topics(s);
     expect(canPresent(s)).toBe(true);
-    expect(letterToGet(s)).toBe('U');
+    expect(letterToGet(s)).toBeNull();
+    expect(lettersLeft(s)).toBe(1);
     const pages = presentPages(s);
     expect(pages.map((p) => p.who)).toEqual([null, SECTOR_CHIEF.c1, SECTOR_CHIEF.c1]);
-    expect(pages[2].text).toContain('Uncommon の調査依頼状');
+    expect(pages[2].text).toBe('あと 1 つ、別の町でも研究を発表してくれ。そうしたら[[Uncommon の調査依頼状]]を書こう。');
     const rp0 = s.rp;
-    expect(present(s)).toEqual({ rp: RP_GAIN.C.present, letter: 'U' });
+    expect(present(s)).toEqual({ rp: RP_GAIN.C.present, letter: null, conquered: false });
     expect(s.rp - rp0).toBe(60);
     expect(canPresent(s)).toBe(false);
+    expect(s.letters).toEqual([]);
+    expect(letterLocked(s, 'u1')).toBe(true);
+    expect(letterLock(s)).toContain('いま 1 / 2');
+    expect(presentAfter(null, 1)).toContain('調査依頼状');
+    expect(moveTo(s, 'u1', 10001)).toBe('letter');
+  });
+
+  it('2 つ目の Common の町の発表で Uncommon の調査依頼状（いまの流れ）。依頼状を持っていれば Uncommon に出店できる', () => {
+    const s = month2(5);
+    s.flags.digMeet = 'done';
+    openGate(s);
+    // ほかの Common の町（ユーホタウン）で発表済み
+    s.presented = ['c2'];
+    expect(letterLock(s)).toContain('いま 1 / 2');
+    topics(s);
+    expect(letterToGet(s)).toBe('U');
+    expect(lettersLeft(s)).toBe(0);
+    expect(presentPages(s)[2].text).toContain('Uncommon の調査依頼状');
+    expect(present(s)).toEqual({ rp: RP_GAIN.C.present, letter: 'U', conquered: false });
     expect(letterLocked(s, 'u1')).toBe(false);
     expect(presentAfter('U')).toContain('ランドマップ');
-    // 依頼状を持っていれば、Uncommon に出店できる
     expect(moveTo(s, 'u1', 10001)).toBeNull();
+  });
+
+  it('古いセーブで依頼状を持っていれば、Common の発表が 1 つでもそのまま持っている', () => {
+    const s = month2(5);
+    s.flags.digMeet = 'done';
+    openGate(s);
+    s.letters = ['U'];
+    s.presented = [];
+    expect(letterLocked(s, 'u1')).toBe(false);
+    expect(lettersLeft(s)).toBe(0);
   });
 
   it('出会いの前は、お題がそろっても発表の印を出さない。2 つ目の Common のセクタでは依頼状はもう持っている（RP だけ）', () => {
@@ -192,7 +221,7 @@ describe('町の長と研究成果の発表', () => {
 
 describe('マインちゃんの助言（発掘）の優先順', () => {
   it('並びは 発表できる（high）→ 復刻品の独占があと 1 か月（mid）→ しばらく掘っていない（mid）→ 次の許可（mid）→ お題があと 1 つ（mid）→ 調査依頼状があるのに Uncommon に行っていない（low）', () => {
-    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'idle', 'permit', 'topic-one', 'letter', 'branch']);
+    expect(DIG_TIP_ORDER).toEqual(['present', 'relic', 'copied', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch']);
     expect(DIG_IDLE_DAYS).toBe(10);
     const s = month2(5);
     s.money = 0;
@@ -235,6 +264,13 @@ describe('マインちゃんの助言（発掘）の優先順', () => {
     s.money = 0;
     expect(digTips(s).map((x) => [x.key, x.tier])).toEqual([['present', 'high']]);
     present(s);
+    // Common の 1 つ目の発表のあと：依頼状まであと 1 つ（別の Common の町でも発表しよう。いま 1 / 2）
+    const need = digTips(s);
+    expect(need.map((x) => [x.key, x.tier])).toEqual([['letter-need', 'low']]);
+    expect(need[0].text).toContain('いま 1 / 2');
+    // 2 つ目の Common の町で発表した（依頼状が届いた）
+    s.presented.push('c2');
+    s.letters.push('U');
     const low = digTips(s);
     expect(low.map((x) => [x.key, x.tier])).toEqual([['letter', 'low']]);
     expect(low[0].text).toContain('150,000 G');

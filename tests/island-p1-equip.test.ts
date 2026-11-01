@@ -249,9 +249,11 @@ describe('古いセーブ：設備のスキル → 設備投資', () => {
 });
 
 describe('制覇（2 か月続けて 1 位）と他社の反撃', () => {
-  it('1 位 1 回目：topStreak 1・まだ制覇でない・反撃 2 か月。2 か月目で制覇', () => {
+  it('1 位 1 回目：topStreak 1・まだ制覇でない・反撃 2 か月。2 か月目で制覇（研究成果は発表済み）', () => {
     const s = newP1(28);
     setup(s);
+    // 制覇の 2 つ目の条件（研究成果の発表）は済ませておく（発掘 v2 の 5 段目。tests/island-p1-dig2e.test.ts）
+    s.presented.push('c1');
     s.money = 1e6;
     weakRivals(s);
     run(s, 31);
@@ -312,6 +314,7 @@ describe('制覇（2 か月続けて 1 位）と他社の反撃', () => {
     setup(s);
     weakRivals(s);
     expect(accept(s, 'c2_top')).toBeNull();
+    s.presented.push('c2');
     run(s, 31);
     expect(s.topStreak).toBe(1);
     expect(s.missions.c2_top).toBe('accepted');

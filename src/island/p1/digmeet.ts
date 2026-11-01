@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import { DEF } from '../defs';
 import { DIG, DIG_PANELS, DIG_THEME, SECTOR_CHIEF, TOP_STREAK, type Tier } from './data';
 import { sectorDef } from './company';
-import { digLayout, digLayouts, extName, has, hasLetter, monopolyLeft, openRelics, permitFee, presentLock, sessionSec, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
+import { clearGoal, clearWaiting, digLayout, digLayouts, extName, has, hasLetter, letterNeed, monopolyLeft, presentedOf, sellersOf, openRelics, permitFee, presentLock, sessionSec, topicProgress, topicsOf, wasteName, type DigGot, type P1State, type PBuilding, type Report } from './model';
 
 // ---------------------------------------------------------------- 発掘との出会い（2 か月目の途中、初めて手が空いたとき）
 
@@ -92,12 +92,24 @@ export const isChiefHome = (s: P1State, b: PBuilding) => chiefHome(s)?.uid === b
 /** 研究成果を発表できる（出会いのあと・お題がそろった・まだ発表していない） */
 export const canPresent = (s: P1State) => digMet(s) && presentLock(s) === null;
 
-/** 発表で受け取る調査依頼状のランク（Common → U・Uncommon → R。もう持っていれば null） */
+/**
+ * 発表で受け取る調査依頼状のランク（Common → U・Uncommon → R。もう持っていれば null）。
+ * Common は 2 つのセクタで発表したら（LETTER_NEED）なので、この発表で数がそろうときだけ 'U'
+ */
 export function letterToGet(s: P1State): Tier | null {
   const L = s.dig ? digLayout(s.dig.sector) : null;
   if (!L) return null;
   const next: Tier = L.tier === 'C' ? 'U' : 'R';
-  return hasLetter(s, next) ? null : next;
+  if (hasLetter(s, next)) return null;
+  const done = presentedOf(s, L.tier) + (s.presented.includes(s.dig!.sector) ? 0 : 1);
+  return done >= letterNeed(L.tier) ? next : null;
+}
+/** この発表のあと、依頼状まで残りの発表の数（Common で 1 つ目の発表なら 1。依頼状を持っている・この発表でそろうなら 0） */
+export function lettersLeft(s: P1State): number {
+  const L = s.dig ? digLayout(s.dig.sector) : null;
+  if (!L || L.tier !== 'C' || hasLetter(s, 'U')) return 0;
+  const done = presentedOf(s, 'C') + (s.presented.includes(s.dig!.sector) ? 0 : 1);
+  return Math.max(0, letterNeed('C') - done);
 }
 
 /** 発表の会話（3 枚：マインちゃん → 町の長 → 町の長）。who が null の枚はマインちゃん */
@@ -119,7 +131,9 @@ export function presentPages(s: P1State): { text: string; who: number | null }[]
     },
     {
       who: chief,
-      text: next
+      text: lettersLeft(s) > 0
+        ? t(`あと ${lettersLeft(s)} つ、別の町でも研究を発表してくれ。そうしたら[[Uncommon の調査依頼状]]を書こう。`, `Present your research in ${lettersLeft(s)} more town${lettersLeft(s) > 1 ? 's' : ''}. Then I’ll write you an [[Uncommon survey request]].`)
+        : next
         ? next === 'R'
           ? t(`その研究、もっと先の町でも続けてくれ。[[${nextName} の調査依頼状]]を書いておこう（Rare の町はまだ霧の向こうだがな）。`, `Carry this research further. I’ll write you a [[${nextName} survey request]] (though Rare towns are still beyond the mist).`)
           : t(`その研究、もっと大きな町でも続けてくれ。[[${nextName} の調査依頼状]]を書いておこう。`, `Carry this research to bigger towns. I’ll write you a [[${nextName} survey request]].`)
@@ -128,8 +142,16 @@ export function presentPages(s: P1State): { text: string; who: number | null }[]
   ];
 }
 
-/** 発表のあとのマインちゃんの一言（受け取る演出の中。最後は次にすること） */
-export function presentAfter(letter: Tier | null): string {
+/**
+ * 発表のあとのマインちゃんの一言（受け取る演出の中。最後は次にすること）。
+ * left：依頼状まで残りの発表の数（Common の 1 つ目の発表のあと 1）。conquered：この発表で制覇した
+ */
+export function presentAfter(letter: Tier | null, left = 0, conquered = false): string {
+  if (conquered && !letter)
+    return left > 0
+      ? t(`[[制覇]]おめでとう！ 次は別の Common の町で研究を発表すると、[[調査依頼状]]がもらえるよ（あと ${left} つ）。`, `[[Conquered]]! Present in another Common town next to get the [[survey request]] (${left} to go).`)
+      : t('[[制覇]]おめでとう！ 1 位を守りながら、次のセクタの準備をしよう！', '[[Conquered]]! Keep #1 and get ready for the next sector!');
+  if (left > 0) return t(`あと ${left} つ、別の Common の町で研究を発表すると[[調査依頼状]]がもらえるよ。いまは研究ポイントでスキルを開こう！`, `Present in ${left} more Common town${left > 1 ? 's' : ''} to get the [[survey request]]. For now, spend research points on skills!`);
   if (letter === 'U') return t('[[調査依頼状]]で、Uncommon のセクタに出店できるようになったよ。お金がたまったら、ランドマップから出店しよう！', 'With the [[survey request]], you can open in Uncommon sectors. Once you have the funds, open there from the land map!');
   if (letter === 'R') return t('[[Rare の調査依頼状]]をもらったよ。Rare の町への道が開いたら使えるはず。まずは研究ポイントでスキルを開こう！', 'We got a [[Rare survey request]]. It will help once the road to Rare towns opens. For now, spend research points on skills!');
   return t('[[研究ポイント]]が貯まったね。スキルツリーの四角いパネルを開こう！', 'Your [[research points]] grew. Open a square panel in the skill tree!');
@@ -147,7 +169,7 @@ export function topicsPage(sector: string): string | null {
 
 // ---------------------------------------------------------------- マインちゃんの助言（発掘）
 
-export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'relic' | 'branch';
+export type DigTipKey = 'present' | 'idle' | 'permit' | 'topic-one' | 'letter' | 'letter-need' | 'relic' | 'copied' | 'branch';
 /**
  * 発掘の助言。tier は、いまの助言の並び（main.ts の tutorial）のどこに入れるか：
  * - high：受け取れるもの（お題がそろって発表できる）。依頼の報酬の受け取りと同じ所（休業・倉庫の「止まっている」の後）
@@ -162,7 +184,7 @@ export interface DigTip {
   text: string;
   site?: number;
 }
-export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'idle', 'permit', 'topic-one', 'letter', 'branch'];
+export const DIG_TIP_ORDER: DigTipKey[] = ['present', 'relic', 'copied', 'idle', 'permit', 'topic-one', 'letter', 'letter-need', 'branch'];
 /** 発掘の枝が雲から出たあとの 1 回だけの一言（流れを止めない助言） */
 export const BRANCH_TIP = () => t('[[発掘]]の枝ができたよ！ お金で[[追加申請]]をすると、1 回の発掘が長くなる。', 'A [[Digging]] branch appeared! Spend funds on [[Extra dig time]] to make each dig run longer.');
 /** 「深い層の許可が要る」マスを初めて押したとき（発掘場のパネルの中に出す） */
@@ -184,6 +206,9 @@ export function digTips(s: P1State): DigTip[] {
     const k = site >= 0 ? site : any;
     if (k >= 0) out.push({ key: 'relic', tier: 'mid', site: k, text: t(`「${ending.name}」の独占はあと 1 か月。次の遺物を掘って、新しい[[復刻品]]を用意しよう！`, `The monopoly on ${ending.name} ends in a month. Dig up the next relic and get a new [[revival]] ready!`) });
   }
+  // 発掘 v2 の 5 段目：独占が切れて他社が 2 社になった復刻品が棚にある → 新しい復刻品か、ほかの商品に並べ替えよう（販売管理）
+  const copied = !s.digRun ? relicCopied(s) : null;
+  if (copied) out.push({ key: 'copied', tier: 'mid', text: t(`「${copied.name}」は他社に真似されて売れにくくなったよ。新しい復刻品か、ほかの商品に並べ替えよう！`, `Rivals copied ${copied.name}, so it sells worse now. Switch to a new revival or other goods!`) });
   if (d && !s.digRun) {
     const open = d.sites.map((x, k) => ({ x, k })).filter(({ x }) => x.permit && !x.done);
     if (open.length && s.day - (d.last ?? -1e9) >= DIG_IDLE_DAYS) {
@@ -203,7 +228,8 @@ export function digTips(s: P1State): DigTip[] {
       const id = topicsOf(d.sector)[rest];
       const site = digLayouts(d.sector).findIndex((L) => L.topic === id);
       const L = digLayout(d.sector, Math.max(0, site));
-      const layer = L ? (DIG[L.tier].layers[rest]?.name ?? '') : '';
+      const f = L?.finds.find((x) => x.item.kind === 'ext' && x.item.topic && x.item.id === id);
+      const layer = L ? (DIG[L.tier].layers[f?.layer ?? rest]?.name ?? '') : '';
       out.push({ key: 'topic-one', tier: 'mid', site: site >= 0 ? site : undefined, text: t(`お題はあと 1 つ（[[${extName(id)}]]）！ [[${wasteName(d.sector, site)}]]の[[${layer}]]に眠っているよ。`, `Just one target left ([[${extName(id)}]])! It lies in the [[${layer}]] of the [[${wasteName(d.sector, site)}]].`) });
     }
   }
@@ -213,11 +239,22 @@ export function digTips(s: P1State): DigTip[] {
     const fee = Math.min(...(['u1', 'u2', 'u3', 'u4', 'u5'] as const).map((id) => sectorDef(id).fee));
     out.push({ key: 'letter', tier: 'low', text: t(`[[調査依頼状]]があるから、Uncommon のセクタに出店できるよ。入国料は ${fee.toLocaleString('en-US')} G から、ランドマップで選ぼう！`, `With the [[survey request]] you can open in Uncommon sectors. Permits start at ${fee.toLocaleString('en-US')} G — choose on the land map!`) });
   }
+  // Common の町で発表したのに、調査依頼状まであと少し（いまいるセクタは発表済み）：別の Common の町でも発表しよう
+  if (!hasLetter(s, 'U') && !inU && s.land && d && s.presented.includes(d.sector) && (s.tier ?? 'C') === 'C' && presentedOf(s, 'C') > 0)
+    out.push({ key: 'letter-need', tier: 'low', text: t(`Uncommon へは[[調査依頼状]]が要るよ。Common の ${letterNeed('C')} つの町で研究を発表しよう（いま ${presentedOf(s, 'C')} / ${letterNeed('C')}）。`, `Uncommon sectors need a [[survey request]]. Present findings in ${letterNeed('C')} Common towns (now ${presentedOf(s, 'C')} / ${letterNeed('C')}).`) });
   // 発掘の枝が雲から出たあと、1 回だけ（発掘のパネルを 1 枚でも開けたら出さない）
   if (s.flags.digBranch === 'new' && !DIG_PANELS.some((id) => has(s, id))) out.push({ key: 'branch', tier: 'low', text: BRANCH_TIP() });
   return out.filter((x) => !s.digRun || x.key === 'present');
 }
 
+/**
+ * 他社に真似された復刻品（独占が切れて、他社が 2 社以上売っている）で、自社の棚に並べているもの（先に開いたもの）。
+ * 発掘 v2 の 5 段目：「真似されたら別の商品へ並べ替える」に気づけるように
+ */
+export function relicCopied(s: P1State) {
+  const shelved = new Set(Object.values(s.shops).flatMap((sh) => sh.shelves.flatMap((x) => (x ? [x.split(':')[0]] : []))));
+  return openRelics(s).find((p) => shelved.has(p.key) && s.recipes[p.key]?.sold != null && monopolyLeft(s, p.key) === 0 && sellersOf(s, p.key) >= 2) ?? null;
+}
 /** 独占が残り 1 か月の復刻品（売り始めて独占中のもの。いくつかあれば先に開いたもの） */
 export function relicEnding(s: P1State) {
   return openRelics(s).find((p) => s.recipes[p.key]?.sold != null && monopolyLeft(s, p.key) === 1) ?? null;
@@ -305,10 +342,39 @@ export function digSummary(s: Pick<P1State, 'reports'>, held: Report[], got: Dig
     rankTo: latest.rank,
     money: first.money && latest.money ? { start: first.money.start, end: latest.money.end } : null,
     got,
-    conquered: held.some((r) => (r.streak ?? 0) >= TOP_STREAK),
+    conquered: held.some((r) => (r.streak ?? 0) >= TOP_STREAK && (!r.goal || r.goal.present)),
     relic: held.reduce((v, r) => v + (r.relic ?? 0), 0),
     latest,
     ...(latest.revive ? { revive: latest.revive } : {}),
     ...(held.some((r) => r.museum) ? { museum: { visitors: held.reduce((v, r) => v + (r.museum?.visitors ?? 0), 0), income: held.reduce((v, r) => v + (r.museum?.income ?? 0), 0), value: latest.museum?.value ?? 0 } } : {}),
   };
 }
+
+// ---------------------------------------------------------------- 制覇の条件（発掘 v2 の 5 段目：2 か月続けて 1 位 ＋ 研究成果の発表）
+
+/**
+ * 制覇の条件の 1 行（月次報告の KGI のカード・ランドマップ）：[長い版, スマホの短い版]。
+ * goal が無い（お題の無いセクタ・以前の報告）は、1 位を 2 か月だけ
+ */
+export function clearCondText(streak: number, goal: { present: boolean; got: number; all: number } | null | undefined): [string, string] {
+  const top = streak >= TOP_STREAK;
+  const a = top ? ' ✔' : t(`（いま ${streak} / ${TOP_STREAK}）`, ` (${streak} / ${TOP_STREAK})`);
+  const as = top ? '✔' : `${streak}/${TOP_STREAK}`;
+  if (!goal || goal.all === 0) return [t(`制覇の条件：1 位を ${TOP_STREAK} か月${a}`, `To conquer: #1 for ${TOP_STREAK} months${a}`), t(`条件：1 位 ${TOP_STREAK} か月 ${as}`, `Goal: #1 × ${TOP_STREAK} ${as}`)];
+  const b = goal.present ? ' ✔' : t(` ${goal.got} / ${goal.all} お題`, ` ${goal.got} / ${goal.all} targets`);
+  const bs = goal.present ? '✔' : `${goal.got}/${goal.all}`;
+  return [
+    t(`制覇の条件：1 位を ${TOP_STREAK} か月${a}／研究成果の発表${b}`, `To conquer: #1 for ${TOP_STREAK} months${a} / findings presented${b}`),
+    t(`条件：1 位 ${TOP_STREAK} か月 ${as}・発表 ${bs}`, `Goal: #1 × ${TOP_STREAK} ${as} · present ${bs}`),
+  ];
+}
+
+/** 1 位を 2 か月続けたのに発表がまだ（「👑 1 位を守っている（制覇まで：研究成果の発表）」）の一言。発表できるなら町の長へ */
+export function clearWaitTip(s: P1State): string | null {
+  if (!clearWaiting(s)) return null;
+  const g = clearGoal(s);
+  return g.got >= g.all
+    ? t('1 位を 2 か月守ったね！ あとは[[町の長]]に研究成果を発表すれば[[制覇]]だよ。', 'Two months at #1! Present your findings to the [[town head]] and the sector is [[yours]].')
+    : t(`1 位を 2 か月守ったね！ [[制覇]]にはこのセクタの研究成果の発表も要るよ（お題 ${g.got} / ${g.all}）。荒れ地を掘ろう！`, `Two months at #1! To [[conquer]] you also need to present this sector’s findings (targets ${g.got} / ${g.all}). Go dig!`);
+}
+

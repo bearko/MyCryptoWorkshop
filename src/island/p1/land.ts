@@ -5,9 +5,9 @@
  * docs/ISLAND_PHASE1.md「ランドマップとセクタ」。
  */
 import { t } from '../../i18n';
-import { BRAND, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
+import { BRAND, LETTER_NEED, MANAGER, P1B, SECTORS, TOP_STREAK, type Mat, type Tier } from './data';
 import { brandAdd, book, newLand, sectorDef, sectorState, type SectorRec } from './company';
-import { assign, ensureDig, fitEquipment, groundOf, hasLetter, newP1, staffOf, syncGround, type P1State, type Report } from './model';
+import { assign, ensureDig, fitEquipment, groundOf, hasLetter, letterProgress, newP1, staffOf, syncGround, type P1State, type Report } from './model';
 
 /** セクタごとに持つもの（セクタを離れるときに写しを取り、戻ったら戻す） */
 export const SECTOR_KEYS = [
@@ -83,8 +83,14 @@ export function townSeed(s: P1State, id: string): number {
 /** 出店許可申請（入国料） */
 export const feeOf = (id: string) => sectorDef(id).fee;
 
-/** 調査依頼状が無いので出店できない理由（ランドマップ・隣のセクタの札・進出のボタンで同じ文） */
-export const LETTER_LOCK = t('🔒 調査依頼状が要る（Common のセクタのお題をそろえよう）', '🔒 Needs a survey request (complete a Common sector’s finds)');
+/**
+ * 調査依頼状が無いので出店できない理由（ランドマップ・隣のセクタの札・進出のボタン・助言で同じ文）。
+ * 発掘 v2 の 5 段目：Uncommon の調査依頼状は Common の 2 つの町で発表したら（LETTER_NEED）。「いま 1 / 2」
+ */
+export function letterLock(s: Pick<P1State, 'presented' | 'letters'>): string {
+  const [a, b] = letterProgress(s, 'U') ?? [LETTER_NEED, LETTER_NEED];
+  return t(`🔒 調査依頼状が要る（Common の ${b} つの町で研究を発表しよう。いま ${a} / ${b}）`, `🔒 Needs a survey request (present findings in ${b} Common towns — now ${a} / ${b})`);
+}
 /** まだ出店していない開いたセクタで、そのランクの調査依頼状が無い（Uncommon 以上。押せないボタンに LETTER_LOCK を出す） */
 export const letterLocked = (s: P1State, id: string) => !!s.land && sectorState(s.land, id) === 'open' && !hasLetter(s, sectorDef(id).tier);
 

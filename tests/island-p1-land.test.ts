@@ -52,6 +52,8 @@ describe('ブランド力', () => {
       r.sells = {};
     }
     const before = s.brand ?? 0;
+    // 研究成果は発表済み（制覇の 2 つ目の条件。発掘 v2 の 5 段目）
+    s.presented.push('c1');
     run(s, 40);
     // 1 回目の 1 位ではまだ制覇ではない
     expect(s.reports.at(-1)!.rank).toBe(1);

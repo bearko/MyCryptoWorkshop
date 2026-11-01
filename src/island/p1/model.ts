@@ -53,6 +53,7 @@ import {
   INVEST,
   SKILL_TO_INVEST,
   TOP_STREAK,
+  LETTER_NEED,
   MISSIONS,
   MOVE,
   PAY,
@@ -218,6 +219,11 @@ export interface Report {
   rally?: { by: string; months: number };
   /** この月に制覇してもらったエンブレム */
   emblem?: number;
+  /**
+   * 制覇の 2 つ目の条件（発掘 v2 の 5 段目）：そのセクタの研究成果の発表。発表済み・お題の数（締めの時点）。
+   * お題のあるセクタの報告だけ（以前の報告・お題の無いセクタは無い＝1 位を 2 か月だけで制覇）
+   */
+  goal?: { present: boolean; got: number; all: number };
   /** OJT で能力が上がった人の数 */
   ojt?: number;
   /** 月次 PDCA：来月の見込み（売上・利益） */
@@ -2766,6 +2772,8 @@ export function endMonth(s: P1State): Report {
       s.alone[p.key] = Math.min(ENTRY_AFTER, s.alone[p.key] ?? 0);
       continue;
     }
+    // 独占が切れた月の締め（まだどこも真似していない）：独占の月数が ENTRY_AFTER より短くても、ここで 1 社目（v13：monopolyMonths 3）
+    if (p.relic && sold && n === 0 && s.recipes?.[p.key]?.sold != null) s.alone[p.key] = Math.max(ENTRY_AFTER, s.alone[p.key] ?? 0);
     if ((s.alone[p.key] ?? 0) >= ENTRY_AFTER) {
       const next = s.rivals.filter((r) => !((r.sells[p.key] ?? 0) > 0) && !r.quit?.includes(p.key)).sort((a, b) => rivals[a.id] - rivals[b.id])[0];
       s.alone[p.key] = 0;
@@ -2825,9 +2833,13 @@ export function endMonth(s: P1State): Report {
     s.rally = MARKET.rallyMonths;
     report.rally = { by: area.find((x) => !x.me)?.name ?? '', months: MARKET.rallyMonths };
   }
+  // 制覇の 2 つ目の条件：そのセクタの研究成果の発表（発掘 v2 の 5 段目。お題のあるセクタだけ）
+  const goal = clearGoal(s);
+  if (goal.all > 0) report.goal = { present: goal.present, got: goal.got, all: goal.all };
+  const won = s.topStreak >= TOP_STREAK && goal.present;
   // ブランド力：セクタを制覇・1 位を守った・順位が上がった・大きく下がった
   if (top && s.cleared) brandAdd(s, BRAND.stayTop, t('1 位を守った', 'Stayed #1'));
-  else if (top && s.topStreak >= TOP_STREAK) brandAdd(s, BRAND.sectorTop, t('ランドセクタを制覇（2 か月続けて 1 位）', 'Conquered the land sector (#1 two months running)'));
+  else if (top && won) brandAdd(s, BRAND.sectorTop, t('ランドセクタを制覇（2 か月続けて 1 位＋研究成果の発表）', 'Conquered the land sector (#1 two months running + findings presented)'));
   else if (prev !== null && rank < prev) brandAdd(s, BRAND.rankUp * (prev - rank), t(`順位が ${prev} 位 → ${rank} 位に`, `Rank up: #${prev} → #${rank}`));
   if (prev !== null && rank - prev >= 2) brandAdd(s, -BRAND.rankDown * (rank - prev), t(`順位が ${prev} 位 → ${rank} 位に大きく下がった`, `Rank fell: #${prev} → #${rank}`));
   if (has(s, 'b_ads')) brandAdd(s, Math.round(BRAND.adsSkill * lvMul(s, 'b_ads')), t('ブランド広告', 'Brand advertising'));
@@ -2835,12 +2847,12 @@ export function endMonth(s: P1State): Report {
   // 汎用の効き目：ブランド力が月に +N（IR・ESG 経営など）
   const fxb = Math.round(fxSum(s, 'brand'));
   if (fxb > 0) brandAdd(s, fxb, t('ブランドの取り組み（スキル）', 'Brand initiatives (skills)'));
-  // 制覇：はじめて制覇した月にエンブレムを 1 つ
-  if (s.topStreak >= TOP_STREAK && !s.cleared) {
+  // 制覇：はじめて制覇した月にエンブレムを 1 つ（2 か月続けて 1 位 かつ 研究成果を発表済み）
+  if (won && !s.cleared) {
     s.emblem = (s.emblem ?? 0) + 1;
     report.emblem = 1;
   }
-  if (s.topStreak >= TOP_STREAK) s.cleared = true;
+  if (won) s.cleared = true;
   // OJT：担当のある人の、担当に効く能力が +1（上限 100）
   if (has(s, 'ojt')) report.ojt = ojtMonth(s);
   // 今月の出土品
@@ -4277,7 +4289,7 @@ const layoutCache = new Map<string, DigLayout[]>();
 /**
  * セクタの荒れ地 4 か所の正面の壁（Common・Uncommon で出土品の決まったセクタだけ。無ければ []）。seed から決めるので、いつも同じ。
  * 横 w × 縦 h のマス目、各マスに奥行きの層（手前 → 奥。奥ほど硬い）。埋まっているものは、ある層のある範囲（1 × 1。Epic 以上は 2 × 2）。
- * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は k 番目の層）。石板は決まった層に（お題と別のマス）。
+ * お題（Common 3・Uncommon 4）は 4 か所に散らばる（1 か所に 1 つまで。お題 k は DIG_BALANCE.topicLayer の層。v12 までは k 番目の層）。石板は決まった層に（お題と別のマス）。
  * 1 マスの 1 つの層には 1 つまで（重ならない）。ほかはマス × 層ごとに DIG_ODDS の割合でエクステ・素材
  */
 export function digLayouts(sector: string): DigLayout[] {
@@ -4330,7 +4342,7 @@ export function digLayouts(sector: string): DigLayout[] {
       }
       return null;
     };
-    if (tk != null) putSomewhere({ kind: 'ext', id: site.topics[tk], topic: true }, tk);
+    if (tk != null) putSomewhere({ kind: 'ext', id: site.topics[tk], topic: true }, Math.min(depth - 1, DIG_BALANCE.topicLayer[tier][tk] ?? tk));
     TABLET_LAYERS[tier].forEach((layer, ti) => {
       if (tabs[ti] && tabSites[ti % n] === sk) putSomewhere({ kind: 'tablet', id: tabs[ti].id }, layer);
     });
@@ -5381,8 +5393,37 @@ export function presentLock(s: P1State): PresentErr | null {
   const [a, b] = topicProgress(s);
   return a < b ? 'not-yet' : null;
 }
-/** 研究成果を発表する：RP と、上のランクの調査依頼状を受け取る */
-export function present(s: P1State): { rp: number; letter: Tier | null } | PresentErr {
+/** そのランクのセクタで発表した数（Common の 2 つで Uncommon の調査依頼状。LETTER_NEED） */
+export const presentedOf = (s: Pick<P1State, 'presented'>, tier: Tier) => (s.presented ?? []).filter((id) => digTierOf(id) === tier).length;
+/** その発表で調査依頼状がそろう数（Common → Uncommon は LETTER_NEED。Uncommon → Rare は 1） */
+export const letterNeed = (tier: Tier) => (tier === 'C' ? LETTER_NEED : 1);
+/**
+ * 調査依頼状の進み（いま発表した数 / 要る数）。tier は依頼状のランク（'U' なら Common の発表を数える）。
+ * 依頼状を持っていれば null（古いセーブで持っているものはそのまま）
+ */
+export function letterProgress(s: Pick<P1State, 'presented' | 'letters'>, tier: Tier): [number, number] | null {
+  if (hasLetter(s, tier)) return null;
+  const from = (Object.keys(NEXT_TIER) as Tier[]).find((k) => NEXT_TIER[k] === tier);
+  if (!from) return null;
+  return [Math.min(presentedOf(s, from), letterNeed(from)), letterNeed(from)];
+}
+/**
+ * 制覇の条件（発掘 v2 の 5 段目）：① TOP_STREAK か月続けて 1 位 ② そのセクタの研究成果の発表（お題のあるセクタだけ。
+ * お題の無いセクタ・発掘場の無いセクタは ② を済みとみなす）。streak はいまの続けて 1 位の月の数
+ */
+export function clearGoal(s: P1State): { streak: number; top: boolean; present: boolean; got: number; all: number } {
+  const streak = s.topStreak ?? 0;
+  const [got, all] = topicProgress(s);
+  const present = !s.dig || all === 0 || s.presented.includes(s.dig.sector);
+  return { streak, top: streak >= TOP_STREAK, present, got, all };
+}
+/** 1 位を 2 か月続けたのに、研究成果の発表がまだで制覇になっていない（「👑 1 位を守っている（制覇まで：研究成果の発表）」） */
+export const clearWaiting = (s: P1State) => {
+  const g = clearGoal(s);
+  return !s.cleared && g.top && !g.present;
+};
+/** 研究成果を発表する：RP と、上のランクの調査依頼状を受け取る。1 位を 2 か月続けていれば、その場で制覇（conquered） */
+export function present(s: P1State): { rp: number; letter: Tier | null; conquered: boolean } | PresentErr {
   const e = presentLock(s);
   if (e) return e;
   const sector = s.dig!.sector;
@@ -5390,9 +5431,19 @@ export function present(s: P1State): { rp: number; letter: Tier | null } | Prese
   s.presented.push(sector);
   const v = RP_GAIN[tier].present;
   gainRp(s, v);
-  const letter = NEXT_TIER[tier] ?? null;
-  if (letter && !s.letters.includes(letter)) s.letters.push(letter);
-  return { rp: v, letter };
+  // 調査依頼状：Common は 2 つのセクタで発表したら（LETTER_NEED）、Uncommon は 1 つで
+  const next = NEXT_TIER[tier] ?? null;
+  const letter = next && !s.letters.includes(next) && presentedOf(s, tier) >= letterNeed(tier) ? next : null;
+  if (letter) s.letters.push(letter);
+  // 制覇：1 位を 2 か月続けていれば、発表した瞬間に（月の締めを待たない）。エンブレムとブランド力もここで
+  let conquered = false;
+  if (!s.cleared && (s.topStreak ?? 0) >= TOP_STREAK) {
+    s.cleared = true;
+    s.emblem = (s.emblem ?? 0) + 1;
+    brandAdd(s, BRAND.sectorTop, t('ランドセクタを制覇（2 か月続けて 1 位＋研究成果の発表）', 'Conquered the land sector (#1 two months running + findings presented)'));
+    conquered = true;
+  }
+  return { rp: v, letter, conquered };
 }
 /** 調査依頼状を持っている（そのランクのセクタへ出店できる。Common はいつでも） */
 export const hasLetter = (s: Pick<P1State, 'letters'>, tier: Tier) => tier === 'C' || !!s.letters?.includes(tier);
