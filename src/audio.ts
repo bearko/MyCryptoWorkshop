@@ -9,6 +9,8 @@ const SE_VOLUME: Partial<Record<Se, number>> = { craft: 0.25, sale: 0.35, hit: 0
 const BGM_VOLUME = 0.35;
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1);
+/** 画面が隠れている（ほかのアプリやタブへ移った・画面を消した・ブラウザを閉じた） */
+const pageHidden = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
 /** Minimal sound manager: looping BGM plus a small pool of one-shot SE players. */
 export class Sound {
@@ -20,6 +22,30 @@ export class Sound {
   private lastPlayed = new Map<Se, number>();
   private unlocked = false;
 
+  constructor() {
+    this.watchPage();
+  }
+
+  /**
+   * 画面が隠れたら BGM を止め、戻ったら続きから流す。ブラウザやアプリの外枠は、裏に回ったことを
+   * ページの音までは伝えてくれない（HTML の Audio は鳴り続ける）ので、ここで自分で止める
+   */
+  private watchPage(): void {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    const hide = (): void => this.bgm?.pause();
+    const show = (): void => {
+      if (pageHidden() || !this.unlocked || this.bgmLevel <= 0 || !this.bgmKey) return;
+      if (!this.bgm) this.playBgm(this.bgmKey, true);
+      else if (this.bgm.paused) void this.bgm.play().catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', () => (pageHidden() ? hide() : show()));
+    window.addEventListener('pagehide', hide);
+    // 戻る・進むで同じページに戻ってきたとき（bfcache）は visibilitychange が来ないことがある
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) show();
+    });
+  }
+
   /**
    * Called on user gestures. Starts the BGM, and retries on later gestures while it is still paused
    * (a phone's first touch may not count as a user activation, so play() can be refused once).
@@ -27,7 +53,7 @@ export class Sound {
    */
   unlock(): void {
     this.unlocked = true;
-    if (!this.bgmKey || this.bgmLevel <= 0) return;
+    if (!this.bgmKey || this.bgmLevel <= 0 || pageHidden()) return;
     if (!this.bgm) this.playBgm(this.bgmKey, true);
     else if (this.bgm.paused) void this.bgm.play().catch(() => undefined);
   }
@@ -95,7 +121,7 @@ export class Sound {
     this.bgm = new Audio(assetUrl(audioFiles[key]));
     this.bgm.loop = true;
     this.bgm.volume = BGM_VOLUME * this.bgmLevel;
-    void this.bgm.play().catch(() => undefined);
+    if (!pageHidden()) void this.bgm.play().catch(() => undefined); // 隠れているあいだは、戻ったときに流す
   }
 
   /** Applies the volume settings (0..1). The playing BGM follows at once: 0 pauses it, raising it from 0 resumes it. */
@@ -112,12 +138,12 @@ export class Sound {
       return;
     }
     this.bgm.volume = BGM_VOLUME * this.bgmLevel;
-    if (this.bgm.paused && this.unlocked) void this.bgm.play().catch(() => undefined);
+    if (this.bgm.paused && this.unlocked && !pageHidden()) void this.bgm.play().catch(() => undefined);
   }
 
   /** gain: その場だけの音量（1 が標準） */
   play(key: Se, gain = 1): void {
-    if (this.seLevel <= 0 || !this.unlocked) return;
+    if (this.seLevel <= 0 || !this.unlocked || pageHidden()) return;
     // Throttle rapid repeats of the same effect.
     const now = performance.now();
     if (now - (this.lastPlayed.get(key) ?? 0) < 70) return;
